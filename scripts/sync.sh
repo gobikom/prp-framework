@@ -64,8 +64,25 @@ echo ""
 # Sync prompts
 sync_directory "$FRAMEWORK_DIR/prompts" "$PROJECT_DIR/.ai-workflows/prompts" "Prompts"
 
-# Sync Claude Code
-sync_directory "$FRAMEWORK_DIR/adapters/claude-code" "$PROJECT_DIR/.claude/commands/prp-core" "Claude Code"
+# Sync Claude Code Commands
+sync_directory "$FRAMEWORK_DIR/adapters/claude-code" "$PROJECT_DIR/.claude/commands/prp-core" "Claude Code Commands"
+
+# Sync Claude Code Agents
+sync_directory "$FRAMEWORK_DIR/adapters/claude-code-agents" "$PROJECT_DIR/.claude/agents" "Claude Code Agents"
+
+# Sync Claude Code Skills
+for skill_dir in "$FRAMEWORK_DIR/adapters/claude-code-skills"/*; do
+    if [ -d "$skill_dir" ]; then
+        skill_name=$(basename "$skill_dir")
+        sync_directory "$skill_dir" "$PROJECT_DIR/.claude/skills/$skill_name" "Claude Code Skill: $skill_name"
+    fi
+done
+
+# Sync Claude Code Hooks
+sync_directory "$FRAMEWORK_DIR/adapters/claude-code-hooks" "$PROJECT_DIR/.claude/hooks" "Claude Code Hooks"
+
+# Sync Claude Code Plugin
+sync_file "$FRAMEWORK_DIR/adapters/claude-code-plugin/marketplace.json" "$PROJECT_DIR/.claude-plugin/marketplace.json" "Plugin metadata"
 
 # Sync Codex
 for skill_dir in "$FRAMEWORK_DIR/adapters/codex"/prp-*; do

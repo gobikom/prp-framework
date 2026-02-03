@@ -83,10 +83,51 @@ else
     USED_COPY=true
 fi
 
-# Install Claude Code
-echo "→ Claude Code (.claude/commands/prp-core/)"
+# Install Claude Code Commands
+echo "→ Claude Code Commands (.claude/commands/prp-core/)"
 mkdir -p "$PROJECT_DIR/.claude/commands"
-if install_directory "$FRAMEWORK_DIR/adapters/claude-code" "$PROJECT_DIR/.claude/commands/prp-core" "Claude Code"; then
+if install_directory "$FRAMEWORK_DIR/adapters/claude-code" "$PROJECT_DIR/.claude/commands/prp-core" "Claude Code Commands"; then
+    USED_SYMLINKS=true
+else
+    USED_COPY=true
+fi
+
+# Install Claude Code Agents
+echo "→ Claude Code Agents (.claude/agents/)"
+mkdir -p "$PROJECT_DIR/.claude"
+if install_directory "$FRAMEWORK_DIR/adapters/claude-code-agents" "$PROJECT_DIR/.claude/agents" "Claude Code Agents"; then
+    USED_SYMLINKS=true
+else
+    USED_COPY=true
+fi
+
+# Install Claude Code Skills
+echo "→ Claude Code Skills (.claude/skills/)"
+mkdir -p "$PROJECT_DIR/.claude/skills"
+for skill_dir in "$FRAMEWORK_DIR/adapters/claude-code-skills"/*; do
+    if [ -d "$skill_dir" ]; then
+        skill_name=$(basename "$skill_dir")
+        if install_directory "$skill_dir" "$PROJECT_DIR/.claude/skills/$skill_name" "Claude Code Skill: $skill_name"; then
+            USED_SYMLINKS=true
+        else
+            USED_COPY=true
+        fi
+    fi
+done
+
+# Install Claude Code Hooks
+echo "→ Claude Code Hooks (.claude/hooks/)"
+mkdir -p "$PROJECT_DIR/.claude"
+if install_directory "$FRAMEWORK_DIR/adapters/claude-code-hooks" "$PROJECT_DIR/.claude/hooks" "Claude Code Hooks"; then
+    USED_SYMLINKS=true
+else
+    USED_COPY=true
+fi
+
+# Install Claude Code Plugin metadata
+echo "→ Claude Code Plugin (.claude-plugin/)"
+mkdir -p "$PROJECT_DIR/.claude-plugin"
+if install_file "$FRAMEWORK_DIR/adapters/claude-code-plugin/marketplace.json" "$PROJECT_DIR/.claude-plugin/marketplace.json" "Plugin metadata"; then
     USED_SYMLINKS=true
 else
     USED_COPY=true

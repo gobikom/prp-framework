@@ -13,6 +13,7 @@ PRP (Plan-Review-PR) Framework is a portable, tool-agnostic workflow system for 
 ✅ **Tool-Specific Naming** - Parallel artifact creation for comparison
 ✅ **Complete Workflows** - PRD → Design → Plan → Implement → Review → Commit → PR
 ✅ **100% Feature Parity** - All tools implement the same logic
+✅ **Claude Code Advanced** - 10 specialized agents, skills, hooks for enhanced workflows
 
 ## Quick Start
 
@@ -102,7 +103,7 @@ Use natural language:
 
 ```
 prp-framework/
-├── prompts/              # Source prompts (tool-agnostic)
+├── prompts/                    # Source prompts (tool-agnostic)
 │   ├── prd.md
 │   ├── design.md
 │   ├── plan.md
@@ -111,14 +112,18 @@ prp-framework/
 │   ├── commit.md
 │   ├── pr.md
 │   └── run-all.md
-├── adapters/             # Tool-specific adapters
-│   ├── claude-code/      # Claude Code commands
-│   ├── codex/           # Codex skills
-│   ├── opencode/        # OpenCode commands
-│   ├── gemini/          # Gemini commands
-│   └── generic/         # AGENTS.md for Kimi/others
-├── docs/                # Documentation
-├── scripts/             # Installation scripts
+├── adapters/                   # Tool-specific adapters
+│   ├── claude-code/            # Claude Code commands (15 commands)
+│   ├── claude-code-agents/     # Claude Code agents (10 agents)
+│   ├── claude-code-skills/     # Claude Code skills (1 skill)
+│   ├── claude-code-hooks/      # Claude Code hooks (Ralph stop)
+│   ├── claude-code-plugin/     # Claude Code plugin metadata
+│   ├── codex/                  # Codex skills (8 skills)
+│   ├── opencode/               # OpenCode commands (8 commands)
+│   ├── gemini/                 # Gemini commands (8 commands)
+│   └── generic/                # AGENTS.md for Kimi/others
+├── docs/                       # Documentation
+├── scripts/                    # Installation scripts
 └── LICENSE
 ```
 
