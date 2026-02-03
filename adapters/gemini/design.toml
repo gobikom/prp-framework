@@ -1,0 +1,157 @@
+description = "Generate technical design document from PRD as optional reference"
+prompt = """# PRP Design — Technical Design Document
+
+PRD: {{args}}
+
+## Mission
+
+Generate design doc from PRD as **optional reference** (NOT in workflow). Workflow: PRD → Plan → Implement. Design is off-path reference for complex features only.
+
+## Steps
+
+1. **Load**: Read PRD (must be final merged at `.claude/PRPs/prds/{name}-prd.md`, not draft), extract feature name.
+2. **Explore**: Find architecture/API/database/component patterns, integration points. Use actual code with file:line references.
+3. **Research**: Official docs (match versions from package.json/config), architecture patterns, trade-offs, security (OWASP), scalability.
+4. **Design**:
+   - System architecture ASCII diagram (components, data flow, external dependencies)
+   - API contracts (request/response schemas with validation and error cases)
+   - Database schema (SQL CREATE/ALTER/INDEX + migration strategy + rollback plan)
+   - Sequence diagrams (Mermaid for critical user flows)
+   - Component hierarchy (if frontend changes)
+   - Data flow diagram (transformations, validation layers, error handling)
+5. **Decisions**: Table with Decision/Choice/Alternatives/Rationale/Trade-offs.
+6. **NFRs**: Performance (p50/p95/p99 targets, caching, DB optimization), Security (auth, authz, input validation, XSS/CSRF/SQL injection prevention), Scalability (horizontal scaling, stateless design, async processing, DB sharding), Monitoring (metrics, logging, alerts, tracing).
+7. **Migration**: Backward compatibility plan, data migration scripts, feature flags, rollback plan.
+8. **Generate**: Save to `.claude/PRPs/designs/{feature}-design-gemini.md` (create directory: `mkdir -p .claude/PRPs/designs`)
+
+   > **Note**: Uses `-gemini` suffix to identify Gemini design docs. Multiple tools can create design docs with different suffixes for comparison.
+
+## Template
+
+```markdown
+---
+source-prd: .claude/PRPs/prds/{feature}-prd.md
+created: {timestamp}
+status: reference
+tool: gemini
+---
+
+# {Feature Name} - Technical Design
+
+## Overview
+**Problem**: {one-line from PRD}
+**Solution**: {one-line from PRD}
+**Complexity**: LOW/MEDIUM/HIGH
+
+## System Architecture
+{ASCII diagram showing components and data flow}
+
+**Components:**
+- {Component 1}: {Responsibility}
+
+**External Dependencies:**
+- {Service 1}: {Purpose}
+
+## API Contracts
+### {Method} {Path}
+**Request:** {TypeScript schema}
+**Response:** {TypeScript schema}
+**Validation:** {rules list}
+**Error Cases:** | Status | Error Code | Description | table
+
+## Database Schema
+### New Tables
+{SQL CREATE TABLE statements}
+### Modified Tables
+{SQL ALTER TABLE statements}
+### Indexes
+{SQL CREATE INDEX statements}
+**Migration Strategy:** {numbered steps}
+**Rollback Plan:** {numbered steps}
+
+## Sequence Diagrams
+### {Flow Name}
+{Mermaid sequence diagram}
+
+## Component Hierarchy
+{Component tree if frontend}
+**State Management:** {approach}
+**Data Fetching:** {approach}
+
+## Data Flow
+{ASCII diagram showing data transformations}
+**Input Validation:** {validation layers}
+**Error Handling:** {error handling layers}
+
+## Technical Decisions
+| Decision | Choice | Alternatives | Rationale | Trade-offs |
+{table rows}
+
+## Security Considerations
+**Authentication:** {approach}
+**Authorization:** {approach}
+**Input Validation:** {where and how}
+**Known Vulnerabilities:** {vulnerability}: {mitigation}
+
+## Performance
+**Targets:** p50/p95/p99 values
+**Caching Strategy:** {what to cache, TTL, invalidation}
+**Database Optimization:** {indexes, query patterns, connection pooling}
+**Bottlenecks:** {bottleneck}: {mitigation}
+
+## Scalability
+**Horizontal Scaling:** {approach}
+**Stateless Design:** {how achieved}
+**Async Processing:** {what runs async, queue/worker setup}
+**Database Scaling:** {read replicas, sharding strategy}
+
+## Monitoring & Observability
+**Key Metrics:** {metric}: {what it measures}
+**Logging:** {what to log, levels, format}
+**Alerts:** {alert}: {threshold}
+**Tracing:** {distributed tracing approach}
+
+## Migration Strategy
+**Deployment Steps:** {ordered list}
+**Feature Flags:** {flag name}: {purpose}
+**Rollback Plan:** {steps}
+**Data Migration:** {scripts needed, validation checks}
+
+## Open Questions
+- [ ] {Technical question}
+
+## References
+**Codebase Patterns:**
+- [{File}:{Line}]({path}) - {Pattern description}
+
+**External Documentation:**
+- [{Title}]({URL}) - {Key insight}
+
+---
+*This is a reference document. It does not block the workflow. PRD → Plan → Implement remains the critical path.*
+*Generated: {timestamp} | Tool: Gemini*
+```
+
+## Output
+
+Report:
+- **File**: `.claude/PRPs/designs/{name}-design-gemini.md` (REFERENCE ONLY)
+- **Summary**: Feature name, Complexity level, Components count, API endpoints count, Database changes count
+- **Key Design Decisions**: Top 3 decisions with choice and rationale
+- **Security Considerations**: List of key considerations
+- **Performance Targets**: p95 latency target, throughput target
+- **Next Steps**: "This is a reference document. Workflow continues as: (1) Use this design doc as reference (optional), (2) Create Plan from PRD, (3) Implement from Plan. Design Doc does NOT block workflow - implementer can reference it for architecture guidance."
+
+## Success Criteria
+
+- ARCHITECTURE_CLEAR: System components and data flow are visualized
+- API_DEFINED: Request/response contracts are specified
+- DATABASE_DESIGNED: Schema changes with migration strategy
+- SECURITY_ADDRESSED: Auth, validation, and vulnerabilities considered
+- PERFORMANCE_PLANNED: Targets and optimization strategies defined
+- DECISIONS_DOCUMENTED: Key choices with rationale and trade-offs
+- REFERENCE_ONLY: Clearly marked as support material, not workflow gate
+
+Project conventions:
+@{CLAUDE.md}
+"""

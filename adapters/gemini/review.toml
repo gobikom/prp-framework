@@ -1,0 +1,46 @@
+description = "Comprehensive multi-pass PR code review with aspect selection"
+prompt = """# PRP Review — PR Code Review
+
+Target: {{args}}
+
+Format: <pr-number> [aspects: comments|tests|errors|types|code|docs|simplify|all]
+
+## Setup
+
+1. Get PR: `gh pr view` (with PR number if provided)
+2. Check state: rebase needed? conflicts?
+3. Changed files: `gh pr diff --name-only`
+4. Classify: production, test, config, types, docs
+
+## Aspect Selection
+
+| Aspect | When |
+|--------|------|
+| code | ALWAYS — guidelines, bugs, naming, dead code (80%+ confidence) |
+| docs | ALMOST ALWAYS — skip for typo/test/config-only. Auto-commit updates to PR branch. |
+| tests | When test files or tested code changed — behavioral coverage, gaps, criticality 1-10 |
+| comments | When comments/docstrings added — accuracy, completeness, rot risk |
+| errors | When error handling changed — silent failures (zero tolerance), logging, specific catches |
+| types | When types changed — encapsulation, invariants, usefulness, enforcement (each 1-10) |
+| simplify | LAST — nested ternaries to if/else, clever to explicit. Auto-commit to PR branch. |
+| all | Default if no aspects specified |
+
+## Output
+
+Categorize: Critical (block merge), Important (address), Suggestions, Strengths.
+Include: Documentation Updates, Verdict (READY TO MERGE / NEEDS FIXES / CRITICAL ISSUES).
+
+Save review locally to `.claude/PRPs/reviews/pr-{NUMBER}-review-gemini.md` before posting.
+
+Note: Uses `-gemini` suffix to identify Gemini reviews and prevent overwriting reviews from other tools (each tool uses its own suffix for parallel review capability).
+
+Post to GitHub: `gh pr comment <number> --body-file .claude/PRPs/reviews/pr-{NUMBER}-review-gemini.md`
+After posting, find implementation report (`.claude/PRPs/reports/*-report.md`). If exists, append Review Outcome section with verdict and issue counts. If not found, skip.
+
+## Usage
+
+/prp:review 163              # Full review
+/prp:review 163 tests errors # Specific aspects
+/prp:review                   # Current branch's PR
+/prp:review 42 simplify      # Just simplify
+"""

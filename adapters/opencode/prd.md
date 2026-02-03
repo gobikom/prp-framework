@@ -1,0 +1,75 @@
+---
+description: Interactive PRD generator - problem-first, hypothesis-driven product spec
+agent: plan
+---
+
+# Product Requirements Document Generator
+
+Input: $ARGUMENTS (blank = start with questions)
+
+## Mission
+
+Generate a comprehensive PRD through interactive question-driven process. Problem-first, hypothesis-driven, evidence-based.
+
+**Anti-pattern**: Don't fill sections with fluff. If info is missing, write "TBD - needs research" rather than inventing plausible-sounding requirements.
+
+## Process
+
+```
+QUESTION SET 1 → GROUNDING → QUESTION SET 2 → RESEARCH → QUESTION SET 3 → GENERATE
+```
+
+Each question set builds on previous answers. Grounding phases validate assumptions.
+
+## Phases
+
+1. **INITIATE**: If no input → ask "What do you want to build?". If input → restate and confirm. **GATE**: Wait for response.
+
+2. **FOUNDATION**: Ask all at once: Who has this problem? What pain? Why can't they solve it? Why now? How to measure success? **GATE**: Wait for responses.
+
+3. **GROUNDING (Market)**: Research similar products, competitors, patterns. Explore codebase for related functionality. Summarize findings. **GATE**: Brief pause.
+
+4. **DEEP DIVE**: Ask: Vision (one sentence ideal end state), Primary User (role + context + trigger), JTBD ("When [situation], I want to [motivation], so I can [outcome]"), Non-Users, Constraints. **GATE**: Wait for responses.
+
+5. **GROUNDING (Technical)**: Explore codebase for feasibility — infrastructure, constraints, patterns, dependencies, complexity. Summarize: feasibility (HIGH/MEDIUM/LOW), leverageable patterns, key risk. **GATE**: Brief pause.
+
+6. **DECISIONS**: Ask: MVP definition, Must Have vs Nice to Have, Key Hypothesis ("We believe [X] will [Y] for [Z]. We'll know when [metric]"), Out of Scope, Open Questions. **GATE**: Wait for responses.
+
+7. **GENERATE**: Save PRD to `.claude/PRPs/prds/drafts/{kebab-case-name}-prd-opencode.md` (create directory: `mkdir -p .claude/PRPs/prds/drafts`) with ALL sections:
+
+   > **Note**: Uses `-opencode` suffix to identify OpenCode PRD drafts. Multiple tools can create draft PRDs in `drafts/` subdirectory for comparison. User manually merges best sections to final version at `.claude/PRPs/prds/{name}-prd.md` (no suffix, root level) which Plan command will reference.
+   - Problem Statement, Evidence, Proposed Solution, Key Hypothesis
+   - What We're NOT Building, Success Metrics, Open Questions
+   - Users & Context (primary user, JTBD, non-users)
+   - Solution Detail (MoSCoW capabilities, MVP scope, user flow)
+   - Technical Approach (feasibility, architecture, risks)
+   - Implementation Phases (table: #, phase, description, status, parallel, depends, PRP plan)
+   - Phase Details (goal, scope, success signal per phase)
+   - Parallelism Notes
+   - Decisions Log, Research Summary
+
+8. **OUTPUT**: Report file path (draft), problem/solution summary, key metric, validation status, open questions, recommended next step, phases table.
+
+   **To start implementation**:
+   1. Manually compare draft PRDs from different tools (in `drafts/` subdirectory)
+   2. Merge best sections to final PRD: `.claude/PRPs/prds/{name}-prd.md` (no suffix)
+   3. Run Plan workflow with final PRD path
+
+   Plan command references final merged PRD only (not drafts).
+
+## Success Criteria
+
+- PROBLEM_VALIDATED: Problem is specific and evidenced (or marked as assumption)
+- USER_DEFINED: Primary user is concrete, not generic
+- HYPOTHESIS_CLEAR: Testable hypothesis with measurable outcome
+- SCOPE_BOUNDED: Clear must-haves and explicit out-of-scope
+- QUESTIONS_ACKNOWLEDGED: Uncertainties are listed, not hidden
+- ACTIONABLE: A skeptic could understand why this is worth building
+
+## Usage
+
+```
+/prp:prd JWT authentication for API
+/prp:prd                              # Start with questions
+/prp:prd usage metrics export feature
+```
