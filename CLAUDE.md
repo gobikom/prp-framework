@@ -17,7 +17,7 @@ prp-framework/
 │   ├── claude-code/               # Core commands (16 commands)
 │   ├── claude-code-marketing/     # Marketing commands (4 commands)
 │   ├── claude-code-bot/           # AI Bot commands (5 commands)
-│   ├── claude-code-agents/        # Custom agents (10 agents)
+│   ├── claude-code-agents/        # Custom agents (24 agents)
 │   ├── claude-code-skills/        # Skills
 │   ├── claude-code-hooks/         # Hooks
 │   ├── codex/                     # Codex adapter
