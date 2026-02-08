@@ -14,6 +14,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CLI tool for framework management
 - Additional language support (Python, Go, Rust)
 
+## [1.4.0] - 2026-02-08
+
+### Added
+- **6 Additional Business Agents** for solopreneurs:
+  - High Impact: outreach-agent, proposal-agent, case-study-agent
+  - Nice to Have: financial-agent, automation-agent, personal-brand-agent
+- All new agents use Opus model for strategic thinking
+
+### Changed
+- Total agent count now: 30 (16 development + 14 business)
+
+### Documentation
+- Updated README.md and CLAUDE.md with new agent count
+- Added new agents to USER-GUIDE.md
+
 ## [1.3.0] - 2026-02-08
 
 ### Added

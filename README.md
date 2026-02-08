@@ -13,7 +13,7 @@ PRP (Plan-Review-PR) Framework is a portable, tool-agnostic workflow system for 
 ✅ **Tool-Specific Naming** - Parallel artifact creation for comparison
 ✅ **Complete Workflows** - PRD → Design → Plan → Implement → Review → Commit → PR
 ✅ **100% Feature Parity** - All tools implement the same logic
-✅ **Claude Code Advanced** - 24 specialized agents, skills, hooks for enhanced workflows
+✅ **Claude Code Advanced** - 30 specialized agents, skills, hooks for enhanced workflows
 ✅ **Domain Extensions** - Marketing automation and AI Bot development command packs
 
 ## Quick Start
@@ -128,7 +128,7 @@ prp-framework/
 │   ├── claude-code/            # Claude Code core commands (16 commands)
 │   ├── claude-code-marketing/  # Marketing commands (4 commands)
 │   ├── claude-code-bot/        # AI Bot commands (5 commands)
-│   ├── claude-code-agents/     # Claude Code agents (24 agents)
+│   ├── claude-code-agents/     # Claude Code agents (30 agents)
 │   ├── claude-code-skills/     # Claude Code skills (1 skill)
 │   ├── claude-code-hooks/      # Claude Code hooks (Ralph stop)
 │   ├── claude-code-plugin/     # Claude Code plugin metadata

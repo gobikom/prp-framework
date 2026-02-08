@@ -837,6 +837,22 @@ Create Branch → Plan → Implement → Commit → PR → Review
 | **customer-success-agent** | Onboarding, retention, churn prevention | ดูแลลูกค้าที่มี |
 | **partnership-agent** | Partner identification, co-marketing | หา partners |
 
+### Tier 4: Sales & Deals
+
+| Agent | Purpose | ใช้เมื่อ |
+|-------|---------|---------|
+| **outreach-agent** | Cold email/LinkedIn sequences | ทำ B2B outreach |
+| **proposal-agent** | Winning proposals, scope, pricing | เตรียม proposal |
+| **case-study-agent** | สร้าง case study จาก customer success | สร้าง social proof |
+
+### Tier 5: Operations & Brand
+
+| Agent | Purpose | ใช้เมื่อ |
+|-------|---------|---------|
+| **financial-agent** | Unit economics, runway, cash flow | วิเคราะห์การเงิน |
+| **automation-agent** | หา opportunities ในการ automate | เพิ่ม productivity |
+| **personal-brand-agent** | LinkedIn presence, thought leadership | สร้าง personal brand |
+
 ### วิธีใช้ Business Agents
 
 ```bash
@@ -852,5 +868,5 @@ Create Branch → Plan → Implement → Commit → PR → Review
 
 ---
 
-*Document version: 1.1*
+*Document version: 1.2*
 *Last updated: 2026-02-08*
