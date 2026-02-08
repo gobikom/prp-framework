@@ -525,7 +525,7 @@ Create Branch → Plan → Implement → Commit → PR → Review
 **เมื่อไหร่ใช้**: Review ครอบคลุม (ใช้หลาย agents)
 
 ```bash
-# Full review (10 agents)
+# Full review (16 development agents)
 /prp-core:feature-review-agents packages/web
 
 # Quick review (3 agents)
@@ -810,5 +810,47 @@ Create Branch → Plan → Implement → Commit → PR → Review
 
 ---
 
-*Document version: 1.0*
+## Business Strategy Agents
+
+นอกจาก development agents แล้ว ยังมี business strategy agents สำหรับ solopreneurs และ startups:
+
+### Tier 1: Customer Acquisition (Critical)
+
+| Agent | Purpose | ใช้เมื่อ |
+|-------|---------|---------|
+| **customer-discovery-agent** | Customer interview, persona, pain points | เริ่มทำ customer research |
+| **sales-enablement-agent** | Objection handling, scripts, follow-up | เตรียม sales materials |
+| **positioning-strategy-agent** | Market positioning, differentiation | กำหนด positioning |
+
+### Tier 2: Growth & Scale
+
+| Agent | Purpose | ใช้เมื่อ |
+|-------|---------|---------|
+| **content-marketing-agent** | Blog, social media, thought leadership | วางแผน content |
+| **seo-sem-agent** | Keyword research, SEO, Google Ads | ทำ search marketing |
+| **pricing-strategy-agent** | Pricing models, packaging, tiers | กำหนดราคา |
+
+### Tier 3: Long-term Success
+
+| Agent | Purpose | ใช้เมื่อ |
+|-------|---------|---------|
+| **customer-success-agent** | Onboarding, retention, churn prevention | ดูแลลูกค้าที่มี |
+| **partnership-agent** | Partner identification, co-marketing | หา partners |
+
+### วิธีใช้ Business Agents
+
+```bash
+# ใน Claude Code - เรียกใช้ agent โดยตรง
+# ตัวอย่าง: ใช้ customer-discovery-agent
+
+"ช่วยวิเคราะห์ target customer สำหรับ AI chatbot service
+ที่เน้นกลุ่ม SMB ในไทย ใช้ customer-discovery-agent"
+
+# หรือใช้กับ feature-review-agents
+/prp-core:feature-review-agents src/landing --focus product
+```
+
+---
+
+*Document version: 1.1*
 *Last updated: 2026-02-08*
