@@ -184,6 +184,7 @@ git pull origin main
 
 - [Getting Started Guide](docs/GETTING_STARTED.md) - Step-by-step setup
 - [User Guide](docs/USER-GUIDE.md) - Complete command reference (25 commands)
+- [Agents Guide](docs/AGENTS-GUIDE.md) - How to use 30 specialized agents with strategy workflows
 - [Workflows Documentation](docs/WORKFLOWS.md) - Detailed workflow descriptions
 - [Contributing Guide](docs/CONTRIBUTING.md) - How to contribute
 - [Changelog](CHANGELOG.md) - Version history
