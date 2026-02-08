@@ -14,6 +14,7 @@ PRP (Plan-Review-PR) Framework is a portable, tool-agnostic workflow system for 
 ✅ **Complete Workflows** - PRD → Design → Plan → Implement → Review → Commit → PR
 ✅ **100% Feature Parity** - All tools implement the same logic
 ✅ **Claude Code Advanced** - 10 specialized agents, skills, hooks for enhanced workflows
+✅ **Domain Extensions** - Marketing automation and AI Bot development command packs
 
 ## Quick Start
 
@@ -27,9 +28,7 @@ git submodule add https://github.com/gobikom/prp-framework .prp
 cd .prp && ./scripts/install.sh && cd ..
 
 # Start using workflows
-# Claude Code: /prp-prd, /prp-plan, /prp-implement
-# Codex: $prp-prd, $prp-plan, $prp-implement
-# etc.
+/prp-core:plan "Add user authentication"
 ```
 
 ### Installation via Template
@@ -59,13 +58,26 @@ cp -r prp-framework/* my-project/
 
 ### Claude Code
 ```bash
-/prp-prd                               # Interactive PRD generation
-/prp-design .claude/PRPs/prds/jwt-prd.md # Design doc (optional)
-/prp-plan Add JWT authentication       # Create plan
-/prp-implement plan.md                 # Execute plan
-/prp-review-agents 25                  # Multi-agent PR review
-/prp-commit                            # Smart commit
-/prp-pr                                # Create PR
+# Core Workflows (/prp-core:*)
+/prp-core:prd                          # Interactive PRD generation
+/prp-core:plan Add JWT authentication  # Create plan
+/prp-core:implement plan.md            # Execute plan
+/prp-core:review-agents 25             # Multi-agent PR review
+/prp-core:commit                       # Smart commit
+/prp-core:pr                           # Create PR
+
+# Marketing Commands (/prp-mkt:*)
+/prp-mkt:landing                       # Landing page analysis
+/prp-mkt:demo                          # Demo environment setup
+/prp-mkt:pitch                         # Pitch deck generation
+/prp-mkt:competitor                    # Competitive analysis
+
+# AI Bot Commands (/prp-bot:*)
+/prp-bot:intent                        # Chatbot intent design
+/prp-bot:flow                          # Conversation flow design
+/prp-bot:prompt-eng                    # Prompt engineering
+/prp-bot:voice-ux                      # Voice UX design
+/prp-bot:integration                   # Integration planning
 ```
 
 ### Codex
@@ -113,7 +125,9 @@ prp-framework/
 │   ├── pr.md
 │   └── run-all.md
 ├── adapters/                   # Tool-specific adapters
-│   ├── claude-code/            # Claude Code commands (15 commands)
+│   ├── claude-code/            # Claude Code core commands (16 commands)
+│   ├── claude-code-marketing/  # Marketing commands (4 commands)
+│   ├── claude-code-bot/        # AI Bot commands (5 commands)
 │   ├── claude-code-agents/     # Claude Code agents (10 agents)
 │   ├── claude-code-skills/     # Claude Code skills (1 skill)
 │   ├── claude-code-hooks/      # Claude Code hooks (Ralph stop)
@@ -169,6 +183,7 @@ git pull origin main
 ## Documentation
 
 - [Getting Started Guide](docs/GETTING_STARTED.md) - Step-by-step setup
+- [User Guide](docs/USER-GUIDE.md) - Complete command reference (25 commands)
 - [Workflows Documentation](docs/WORKFLOWS.md) - Detailed workflow descriptions
 - [Contributing Guide](docs/CONTRIBUTING.md) - How to contribute
 - [Changelog](CHANGELOG.md) - Version history

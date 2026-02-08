@@ -92,6 +92,22 @@ else
     USED_COPY=true
 fi
 
+# Install Claude Code Marketing Commands
+echo "→ Claude Code Marketing (.claude/commands/prp-mkt/)"
+if install_directory "$FRAMEWORK_DIR/adapters/claude-code-marketing" "$PROJECT_DIR/.claude/commands/prp-mkt" "Claude Code Marketing"; then
+    USED_SYMLINKS=true
+else
+    USED_COPY=true
+fi
+
+# Install Claude Code Bot Commands
+echo "→ Claude Code Bot (.claude/commands/prp-bot/)"
+if install_directory "$FRAMEWORK_DIR/adapters/claude-code-bot" "$PROJECT_DIR/.claude/commands/prp-bot" "Claude Code Bot"; then
+    USED_SYMLINKS=true
+else
+    USED_COPY=true
+fi
+
 # Install Claude Code Agents
 echo "→ Claude Code Agents (.claude/agents/)"
 mkdir -p "$PROJECT_DIR/.claude"
@@ -196,7 +212,9 @@ fi
 
 echo ""
 echo "Available workflows:"
-echo "  • Claude Code: /prp-prd, /prp-design, /prp-plan, /prp-implement, etc."
+echo "  • Claude Code Core: /prp-core:prd, /prp-core:plan, /prp-core:implement, etc."
+echo "  • Claude Code Marketing: /prp-mkt:landing, /prp-mkt:demo, /prp-mkt:pitch, /prp-mkt:competitor"
+echo "  • Claude Code Bot: /prp-bot:intent, /prp-bot:flow, /prp-bot:prompt-eng, /prp-bot:voice-ux, /prp-bot:integration"
 echo "  • Codex: \$prp-prd, \$prp-design, \$prp-plan, etc."
 echo "  • OpenCode: /prp:prd, /prp:design, /prp:plan, etc."
 echo "  • Gemini: /prp:prd, /prp:design, /prp:plan, etc."
