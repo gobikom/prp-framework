@@ -1,7 +1,7 @@
 ---
 name: security-reviewer
 description: Reviews code for security vulnerabilities including OWASP Top 10, authentication flaws, injection attacks, data exposure, and security best practices.
-model: sonnet
+model: opus
 color: red
 ---
 

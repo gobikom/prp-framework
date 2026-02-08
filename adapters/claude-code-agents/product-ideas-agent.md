@@ -1,7 +1,7 @@
 ---
 name: product-ideas-agent
 description: Brainstorms product improvements, feature ideas, and UX enhancements. Thinks like a product manager to identify user value, friction points, and innovation opportunities.
-model: sonnet
+model: opus
 color: magenta
 ---
 
