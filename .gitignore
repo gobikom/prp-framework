@@ -16,8 +16,8 @@ Thumbs.db
 .project
 .settings/
 
-# Test artifacts (if running tests within framework)
-.claude/PRPs/
+# Runtime artifacts (created when framework is used)
+.claude/
 .ai-workflows/plans/
 
 # Logs
@@ -39,3 +39,6 @@ build/
 # Temporary
 tmp/
 temp/
+
+# Personal notes
+my/
