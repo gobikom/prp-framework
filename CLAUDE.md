@@ -17,7 +17,7 @@ prp-framework/
 │   ├── claude-code/               # Core commands (16 commands)
 │   ├── claude-code-marketing/     # Marketing commands (4 commands)
 │   ├── claude-code-bot/           # AI Bot commands (5 commands)
-│   ├── claude-code-agents/        # Custom agents (30 agents)
+│   ├── claude-code-agents/        # Custom agents (31 agents)
 │   ├── claude-code-skills/        # Skills
 │   ├── claude-code-hooks/         # Hooks
 │   ├── codex/                     # Codex adapter
@@ -78,6 +78,14 @@ prp-framework/
 
 อยู่ใน `adapters/claude-code-agents/`:
 
+### Foundation Agent (ใช้ก่อน business agents อื่น)
+
+| Agent | Purpose |
+|-------|---------|
+| `business-context-agent` | Centralized business context for all agents |
+
+### Development Agents
+
 | Agent | Purpose |
 |-------|---------|
 | `code-reviewer` | Code quality review |
@@ -112,6 +120,7 @@ Script จะสร้าง symlinks ไปยัง:
 
 ```
 .claude/PRPs/
+├── BUSINESS-CONTEXT.md  # Centralized business context (foundation)
 ├── prds/              # Product Requirements Documents
 ├── designs/           # Design Documents
 ├── plans/             # Implementation Plans
@@ -148,6 +157,13 @@ Script จะสร้าง symlinks ไปยัง:
 Agents สามารถส่งต่อ artifacts ให้กันได้:
 
 ```
+                 ┌──────────────────────┐
+                 │ business-context-agent│  ← Foundation (ทำก่อน!)
+                 │  BUSINESS-CONTEXT.md │
+                 └──────────┬───────────┘
+                            │
+           ┌────────────────┼────────────────┐
+           ▼                ▼                ▼
 customer-discovery → positioning-strategy → content-marketing
                   ↘                      ↘
                     sales-enablement  →  outreach-agent

@@ -1,6 +1,6 @@
 # Agents Guide - คู่มือการใช้งาน Agents
 
-คู่มือนี้อธิบายวิธีใช้งาน 30 agents ใน PRP Framework พร้อม strategy สำหรับ solopreneurs และ startups
+คู่มือนี้อธิบายวิธีใช้งาน 31 agents ใน PRP Framework พร้อม strategy สำหรับ solopreneurs และ startups
 
 ---
 
@@ -17,11 +17,12 @@
 
 ## ภาพรวม Agents
 
-### จำนวน Agents ทั้งหมด: 30
+### จำนวน Agents ทั้งหมด: 31
 
 | Category | Count | Model | Purpose |
 |----------|-------|-------|---------|
 | Development | 16 | Sonnet/Opus | Code review, analysis, testing |
+| **Foundation** | **1** | **Opus** | **Centralized business context** |
 | Business Strategy | 8 | Opus | Customer acquisition, growth |
 | Sales & Deals | 3 | Opus | Outreach, proposals, case studies |
 | Operations & Brand | 3 | Opus | Finance, automation, personal brand |
@@ -102,6 +103,70 @@ security-reviewer → silent-failure-hunter → dependency-analyzer
 | Agent | Purpose | เมื่อไหร่ใช้ |
 |-------|---------|-------------|
 | **product-ideas-agent** (Opus) | Feature ideas, UX improvements | Product planning |
+
+---
+
+## Foundation Agent (1 agent)
+
+### business-context-agent (Opus)
+
+**Purpose**: สร้างและ maintain centralized business context เป็น foundation ให้ business agents ทั้งหมด
+
+**ทำไมต้องใช้**:
+- ไม่ต้องพิมพ์ context ซ้ำทุกครั้งที่ใช้ agent
+- ทุก agent ใช้ข้อมูลเดียวกัน = output ที่ consistent
+- Track การเปลี่ยนแปลงของธุรกิจได้
+
+**Modes**:
+
+| Mode | ใช้เมื่อ |
+|------|---------|
+| `--extract` | ดึง context จาก CLAUDE.md, README, files ที่มี |
+| `--interview` | สร้าง context ใหม่ผ่านการถาม-ตอบ |
+| `--hybrid` | Extract ก่อน แล้วถามเฉพาะส่วนที่ขาด (แนะนำ) |
+| `--update` | อัพเดท context ที่มีอยู่ |
+| `--validate` | ตรวจสอบความครบถ้วน |
+
+**Prompt Examples**:
+```
+"ใช้ business-context-agent --hybrid
+สร้าง business context สำหรับ AI chatbot service"
+
+"ใช้ business-context-agent --extract
+ดึง context จาก CLAUDE.md และ README"
+
+"ใช้ business-context-agent --update
+เพิ่ม customer segment ใหม่: Enterprise healthcare"
+
+"ใช้ business-context-agent --validate
+ตรวจสอบว่า context ครบถ้วนไหม"
+```
+
+**Output ที่ได้**:
+- `.claude/PRPs/BUSINESS-CONTEXT.md` - Centralized context file
+
+**ใช้ร่วมกับ Agents อื่น**:
+```
+                 ┌──────────────────────┐
+                 │ business-context-agent│
+                 │  (run once / update) │
+                 └──────────┬───────────┘
+                            │
+                            ▼
+                 ┌──────────────────────┐
+                 │ BUSINESS-CONTEXT.md  │
+                 └──────────┬───────────┘
+                            │
+      ┌─────────┬───────────┼───────────┬─────────┐
+      ▼         ▼           ▼           ▼         ▼
+  customer-  outreach-  content-  proposal-  financial-
+  discovery   agent    marketing   agent      agent
+```
+
+**Best Practice**:
+1. รัน `business-context-agent --hybrid` ครั้งแรกเมื่อเริ่ม project
+2. รัน `--update` เมื่อธุรกิจเปลี่ยน (pricing, target customer, etc.)
+3. รัน `--validate` ทุกเดือนเพื่อตรวจสอบความ fresh
 
 ---
 
@@ -772,6 +837,7 @@ Launch:
 
 | ถ้าต้องการ... | ใช้ Agent |
 |--------------|-----------|
+| **เริ่มต้นใช้ business agents** | **business-context-agent (ทำก่อน!)** |
 | เข้าใจ customers | customer-discovery-agent |
 | ขายของ | sales-enablement-agent |
 | เขียน content | content-marketing-agent |
@@ -838,6 +904,9 @@ Development (16):
 ├── Research: web-researcher
 └── Product: product-ideas-agent
 
+Foundation (1):
+└── business-context-agent ⭐ (ใช้ก่อน business agents อื่น)
+
 Business (14):
 ├── Customer Acquisition: customer-discovery, sales-enablement, positioning-strategy
 ├── Growth: content-marketing, seo-sem, pricing-strategy
@@ -850,6 +919,7 @@ Business (14):
 
 | Stage | Agents to Focus |
 |-------|-----------------|
+| **เริ่มต้น (ทำก่อน!)** | **business-context-agent** |
 | Pre-launch | customer-discovery, positioning |
 | Launch | outreach, sales-enablement, personal-brand |
 | First customers | proposal, customer-success |
@@ -858,5 +928,5 @@ Business (14):
 
 ---
 
-*Document version: 1.0*
-*Last updated: 2026-02-08*
+*Document version: 1.1*
+*Last updated: 2026-02-09*

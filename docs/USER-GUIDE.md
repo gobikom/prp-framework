@@ -814,6 +814,25 @@ Create Branch → Plan → Implement → Commit → PR → Review
 
 นอกจาก development agents แล้ว ยังมี business strategy agents สำหรับ solopreneurs และ startups:
 
+### Foundation: Business Context (ทำก่อน!)
+
+| Agent | Purpose | ใช้เมื่อ |
+|-------|---------|---------|
+| **business-context-agent** | สร้าง centralized business context | **ก่อนใช้ business agents อื่นทั้งหมด** |
+
+```bash
+# เริ่มต้นครั้งแรก - สร้าง context
+"ใช้ business-context-agent --hybrid สร้าง business context"
+
+# อัพเดท context เมื่อธุรกิจเปลี่ยน
+"ใช้ business-context-agent --update เพิ่ม customer segment ใหม่"
+
+# ตรวจสอบความครบถ้วน
+"ใช้ business-context-agent --validate"
+```
+
+**Output**: `.claude/PRPs/BUSINESS-CONTEXT.md` - ไฟล์นี้จะถูกอ้างอิงโดย agents อื่นทั้งหมด
+
 ### Tier 1: Customer Acquisition (Critical)
 
 | Agent | Purpose | ใช้เมื่อ |
@@ -855,18 +874,29 @@ Create Branch → Plan → Implement → Commit → PR → Review
 
 ### วิธีใช้ Business Agents
 
+**Step 1: สร้าง Business Context ก่อน (ทำครั้งเดียว)**
+```bash
+"ใช้ business-context-agent --hybrid สร้าง business context
+สำหรับ AI chatbot service"
+```
+
+**Step 2: ใช้ agents อื่นโดยอ้างอิง context**
 ```bash
 # ใน Claude Code - เรียกใช้ agent โดยตรง
-# ตัวอย่าง: ใช้ customer-discovery-agent
+"ใช้ customer-discovery-agent วิเคราะห์ target customer
+อ้างอิง context จาก .claude/PRPs/BUSINESS-CONTEXT.md"
 
-"ช่วยวิเคราะห์ target customer สำหรับ AI chatbot service
-ที่เน้นกลุ่ม SMB ในไทย ใช้ customer-discovery-agent"
+# หรือแบบสั้น (ถ้า context มีอยู่แล้ว)
+"ใช้ outreach-agent สร้าง cold email sequence"
+```
 
-# หรือใช้กับ feature-review-agents
-/prp-core:feature-review-agents src/landing --focus product
+**Step 3: อัพเดท context เมื่อธุรกิจเปลี่ยน**
+```bash
+"ใช้ business-context-agent --update
+เปลี่ยน pricing จาก 5,000 เป็น 8,000 บาท/เดือน"
 ```
 
 ---
 
-*Document version: 1.2*
-*Last updated: 2026-02-08*
+*Document version: 1.3*
+*Last updated: 2026-02-09*
