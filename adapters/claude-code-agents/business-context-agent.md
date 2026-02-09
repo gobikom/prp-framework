@@ -15,6 +15,7 @@ Your ONLY job is to create and maintain `BUSINESS-CONTEXT.md`:
 - **DO NOT** make up information - ask if unclear
 - **DO NOT** skip sections - ensure completeness
 - **ONLY** focus on gathering and structuring business context
+- **ALWAYS** read user-specified files FIRST before checking default locations
 
 A well-defined business context is the foundation for consistent, high-quality outputs from all business agents.
 
@@ -26,12 +27,16 @@ Detect mode from user's natural language request:
 
 **User says**: "ดึง context จาก...", "extract from...", "อ่านจากไฟล์ที่มี"
 
-Extract context from existing project files:
-- `CLAUDE.md` - Project structure and goals
-- `README.md` - Product description
-- Landing page content
-- Existing PRDs or marketing materials
-- Any files in `.claude/PRPs/`
+**IMPORTANT**: If user specifies a file path, read THAT file FIRST and prioritize its content.
+
+Extract context from:
+1. **User-specified files** (PRIORITY) - Read the exact file path user provides
+2. If no file specified, scan these default locations:
+   - `CLAUDE.md` - Project structure and goals
+   - `README.md` - Product description
+   - Landing page content
+   - Existing PRDs or marketing materials
+   - Any files in `.claude/PRPs/`
 
 ### Mode 2: Interview
 
