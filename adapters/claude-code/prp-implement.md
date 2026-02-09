@@ -373,28 +373,60 @@ Compare the original investigation's assessment with what actually happened:
 
 **Check if plan was generated from a PRD:**
 - Look in the plan file for `Source PRD:` reference
-- Or check if plan filename matches a phase pattern
+- Or check if plan filename matches a phase pattern (e.g., `feature-phase-1.plan.md`)
 
-**If PRD source exists:**
+**If PRD source exists, you MUST update it:**
 
-1. Read the PRD file
-2. Find the phase row in the Implementation Phases table
-3. Update the phase:
-   - Change Status from `in-progress` to `complete`
-4. Save the PRD
+1. **Read the PRD file** using the path from plan's metadata
+2. **Find the Implementation Phases table** in the PRD
+3. **Locate the row** matching the phase name from this plan
+4. **Update the row** by changing:
+   - Status: `in-progress` → `complete`
+   - Add completion date if there's a date column
+5. **Save the PRD file** using the Edit tool
 
-### 5.4 Archive Plan
+**Example before:**
+```markdown
+| 1 | User Authentication | in-progress | `plans/auth.plan.md` |
+```
+
+**Example after:**
+```markdown
+| 1 | User Authentication | complete | `plans/auth.plan.md` |
+```
+
+**CRITICAL**: Do NOT skip this step. The PRD tracks overall progress and other agents depend on accurate status.
+
+### 5.4 Archive Plan to Completed
+
+**Always archive the plan after successful implementation:**
 
 ```bash
+# Create completed directory if it doesn't exist
 mkdir -p .claude/PRPs/plans/completed
-mv $ARGUMENTS .claude/PRPs/plans/completed/
+
+# Move plan to completed folder
+mv "$ARGUMENTS" .claude/PRPs/plans/completed/
+```
+
+**Verify the move:**
+```bash
+ls -la .claude/PRPs/plans/completed/
+```
+
+**If move fails** (e.g., file already exists), use a timestamped name:
+```bash
+mv "$ARGUMENTS" ".claude/PRPs/plans/completed/$(basename $ARGUMENTS .md)-$(date +%Y%m%d).md"
 ```
 
 **PHASE_5_CHECKPOINT:**
 
-- [ ] Report created at `.claude/PRPs/reports/`
-- [ ] PRD updated (if applicable) - phase marked complete
-- [ ] Plan moved to completed folder
+- [ ] Report created at `.claude/PRPs/reports/{plan-name}-report.md`
+- [ ] PRD updated (if applicable) - phase status changed from `in-progress` to `complete`
+- [ ] Plan moved to `.claude/PRPs/plans/completed/`
+- [ ] Verified plan file no longer exists in original location
+
+**GATE**: Do NOT proceed to Phase 6 until plan is archived. This prevents re-running the same plan.
 
 ---
 
@@ -504,5 +536,7 @@ To continue: `/prp-plan {prd-path}`
 - **LINT_PASS**: Lint command exits 0 (warnings OK)
 - **TESTS_PASS**: Test command all green
 - **BUILD_PASS**: Build command succeeds
-- **REPORT_CREATED**: Implementation report exists
-- **PLAN_ARCHIVED**: Original plan moved to completed
+- **REPORT_CREATED**: Implementation report exists at `.claude/PRPs/reports/`
+- **PRD_UPDATED**: If plan came from PRD, phase status is `complete`
+- **PLAN_ARCHIVED**: Original plan moved to `.claude/PRPs/plans/completed/`
+- **PLAN_REMOVED**: Original plan no longer in `.claude/PRPs/plans/` (prevents re-run)
