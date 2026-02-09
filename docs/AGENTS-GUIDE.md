@@ -121,25 +121,23 @@ security-reviewer → silent-failure-hunter → dependency-analyzer
 
 | Mode | ใช้เมื่อ |
 |------|---------|
-| `--extract` | ดึง context จาก CLAUDE.md, README, files ที่มี |
-| `--interview` | สร้าง context ใหม่ผ่านการถาม-ตอบ |
-| `--hybrid` | Extract ก่อน แล้วถามเฉพาะส่วนที่ขาด (แนะนำ) |
-| `--update` | อัพเดท context ที่มีอยู่ |
-| `--validate` | ตรวจสอบความครบถ้วน |
+| Extract | ดึง context จาก CLAUDE.md, README, files ที่มี |
+| Interview | สร้าง context ใหม่ผ่านการถาม-ตอบ |
+| Hybrid | Extract ก่อน แล้วถามเฉพาะส่วนที่ขาด (แนะนำ) |
+| Update | อัพเดท context ที่มีอยู่ |
+| Validate | ตรวจสอบความครบถ้วน |
 
 **Prompt Examples**:
 ```
-"ใช้ business-context-agent --hybrid
-สร้าง business context สำหรับ AI chatbot service"
+"ใช้ business-context-agent สร้าง business context
+สำหรับ AI chatbot service แบบ hybrid (extract ก่อนแล้วถามเพิ่ม)"
 
-"ใช้ business-context-agent --extract
-ดึง context จาก CLAUDE.md และ README"
+"ใช้ business-context-agent ดึง context จาก CLAUDE.md และ README"
 
-"ใช้ business-context-agent --update
+"ใช้ business-context-agent อัพเดท context
 เพิ่ม customer segment ใหม่: Enterprise healthcare"
 
-"ใช้ business-context-agent --validate
-ตรวจสอบว่า context ครบถ้วนไหม"
+"ใช้ business-context-agent ตรวจสอบว่า context ครบถ้วนไหม"
 ```
 
 **Output ที่ได้**:

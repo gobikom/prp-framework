@@ -820,15 +820,15 @@ Create Branch → Plan → Implement → Commit → PR → Review
 |-------|---------|---------|
 | **business-context-agent** | สร้าง centralized business context | **ก่อนใช้ business agents อื่นทั้งหมด** |
 
-```bash
+```
 # เริ่มต้นครั้งแรก - สร้าง context
-"ใช้ business-context-agent --hybrid สร้าง business context"
+"ใช้ business-context-agent สร้าง business context แบบ hybrid"
 
 # อัพเดท context เมื่อธุรกิจเปลี่ยน
-"ใช้ business-context-agent --update เพิ่ม customer segment ใหม่"
+"ใช้ business-context-agent อัพเดท context เพิ่ม customer segment ใหม่"
 
 # ตรวจสอบความครบถ้วน
-"ใช้ business-context-agent --validate"
+"ใช้ business-context-agent ตรวจสอบว่า context ครบถ้วนไหม"
 ```
 
 **Output**: `.claude/PRPs/BUSINESS-CONTEXT.md` - ไฟล์นี้จะถูกอ้างอิงโดย agents อื่นทั้งหมด
@@ -875,13 +875,13 @@ Create Branch → Plan → Implement → Commit → PR → Review
 ### วิธีใช้ Business Agents
 
 **Step 1: สร้าง Business Context ก่อน (ทำครั้งเดียว)**
-```bash
-"ใช้ business-context-agent --hybrid สร้าง business context
-สำหรับ AI chatbot service"
+```
+"ใช้ business-context-agent สร้าง business context
+สำหรับ AI chatbot service แบบ hybrid"
 ```
 
 **Step 2: ใช้ agents อื่นโดยอ้างอิง context**
-```bash
+```
 # ใน Claude Code - เรียกใช้ agent โดยตรง
 "ใช้ customer-discovery-agent วิเคราะห์ target customer
 อ้างอิง context จาก .claude/PRPs/BUSINESS-CONTEXT.md"
@@ -891,8 +891,8 @@ Create Branch → Plan → Implement → Commit → PR → Review
 ```
 
 **Step 3: อัพเดท context เมื่อธุรกิจเปลี่ยน**
-```bash
-"ใช้ business-context-agent --update
+```
+"ใช้ business-context-agent อัพเดท context
 เปลี่ยน pricing จาก 5,000 เป็น 8,000 บาท/เดือน"
 ```
 

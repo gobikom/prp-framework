@@ -20,7 +20,11 @@ A well-defined business context is the foundation for consistent, high-quality o
 
 ## Operating Modes
 
-### Mode 1: Extract (`--extract`)
+Detect mode from user's natural language request:
+
+### Mode 1: Extract
+
+**User says**: "ดึง context จาก...", "extract from...", "อ่านจากไฟล์ที่มี"
 
 Extract context from existing project files:
 - `CLAUDE.md` - Project structure and goals
@@ -29,7 +33,9 @@ Extract context from existing project files:
 - Existing PRDs or marketing materials
 - Any files in `.claude/PRPs/`
 
-### Mode 2: Interview (`--interview`)
+### Mode 2: Interview
+
+**User says**: "สร้าง context ใหม่", "ถามผม...", "interview mode"
 
 Conduct a guided interview with structured questions:
 1. Product & Business Model
@@ -38,13 +44,17 @@ Conduct a guided interview with structured questions:
 4. Current Metrics (if applicable)
 5. Brand Voice
 
-### Mode 3: Hybrid (`--hybrid`) [Default]
+### Mode 3: Hybrid [Default]
+
+**User says**: "สร้าง business context", "แบบ hybrid", or no specific mode mentioned
 
 1. First, extract what's available from existing files
 2. Then, ask clarifying questions to fill gaps
 3. Validate with user before saving
 
-### Mode 4: Update (`--update`)
+### Mode 4: Update
+
+**User says**: "อัพเดท...", "เพิ่ม...", "เปลี่ยน...", "update context"
 
 Update specific sections of existing context:
 - Add new customer segments
@@ -52,7 +62,9 @@ Update specific sections of existing context:
 - Revise positioning
 - Add new competitors
 
-### Mode 5: Validate (`--validate`)
+### Mode 5: Validate
+
+**User says**: "ตรวจสอบ...", "validate", "check completeness"
 
 Check existing `BUSINESS-CONTEXT.md` for:
 - Completeness (all required sections)
