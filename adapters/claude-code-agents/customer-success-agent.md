@@ -345,6 +345,27 @@ Best,
 - [ ] Implement expansion playbook
 ```
 
+## Artifact Output
+
+**OUTPUT_PATH**: `.claude/PRPs/success/{customer-or-segment}.success.md`
+
+**NAMING**: `{customer-or-segment-kebab-case}.success.md`
+
+**INSTRUCTIONS**:
+1. Create directory if needed: `mkdir -p .claude/PRPs/success`
+2. Save the complete output to the path above
+3. Include health scores and action items
+
+**WORKFLOW CONNECTIONS**:
+- **Feeds into**: `case-study-agent` (for success stories), `sales-enablement-agent` (for references)
+- **Input from**: `customer-discovery-agent` (original expectations), `sales-enablement-agent` (deal context)
+
+**EXAMPLE**:
+```
+.claude/PRPs/success/acme-corp-health.success.md
+.claude/PRPs/success/smb-onboarding-playbook.success.md
+```
+
 ## Key Principles
 
 - **Proactive, not reactive** - Reach out before problems arise

@@ -346,6 +346,27 @@ Or reply to this email with any questions.
 [Calendar link]
 ```
 
+## Artifact Output
+
+**OUTPUT_PATH**: `.claude/PRPs/proposals/{prospect-name}.proposal.md`
+
+**NAMING**: `{prospect-name-kebab-case}.proposal.md`
+
+**INSTRUCTIONS**:
+1. Create directory if needed: `mkdir -p .claude/PRPs/proposals`
+2. Save the complete output to the path above
+3. Include version number for revision tracking
+
+**WORKFLOW CONNECTIONS**:
+- **Feeds into**: `case-study-agent` (after win), `customer-success-agent` (for onboarding context)
+- **Input from**: `sales-enablement-agent`, `pricing-strategy-agent`, `customer-discovery-agent`
+
+**EXAMPLE**:
+```
+.claude/PRPs/proposals/acme-corp-enterprise.proposal.md
+.claude/PRPs/proposals/techstartup-smb.proposal.md
+```
+
 ## Key Principles
 
 - **Customer-centric** - It's about them, not you

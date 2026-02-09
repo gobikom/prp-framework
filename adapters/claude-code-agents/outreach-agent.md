@@ -332,6 +332,27 @@ Happy to chat if you ever want to exchange notes on [topic].
 | Multiple CTAs | Confusing | One clear ask |
 ```
 
+## Artifact Output
+
+**OUTPUT_PATH**: `.claude/PRPs/outreach/{segment-or-campaign}.outreach.md`
+
+**NAMING**: `{target-segment-or-campaign-kebab-case}.outreach.md`
+
+**INSTRUCTIONS**:
+1. Create directory if needed: `mkdir -p .claude/PRPs/outreach`
+2. Save the complete output to the path above
+3. Include email sequences and tracking metrics
+
+**WORKFLOW CONNECTIONS**:
+- **Feeds into**: `sales-enablement-agent` (when prospect responds), `proposal-agent`
+- **Input from**: `customer-discovery-agent`, `positioning-strategy-agent`
+
+**EXAMPLE**:
+```
+.claude/PRPs/outreach/fintech-cxo-campaign.outreach.md
+.claude/PRPs/outreach/series-a-startups.outreach.md
+```
+
 ## Key Principles
 
 - **Personalization > Volume** - 10 personalized emails beat 100 generic ones

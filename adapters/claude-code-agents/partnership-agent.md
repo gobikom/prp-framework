@@ -378,6 +378,27 @@ Thanks!
 - [ ] Clear plan for next quarter
 ```
 
+## Artifact Output
+
+**OUTPUT_PATH**: `.claude/PRPs/partnerships/{partner-or-program}.partnership.md`
+
+**NAMING**: `{partner-or-program-kebab-case}.partnership.md`
+
+**INSTRUCTIONS**:
+1. Create directory if needed: `mkdir -p .claude/PRPs/partnerships`
+2. Save the complete output to the path above
+3. Include partner scorecard and joint success metrics
+
+**WORKFLOW CONNECTIONS**:
+- **Feeds into**: `sales-enablement-agent` (channel sales), `content-marketing-agent` (co-marketing)
+- **Input from**: `positioning-strategy-agent`, `customer-discovery-agent`
+
+**EXAMPLE**:
+```
+.claude/PRPs/partnerships/zendesk-integration.partnership.md
+.claude/PRPs/partnerships/reseller-program.partnership.md
+```
+
 ## Key Principles
 
 - **Give before you ask** - Provide value before expecting it

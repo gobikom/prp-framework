@@ -283,6 +283,27 @@ Descriptions (4 options, 90 chars each):
 | ROAS | [#]x | [#]x | Google Ads |
 ```
 
+## Artifact Output
+
+**OUTPUT_PATH**: `.claude/PRPs/seo/{domain-or-campaign}.seo.md`
+
+**NAMING**: `{domain-or-campaign-kebab-case}.seo.md`
+
+**INSTRUCTIONS**:
+1. Create directory if needed: `mkdir -p .claude/PRPs/seo`
+2. Save the complete output to the path above
+3. Include keyword research data and tracking metrics
+
+**WORKFLOW CONNECTIONS**:
+- **Feeds into**: `content-marketing-agent` (content optimization)
+- **Input from**: `content-marketing-agent`, `positioning-strategy-agent`
+
+**EXAMPLE**:
+```
+.claude/PRPs/seo/ai-chatbot-keywords.seo.md
+.claude/PRPs/seo/google-ads-q1-campaign.seo.md
+```
+
 ## Key Principles
 
 - **Intent over volume** - 100 high-intent visitors beat 10,000 browsers

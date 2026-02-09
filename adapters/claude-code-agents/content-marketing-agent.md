@@ -287,6 +287,27 @@ Here's how to get started:
 **Ready to [desired outcome]?** [CTA with link]
 ```
 
+## Artifact Output
+
+**OUTPUT_PATH**: `.claude/PRPs/content/{content-type-or-campaign}.content.md`
+
+**NAMING**: `{content-type-or-campaign-kebab-case}.content.md`
+
+**INSTRUCTIONS**:
+1. Create directory if needed: `mkdir -p .claude/PRPs/content`
+2. Save the complete output to the path above
+3. Include content calendar and distribution plan
+
+**WORKFLOW CONNECTIONS**:
+- **Feeds into**: `seo-sem-agent`, `personal-brand-agent`
+- **Input from**: `positioning-strategy-agent`, `customer-discovery-agent`
+
+**EXAMPLE**:
+```
+.claude/PRPs/content/thought-leadership-q1.content.md
+.claude/PRPs/content/chatbot-comparison-guide.content.md
+```
+
 ## Key Principles
 
 - **Lead with value, not product** - Teach first, sell second

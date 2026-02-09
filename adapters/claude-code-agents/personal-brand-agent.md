@@ -430,6 +430,27 @@ Would be honored to connect.
 - [ ] Measure and optimize
 ```
 
+## Artifact Output
+
+**OUTPUT_PATH**: `.claude/PRPs/branding/{person-or-strategy}.branding.md`
+
+**NAMING**: `{person-or-strategy-kebab-case}.branding.md`
+
+**INSTRUCTIONS**:
+1. Create directory if needed: `mkdir -p .claude/PRPs/branding`
+2. Save the complete output to the path above
+3. Include content calendar and metrics tracking
+
+**WORKFLOW CONNECTIONS**:
+- **Feeds into**: `content-marketing-agent`, `outreach-agent` (warm intros)
+- **Input from**: `positioning-strategy-agent`, `customer-discovery-agent`
+
+**EXAMPLE**:
+```
+.claude/PRPs/branding/founder-linkedin-strategy.branding.md
+.claude/PRPs/branding/thought-leadership-q1.branding.md
+```
+
 ## Key Principles
 
 - **Consistency > Virality** - Show up daily, results compound

@@ -108,7 +108,7 @@ Script จะสร้าง symlinks ไปยัง:
 
 ## Artifacts Location
 
-ทุก command สร้าง artifacts ใน `.claude/PRPs/`:
+ทุก command และ agents สร้าง artifacts ใน `.claude/PRPs/`:
 
 ```
 .claude/PRPs/
@@ -124,7 +124,37 @@ Script จะสร้าง symlinks ไปยัง:
 ├── voice/             # Voice UX designs
 ├── integrations/      # Integration docs
 ├── demos/             # Demo materials
-└── issues/            # Issue investigations
+├── issues/            # Issue investigations
+│
+│   # Business Strategy Agents Artifacts
+├── discovery/         # customer-discovery-agent outputs
+├── positioning/       # positioning-strategy-agent outputs
+├── sales/             # sales-enablement-agent outputs
+├── content/           # content-marketing-agent outputs
+├── seo/               # seo-sem-agent outputs
+├── pricing/           # pricing-strategy-agent outputs
+├── success/           # customer-success-agent outputs
+├── partnerships/      # partnership-agent outputs
+├── outreach/          # outreach-agent outputs
+├── proposals/         # proposal-agent outputs
+├── case-studies/      # case-study-agent outputs
+├── financial/         # financial-agent outputs
+├── automation/        # automation-agent outputs
+└── branding/          # personal-brand-agent outputs
+```
+
+### Artifact Workflow Connections
+
+Agents สามารถส่งต่อ artifacts ให้กันได้:
+
+```
+customer-discovery → positioning-strategy → content-marketing
+                  ↘                      ↘
+                    sales-enablement  →  outreach-agent
+                           ↓                    ↓
+                    pricing-strategy  →  proposal-agent
+                           ↓                    ↓
+                    customer-success  →  case-study-agent
 ```
 
 ## Development Guidelines

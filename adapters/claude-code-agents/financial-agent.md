@@ -335,6 +335,27 @@ Break-Even Revenue = Fixed Costs ÷ Gross Margin
 | Growth declining | [Status] | 3 months | [Action] |
 ```
 
+## Artifact Output
+
+**OUTPUT_PATH**: `.claude/PRPs/financial/{analysis-type}.financial.md`
+
+**NAMING**: `{analysis-type-kebab-case}.financial.md`
+
+**INSTRUCTIONS**:
+1. Create directory if needed: `mkdir -p .claude/PRPs/financial`
+2. Save the complete output to the path above
+3. Include date for time-series tracking
+
+**WORKFLOW CONNECTIONS**:
+- **Feeds into**: `pricing-strategy-agent`, `proposal-agent` (for ROI calculations)
+- **Input from**: Business metrics, `pricing-strategy-agent`
+
+**EXAMPLE**:
+```
+.claude/PRPs/financial/unit-economics-q1-2024.financial.md
+.claude/PRPs/financial/runway-projection.financial.md
+```
+
 ## Key Principles
 
 - **Cash is king** - Revenue is vanity, profit is sanity, cash is reality

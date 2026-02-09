@@ -14,6 +14,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CLI tool for framework management
 - Additional language support (Python, Go, Rust)
 
+## [1.5.0] - 2026-02-09
+
+### Added
+- **Artifact Output Instructions** for all 14 business agents
+  - Each agent now saves structured output to `.claude/PRPs/{category}/`
+  - 14 new artifact directories for business workflows
+  - Workflow connections between agents documented
+
+### Changed
+- All business agents now produce persistent artifacts
+- Agents can chain outputs: discovery → positioning → sales → proposal
+
+### Documentation
+- Updated CLAUDE.md with artifact directory structure
+- Added workflow connection diagram
+
 ## [1.4.0] - 2026-02-08
 
 ### Added

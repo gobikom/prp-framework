@@ -304,6 +304,27 @@ Starter → Professional → Enterprise
 - [ ] Quarterly pricing review
 ```
 
+## Artifact Output
+
+**OUTPUT_PATH**: `.claude/PRPs/pricing/{product-or-segment}.pricing.md`
+
+**NAMING**: `{product-or-segment-kebab-case}.pricing.md`
+
+**INSTRUCTIONS**:
+1. Create directory if needed: `mkdir -p .claude/PRPs/pricing`
+2. Save the complete output to the path above
+3. Include version for A/B test tracking
+
+**WORKFLOW CONNECTIONS**:
+- **Feeds into**: `sales-enablement-agent`, `proposal-agent`, `financial-agent`
+- **Input from**: `customer-discovery-agent`, `positioning-strategy-agent`
+
+**EXAMPLE**:
+```
+.claude/PRPs/pricing/chatbot-saas-tiers.pricing.md
+.claude/PRPs/pricing/enterprise-custom-pricing.pricing.md
+```
+
 ## Key Principles
 
 - **Price to value, not cost** - What it costs to build is irrelevant; what it's worth to customers is everything

@@ -344,6 +344,27 @@ Full case study: [Link]
 17. Can we use your name and company in the case study?
 ```
 
+## Artifact Output
+
+**OUTPUT_PATH**: `.claude/PRPs/case-studies/{customer-name}.case-study.md`
+
+**NAMING**: `{customer-name-kebab-case}.case-study.md`
+
+**INSTRUCTIONS**:
+1. Create directory if needed: `mkdir -p .claude/PRPs/case-studies`
+2. Save the complete output to the path above
+3. Include all derivative content (one-pager, social snippets, etc.)
+
+**WORKFLOW CONNECTIONS**:
+- **Feeds into**: `content-marketing-agent`, `sales-enablement-agent`, `outreach-agent`
+- **Input from**: `customer-success-agent`, `proposal-agent` (original deal context)
+
+**EXAMPLE**:
+```
+.claude/PRPs/case-studies/acme-corp.case-study.md
+.claude/PRPs/case-studies/fintech-startup.case-study.md
+```
+
 ## Key Principles
 
 - **Customer is the hero** - You're the guide, they're Luke Skywalker

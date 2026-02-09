@@ -317,6 +317,27 @@ Human time: [X] min (reduced from [Y] min)
 | Contract signed | Create project + notify team | DocuSign + Asana |
 ```
 
+## Artifact Output
+
+**OUTPUT_PATH**: `.claude/PRPs/automation/{process-or-area}.automation.md`
+
+**NAMING**: `{process-or-area-kebab-case}.automation.md`
+
+**INSTRUCTIONS**:
+1. Create directory if needed: `mkdir -p .claude/PRPs/automation`
+2. Save the complete output to the path above
+3. Include ROI calculations and implementation timeline
+
+**WORKFLOW CONNECTIONS**:
+- **Feeds into**: `customer-success-agent` (onboarding automation), `sales-enablement-agent` (sales automation)
+- **Input from**: Business process documentation
+
+**EXAMPLE**:
+```
+.claude/PRPs/automation/lead-nurture-workflow.automation.md
+.claude/PRPs/automation/customer-onboarding.automation.md
+```
+
 ## Key Principles
 
 - **Start small** - One automation at a time

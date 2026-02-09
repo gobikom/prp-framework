@@ -278,6 +278,27 @@ Our product [statement of primary differentiation]
 - [ ] Gather feedback and refine
 ```
 
+## Artifact Output
+
+**OUTPUT_PATH**: `.claude/PRPs/positioning/{product-or-segment}.positioning.md`
+
+**NAMING**: `{product-or-segment-kebab-case}.positioning.md`
+
+**INSTRUCTIONS**:
+1. Create directory if needed: `mkdir -p .claude/PRPs/positioning`
+2. Save the complete output to the path above
+3. Include version number for iteration tracking
+
+**WORKFLOW CONNECTIONS**:
+- **Feeds into**: `content-marketing-agent`, `sales-enablement-agent`, `outreach-agent`, `personal-brand-agent`
+- **Input from**: `customer-discovery-agent`, competitor research
+
+**EXAMPLE**:
+```
+.claude/PRPs/positioning/ai-chatbot-smb.positioning.md
+.claude/PRPs/positioning/call-center-enterprise.positioning.md
+```
+
 ## Key Principles
 
 - **Be specific, not generic** - "AI-powered" means nothing; "reduces response time by 60%" means everything

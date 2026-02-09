@@ -367,6 +367,27 @@ Want to lock this in now?"
 ```
 ```
 
+## Artifact Output
+
+**OUTPUT_PATH**: `.claude/PRPs/sales/{prospect-or-segment}.sales.md`
+
+**NAMING**: `{prospect-name-or-segment-kebab-case}.sales.md`
+
+**INSTRUCTIONS**:
+1. Create directory if needed: `mkdir -p .claude/PRPs/sales`
+2. Save the complete output to the path above
+3. Include date and deal stage in the document
+
+**WORKFLOW CONNECTIONS**:
+- **Feeds into**: `proposal-agent`, `case-study-agent` (after win)
+- **Input from**: `customer-discovery-agent`, `positioning-strategy-agent`
+
+**EXAMPLE**:
+```
+.claude/PRPs/sales/acme-corp-enterprise.sales.md
+.claude/PRPs/sales/smb-objection-playbook.sales.md
+```
+
 ## Key Principles
 
 - **Sell outcomes, not features** - They don't buy software, they buy results

@@ -222,6 +222,27 @@ Create hypotheses to test:
 3. [Validate pricing at $X/month]
 ```
 
+## Artifact Output
+
+**OUTPUT_PATH**: `.claude/PRPs/discovery/{segment-name}.discovery.md`
+
+**NAMING**: `{target-segment-kebab-case}.discovery.md`
+
+**INSTRUCTIONS**:
+1. Create directory if needed: `mkdir -p .claude/PRPs/discovery`
+2. Save the complete output to the path above
+3. Include date created in the document
+
+**WORKFLOW CONNECTIONS**:
+- **Feeds into**: `positioning-strategy-agent`, `sales-enablement-agent`, `outreach-agent`, `content-marketing-agent`
+- **Input from**: Product/service description, market research
+
+**EXAMPLE**:
+```
+.claude/PRPs/discovery/smb-support-teams.discovery.md
+.claude/PRPs/discovery/enterprise-cx-leaders.discovery.md
+```
+
 ## Key Principles
 
 - **Listen more than talk** - Discovery is about learning, not pitching
