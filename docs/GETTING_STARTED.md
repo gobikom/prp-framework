@@ -133,23 +133,25 @@ In Claude session:
 ```
 
 Follow the interactive prompts. The PRD will be saved to:
-`.claude/PRPs/prds/drafts/user-auth-prd-agents.md`
+`.claude/PRPs/prds/drafts/user-auth-prd-agents-20260210-1430.md`
+
+> **Note**: All artifacts use timestamp format `YYYYMMDD-HHMM` to prevent overwrites.
 
 ### Create Plan from PRD
 
-After finalizing your PRD:
+After finalizing your PRD (find latest with `ls -t .claude/PRPs/prds/*.md | head -1`):
 
 ```
 /prp-plan .claude/PRPs/prds/user-auth-prd.md
 ```
 
 Plan will be saved to:
-`.claude/PRPs/plans/user-auth.plan.md`
+`.claude/PRPs/plans/user-auth-20260210-1445.plan.md`
 
 ### Implement the Plan
 
 ```
-/prp-implement .claude/PRPs/plans/user-auth.plan.md
+/prp-implement .claude/PRPs/plans/user-auth-20260210-1445.plan.md
 ```
 
 ## Updating Framework

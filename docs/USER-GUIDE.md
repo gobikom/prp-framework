@@ -62,6 +62,22 @@ cd .prp && ./scripts/install.sh && cd ..
 | `/prp-mkt:` | Marketing | landing, demo, pitch, competitor | 4 |
 | `/prp-bot:` | AI Bot | intent, flow, prompt-eng, voice-ux, integration | 5 |
 
+### Artifact Naming Convention
+
+ทุก artifacts ใช้ **Timestamp Format** เพื่อป้องกันการเขียนทับไฟล์เดิม:
+
+```
+{name}-{TIMESTAMP}.{type}.md
+
+Format: YYYYMMDD-HHMM
+Example: user-auth-20260210-1430.plan.md
+```
+
+**หา artifact ล่าสุด**:
+```bash
+ls -t .claude/PRPs/plans/*.plan.md | head -1
+```
+
 ---
 
 ## Development Workflow
@@ -84,7 +100,7 @@ PRD → Design → Plan → Implement → Commit → PR → Review
 /prp-core:prd "Add user authentication with JWT"
 ```
 
-**Output**: `.claude/PRPs/prds/{name}-prd.md`
+**Output**: `.claude/PRPs/prds/drafts/{name}-prd-agents-{TIMESTAMP}.md`
 
 ---
 
@@ -100,7 +116,7 @@ PRD → Design → Plan → Implement → Commit → PR → Review
 /prp-core:design "Authentication system using JWT and refresh tokens"
 ```
 
-**Output**: `.claude/PRPs/designs/{name}-design.md`
+**Output**: `.claude/PRPs/designs/{name}-design-agents-{TIMESTAMP}.md`
 
 ---
 
@@ -119,7 +135,7 @@ PRD → Design → Plan → Implement → Commit → PR → Review
 /prp-core:plan --design .claude/PRPs/designs/auth-design.md
 ```
 
-**Output**: `.claude/PRPs/plans/{name}-plan.md`
+**Output**: `.claude/PRPs/plans/{name}-{TIMESTAMP}.plan.md`
 
 **Plan ประกอบด้วย**:
 - Tasks breakdown
@@ -134,8 +150,8 @@ PRD → Design → Plan → Implement → Commit → PR → Review
 **เมื่อไหร่ใช้**: เมื่อมี plan พร้อมแล้ว
 
 ```bash
-# Execute plan
-/prp-core:implement .claude/PRPs/plans/logout-button-plan.md
+# Execute plan (find latest: ls -t .claude/PRPs/plans/*.plan.md | head -1)
+/prp-core:implement .claude/PRPs/plans/logout-button-20260210-1430.plan.md
 ```
 
 **กระบวนการ**:
@@ -145,7 +161,7 @@ PRD → Design → Plan → Implement → Commit → PR → Review
 4. Auto-fix ถ้า fail
 5. สร้าง implementation report
 
-**Output**: `.claude/PRPs/reports/{name}-report.md`
+**Output**: `.claude/PRPs/reports/{plan-name}-report-{TIMESTAMP}.md`
 
 ---
 
@@ -584,6 +600,8 @@ Create Branch → Plan → Implement → Commit → PR → Review
 /prp-core:debug "TypeError: Cannot read property 'id' of undefined"
 ```
 
+**Output**: `.claude/PRPs/debug/rca-{issue-slug}-{TIMESTAMP}.md`
+
 ---
 
 ### 2. `/prp-core:issue-investigate` - Investigate Issue
@@ -598,7 +616,7 @@ Create Branch → Plan → Implement → Commit → PR → Review
 /prp-core:issue-investigate https://github.com/org/repo/issues/45
 ```
 
-**Output**: `.claude/PRPs/issues/issue-{number}-investigation.md`
+**Output**: `.claude/PRPs/issues/issue-{number}-{TIMESTAMP}.md`
 
 ---
 
@@ -607,8 +625,8 @@ Create Branch → Plan → Implement → Commit → PR → Review
 **เมื่อไหร่ใช้**: Implement fix จาก investigation
 
 ```bash
-# Fix from investigation artifact
-/prp-core:issue-fix .claude/PRPs/issues/issue-45-investigation.md
+# Fix from investigation artifact (find latest: ls -t .claude/PRPs/issues/issue-45*.md | head -1)
+/prp-core:issue-fix 45
 ```
 
 ---
