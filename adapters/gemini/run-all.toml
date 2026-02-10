@@ -27,6 +27,9 @@ Run /prp:plan with FEATURE. Update PLAN_PATH. DO NOT re-explain plan logic. Fail
 ### Step 3: Implement
 Run /prp:implement with PLAN_PATH. Wait for completion. DO NOT add extra validation. Failure → STOP.
 
+**3.1 Verify Artifacts**: Check report and pr-context files exist after implement completes.
+**3.2 Fallback**: If missing, create minimal report/context with files changed from git diff.
+
 ### Step 4: Commit
 Run /prp:commit. DO NOT manually stage files.
 
@@ -42,9 +45,18 @@ Report: feature, branch, status, steps executed, artifacts, verdict, next steps.
 ## Rules
 
 - Delegate, don't duplicate — each command handles its own logic
+- Verify artifacts after implement — check report and pr-context exist, fallback if missing
 - Stop on failure — never continue with broken state
 - Pass context forward — info flows from earlier to later steps
 - No extra validation — each command validates its own output
 - One commit per implementation — separate commits for review fixes
 - Max 2 review-fix cycles
+
+## Success Criteria
+
+- Plan created (or provided)
+- Code implemented with passing validation
+- Report exists (created or fallback)
+- Review context exists (created or fallback)
+- Committed, PR created (unless --no-pr), reviewed (unless --skip-review)
 """

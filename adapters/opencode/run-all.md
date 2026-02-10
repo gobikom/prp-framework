@@ -48,6 +48,14 @@ Failure → STOP.
 Wait for completion — longest step.
 Failure → STOP, report which task failed.
 
+**3.1 Verify Artifacts**: After implement completes, check:
+```bash
+ls -la .claude/PRPs/reports/*-report*.md 2>/dev/null
+ls -la .claude/PRPs/reviews/pr-context-*.md 2>/dev/null
+```
+
+**3.2 Fallback**: If report missing, create minimal report. If pr-context missing, create minimal context with files changed from `git diff --name-only origin/main...HEAD`.
+
 ### Step 4: Commit
 `/prp:commit` — DO NOT manually stage files.
 
@@ -66,8 +74,19 @@ Report: feature, branch, status, steps executed table, artifacts, review verdict
 ## Rules
 
 - **Delegate, don't duplicate** — each command handles its own logic
+- **Verify artifacts after implement** — check report and pr-context files exist, use fallback if missing
 - **Stop on failure** — never continue with broken state
 - **Pass context forward** — information flows from earlier to later steps
 - **No extra validation** — each command validates its own output
 - **One commit per implementation** — separate commits for review fixes
 - **Max 2 review-fix cycles** — if still critical after 2 rounds, stop and report
+
+## Success Criteria
+
+- Plan created (or provided)
+- Code implemented with passing validation
+- Report exists (created or fallback)
+- Review context exists (created or fallback)
+- Committed on feature branch
+- PR created (unless --no-pr)
+- Reviewed with verdict (unless --skip-review)

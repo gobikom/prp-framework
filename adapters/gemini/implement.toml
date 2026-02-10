@@ -20,9 +20,19 @@ Execute the plan end-to-end autonomously. Validate after every change. Fix befor
    - Integration (if applicable): start server → test endpoints → stop server.
    - Edge cases from plan.
 6. **Report**: Save to `.claude/PRPs/reports/{name}-report-gemini.md` with: assessment vs reality, tasks completed, validation results, files changed, deviations, issues, tests written. Uses `-gemini` suffix to identify Gemini implementation reports and prevent overwriting reports from other tools.
-7. **PRD Update** (if applicable): Change phase status from `in-progress` to `complete`.
-8. **Archive**: Move plan to `.ai-workflows/plans/completed/`
-9. **Output**: Status, validation summary, files changed, deviations, artifacts, PRD progress (if applicable), next steps.
+7. **Generate Review Context** (for run-all workflow): Save to `.claude/PRPs/reviews/pr-context-{BRANCH}.md` with: branch, files changed, implementation summary, validation status, key changes for review, focus areas. Saves ~60K tokens when running via run-all.
+8. **PRD Update** (if applicable): Change phase status from `in-progress` to `complete`.
+9. **Archive**: Move plan to `.ai-workflows/plans/completed/`
+10. **Output**: Status, validation summary, files changed, deviations, artifacts (including review context), PRD progress (if applicable), next steps.
+
+## Success Criteria
+
+- All plan tasks executed
+- Type-check, lint, tests, build all pass
+- Implementation report created
+- Review context file created
+- PRD updated (if applicable)
+- Plan archived
 
 ## Failure Handling
 

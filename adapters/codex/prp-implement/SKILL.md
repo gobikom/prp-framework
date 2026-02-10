@@ -108,10 +108,16 @@ Save to `.claude/PRPs/reports/{plan-name}-report-codex.md` with:
 - Issues encountered (with resolutions)
 - Tests written table
 
-### 5.2 Update Source PRD (if applicable)
+### 5.2 Generate Review Context (for run-all workflow)
+Save to `.claude/PRPs/reviews/pr-context-{BRANCH}.md` with:
+- Branch name, files changed, implementation summary
+- Validation status, key changes for review, focus areas
+- This saves ~60K tokens when running via run-all workflow
+
+### 5.3 Update Source PRD (if applicable)
 If plan was from PRD: read PRD → find phase → change status from `in-progress` to `complete` → save.
 
-### 5.3 Archive Plan
+### 5.4 Archive Plan
 ```bash
 mkdir -p .ai-workflows/plans/completed
 mv $ARGUMENTS .ai-workflows/plans/completed/
@@ -119,7 +125,7 @@ mv $ARGUMENTS .ai-workflows/plans/completed/
 
 ## Phase 6: Output
 
-Report to user: status, validation summary table, files changed count, deviations summary, artifacts created.
+Report to user: status, validation summary table, files changed count, deviations summary, artifacts created (including review context).
 
 If from PRD: show PRD progress (updated phases table), next phase, parallel opportunity.
 
@@ -142,5 +148,6 @@ Next steps: review, create PR, merge.
 - LINT_PASS: Lint exits 0
 - TESTS_PASS: All tests green
 - BUILD_PASS: Build succeeds
-- REPORT_CREATED: Implementation report exists
+- REPORT_CREATED: Implementation report exists at `.claude/PRPs/reports/`
+- PR_CONTEXT_CREATED: Review context exists at `.claude/PRPs/reviews/pr-context-{BRANCH}.md`
 - PLAN_ARCHIVED: Original plan moved to completed

@@ -66,6 +66,14 @@ Wait for completion — this is the longest step.
 Failure → STOP, report which task failed.
 DO NOT add extra validation — the skill has its own.
 
+**3.1 Verify Artifacts**: After implement completes, check:
+```bash
+ls -la .claude/PRPs/reports/*-report*.md 2>/dev/null
+ls -la .claude/PRPs/reviews/pr-context-*.md 2>/dev/null
+```
+
+**3.2 Fallback**: If report missing, create minimal report with files changed. If pr-context missing, create minimal context from `git diff --name-only origin/main...HEAD`.
+
 ### Step 4: Commit
 Use `$prp-commit` skill.
 Failure: pre-commit hook → fix and retry.
@@ -86,16 +94,19 @@ Report: feature, branch, status, steps executed table, artifacts, review verdict
 ## Critical Rules
 
 1. **Delegate, don't duplicate** — each skill handles its own logic
-2. **Stop on failure** — never continue with broken state
-3. **Pass context forward** — information flows from earlier to later steps
-4. **No extra validation** — each skill validates its own output
-5. **One commit per implementation** — separate commits for review fixes
-6. **Max 2 review cycles** — if still critical after 2 rounds, STOP and report
+2. **Verify artifacts after implement** — check report and pr-context files exist, use fallback if missing
+3. **Stop on failure** — never continue with broken state
+4. **Pass context forward** — information flows from earlier to later steps
+5. **No extra validation** — each skill validates its own output
+6. **One commit per implementation** — separate commits for review fixes
+7. **Max 2 review cycles** — if still critical after 2 rounds, STOP and report
 
 ## Success Criteria
 
 - PLAN_CREATED: Plan exists and is valid
 - CODE_IMPLEMENTED: All tasks complete, validation passing
+- REPORT_EXISTS: Implementation report exists (created or fallback)
+- CONTEXT_GENERATED: Review context file exists (created or fallback)
 - COMMITTED: Clean commit on feature branch
 - PR_CREATED: PR exists (unless --no-pr)
 - REVIEWED: Review posted with verdict (unless --skip-review)

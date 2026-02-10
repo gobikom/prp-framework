@@ -419,12 +419,89 @@ ls -la .claude/PRPs/plans/completed/
 mv "$ARGUMENTS" ".claude/PRPs/plans/completed/$(basename $ARGUMENTS .md)-$(date +%Y%m%d).md"
 ```
 
+### 5.5 Generate Review Context File (for run-all workflow)
+
+**Purpose**: Pre-generate context for `/prp-review-agents` to save ~60K tokens when running via `/prp-core-run-all`.
+
+**Path**: `.claude/PRPs/reviews/pr-context-{BRANCH}.md`
+
+```bash
+# Get current branch name
+BRANCH=$(git branch --show-current)
+
+# Create reviews directory
+mkdir -p .claude/PRPs/reviews
+```
+
+**Generate the context file:**
+
+```markdown
+# PR Review Context
+
+**Branch**: `{BRANCH}`
+**Generated**: {YYYY-MM-DD HH:MM}
+**Source Plan**: `$ARGUMENTS`
+
+---
+
+## Files Changed
+
+{List from git diff --name-only origin/main...HEAD}
+
+| File | Action | Summary |
+|------|--------|---------|
+| `src/x.ts` | CREATE | {brief description} |
+| `src/y.ts` | UPDATE | {brief description} |
+
+---
+
+## Implementation Summary
+
+{Copy from the report's Summary section}
+
+---
+
+## Validation Status
+
+| Check | Result |
+|-------|--------|
+| Type check | ✅ |
+| Lint | ✅ |
+| Tests | ✅ ({N} passed) |
+| Build | ✅ |
+
+---
+
+## Key Changes for Review
+
+### New Files
+{List new files with brief purpose}
+
+### Modified Files
+{List modified files with what changed}
+
+### Tests Added
+{List test files and what they cover}
+
+---
+
+## Review Focus Areas
+
+Based on implementation:
+- {Area 1 that reviewers should focus on}
+- {Area 2 that might need extra attention}
+- {Any gotchas or edge cases}
+```
+
+**Save the file** to `.claude/PRPs/reviews/pr-context-{BRANCH}.md`
+
 **PHASE_5_CHECKPOINT:**
 
 - [ ] Report created at `.claude/PRPs/reports/{plan-name}-report.md`
 - [ ] PRD updated (if applicable) - phase status changed from `in-progress` to `complete`
 - [ ] Plan moved to `.claude/PRPs/plans/completed/`
 - [ ] Verified plan file no longer exists in original location
+- [ ] Review context file created at `.claude/PRPs/reviews/pr-context-{BRANCH}.md`
 
 **GATE**: Do NOT proceed to Phase 6 until plan is archived. This prevents re-running the same plan.
 
@@ -463,6 +540,7 @@ mv "$ARGUMENTS" ".claude/PRPs/plans/completed/$(basename $ARGUMENTS .md)-$(date 
 ### Artifacts
 
 - Report: `.claude/PRPs/reports/{name}-report.md`
+- Review Context: `.claude/PRPs/reviews/pr-context-{BRANCH}.md`
 - Plan archived to: `.claude/PRPs/plans/completed/`
 
 {If from PRD:}
@@ -537,6 +615,7 @@ To continue: `/prp-plan {prd-path}`
 - **TESTS_PASS**: Test command all green
 - **BUILD_PASS**: Build command succeeds
 - **REPORT_CREATED**: Implementation report exists at `.claude/PRPs/reports/`
+- **PR_CONTEXT_CREATED**: Review context file exists at `.claude/PRPs/reviews/pr-context-{BRANCH}.md`
 - **PRD_UPDATED**: If plan came from PRD, phase status is `complete`
 - **PLAN_ARCHIVED**: Original plan moved to `.claude/PRPs/plans/completed/`
 - **PLAN_REMOVED**: Original plan no longer in `.claude/PRPs/plans/` (prevents re-run)
