@@ -39,14 +39,18 @@ NO_PR = {true if --no-pr}
 Failure: dirty on main → STOP.
 
 ### Step 2: Plan (skip if --plan-path)
-`/prp:plan {FEATURE}` — DO NOT re-explain plan logic.
+`/prp:plan {FEATURE}` — Invoke the command, DO NOT inline its logic.
 Update PLAN_PATH with generated path.
 Failure → STOP.
+❌ DO NOT: Read plan.md and execute logic yourself, analyze codebase directly.
+✅ CHECKPOINT: Did you invoke `/prp:plan`? If not → STOP → invoke it.
 
 ### Step 3: Implement
-`/prp:implement {PLAN_PATH}` — DO NOT add extra validation.
+`/prp:implement {PLAN_PATH}` — Invoke the command, DO NOT inline its logic.
 Wait for completion — longest step.
 Failure → STOP, report which task failed.
+❌ DO NOT: Read implement.md and execute logic yourself, write code directly.
+✅ CHECKPOINT: Did you invoke `/prp:implement`? If not → STOP → invoke it.
 
 **3.1 Verify Artifacts**: After implement completes, check:
 ```bash
@@ -57,16 +61,22 @@ ls -la .claude/PRPs/reviews/pr-context-*.md 2>/dev/null
 **3.2 Fallback**: If report missing, create minimal report. If pr-context missing, create minimal context with files changed from `git diff --name-only origin/main...HEAD`.
 
 ### Step 4: Commit
-`/prp:commit` — DO NOT manually stage files.
+`/prp:commit` — Invoke the command, DO NOT inline its logic.
+❌ DO NOT: Run git add/commit directly, manually stage files.
+✅ CHECKPOINT: Did you invoke `/prp:commit`? If not → STOP → invoke it.
 
 ### Step 5: PR (skip if --no-pr)
-`/prp:pr`
+`/prp:pr` — Invoke the command, DO NOT inline its logic.
 Update PR_NUMBER.
 Failure → STOP.
+❌ DO NOT: Run gh pr create directly, manually craft PR body.
+✅ CHECKPOINT: Did you invoke `/prp:pr`? If not → STOP → invoke it.
 
 ### Step 6: Review (skip if --skip-review or --no-pr)
-`/prp:review {PR_NUMBER}`
+`/prp:review {PR_NUMBER}` — Invoke the command, DO NOT inline its logic.
 Critical issues → fix, commit, push, re-review (max 2 cycles).
+❌ DO NOT: Read code and review it yourself, skip the command.
+✅ CHECKPOINT: Did you invoke `/prp:review`? If not → STOP → invoke it.
 
 ### Step 7: Summary
 Report: feature, branch, status, steps executed table, artifacts, review verdict, next steps.

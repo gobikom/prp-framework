@@ -77,8 +77,13 @@ This command will:
 
 **Failure**: If plan generation fails → STOP, report error.
 
-**DO NOT**: Re-explain how to create a plan. The `/prp-plan` command handles everything.
-**DO NOT**: Inline the plan creation logic. You MUST use the Skill tool to delegate.
+**❌ DO NOT**:
+- Read `prp-plan.md` and execute its logic yourself
+- Analyze the codebase and create a plan directly
+- Skip the Skill tool because you "know what it does"
+
+**✅ CHECKPOINT**: Did you call the Skill tool with `skill: "prp-core:prp-plan"`?
+If NOT → STOP → Go back and call it now.
 
 ---
 
@@ -104,8 +109,14 @@ This command will:
 
 **Failure**: If implementation fails after retries → STOP, report which task failed and why.
 
-**DO NOT**: Add extra validation steps here. `/prp-implement` already has rigorous validation loops with retry limits.
-**DO NOT**: Inline the implementation logic. You MUST use the Skill tool to delegate.
+**❌ DO NOT**:
+- Read `prp-implement.md` and execute its logic yourself
+- Write implementation code directly without calling the Skill
+- Add extra validation steps — `/prp-implement` already has rigorous validation loops
+- Skip the Skill tool because you "know what it does"
+
+**✅ CHECKPOINT**: Did you call the Skill tool with `skill: "prp-core:prp-implement"`?
+If NOT → STOP → Go back and call it now.
 
 ### 3.1 VERIFY Artifacts Created
 
@@ -213,8 +224,13 @@ This command will:
 
 **Failure**: If commit fails (pre-commit hooks) → fix and retry (the command handles this).
 
-**DO NOT**: Manually stage files or write commit messages. The command does this.
-**DO NOT**: Inline the commit logic. You MUST use the Skill tool to delegate.
+**❌ DO NOT**:
+- Run `git add` and `git commit` directly
+- Manually stage files or write commit messages
+- Skip the Skill tool because committing "seems simple"
+
+**✅ CHECKPOINT**: Did you call the Skill tool with `skill: "prp-core:prp-commit"`?
+If NOT → STOP → Go back and call it now.
 
 ---
 
@@ -237,8 +253,13 @@ This command will:
 
 **Failure**: If PR creation fails → STOP, report error (usually auth or branch issue).
 
-**DO NOT**: Manually craft PR body. The command generates it from commits.
-**DO NOT**: Inline the PR creation logic. You MUST use the Skill tool to delegate.
+**❌ DO NOT**:
+- Run `gh pr create` directly
+- Manually craft PR title or body
+- Skip the Skill tool because PR creation "seems simple"
+
+**✅ CHECKPOINT**: Did you call the Skill tool with `skill: "prp-core:prp-pr"`?
+If NOT → STOP → Go back and call it now.
 
 ---
 
@@ -263,7 +284,13 @@ This command will:
 - NOT re-read CLAUDE.md
 - Only read targeted files per agent domain
 
-**DO NOT**: Inline the review logic. You MUST use the Skill tool to delegate.
+**❌ DO NOT**:
+- Read code files and review them yourself
+- Run review agents logic directly
+- Skip the Skill tool because you "can review code"
+
+**✅ CHECKPOINT**: Did you call the Skill tool with `skill: "prp-core:prp-review-agents"`?
+If NOT → STOP → Go back and call it now.
 
 **If critical issues found**:
 1. Fix each critical issue

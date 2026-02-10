@@ -58,13 +58,16 @@ Failure: dirty working dir on main → STOP, ask to stash/commit.
 ### Step 2: Plan (skip if --plan-path)
 Use `$prp-plan` skill with FEATURE.
 Update: PLAN_PATH = generated plan path.
-Failure → STOP. DO NOT re-explain how to create a plan.
+Failure → STOP.
+❌ DO NOT: Read plan skill and execute logic yourself, analyze codebase directly.
+✅ CHECKPOINT: Did you invoke `$prp-plan`? If not → STOP → invoke it.
 
 ### Step 3: Implement
 Use `$prp-implement` skill with PLAN_PATH.
 Wait for completion — this is the longest step.
 Failure → STOP, report which task failed.
-DO NOT add extra validation — the skill has its own.
+❌ DO NOT: Read implement skill and execute logic yourself, write code directly.
+✅ CHECKPOINT: Did you invoke `$prp-implement`? If not → STOP → invoke it.
 
 **3.1 Verify Artifacts**: After implement completes, check:
 ```bash
@@ -77,16 +80,21 @@ ls -la .claude/PRPs/reviews/pr-context-*.md 2>/dev/null
 ### Step 4: Commit
 Use `$prp-commit` skill.
 Failure: pre-commit hook → fix and retry.
-DO NOT manually stage files.
+❌ DO NOT: Run git add/commit directly, manually stage files.
+✅ CHECKPOINT: Did you invoke `$prp-commit`? If not → STOP → invoke it.
 
 ### Step 5: PR (skip if NO_PR)
 Use `$prp-pr` skill.
 Update: PR_NUMBER = created PR number.
 Failure → STOP.
+❌ DO NOT: Run gh pr create directly, manually craft PR body.
+✅ CHECKPOINT: Did you invoke `$prp-pr`? If not → STOP → invoke it.
 
 ### Step 6: Review (skip if SKIP_REVIEW or NO_PR)
 Use `$prp-review` skill with PR_NUMBER.
 If critical issues: fix → commit → push → re-review (max 2 cycles).
+❌ DO NOT: Read code and review it yourself, skip the skill.
+✅ CHECKPOINT: Did you invoke `$prp-review`? If not → STOP → invoke it.
 
 ### Step 7: Summary
 Report: feature, branch, status, steps executed table, artifacts, review verdict, next steps.

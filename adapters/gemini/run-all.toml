@@ -22,22 +22,26 @@ Examples: `Add JWT auth` → full, `--plan-path plans/jwt.plan.md` → skip plan
 `git checkout -b feature/{slug}` (skip if already on feature branch). Dirty on main → STOP.
 
 ### Step 2: Plan (skip if --plan-path)
-Run /prp:plan with FEATURE. Update PLAN_PATH. DO NOT re-explain plan logic. Failure → STOP.
+Run /prp:plan with FEATURE. Update PLAN_PATH. Failure → STOP.
+❌ DO NOT: Inline plan logic, analyze codebase yourself. ✅ CHECKPOINT: Did you run /prp:plan?
 
 ### Step 3: Implement
-Run /prp:implement with PLAN_PATH. Wait for completion. DO NOT add extra validation. Failure → STOP.
+Run /prp:implement with PLAN_PATH. Wait for completion. Failure → STOP.
+❌ DO NOT: Inline implement logic, write code yourself. ✅ CHECKPOINT: Did you run /prp:implement?
 
 **3.1 Verify Artifacts**: Check report and pr-context files exist after implement completes.
 **3.2 Fallback**: If missing, create minimal report/context with files changed from git diff.
 
 ### Step 4: Commit
-Run /prp:commit. DO NOT manually stage files.
+Run /prp:commit. ❌ DO NOT: Run git add/commit directly. ✅ CHECKPOINT: Did you run /prp:commit?
 
 ### Step 5: PR (skip if --no-pr)
 Run /prp:pr. Update PR_NUMBER. Failure → STOP.
+❌ DO NOT: Run gh pr create directly. ✅ CHECKPOINT: Did you run /prp:pr?
 
 ### Step 6: Review (skip if --skip-review or --no-pr)
 Run /prp:review with PR_NUMBER. Critical issues → fix, commit, push, re-review (max 2 cycles).
+❌ DO NOT: Review code yourself. ✅ CHECKPOINT: Did you run /prp:review?
 
 ### Step 7: Summary
 Report: feature, branch, status, steps executed, artifacts, verdict, next steps.
