@@ -171,7 +171,22 @@ Ask final clarifying questions:
 
 ## Phase 7: GENERATE - Write PRD
 
-**Output path**: `.claude/PRPs/prds/drafts/{kebab-case-name}-prd-agents.md`
+### Artifact Naming (Timestamp Format)
+
+**Generate timestamp**:
+```bash
+TIMESTAMP=$(date +%Y%m%d-%H%M)
+```
+
+**Check for existing files**:
+```bash
+# Look for existing files with same base name
+ls .claude/PRPs/prds/drafts/{kebab-case-name}-prd-agents*.md 2>/dev/null
+```
+
+**Output path**: `.claude/PRPs/prds/drafts/{kebab-case-name}-prd-agents-{TIMESTAMP}.md`
+
+Example: `auth-feature-prd-agents-20260210-1430.md`
 
 Create directory if needed: `mkdir -p .claude/PRPs/prds/drafts`
 
@@ -342,7 +357,7 @@ After generating, report:
 ```markdown
 ## PRD Created
 
-**File**: `.claude/PRPs/prds/drafts/{name}-prd-agents.md` (DRAFT)
+**File**: `.claude/PRPs/prds/drafts/{name}-prd-agents-{TIMESTAMP}.md` (DRAFT)
 
 ### Summary
 

@@ -224,14 +224,21 @@ Create hypotheses to test:
 
 ## Artifact Output
 
-**OUTPUT_PATH**: `.claude/PRPs/discovery/{segment-name}.discovery.md`
+**Artifact Naming (Timestamp Format)**:
+```bash
+TIMESTAMP=$(date +%Y%m%d-%H%M)
+ls .claude/PRPs/discovery/{segment-name}*.discovery.md 2>/dev/null
+```
 
-**NAMING**: `{target-segment-kebab-case}.discovery.md`
+**OUTPUT_PATH**: `.claude/PRPs/discovery/{segment-name}-{TIMESTAMP}.discovery.md`
+
+**NAMING**: `{target-segment-kebab-case}-{TIMESTAMP}.discovery.md`
 
 **INSTRUCTIONS**:
 1. Create directory if needed: `mkdir -p .claude/PRPs/discovery`
-2. Save the complete output to the path above
-3. Include date created in the document
+2. Generate timestamp and check for existing files
+3. Save the complete output to the path above
+4. Include date created in the document
 
 **WORKFLOW CONNECTIONS**:
 - **Feeds into**: `positioning-strategy-agent`, `sales-enablement-agent`, `outreach-agent`, `content-marketing-agent`
@@ -239,8 +246,8 @@ Create hypotheses to test:
 
 **EXAMPLE**:
 ```
-.claude/PRPs/discovery/smb-support-teams.discovery.md
-.claude/PRPs/discovery/enterprise-cx-leaders.discovery.md
+.claude/PRPs/discovery/smb-support-teams-20260210-1430.discovery.md
+.claude/PRPs/discovery/enterprise-cx-leaders-20260210-1545.discovery.md
 ```
 
 ## Key Principles

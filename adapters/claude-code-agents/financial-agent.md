@@ -337,14 +337,21 @@ Break-Even Revenue = Fixed Costs ÷ Gross Margin
 
 ## Artifact Output
 
-**OUTPUT_PATH**: `.claude/PRPs/financial/{analysis-type}.financial.md`
+**Artifact Naming (Timestamp Format)**:
+```bash
+TIMESTAMP=$(date +%Y%m%d-%H%M)
+ls .claude/PRPs/financial/{analysis-type}*.financial.md 2>/dev/null
+```
 
-**NAMING**: `{analysis-type-kebab-case}.financial.md`
+**OUTPUT_PATH**: `.claude/PRPs/financial/{analysis-type}-{TIMESTAMP}.financial.md`
+
+**NAMING**: `{analysis-type-kebab-case}-{TIMESTAMP}.financial.md`
 
 **INSTRUCTIONS**:
 1. Create directory if needed: `mkdir -p .claude/PRPs/financial`
-2. Save the complete output to the path above
-3. Include date for time-series tracking
+2. Generate timestamp and check for existing files
+3. Save the complete output to the path above
+4. Include date for time-series tracking
 
 **WORKFLOW CONNECTIONS**:
 - **Feeds into**: `pricing-strategy-agent`, `proposal-agent` (for ROI calculations)
@@ -352,8 +359,8 @@ Break-Even Revenue = Fixed Costs ÷ Gross Margin
 
 **EXAMPLE**:
 ```
-.claude/PRPs/financial/unit-economics-q1-2024.financial.md
-.claude/PRPs/financial/runway-projection.financial.md
+.claude/PRPs/financial/unit-economics-q1-2024-20260210-1430.financial.md
+.claude/PRPs/financial/runway-projection-20260210-1545.financial.md
 ```
 
 ## Key Principles

@@ -432,14 +432,21 @@ Would be honored to connect.
 
 ## Artifact Output
 
-**OUTPUT_PATH**: `.claude/PRPs/branding/{person-or-strategy}.branding.md`
+**Artifact Naming (Timestamp Format)**:
+```bash
+TIMESTAMP=$(date +%Y%m%d-%H%M)
+ls .claude/PRPs/branding/{person-or-strategy}*.branding.md 2>/dev/null
+```
 
-**NAMING**: `{person-or-strategy-kebab-case}.branding.md`
+**OUTPUT_PATH**: `.claude/PRPs/branding/{person-or-strategy}-{TIMESTAMP}.branding.md`
+
+**NAMING**: `{person-or-strategy-kebab-case}-{TIMESTAMP}.branding.md`
 
 **INSTRUCTIONS**:
 1. Create directory if needed: `mkdir -p .claude/PRPs/branding`
-2. Save the complete output to the path above
-3. Include content calendar and metrics tracking
+2. Generate timestamp and check for existing files
+3. Save the complete output to the path above
+4. Include content calendar and metrics tracking
 
 **WORKFLOW CONNECTIONS**:
 - **Feeds into**: `content-marketing-agent`, `outreach-agent` (warm intros)
@@ -447,8 +454,8 @@ Would be honored to connect.
 
 **EXAMPLE**:
 ```
-.claude/PRPs/branding/founder-linkedin-strategy.branding.md
-.claude/PRPs/branding/thought-leadership-q1.branding.md
+.claude/PRPs/branding/founder-linkedin-strategy-20260210-1430.branding.md
+.claude/PRPs/branding/thought-leadership-q1-20260210-1545.branding.md
 ```
 
 ## Key Principles

@@ -348,14 +348,21 @@ Or reply to this email with any questions.
 
 ## Artifact Output
 
-**OUTPUT_PATH**: `.claude/PRPs/proposals/{prospect-name}.proposal.md`
+**Artifact Naming (Timestamp Format)**:
+```bash
+TIMESTAMP=$(date +%Y%m%d-%H%M)
+ls .claude/PRPs/proposals/{prospect-name}*.proposal.md 2>/dev/null
+```
 
-**NAMING**: `{prospect-name-kebab-case}.proposal.md`
+**OUTPUT_PATH**: `.claude/PRPs/proposals/{prospect-name}-{TIMESTAMP}.proposal.md`
+
+**NAMING**: `{prospect-name-kebab-case}-{TIMESTAMP}.proposal.md`
 
 **INSTRUCTIONS**:
 1. Create directory if needed: `mkdir -p .claude/PRPs/proposals`
-2. Save the complete output to the path above
-3. Include version number for revision tracking
+2. Generate timestamp and check for existing files
+3. Save the complete output to the path above
+4. Include version number for revision tracking
 
 **WORKFLOW CONNECTIONS**:
 - **Feeds into**: `case-study-agent` (after win), `customer-success-agent` (for onboarding context)
@@ -363,8 +370,8 @@ Or reply to this email with any questions.
 
 **EXAMPLE**:
 ```
-.claude/PRPs/proposals/acme-corp-enterprise.proposal.md
-.claude/PRPs/proposals/techstartup-smb.proposal.md
+.claude/PRPs/proposals/acme-corp-enterprise-20260210-1430.proposal.md
+.claude/PRPs/proposals/techstartup-smb-20260210-1545.proposal.md
 ```
 
 ## Key Principles

@@ -219,11 +219,18 @@ git blame -L {start},{end} {affected-file}
 
 ```bash
 mkdir -p .claude/PRPs/issues
+TIMESTAMP=$(date +%Y%m%d-%H%M)
+# Check for existing files with same base name
+ls .claude/PRPs/issues/issue-{number}*.md 2>/dev/null
 ```
 
-**Path:** `.claude/PRPs/issues/issue-{number}.md`
+**Path (with issue number):** `.claude/PRPs/issues/issue-{number}-{TIMESTAMP}.md`
 
-If free-form (no issue number): `.claude/PRPs/issues/investigation-{timestamp}.md`
+Example: `issue-123-20260210-1430.md`
+
+**Path (free-form, no issue number):** `.claude/PRPs/issues/investigation-{TIMESTAMP}.md`
+
+Example: `investigation-20260210-1430.md`
 
 ### 4.2 Artifact Template
 
@@ -413,7 +420,7 @@ describe("{feature}", () => {
 
 - **Investigated by**: Claude
 - **Timestamp**: {ISO timestamp}
-- **Artifact**: `.claude/PRPs/issues/issue-{number}.md`
+- **Artifact**: `.claude/PRPs/issues/issue-{number}-{TIMESTAMP}.md`
 
 ````
 
@@ -552,7 +559,7 @@ EOF
 
 ### Artifact
 
-`.claude/PRPs/issues/issue-{number}.md`
+`.claude/PRPs/issues/issue-{number}-{TIMESTAMP}.md`
 
 ### GitHub
 

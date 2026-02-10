@@ -319,14 +319,21 @@ Human time: [X] min (reduced from [Y] min)
 
 ## Artifact Output
 
-**OUTPUT_PATH**: `.claude/PRPs/automation/{process-or-area}.automation.md`
+**Artifact Naming (Timestamp Format)**:
+```bash
+TIMESTAMP=$(date +%Y%m%d-%H%M)
+ls .claude/PRPs/automation/{process-or-area}*.automation.md 2>/dev/null
+```
 
-**NAMING**: `{process-or-area-kebab-case}.automation.md`
+**OUTPUT_PATH**: `.claude/PRPs/automation/{process-or-area}-{TIMESTAMP}.automation.md`
+
+**NAMING**: `{process-or-area-kebab-case}-{TIMESTAMP}.automation.md`
 
 **INSTRUCTIONS**:
 1. Create directory if needed: `mkdir -p .claude/PRPs/automation`
-2. Save the complete output to the path above
-3. Include ROI calculations and implementation timeline
+2. Generate timestamp and check for existing files
+3. Save the complete output to the path above
+4. Include ROI calculations and implementation timeline
 
 **WORKFLOW CONNECTIONS**:
 - **Feeds into**: `customer-success-agent` (onboarding automation), `sales-enablement-agent` (sales automation)
@@ -334,8 +341,8 @@ Human time: [X] min (reduced from [Y] min)
 
 **EXAMPLE**:
 ```
-.claude/PRPs/automation/lead-nurture-workflow.automation.md
-.claude/PRPs/automation/customer-onboarding.automation.md
+.claude/PRPs/automation/lead-nurture-workflow-20260210-1430.automation.md
+.claude/PRPs/automation/customer-onboarding-20260210-1545.automation.md
 ```
 
 ## Key Principles

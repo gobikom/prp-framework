@@ -347,14 +347,21 @@ Best,
 
 ## Artifact Output
 
-**OUTPUT_PATH**: `.claude/PRPs/success/{customer-or-segment}.success.md`
+**Artifact Naming (Timestamp Format)**:
+```bash
+TIMESTAMP=$(date +%Y%m%d-%H%M)
+ls .claude/PRPs/success/{customer-or-segment}*.success.md 2>/dev/null
+```
 
-**NAMING**: `{customer-or-segment-kebab-case}.success.md`
+**OUTPUT_PATH**: `.claude/PRPs/success/{customer-or-segment}-{TIMESTAMP}.success.md`
+
+**NAMING**: `{customer-or-segment-kebab-case}-{TIMESTAMP}.success.md`
 
 **INSTRUCTIONS**:
 1. Create directory if needed: `mkdir -p .claude/PRPs/success`
-2. Save the complete output to the path above
-3. Include health scores and action items
+2. Generate timestamp and check for existing files
+3. Save the complete output to the path above
+4. Include health scores and action items
 
 **WORKFLOW CONNECTIONS**:
 - **Feeds into**: `case-study-agent` (for success stories), `sales-enablement-agent` (for references)
@@ -362,8 +369,8 @@ Best,
 
 **EXAMPLE**:
 ```
-.claude/PRPs/success/acme-corp-health.success.md
-.claude/PRPs/success/smb-onboarding-playbook.success.md
+.claude/PRPs/success/acme-corp-health-20260210-1430.success.md
+.claude/PRPs/success/smb-onboarding-playbook-20260210-1545.success.md
 ```
 
 ## Key Principles

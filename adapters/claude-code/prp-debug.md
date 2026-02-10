@@ -184,7 +184,17 @@ mkdir -p .claude/PRPs/debug
 
 ### 5.2 Generate Report
 
-**Path**: `.claude/PRPs/debug/rca-{issue-slug}.md`
+**Artifact Naming (Timestamp Format)**:
+
+```bash
+TIMESTAMP=$(date +%Y%m%d-%H%M)
+# Check for existing files with same base name
+ls .claude/PRPs/debug/rca-{issue-slug}*.md 2>/dev/null
+```
+
+**Path**: `.claude/PRPs/debug/rca-{issue-slug}-{TIMESTAMP}.md`
+
+Example: `rca-login-failure-20260210-1430.md`
 
 ```markdown
 # Root Cause Analysis
@@ -265,7 +275,7 @@ WHY: {First level cause}
 **Root Cause**: {cause}
 **Confidence**: {High/Medium/Low}
 
-**Report**: `.claude/PRPs/debug/rca-{issue-slug}.md`
+**Report**: `.claude/PRPs/debug/rca-{issue-slug}-{TIMESTAMP}.md`
 
 ### Summary
 

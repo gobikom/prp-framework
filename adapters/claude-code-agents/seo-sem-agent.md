@@ -285,14 +285,21 @@ Descriptions (4 options, 90 chars each):
 
 ## Artifact Output
 
-**OUTPUT_PATH**: `.claude/PRPs/seo/{domain-or-campaign}.seo.md`
+**Artifact Naming (Timestamp Format)**:
+```bash
+TIMESTAMP=$(date +%Y%m%d-%H%M)
+ls .claude/PRPs/seo/{domain-or-campaign}*.seo.md 2>/dev/null
+```
 
-**NAMING**: `{domain-or-campaign-kebab-case}.seo.md`
+**OUTPUT_PATH**: `.claude/PRPs/seo/{domain-or-campaign}-{TIMESTAMP}.seo.md`
+
+**NAMING**: `{domain-or-campaign-kebab-case}-{TIMESTAMP}.seo.md`
 
 **INSTRUCTIONS**:
 1. Create directory if needed: `mkdir -p .claude/PRPs/seo`
-2. Save the complete output to the path above
-3. Include keyword research data and tracking metrics
+2. Generate timestamp and check for existing files
+3. Save the complete output to the path above
+4. Include keyword research data and tracking metrics
 
 **WORKFLOW CONNECTIONS**:
 - **Feeds into**: `content-marketing-agent` (content optimization)
@@ -300,8 +307,8 @@ Descriptions (4 options, 90 chars each):
 
 **EXAMPLE**:
 ```
-.claude/PRPs/seo/ai-chatbot-keywords.seo.md
-.claude/PRPs/seo/google-ads-q1-campaign.seo.md
+.claude/PRPs/seo/ai-chatbot-keywords-20260210-1430.seo.md
+.claude/PRPs/seo/google-ads-q1-campaign-20260210-1545.seo.md
 ```
 
 ## Key Principles

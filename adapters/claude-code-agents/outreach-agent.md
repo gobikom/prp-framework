@@ -334,14 +334,21 @@ Happy to chat if you ever want to exchange notes on [topic].
 
 ## Artifact Output
 
-**OUTPUT_PATH**: `.claude/PRPs/outreach/{segment-or-campaign}.outreach.md`
+**Artifact Naming (Timestamp Format)**:
+```bash
+TIMESTAMP=$(date +%Y%m%d-%H%M)
+ls .claude/PRPs/outreach/{segment-or-campaign}*.outreach.md 2>/dev/null
+```
 
-**NAMING**: `{target-segment-or-campaign-kebab-case}.outreach.md`
+**OUTPUT_PATH**: `.claude/PRPs/outreach/{segment-or-campaign}-{TIMESTAMP}.outreach.md`
+
+**NAMING**: `{target-segment-or-campaign-kebab-case}-{TIMESTAMP}.outreach.md`
 
 **INSTRUCTIONS**:
 1. Create directory if needed: `mkdir -p .claude/PRPs/outreach`
-2. Save the complete output to the path above
-3. Include email sequences and tracking metrics
+2. Generate timestamp and check for existing files
+3. Save the complete output to the path above
+4. Include email sequences and tracking metrics
 
 **WORKFLOW CONNECTIONS**:
 - **Feeds into**: `sales-enablement-agent` (when prospect responds), `proposal-agent`
@@ -349,8 +356,8 @@ Happy to chat if you ever want to exchange notes on [topic].
 
 **EXAMPLE**:
 ```
-.claude/PRPs/outreach/fintech-cxo-campaign.outreach.md
-.claude/PRPs/outreach/series-a-startups.outreach.md
+.claude/PRPs/outreach/fintech-cxo-campaign-20260210-1430.outreach.md
+.claude/PRPs/outreach/series-a-startups-20260210-1545.outreach.md
 ```
 
 ## Key Principles

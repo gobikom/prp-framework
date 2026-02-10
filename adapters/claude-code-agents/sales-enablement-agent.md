@@ -369,14 +369,21 @@ Want to lock this in now?"
 
 ## Artifact Output
 
-**OUTPUT_PATH**: `.claude/PRPs/sales/{prospect-or-segment}.sales.md`
+**Artifact Naming (Timestamp Format)**:
+```bash
+TIMESTAMP=$(date +%Y%m%d-%H%M)
+ls .claude/PRPs/sales/{prospect-or-segment}*.sales.md 2>/dev/null
+```
 
-**NAMING**: `{prospect-name-or-segment-kebab-case}.sales.md`
+**OUTPUT_PATH**: `.claude/PRPs/sales/{prospect-or-segment}-{TIMESTAMP}.sales.md`
+
+**NAMING**: `{prospect-name-or-segment-kebab-case}-{TIMESTAMP}.sales.md`
 
 **INSTRUCTIONS**:
 1. Create directory if needed: `mkdir -p .claude/PRPs/sales`
-2. Save the complete output to the path above
-3. Include date and deal stage in the document
+2. Generate timestamp and check for existing files
+3. Save the complete output to the path above
+4. Include date and deal stage in the document
 
 **WORKFLOW CONNECTIONS**:
 - **Feeds into**: `proposal-agent`, `case-study-agent` (after win)
@@ -384,8 +391,8 @@ Want to lock this in now?"
 
 **EXAMPLE**:
 ```
-.claude/PRPs/sales/acme-corp-enterprise.sales.md
-.claude/PRPs/sales/smb-objection-playbook.sales.md
+.claude/PRPs/sales/acme-corp-enterprise-20260210-1430.sales.md
+.claude/PRPs/sales/smb-objection-playbook-20260210-1545.sales.md
 ```
 
 ## Key Principles

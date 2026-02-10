@@ -32,9 +32,12 @@ Execute the implementation plan from `/prp-issue-investigate`:
 **If input looks like a number** (`123`, `#123`):
 
 ```bash
-# Look for artifact
-ls .claude/PRPs/issues/issue-{number}.md
+# Look for artifact (may have timestamp suffix)
+# Find the most recent artifact for this issue
+ls -t .claude/PRPs/issues/issue-{number}*.md 2>/dev/null | head -1
 ```
+
+**Note**: Artifact files now include timestamps (e.g., `issue-123-20260210-1430.md`). Use the most recent one.
 
 **If input is a path**:
 
@@ -60,7 +63,7 @@ cat {artifact-path}
 **If artifact not found:**
 
 ```
-❌ Artifact not found at .claude/PRPs/issues/issue-{number}.md
+❌ No artifact found for issue #{number} at .claude/PRPs/issues/issue-{number}*.md
 
 Run `/prp-issue-investigate {number}` first to create the implementation plan.
 ```
@@ -393,7 +396,7 @@ Fixes #{number}
 
 ### Implementation followed artifact:
 
-`.claude/PRPs/issues/issue-{number}.md`
+`.claude/PRPs/issues/issue-{number}-{TIMESTAMP}.md`
 
 ### Deviations from plan:
 
@@ -493,7 +496,8 @@ EOF
 
 ```bash
 mkdir -p .claude/PRPs/issues/completed
-mv .claude/PRPs/issues/issue-{number}.md .claude/PRPs/issues/completed/
+# Move the artifact that was used (has timestamp suffix)
+mv .claude/PRPs/issues/issue-{number}-{TIMESTAMP}.md .claude/PRPs/issues/completed/
 ```
 
 ### 9.2 Commit and Push Archive
@@ -541,7 +545,7 @@ git push
 
 ### Artifact
 
-📄 Archived to `.claude/PRPs/issues/completed/issue-{number}.md`
+📄 Archived to `.claude/PRPs/issues/completed/issue-{number}-{TIMESTAMP}.md`
 
 ### Next Steps
 

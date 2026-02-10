@@ -323,6 +323,46 @@ Parse Input → Create Branch → Plan → Implement → Commit → PR → Revie
 - ✅ Reads AGENTS.md
 - ⚠️ Manual context passing
 
+## Artifact Naming Convention
+
+ทุก artifact ใช้ **timestamp format** เพื่อป้องกันการเขียนไฟล์ซ้ำ
+
+### Timestamp Format
+
+```bash
+TIMESTAMP=$(date +%Y%m%d-%H%M)
+# ผลลัพธ์: 20260210-1430
+```
+
+### Artifact Paths
+
+| Workflow | Artifact Path Example |
+|----------|----------------------|
+| PRD | `prds/drafts/auth-prd-agents-20260210-1430.md` |
+| Design | `designs/auth-design-agents-20260210-1430.md` |
+| Plan | `plans/auth-20260210-1430.plan.md` |
+| Implement | `reports/auth-report-20260210-1430.md` |
+| Debug | `debug/rca-login-error-20260210-1430.md` |
+| Issue Investigate | `issues/issue-123-20260210-1430.md` |
+| Review | `reviews/pr-42-review.md` (ใช้ PR number) |
+| Feature Review | `reviews/feature-review-auth-20260210.md` (ใช้ date) |
+
+### หา Artifact ล่าสุด
+
+```bash
+# หา artifact ล่าสุดโดย sort by modified time
+ls -t .claude/PRPs/plans/*.plan.md | head -1
+```
+
+### Cleanup
+
+```bash
+# ลบ artifacts เก่ากว่า 30 วัน
+./scripts/cleanup-artifacts.sh 30
+```
+
+---
+
 ## Best Practices
 
 1. **Start with PRD** for non-trivial features
@@ -331,3 +371,4 @@ Parse Input → Create Branch → Plan → Implement → Commit → PR → Revie
 4. **Validate Early** - type-check after every file change
 5. **Review Often** - catch issues before merge
 6. **Natural Commits** - let AI suggest message
+7. **Cleanup Regularly** - run cleanup script weekly to remove old artifacts

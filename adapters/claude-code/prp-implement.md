@@ -278,7 +278,17 @@ mkdir -p .claude/PRPs/reports
 
 ### 5.2 Generate Report
 
-**Path**: `.claude/PRPs/reports/{plan-name}-report.md`
+**Artifact Naming (Timestamp Format)**:
+
+```bash
+TIMESTAMP=$(date +%Y%m%d-%H%M)
+# Check for existing files with same base name
+ls .claude/PRPs/reports/{plan-name}-report*.md 2>/dev/null
+```
+
+**Path**: `.claude/PRPs/reports/{plan-name}-report-{TIMESTAMP}.md`
+
+Example: `user-auth-report-20260210-1430.md`
 
 ```markdown
 # Implementation Report
@@ -497,7 +507,7 @@ Based on implementation:
 
 **PHASE_5_CHECKPOINT:**
 
-- [ ] Report created at `.claude/PRPs/reports/{plan-name}-report.md`
+- [ ] Report created at `.claude/PRPs/reports/{plan-name}-report-{TIMESTAMP}.md`
 - [ ] PRD updated (if applicable) - phase status changed from `in-progress` to `complete`
 - [ ] Plan moved to `.claude/PRPs/plans/completed/`
 - [ ] Verified plan file no longer exists in original location
@@ -539,7 +549,7 @@ Based on implementation:
 
 ### Artifacts
 
-- Report: `.claude/PRPs/reports/{name}-report.md`
+- Report: `.claude/PRPs/reports/{name}-report-{TIMESTAMP}.md`
 - Review Context: `.claude/PRPs/reviews/pr-context-{BRANCH}.md`
 - Plan archived to: `.claude/PRPs/plans/completed/`
 

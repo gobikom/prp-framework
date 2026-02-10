@@ -160,7 +160,22 @@ Document key decisions with rationale:
 
 ## Phase 8: Generate Design Doc
 
-**Output path**: `.claude/PRPs/designs/{feature}-design-agents.md`
+### Artifact Naming (Timestamp Format)
+
+**Generate timestamp**:
+```bash
+TIMESTAMP=$(date +%Y%m%d-%H%M)
+```
+
+**Check for existing files**:
+```bash
+# Look for existing files with same base name
+ls .claude/PRPs/designs/{feature}-design-agents*.md 2>/dev/null
+```
+
+**Output path**: `.claude/PRPs/designs/{feature}-design-agents-{TIMESTAMP}.md`
+
+Example: `auth-feature-design-agents-20260210-1430.md`
 
 Create directory: `mkdir -p .claude/PRPs/designs`
 
@@ -407,7 +422,7 @@ Report:
 ```markdown
 ## Design Doc Created
 
-**File**: `.claude/PRPs/designs/{name}-design-agents.md` (REFERENCE ONLY)
+**File**: `.claude/PRPs/designs/{name}-design-agents-{TIMESTAMP}.md` (REFERENCE ONLY)
 
 ### Summary
 
