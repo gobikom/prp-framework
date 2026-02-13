@@ -34,7 +34,7 @@ Design Doc = Architecture blueprint. Simple features skip to Plan. Complex featu
 5. **Technical Decisions**: Document decisions table with Choice, Alternatives, Rationale, Trade-offs
 6. **Non-Functional Requirements**: Performance (targets p50/p95/p99), Security (auth, validation, XSS/CSRF), Scalability (horizontal scaling, async), Monitoring (metrics, logging, alerts)
 7. **Migration Strategy**: Backward compatibility, data migration, feature flags, rollback plan
-8. **Generate**: Save to `.claude/PRPs/designs/{feature}-design-codex.md` (create directory: `mkdir -p .claude/PRPs/designs`)
+8. **Generate**: Save to `.prp-output/designs/{feature}-design-codex.md` (create directory: `mkdir -p .prp-output/designs`)
 
    > **Note**: Uses `-codex` suffix to identify Codex design docs. Multiple tools can create design docs for comparison.
 
@@ -42,7 +42,7 @@ Design Doc = Architecture blueprint. Simple features skip to Plan. Complex featu
 
 ```markdown
 ---
-source-prd: .claude/PRPs/prds/{feature}-prd.md
+source-prd: .prp-output/prds/{feature}-prd.md
 created: {timestamp}
 status: reference
 tool: codex
@@ -141,7 +141,7 @@ Errors: {table with status/code/description}
 ## Output
 
 Report:
-- File: `.claude/PRPs/designs/{name}-design-codex.md` (REFERENCE ONLY)
+- File: `.prp-output/designs/{name}-design-codex.md` (REFERENCE ONLY)
 - Summary: Feature, Complexity, Components count, API endpoints count, Database changes
 - Key Design Decisions: top 3 with rationale
 - Security Considerations: list

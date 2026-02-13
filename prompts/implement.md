@@ -267,12 +267,12 @@ Run any edge case tests specified in the plan.
 ### 5.1 Create Report Directory
 
 ```bash
-mkdir -p .claude/PRPs/reports
+mkdir -p .prp-output/reports
 ```
 
 ### 5.2 Generate Report
 
-**Path**: `.claude/PRPs/reports/{plan-name}-report-other.md`
+**Path**: `.prp-output/reports/{plan-name}-report-other.md`
 
 > **Note**: Uses `-other` suffix to identify generic/Kimi implementation reports and prevent overwriting reports from other tools (each tool uses its own suffix for parallel implementation capability).
 
@@ -382,13 +382,13 @@ Compare the original plan's assessment with what actually happened:
 ### 5.4 Archive Plan
 
 ```bash
-mkdir -p .ai-workflows/plans/completed
-mv {ARGS} .ai-workflows/plans/completed/
+mkdir -p .prp-output/plans/completed
+mv {ARGS} .prp-output/plans/completed/
 ```
 
 **PHASE_5_CHECKPOINT:**
 
-- [ ] Report created at `.claude/PRPs/reports/`
+- [ ] Report created at `.prp-output/reports/`
 - [ ] PRD updated (if applicable) — phase marked complete
 - [ ] Plan moved to completed folder
 
@@ -426,8 +426,8 @@ mv {ARGS} .ai-workflows/plans/completed/
 
 ### Artifacts
 
-- Report: `.claude/PRPs/reports/{name}-report-other.md`
-- Plan archived to: `.ai-workflows/plans/completed/`
+- Report: `.prp-output/reports/{name}-report-other.md`
+- Plan archived to: `.prp-output/plans/completed/`
 
 {If from PRD:}
 ### PRD Progress

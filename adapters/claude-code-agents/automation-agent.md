@@ -322,15 +322,15 @@ Human time: [X] min (reduced from [Y] min)
 **Artifact Naming (Timestamp Format)**:
 ```bash
 TIMESTAMP=$(date +%Y%m%d-%H%M)
-ls .claude/PRPs/automation/{process-or-area}*.automation.md 2>/dev/null
+ls .prp-output/automation/{process-or-area}*.automation.md 2>/dev/null
 ```
 
-**OUTPUT_PATH**: `.claude/PRPs/automation/{process-or-area}-{TIMESTAMP}.automation.md`
+**OUTPUT_PATH**: `.prp-output/automation/{process-or-area}-{TIMESTAMP}.automation.md`
 
 **NAMING**: `{process-or-area-kebab-case}-{TIMESTAMP}.automation.md`
 
 **INSTRUCTIONS**:
-1. Create directory if needed: `mkdir -p .claude/PRPs/automation`
+1. Create directory if needed: `mkdir -p .prp-output/automation`
 2. Generate timestamp and check for existing files
 3. Save the complete output to the path above
 4. Include ROI calculations and implementation timeline
@@ -341,8 +341,8 @@ ls .claude/PRPs/automation/{process-or-area}*.automation.md 2>/dev/null
 
 **EXAMPLE**:
 ```
-.claude/PRPs/automation/lead-nurture-workflow-20260210-1430.automation.md
-.claude/PRPs/automation/customer-onboarding-20260210-1545.automation.md
+.prp-output/automation/lead-nurture-workflow-20260210-1430.automation.md
+.prp-output/automation/customer-onboarding-20260210-1545.automation.md
 ```
 
 ## Key Principles

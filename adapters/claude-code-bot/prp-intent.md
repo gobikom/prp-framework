@@ -322,7 +322,7 @@ Fine-grained variations:
 ```markdown
 ## Intent Schema
 
-**Path**: `.claude/PRPs/intents/intent-schema-{date}.json`
+**Path**: `.prp-output/intents/intent-schema-{date}.json`
 
 ```json
 {
@@ -363,7 +363,7 @@ Fine-grained variations:
 
 ### 6.2 Intent Documentation
 
-**Path**: `.claude/PRPs/intents/intent-documentation-{date}.md`
+**Path**: `.prp-output/intents/intent-documentation-{date}.md`
 
 ```markdown
 ## Intent Documentation
@@ -425,9 +425,9 @@ Fine-grained variations:
 
 ### Artifacts
 
-📄 **Schema**: `.claude/PRPs/intents/intent-schema-{date}.json`
-📋 **Documentation**: `.claude/PRPs/intents/intent-documentation-{date}.md`
-🧪 **Test Cases**: `.claude/PRPs/intents/intent-tests-{date}.md`
+📄 **Schema**: `.prp-output/intents/intent-schema-{date}.json`
+📋 **Documentation**: `.prp-output/intents/intent-documentation-{date}.md`
+🧪 **Test Cases**: `.prp-output/intents/intent-tests-{date}.md`
 
 ### Next Steps
 

@@ -97,7 +97,7 @@ This will:
 **DO NOT**: Add extra validation steps here. The implement workflow already has rigorous validation loops.
 
 **Context passed forward**:
-- Implementation report at `.ai-workflows/reports/`
+- Implementation report at `.prp-output/reports/`
 - Validated code on feature branch
 
 ---
@@ -177,7 +177,7 @@ Generate final report:
 ### Artifacts
 
 - Plan: `{PLAN_PATH}` (archived)
-- Report: `.ai-workflows/reports/{name}-report.md`
+- Report: `.prp-output/reports/{name}-report.md`
 - PR: {URL}
 
 ### Review Verdict

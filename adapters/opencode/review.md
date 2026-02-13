@@ -49,15 +49,15 @@ Categorize: Critical (block merge), Important (address), Suggestions, Strengths.
 Include: Documentation Updates, Verdict (READY TO MERGE / NEEDS FIXES / CRITICAL ISSUES), Recommended Actions.
 
 ### Save Local Review
-Save aggregated review to `.claude/PRPs/reviews/pr-{NUMBER}-review-opencode.md` before posting.
+Save aggregated review to `.prp-output/reviews/pr-{NUMBER}-review-opencode.md` before posting.
 
 > **Note**: Uses `-opencode` suffix to identify OpenCode reviews and prevent overwriting reviews from other tools (each tool uses its own suffix for parallel review capability).
 
 ### Post to GitHub
-`gh pr comment <number> --body-file .claude/PRPs/reviews/pr-{NUMBER}-review-opencode.md`
+`gh pr comment <number> --body-file .prp-output/reviews/pr-{NUMBER}-review-opencode.md`
 
 ### Update Implementation Report
-After posting, find implementation report (`ls .claude/PRPs/reports/*-report.md`). If exists, append "Review Outcome" section with: review date, PR number, verdict, link to review file, issue counts by category. If no report found, skip silently.
+After posting, find implementation report (`ls .prp-output/reports/*-report.md`). If exists, append "Review Outcome" section with: review date, PR number, verdict, link to review file, issue counts by category. If no report found, skip silently.
 
 ## Usage
 

@@ -36,7 +36,7 @@ Extract context from:
    - `README.md` - Product description
    - Landing page content
    - Existing PRDs or marketing materials
-   - Any files in `.claude/PRPs/`
+   - Any files in `.prp-output/`
 
 ### Mode 2: Interview
 
@@ -287,16 +287,16 @@ Check existing `BUSINESS-CONTEXT.md` for:
 ## Related Artifacts
 
 ### Discovery & Research
-- Customer Personas: `.claude/PRPs/discovery/[file]`
-- Market Research: `.claude/PRPs/discovery/[file]`
+- Customer Personas: `.prp-output/discovery/[file]`
+- Market Research: `.prp-output/discovery/[file]`
 
 ### Strategy
-- Positioning: `.claude/PRPs/positioning/[file]`
-- Pricing: `.claude/PRPs/pricing/[file]`
+- Positioning: `.prp-output/positioning/[file]`
+- Pricing: `.prp-output/pricing/[file]`
 
 ### Sales & Marketing
-- Case Studies: `.claude/PRPs/case-studies/[file]`
-- Pitch Deck: `.claude/PRPs/marketing/[file]`
+- Case Studies: `.prp-output/case-studies/[file]`
+- Pitch Deck: `.prp-output/marketing/[file]`
 
 ---
 
@@ -315,10 +315,10 @@ Check existing `BUSINESS-CONTEXT.md` for:
 
 ## Artifact Output
 
-**OUTPUT_PATH**: `.claude/PRPs/BUSINESS-CONTEXT.md`
+**OUTPUT_PATH**: `.prp-output/BUSINESS-CONTEXT.md`
 
 **INSTRUCTIONS**:
-1. Create directory if needed: `mkdir -p .claude/PRPs`
+1. Create directory if needed: `mkdir -p .prp-output`
 2. Save the complete output to the path above
 3. Update the "Last updated" date on every modification
 4. Increment version number on significant changes
@@ -349,7 +349,7 @@ Check existing `BUSINESS-CONTEXT.md` for:
    ```
    - CLAUDE.md
    - README.md
-   - .claude/PRPs/**/*.md
+   - .prp-output/**/*.md
    - docs/**/*.md
    - package.json (for product name, description)
    - Any landing page files

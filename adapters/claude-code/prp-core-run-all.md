@@ -71,7 +71,7 @@ Use Skill tool with:
 This command will:
 - Analyze the codebase
 - Generate a comprehensive plan
-- Save to `.claude/PRPs/plans/`
+- Save to `.prp-output/plans/`
 
 **Variable update**: `PLAN_PATH = {generated plan path}`
 
@@ -127,10 +127,10 @@ If NOT → STOP → Go back and call it now.
 BRANCH=$(git branch --show-current)
 
 # Check for report (find the most recent one)
-ls -la .claude/PRPs/reports/*-report.md 2>/dev/null
+ls -la .prp-output/reports/*-report.md 2>/dev/null
 
 # Check for review context
-ls -la .claude/PRPs/reviews/pr-context-*.md 2>/dev/null
+ls -la .prp-output/reviews/pr-context-*.md 2>/dev/null
 ```
 
 **Set variables from verification:**
@@ -175,7 +175,7 @@ Run validation commands to verify:
 - `{runner} run build`
 ```
 
-Save to: `.claude/PRPs/reports/{plan-slug}-report.md`
+Save to: `.prp-output/reports/{plan-slug}-report.md`
 
 **If pr-context is missing**, create a minimal context:
 
@@ -198,11 +198,11 @@ Save to: `.claude/PRPs/reports/{plan-slug}-report.md`
 Context was not pre-generated. Review agents will need to analyze files directly.
 ```
 
-Save to: `.claude/PRPs/reviews/pr-context-{BRANCH}.md`
+Save to: `.prp-output/reviews/pr-context-{BRANCH}.md`
 
 **Context passed forward**:
-- Implementation report at `.claude/PRPs/reports/`
-- Review context file at `.claude/PRPs/reviews/pr-context-{BRANCH}.md`
+- Implementation report at `.prp-output/reports/`
+- Review context file at `.prp-output/reviews/pr-context-{BRANCH}.md`
 - Validated code on feature branch
 
 ---
@@ -327,8 +327,8 @@ Generate final report:
 ### Artifacts
 
 - Plan: `{PLAN_PATH}` (archived)
-- Report: `.claude/PRPs/reports/{name}-report.md`
-- Review Context: `.claude/PRPs/reviews/pr-context-{BRANCH}.md`
+- Report: `.prp-output/reports/{name}-report.md`
+- Review Context: `.prp-output/reviews/pr-context-{BRANCH}.md`
 - PR: {URL}
 
 ### Review Verdict
@@ -386,8 +386,8 @@ With context file from implement step, review costs ~15-30K tokens.
 - **SKILL_TOOL_USED**: All `/prp-*` commands invoked via Skill tool (not inlined)
 - **PLAN_CREATED**: Plan exists and is valid
 - **CODE_IMPLEMENTED**: All tasks complete, validation passing
-- **REPORT_EXISTS**: Implementation report exists at `.claude/PRPs/reports/` (created or fallback)
-- **CONTEXT_GENERATED**: Review context file exists at `.claude/PRPs/reviews/` (created or fallback)
+- **REPORT_EXISTS**: Implementation report exists at `.prp-output/reports/` (created or fallback)
+- **CONTEXT_GENERATED**: Review context file exists at `.prp-output/reviews/` (created or fallback)
 - **COMMITTED**: Clean commit on feature branch
 - **PR_CREATED**: PR exists on GitHub (unless --no-pr)
 - **REVIEWED**: Review posted with verdict (unless --skip-review)

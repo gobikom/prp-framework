@@ -647,10 +647,10 @@ Based on X inquiries/month at $Y current cost:
 ### 7.1 Save Materials
 
 **Paths**:
-- `.claude/PRPs/marketing/pitch-deck-{date}.md`
-- `.claude/PRPs/marketing/one-pager-{date}.md`
-- `.claude/PRPs/marketing/email-templates-{date}.md`
-- `.claude/PRPs/marketing/proposal-{company}-{date}.md`
+- `.prp-output/marketing/pitch-deck-{date}.md`
+- `.prp-output/marketing/one-pager-{date}.md`
+- `.prp-output/marketing/email-templates-{date}.md`
+- `.prp-output/marketing/proposal-{company}-{date}.md`
 
 ### 7.2 Present to User
 
@@ -664,10 +664,10 @@ Based on X inquiries/month at $Y current cost:
 
 | Material | Path | Status |
 |----------|------|--------|
-| Pitch Deck | `.claude/PRPs/marketing/pitch-deck-{date}.md` | Ready |
-| One-Pager | `.claude/PRPs/marketing/one-pager-{date}.md` | Ready |
-| Email Templates | `.claude/PRPs/marketing/email-templates-{date}.md` | Ready |
-| Proposal | `.claude/PRPs/marketing/proposal-{date}.md` | Ready |
+| Pitch Deck | `.prp-output/marketing/pitch-deck-{date}.md` | Ready |
+| One-Pager | `.prp-output/marketing/one-pager-{date}.md` | Ready |
+| Email Templates | `.prp-output/marketing/email-templates-{date}.md` | Ready |
+| Proposal | `.prp-output/marketing/proposal-{date}.md` | Ready |
 
 ### Next Steps
 

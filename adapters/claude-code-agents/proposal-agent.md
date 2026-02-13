@@ -351,15 +351,15 @@ Or reply to this email with any questions.
 **Artifact Naming (Timestamp Format)**:
 ```bash
 TIMESTAMP=$(date +%Y%m%d-%H%M)
-ls .claude/PRPs/proposals/{prospect-name}*.proposal.md 2>/dev/null
+ls .prp-output/proposals/{prospect-name}*.proposal.md 2>/dev/null
 ```
 
-**OUTPUT_PATH**: `.claude/PRPs/proposals/{prospect-name}-{TIMESTAMP}.proposal.md`
+**OUTPUT_PATH**: `.prp-output/proposals/{prospect-name}-{TIMESTAMP}.proposal.md`
 
 **NAMING**: `{prospect-name-kebab-case}-{TIMESTAMP}.proposal.md`
 
 **INSTRUCTIONS**:
-1. Create directory if needed: `mkdir -p .claude/PRPs/proposals`
+1. Create directory if needed: `mkdir -p .prp-output/proposals`
 2. Generate timestamp and check for existing files
 3. Save the complete output to the path above
 4. Include version number for revision tracking
@@ -370,8 +370,8 @@ ls .claude/PRPs/proposals/{prospect-name}*.proposal.md 2>/dev/null
 
 **EXAMPLE**:
 ```
-.claude/PRPs/proposals/acme-corp-enterprise-20260210-1430.proposal.md
-.claude/PRPs/proposals/techstartup-smb-20260210-1545.proposal.md
+.prp-output/proposals/acme-corp-enterprise-20260210-1430.proposal.md
+.prp-output/proposals/techstartup-smb-20260210-1545.proposal.md
 ```
 
 ## Key Principles

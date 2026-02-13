@@ -22,7 +22,7 @@ Design Doc = Architecture blueprint for complex features. Simple features can sk
 ## Phase 1: Load Context
 
 1. **Read PRD**: Extract problem statement, solution approach, technical approach, constraints
-2. **Validate PRD**: Must be final merged PRD (not draft). Check for `.claude/PRPs/prds/{name}-prd.md` (no suffix)
+2. **Validate PRD**: Must be final merged PRD (not draft). Check for `.prp-output/prds/{name}-prd.md` (no suffix)
 3. **Extract Feature Name**: Derive from PRD filename for design doc naming
 
 ---
@@ -170,14 +170,14 @@ TIMESTAMP=$(date +%Y%m%d-%H%M)
 **Check for existing files**:
 ```bash
 # Look for existing files with same base name
-ls .claude/PRPs/designs/{feature}-design-agents*.md 2>/dev/null
+ls .prp-output/designs/{feature}-design-agents*.md 2>/dev/null
 ```
 
-**Output path**: `.claude/PRPs/designs/{feature}-design-agents-{TIMESTAMP}.md`
+**Output path**: `.prp-output/designs/{feature}-design-agents-{TIMESTAMP}.md`
 
 Example: `auth-feature-design-agents-20260210-1430.md`
 
-Create directory: `mkdir -p .claude/PRPs/designs`
+Create directory: `mkdir -p .prp-output/designs`
 
 > **Note**: Uses `-agents` suffix to identify Claude Code design docs (consistent with multi-agent review naming). Multiple tools can create design docs with different tool suffixes for comparison.
 
@@ -185,7 +185,7 @@ Create directory: `mkdir -p .claude/PRPs/designs`
 
 ```markdown
 ---
-source-prd: .claude/PRPs/prds/{feature}-prd.md
+source-prd: .prp-output/prds/{feature}-prd.md
 created: {timestamp}
 status: reference
 tool: agents
@@ -422,7 +422,7 @@ Report:
 ```markdown
 ## Design Doc Created
 
-**File**: `.claude/PRPs/designs/{name}-design-agents-{TIMESTAMP}.md` (REFERENCE ONLY)
+**File**: `.prp-output/designs/{name}-design-agents-{TIMESTAMP}.md` (REFERENCE ONLY)
 
 ### Summary
 
@@ -453,7 +453,7 @@ Report:
 This is a **reference document**. Workflow continues as:
 
 1. Use this design doc as reference (optional)
-2. Create Plan from PRD: `/prp-plan .claude/PRPs/prds/{name}-prd.md`
+2. Create Plan from PRD: `/prp-plan .prp-output/prds/{name}-prd.md`
 3. Implement from Plan
 
 **Design Doc does NOT block workflow** - implementer can reference it for architecture guidance.

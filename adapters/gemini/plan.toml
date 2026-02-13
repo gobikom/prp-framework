@@ -19,7 +19,7 @@ Run `ls -la` and `ls -la */ 2>/dev/null | head -50`. Do NOT assume `src/` — ch
 4. **Research**: ONLY AFTER exploration. Official docs (match versions), gotchas, security. Format: URL + KEY_INSIGHT + APPLIES_TO + GOTCHA.
 5. **Design UX**: Before/After ASCII diagrams with data flows. Interaction changes table.
 6. **Architect**: Analyze architecture fit, execution order, failure modes, performance, security, maintainability. Document approach, rationale, alternatives rejected, scope limits.
-7. **Generate Plan**: Save to `.ai-workflows/plans/{feature}.plan.md` with ALL sections: Summary, User Story, Problem/Solution Statements, Metadata, UX Design (before/after + interaction table), Mandatory Reading (P0/P1/P2 files), Patterns to Mirror (ACTUAL snippets), Files to Change (CREATE/UPDATE), NOT Building (scope limits), Step-by-Step Tasks (ACTION/IMPLEMENT/MIRROR/IMPORTS/GOTCHA/VALIDATE), Testing Strategy (tests + edge cases), Validation Commands (6 levels: Static, Unit, Full Suite, Database, Browser, Manual), Acceptance Criteria, Completion Checklist, Risks and Mitigations.
+7. **Generate Plan**: Save to `.prp-output/plans/{feature}.plan.md` with ALL sections: Summary, User Story, Problem/Solution Statements, Metadata, UX Design (before/after + interaction table), Mandatory Reading (P0/P1/P2 files), Patterns to Mirror (ACTUAL snippets), Files to Change (CREATE/UPDATE), NOT Building (scope limits), Step-by-Step Tasks (ACTION/IMPLEMENT/MIRROR/IMPORTS/GOTCHA/VALIDATE), Testing Strategy (tests + edge cases), Validation Commands (6 levels: Static, Unit, Full Suite, Database, Browser, Manual), Acceptance Criteria, Completion Checklist, Risks and Mitigations.
 
 ## Output
 

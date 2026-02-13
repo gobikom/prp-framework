@@ -31,7 +31,7 @@ cd .prp
 cd ..
 
 # 4. Commit the submodule
-git add .gitmodules .prp .ai-workflows .claude .codex .opencode .gemini AGENTS.md
+git add .gitmodules .prp .claude .codex .opencode .gemini AGENTS.md
 git commit -m "feat: add PRP Framework via submodule"
 ```
 
@@ -62,10 +62,9 @@ git init
 
 ```bash
 # Verify directory structure
-ls -la .ai-workflows/       # Should have prompts/
+ls -la .prp-output/         # Runtime artifacts directory
 ls -la .claude/commands/    # Should have prp-core/
 ls -la .codex/skills/       # Should have prp-*/
-ls -la .claude/PRPs/        # Runtime artifacts directory
 ```
 
 ### Test Commands
@@ -133,25 +132,25 @@ In Claude session:
 ```
 
 Follow the interactive prompts. The PRD will be saved to:
-`.claude/PRPs/prds/drafts/user-auth-prd-agents-20260210-1430.md`
+`.prp-output/prds/drafts/user-auth-prd-agents-20260210-1430.md`
 
 > **Note**: All artifacts use timestamp format `YYYYMMDD-HHMM` to prevent overwrites.
 
 ### Create Plan from PRD
 
-After finalizing your PRD (find latest with `ls -t .claude/PRPs/prds/*.md | head -1`):
+After finalizing your PRD (find latest with `ls -t .prp-output/prds/*.md | head -1`):
 
 ```
-/prp-plan .claude/PRPs/prds/user-auth-prd.md
+/prp-plan .prp-output/prds/user-auth-prd.md
 ```
 
 Plan will be saved to:
-`.claude/PRPs/plans/user-auth-20260210-1445.plan.md`
+`.prp-output/plans/user-auth-20260210-1445.plan.md`
 
 ### Implement the Plan
 
 ```
-/prp-implement .claude/PRPs/plans/user-auth-20260210-1445.plan.md
+/prp-implement .prp-output/plans/user-auth-20260210-1445.plan.md
 ```
 
 ## Updating Framework

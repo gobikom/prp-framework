@@ -40,13 +40,13 @@ QUESTION SET 1 → GROUNDING → QUESTION SET 2 → RESEARCH → QUESTION SET 3 
 4. **DEEP DIVE**: Ask: Vision, Primary User, Job to Be Done, Non-Users, Constraints. Wait for responses.
 5. **GROUNDING (Technical)**: Explore codebase for feasibility — infrastructure, constraints, patterns, dependencies. Summarize: feasibility (HIGH/MEDIUM/LOW), leverageable patterns, key risk. Brief pause.
 6. **DECISIONS**: Ask: MVP definition, Must Have vs Nice to Have, Key Hypothesis, Out of Scope, Open Questions. Wait for responses.
-7. **GENERATE**: Save PRD to `.claude/PRPs/prds/drafts/{name}-prd-other.md` (create directory: `mkdir -p .claude/PRPs/prds/drafts`) with ALL sections: Problem Statement, Evidence, Proposed Solution, Key Hypothesis, What We're NOT Building, Success Metrics, Open Questions, Users & Context, Solution Detail (MoSCoW), Technical Approach, Implementation Phases (table with status/parallel/depends), Decisions Log, Research Summary.
+7. **GENERATE**: Save PRD to `.prp-output/prds/drafts/{name}-prd-other.md` (create directory: `mkdir -p .prp-output/prds/drafts`) with ALL sections: Problem Statement, Evidence, Proposed Solution, Key Hypothesis, What We're NOT Building, Success Metrics, Open Questions, Users & Context, Solution Detail (MoSCoW), Technical Approach, Implementation Phases (table with status/parallel/depends), Decisions Log, Research Summary.
 
-   > **Note**: Uses `-other` suffix to identify generic/Kimi PRD drafts. Multiple tools can create draft PRDs in `drafts/` subdirectory for comparison. User manually merges best sections to final version at `.claude/PRPs/prds/{name}-prd.md` (no suffix, root level) which Plan command will reference.
+   > **Note**: Uses `-other` suffix to identify generic/Kimi PRD drafts. Multiple tools can create draft PRDs in `drafts/` subdirectory for comparison. User manually merges best sections to final version at `.prp-output/prds/{name}-prd.md` (no suffix, root level) which Plan command will reference.
 
 **Output**: File path (draft), problem/solution summary, key metric, validation status, open questions, recommended next step, phases table.
 
-**To start implementation**: (1) Manually compare draft PRDs from different tools in `drafts/` subdirectory, (2) Merge best sections to final PRD at `.claude/PRPs/prds/{name}-prd.md` (no suffix), (3) Run Plan workflow with final PRD path. Plan command references final merged PRD only (not drafts).
+**To start implementation**: (1) Manually compare draft PRDs from different tools in `drafts/` subdirectory, (2) Merge best sections to final PRD at `.prp-output/prds/{name}-prd.md` (no suffix), (3) Run Plan workflow with final PRD path. Plan command references final merged PRD only (not drafts).
 
 **Anti-pattern**: Don't fill sections with fluff. Write "TBD - needs research" if info is missing.
 
@@ -73,7 +73,7 @@ Generate comprehensive technical design document from PRD. Focus: system archite
 
 ### Steps
 
-1. **Load Context**: Read PRD (must be final merged version at `.claude/PRPs/prds/{name}-prd.md`, not draft). Validate PRD exists. Extract feature name for design doc naming.
+1. **Load Context**: Read PRD (must be final merged version at `.prp-output/prds/{name}-prd.md`, not draft). Validate PRD exists. Extract feature name for design doc naming.
 2. **Explore Codebase**: Find existing patterns with file:line references — architecture patterns, API conventions, database patterns, component patterns (if frontend), integration points. Use ACTUAL code examples.
 3. **Research**: Official documentation (match project versions from package.json/config), architecture patterns, trade-offs, security best practices (OWASP), scalability strategies.
 4. **Design Architecture**:
@@ -90,9 +90,9 @@ Generate comprehensive technical design document from PRD. Focus: system archite
    - Scalability: horizontal scaling, stateless design, async processing, database scaling (replicas, sharding)
    - Monitoring: key metrics, logging strategy, alerts, distributed tracing
 7. **Migration Strategy**: Backward compatibility plan, data migration scripts, feature flags for gradual rollout, rollback plan
-8. **Generate Design Doc**: Save to `.claude/PRPs/designs/{feature}-design-other.md` (create directory: `mkdir -p .claude/PRPs/designs`) with metadata:
+8. **Generate Design Doc**: Save to `.prp-output/designs/{feature}-design-other.md` (create directory: `mkdir -p .prp-output/designs`) with metadata:
    ```yaml
-   source-prd: .claude/PRPs/prds/{feature}-prd.md
+   source-prd: .prp-output/prds/{feature}-prd.md
    created: {timestamp}
    status: reference
    tool: other
@@ -103,7 +103,7 @@ Generate comprehensive technical design document from PRD. Focus: system archite
 ### Output
 
 Report:
-- **File**: `.claude/PRPs/designs/{name}-design-other.md` (REFERENCE ONLY)
+- **File**: `.prp-output/designs/{name}-design-other.md` (REFERENCE ONLY)
 - **Summary**: Feature name, Complexity (LOW/MEDIUM/HIGH), Components count, API endpoints count, Database changes
 - **Key Design Decisions**: Top 3 with choice and rationale
 - **Security Considerations**: List
@@ -112,7 +112,7 @@ Report:
 
 ### Usage
 
-- "Create a design doc for the PRD at .claude/PRPs/prds/auth-prd.md" → generates architecture blueprint
+- "Create a design doc for the PRD at .prp-output/prds/auth-prd.md" → generates architecture blueprint
 - "Design the architecture for JWT authentication" → starts with PRD path validation
 
 ### Important Notes
@@ -140,7 +140,7 @@ Read project conventions file (CLAUDE.md, AGENTS.md, .cursorrules, etc.). Run di
 4. **Research**: ONLY after exploration. Official docs matching project versions, gotchas, security. Format with URL + KEY_INSIGHT + APPLIES_TO + GOTCHA.
 5. **Design**: Before/After ASCII diagrams showing UX and data flow changes. Interaction changes table.
 6. **Architect**: Analyze architecture fit, execution order, failure modes, performance, security, maintainability. Document chosen approach, rationale, rejected alternatives, and explicit scope limits.
-7. **Generate Plan**: Save to `.ai-workflows/plans/{feature}.plan.md` containing ALL sections:
+7. **Generate Plan**: Save to `.prp-output/plans/{feature}.plan.md` containing ALL sections:
    - Summary, User Story, Problem/Solution Statements, Metadata
    - UX Design (before/after ASCII diagrams + interaction changes table)
    - Mandatory Reading (P0/P1/P2 priority files implementer MUST read)
@@ -179,10 +179,10 @@ Read project conventions file (CLAUDE.md, AGENTS.md, .cursorrules, etc.). Run di
    - Build: must succeed.
    - Integration (if applicable): start server → test endpoints → stop server.
    - Edge cases from plan.
-6. **Report**: Save to `.claude/PRPs/reports/{name}-report-other.md` with: assessment vs reality, tasks completed, validation results, files changed, deviations, issues, tests written.
+6. **Report**: Save to `.prp-output/reports/{name}-report-other.md` with: assessment vs reality, tasks completed, validation results, files changed, deviations, issues, tests written.
    > **Note**: Uses `-other` suffix to identify generic/Kimi implementation reports and prevent overwriting reports from other tools (each tool uses its own suffix for parallel implementation capability).
 7. **PRD Update** (if applicable): Change phase status from `in-progress` to `complete`.
-8. **Archive**: Move plan to `.ai-workflows/plans/completed/`.
+8. **Archive**: Move plan to `.prp-output/plans/completed/`.
 
 **Output**: Status, validation summary, files changed, deviations, artifacts, PRD progress, next steps.
 
@@ -220,12 +220,12 @@ Read project conventions file (CLAUDE.md, AGENTS.md, .cursorrules, etc.). Run di
 Categorize as Critical (block merge) / Important (address) / Suggestions / Strengths.
 Include Documentation Updates and Verdict: READY TO MERGE / NEEDS FIXES / CRITICAL ISSUES.
 
-**Save Local Review**: Save aggregated review to `.claude/PRPs/reviews/pr-{NUMBER}-review-other.md` before posting.
+**Save Local Review**: Save aggregated review to `.prp-output/reviews/pr-{NUMBER}-review-other.md` before posting.
 
 > **Note**: Uses `-other` suffix to identify generic/Kimi reviews and prevent overwriting reviews from other tools (each tool uses its own suffix for parallel review capability).
 
-**Post to GitHub**: `gh pr comment <number> --body-file .claude/PRPs/reviews/pr-{NUMBER}-review-other.md`
-**Update Implementation Report**: After posting, find implementation report (`.claude/PRPs/reports/*-report.md`). If exists, append "Review Outcome" section with review date, verdict, and issue counts. If not found, skip silently.
+**Post to GitHub**: `gh pr comment <number> --body-file .prp-output/reviews/pr-{NUMBER}-review-other.md`
+**Update Implementation Report**: After posting, find implementation report (`.prp-output/reports/*-report.md`). If exists, append "Review Outcome" section with review date, verdict, and issue counts. If not found, skip silently.
 
 ### Usage
 
@@ -297,7 +297,7 @@ Set variables:
 
 **Examples:**
 - "Run PRP workflow for JWT authentication" → full workflow
-- "Implement from plan .ai-workflows/plans/jwt.plan.md" → skip plan creation
+- "Implement from plan .prp-output/plans/jwt.plan.md" → skip plan creation
 - "Run PRP for JWT auth, skip the review" → skip review step
 - "Implement from plan jwt.plan.md, no PR needed" → implement + commit only
 
@@ -336,13 +336,16 @@ Follow whichever convention file exists in the project.
 
 ## Artifacts
 
-All workflows produce artifacts in `.ai-workflows/`:
+All workflows produce artifacts in `.prp-output/`:
 
 ```
-.ai-workflows/
+.prp-output/
 ├── prds/               # Product Requirements Documents
+├── designs/            # Design Documents
 ├── plans/              # Implementation plans
 │   └── completed/      # Archived plans
 ├── reports/            # Implementation reports
-└── prompts/            # Source prompt files (do not edit adapters directly)
+├── reviews/            # Review reports
+├── debug/              # Debug/RCA reports
+└── issues/             # Issue investigations
 ```

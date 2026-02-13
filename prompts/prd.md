@@ -166,11 +166,11 @@ Ask final clarifying questions:
 
 ## Phase 7: GENERATE - Write PRD
 
-**Output path**: `.claude/PRPs/prds/drafts/{kebab-case-name}-prd-other.md`
+**Output path**: `.prp-output/prds/drafts/{kebab-case-name}-prd-other.md`
 
-Create directory if needed: `mkdir -p .claude/PRPs/prds/drafts`
+Create directory if needed: `mkdir -p .prp-output/prds/drafts`
 
-> **Note**: Uses `-other` suffix to identify generic/Kimi PRD drafts. Multiple tools can create draft PRDs in `drafts/` subdirectory for comparison. User manually merges best sections to final version at `.claude/PRPs/prds/{name}-prd.md` (no suffix, root level) which Plan command will reference.
+> **Note**: Uses `-other` suffix to identify generic/Kimi PRD drafts. Multiple tools can create draft PRDs in `drafts/` subdirectory for comparison. User manually merges best sections to final version at `.prp-output/prds/{name}-prd.md` (no suffix, root level) which Plan command will reference.
 
 ### PRD Template
 
@@ -337,7 +337,7 @@ After generating, report:
 ```markdown
 ## PRD Created
 
-**File**: `.claude/PRPs/prds/drafts/{name}-prd-other.md` (DRAFT)
+**File**: `.prp-output/prds/drafts/{name}-prd-other.md` (DRAFT)
 
 ### Summary
 
@@ -371,7 +371,7 @@ After generating, report:
 ### To Start Implementation
 
 1. Manually compare draft PRDs from different tools (in `drafts/` subdirectory)
-2. Merge best sections to final PRD: `.claude/PRPs/prds/{name}-prd.md` (no suffix)
+2. Merge best sections to final PRD: `.prp-output/prds/{name}-prd.md` (no suffix)
 3. Run Plan workflow with final PRD path
 
 Plan command references final merged PRD only (not drafts).

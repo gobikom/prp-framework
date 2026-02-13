@@ -181,16 +181,16 @@ TIMESTAMP=$(date +%Y%m%d-%H%M)
 **Check for existing files**:
 ```bash
 # Look for existing files with same base name
-ls .claude/PRPs/prds/drafts/{kebab-case-name}-prd-agents*.md 2>/dev/null
+ls .prp-output/prds/drafts/{kebab-case-name}-prd-agents*.md 2>/dev/null
 ```
 
-**Output path**: `.claude/PRPs/prds/drafts/{kebab-case-name}-prd-agents-{TIMESTAMP}.md`
+**Output path**: `.prp-output/prds/drafts/{kebab-case-name}-prd-agents-{TIMESTAMP}.md`
 
 Example: `auth-feature-prd-agents-20260210-1430.md`
 
-Create directory if needed: `mkdir -p .claude/PRPs/prds/drafts`
+Create directory if needed: `mkdir -p .prp-output/prds/drafts`
 
-> **Note**: Uses `-agents` suffix to identify Claude Code PRD drafts (consistent with multi-agent review naming). Multiple tools can create draft PRDs in `drafts/` subdirectory for comparison. User manually merges best sections to final version at `.claude/PRPs/prds/{name}-prd.md` (no suffix, root level) which Plan command will reference.
+> **Note**: Uses `-agents` suffix to identify Claude Code PRD drafts (consistent with multi-agent review naming). Multiple tools can create draft PRDs in `drafts/` subdirectory for comparison. User manually merges best sections to final version at `.prp-output/prds/{name}-prd.md` (no suffix, root level) which Plan command will reference.
 
 ### PRD Template
 
@@ -357,7 +357,7 @@ After generating, report:
 ```markdown
 ## PRD Created
 
-**File**: `.claude/PRPs/prds/drafts/{name}-prd-agents-{TIMESTAMP}.md` (DRAFT)
+**File**: `.prp-output/prds/drafts/{name}-prd-agents-{TIMESTAMP}.md` (DRAFT)
 
 ### Summary
 
@@ -391,8 +391,8 @@ After generating, report:
 ### To Start Implementation
 
 1. Manually compare draft PRDs from different tools (in `drafts/` subdirectory)
-2. Merge best sections to final PRD: `.claude/PRPs/prds/{name}-prd.md` (no suffix)
-3. Run: `/prp-plan .claude/PRPs/prds/{name}-prd.md`
+2. Merge best sections to final PRD: `.prp-output/prds/{name}-prd.md` (no suffix)
+3. Run: `/prp-plan .prp-output/prds/{name}-prd.md`
 
 Plan command references final merged PRD only (not drafts).
 ```
@@ -427,7 +427,7 @@ Plan command references final merged PRD only (not drafts).
 └─────────────────────────────────────────────────────────┘
                           ↓
 ┌─────────────────────────────────────────────────────────┐
-│  GENERATE: Write PRD to .claude/PRPs/prds/              │
+│  GENERATE: Write PRD to .prp-output/prds/              │
 └─────────────────────────────────────────────────────────┘
 ```
 

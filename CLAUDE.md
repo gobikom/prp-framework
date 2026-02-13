@@ -131,14 +131,14 @@ TIMESTAMP=$(date +%Y%m%d-%H%M)
 
 | Command | Artifact Path |
 |---------|---------------|
-| `prd` | `.claude/PRPs/prds/drafts/{name}-prd-agents-{TIMESTAMP}.md` |
-| `design` | `.claude/PRPs/designs/{name}-design-agents-{TIMESTAMP}.md` |
-| `plan` | `.claude/PRPs/plans/{name}-{TIMESTAMP}.plan.md` |
-| `implement` | `.claude/PRPs/reports/{name}-report-{TIMESTAMP}.md` |
-| `debug` | `.claude/PRPs/debug/rca-{slug}-{TIMESTAMP}.md` |
-| `issue-investigate` | `.claude/PRPs/issues/issue-{number}-{TIMESTAMP}.md` |
-| `review` | `.claude/PRPs/reviews/pr-{NUMBER}-review.md` (ใช้ PR number แทน) |
-| `feature-review` | `.claude/PRPs/reviews/feature-review-{pkg}-{date}.md` (ใช้ date แทน) |
+| `prd` | `.prp-output/prds/drafts/{name}-prd-agents-{TIMESTAMP}.md` |
+| `design` | `.prp-output/designs/{name}-design-agents-{TIMESTAMP}.md` |
+| `plan` | `.prp-output/plans/{name}-{TIMESTAMP}.plan.md` |
+| `implement` | `.prp-output/reports/{name}-report-{TIMESTAMP}.md` |
+| `debug` | `.prp-output/debug/rca-{slug}-{TIMESTAMP}.md` |
+| `issue-investigate` | `.prp-output/issues/issue-{number}-{TIMESTAMP}.md` |
+| `review` | `.prp-output/reviews/pr-{NUMBER}-review.md` (ใช้ PR number แทน) |
+| `feature-review` | `.prp-output/reviews/feature-review-{pkg}-{date}.md` (ใช้ date แทน) |
 
 ### หา Artifact ล่าสุด
 
@@ -146,10 +146,10 @@ TIMESTAMP=$(date +%Y%m%d-%H%M)
 
 ```bash
 # หา artifact ล่าสุดสำหรับ issue #123
-ls -t .claude/PRPs/issues/issue-123*.md | head -1
+ls -t .prp-output/issues/issue-123*.md | head -1
 
 # หา plan ล่าสุดสำหรับ feature
-ls -t .claude/PRPs/plans/user-auth*.plan.md | head -1
+ls -t .prp-output/plans/user-auth*.plan.md | head -1
 ```
 
 ### Cleanup Artifacts
@@ -166,10 +166,10 @@ ls -t .claude/PRPs/plans/user-auth*.plan.md | head -1
 
 ## Artifacts Location
 
-ทุก command และ agents สร้าง artifacts ใน `.claude/PRPs/`:
+ทุก command และ agents สร้าง artifacts ใน `.prp-output/`:
 
 ```
-.claude/PRPs/
+.prp-output/
 ├── BUSINESS-CONTEXT.md  # Centralized business context (foundation)
 ├── prds/              # Product Requirements Documents
 ├── designs/           # Design Documents
@@ -249,7 +249,7 @@ customer-discovery → positioning-strategy → content-marketing
 
 สำหรับ multi-agent reviews ใช้ context file caching:
 1. Extract context ครั้งเดียวใน Phase 1
-2. เก็บใน `.claude/PRPs/reviews/feature-context-*.md`
+2. เก็บใน `.prp-output/reviews/feature-context-*.md`
 3. Agents อ่านจาก context file แทนการ scan ใหม่
 
 ## Testing

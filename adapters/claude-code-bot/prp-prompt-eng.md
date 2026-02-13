@@ -483,7 +483,7 @@ Brand alignment
 ```markdown
 ## Prompt Library Organization
 
-.claude/PRPs/prompts/
+.prp-output/prompts/
 ├── system/
 │   ├── support-bot.md
 │   ├── sales-bot.md
@@ -528,7 +528,7 @@ Brand alignment
 
 ### Rollback
 If issues occur, revert to previous version:
-- v2.2.0: `.claude/PRPs/prompts/archive/support-bot-v2.2.0.md`
+- v2.2.0: `.prp-output/prompts/archive/support-bot-v2.2.0.md`
 ```
 
 ---
@@ -538,9 +538,9 @@ If issues occur, revert to previous version:
 ### 7.1 Save Prompts
 
 **Paths**:
-- `.claude/PRPs/prompts/system/{name}.md`
-- `.claude/PRPs/prompts/tests/{name}-tests.md`
-- `.claude/PRPs/prompts/results/{name}-results.md`
+- `.prp-output/prompts/system/{name}.md`
+- `.prp-output/prompts/tests/{name}-tests.md`
+- `.prp-output/prompts/results/{name}-results.md`
 
 ### 7.2 Summary Output
 
@@ -572,9 +572,9 @@ If issues occur, revert to previous version:
 
 ### Artifacts
 
-📝 **System Prompt**: `.claude/PRPs/prompts/system/{name}.md`
-🧪 **Test Suite**: `.claude/PRPs/prompts/tests/{name}-tests.md`
-📊 **Test Results**: `.claude/PRPs/prompts/results/{name}-results.md`
+📝 **System Prompt**: `.prp-output/prompts/system/{name}.md`
+🧪 **Test Suite**: `.prp-output/prompts/tests/{name}-tests.md`
+📊 **Test Results**: `.prp-output/prompts/results/{name}-results.md`
 
 ### Next Steps
 

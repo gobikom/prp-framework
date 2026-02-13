@@ -613,9 +613,9 @@ SYSTEM_WEBHOOK_SECRET=zzzz
 ### 7.1 Save Documentation
 
 **Paths**:
-- `.claude/PRPs/integrations/{system}-design.md`
-- `.claude/PRPs/integrations/{system}-documentation.md`
-- `.claude/PRPs/integrations/{system}-tests.md`
+- `.prp-output/integrations/{system}-design.md`
+- `.prp-output/integrations/{system}-documentation.md`
+- `.prp-output/integrations/{system}-tests.md`
 
 ### 7.2 Summary Output
 
@@ -636,9 +636,9 @@ SYSTEM_WEBHOOK_SECRET=zzzz
 
 ### Artifacts
 
-📐 **Design Doc**: `.claude/PRPs/integrations/{system}-design.md`
-📖 **Documentation**: `.claude/PRPs/integrations/{system}-docs.md`
-🧪 **Test Plan**: `.claude/PRPs/integrations/{system}-tests.md`
+📐 **Design Doc**: `.prp-output/integrations/{system}-design.md`
+📖 **Documentation**: `.prp-output/integrations/{system}-docs.md`
+🧪 **Test Plan**: `.prp-output/integrations/{system}-tests.md`
 
 ### Next Steps
 

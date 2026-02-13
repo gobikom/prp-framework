@@ -18,13 +18,13 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-# Find .claude/PRPs directory
-if [ -d ".claude/PRPs" ]; then
-    PRP_DIR=".claude/PRPs"
-elif [ -d "../.claude/PRPs" ]; then
-    PRP_DIR="../.claude/PRPs"
+# Find .prp-output directory
+if [ -d ".prp-output" ]; then
+    PRP_DIR=".prp-output"
+elif [ -d "../.prp-output" ]; then
+    PRP_DIR="../.prp-output"
 else
-    echo -e "${RED}Error: .claude/PRPs directory not found${NC}"
+    echo -e "${RED}Error: .prp-output directory not found${NC}"
     echo "Run this script from the project root or .prp directory"
     exit 1
 fi

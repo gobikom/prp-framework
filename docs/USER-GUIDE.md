@@ -75,7 +75,7 @@ Example: user-auth-20260210-1430.plan.md
 
 **หา artifact ล่าสุด**:
 ```bash
-ls -t .claude/PRPs/plans/*.plan.md | head -1
+ls -t .prp-output/plans/*.plan.md | head -1
 ```
 
 ---
@@ -100,7 +100,7 @@ PRD → Design → Plan → Implement → Commit → PR → Review
 /prp-core:prd "Add user authentication with JWT"
 ```
 
-**Output**: `.claude/PRPs/prds/drafts/{name}-prd-agents-{TIMESTAMP}.md`
+**Output**: `.prp-output/prds/drafts/{name}-prd-agents-{TIMESTAMP}.md`
 
 ---
 
@@ -110,13 +110,13 @@ PRD → Design → Plan → Implement → Commit → PR → Review
 
 ```bash
 # From PRD
-/prp-core:design .claude/PRPs/prds/auth-prd.md
+/prp-core:design .prp-output/prds/auth-prd.md
 
 # With description
 /prp-core:design "Authentication system using JWT and refresh tokens"
 ```
 
-**Output**: `.claude/PRPs/designs/{name}-design-agents-{TIMESTAMP}.md`
+**Output**: `.prp-output/designs/{name}-design-agents-{TIMESTAMP}.md`
 
 ---
 
@@ -132,10 +132,10 @@ PRD → Design → Plan → Implement → Commit → PR → Review
 /prp-core:plan "Implement multi-tenant support"
 
 # From design doc
-/prp-core:plan --design .claude/PRPs/designs/auth-design.md
+/prp-core:plan --design .prp-output/designs/auth-design.md
 ```
 
-**Output**: `.claude/PRPs/plans/{name}-{TIMESTAMP}.plan.md`
+**Output**: `.prp-output/plans/{name}-{TIMESTAMP}.plan.md`
 
 **Plan ประกอบด้วย**:
 - Tasks breakdown
@@ -150,8 +150,8 @@ PRD → Design → Plan → Implement → Commit → PR → Review
 **เมื่อไหร่ใช้**: เมื่อมี plan พร้อมแล้ว
 
 ```bash
-# Execute plan (find latest: ls -t .claude/PRPs/plans/*.plan.md | head -1)
-/prp-core:implement .claude/PRPs/plans/logout-button-20260210-1430.plan.md
+# Execute plan (find latest: ls -t .prp-output/plans/*.plan.md | head -1)
+/prp-core:implement .prp-output/plans/logout-button-20260210-1430.plan.md
 ```
 
 **กระบวนการ**:
@@ -161,7 +161,7 @@ PRD → Design → Plan → Implement → Commit → PR → Review
 4. Auto-fix ถ้า fail
 5. สร้าง implementation report
 
-**Output**: `.claude/PRPs/reports/{plan-name}-report-{TIMESTAMP}.md`
+**Output**: `.prp-output/reports/{plan-name}-report-{TIMESTAMP}.md`
 
 ---
 
@@ -229,7 +229,7 @@ PRD → Design → Plan → Implement → Commit → PR → Review
 /prp-core:run-all "Add dark mode toggle"
 
 # From existing plan
-/prp-core:run-all --prp-path .claude/PRPs/plans/dark-mode-plan.md
+/prp-core:run-all --prp-path .prp-output/plans/dark-mode-plan.md
 
 # Skip review
 /prp-core:run-all "Add dark mode" --skip-review
@@ -259,7 +259,7 @@ Create Branch → Plan → Implement → Commit → PR → Review
 /prp-mkt:landing --improve "need stronger CTA"
 ```
 
-**Output**: `.claude/PRPs/marketing/landing-{type}-{date}.md`
+**Output**: `.prp-output/marketing/landing-{type}-{date}.md`
 
 **วิเคราะห์**:
 - Above the fold effectiveness
@@ -289,8 +289,8 @@ Create Branch → Plan → Implement → Commit → PR → Review
 ```
 
 **Output**:
-- `.claude/PRPs/demos/demo-status-{date}.md`
-- `.claude/PRPs/demos/demo-script-{customer}.md`
+- `.prp-output/demos/demo-status-{date}.md`
+- `.prp-output/demos/demo-script-{customer}.md`
 
 **ครอบคลุม**:
 - Environment setup
@@ -322,10 +322,10 @@ Create Branch → Plan → Implement → Commit → PR → Review
 ```
 
 **Output**:
-- `.claude/PRPs/marketing/pitch-deck-{date}.md`
-- `.claude/PRPs/marketing/one-pager-{date}.md`
-- `.claude/PRPs/marketing/email-templates-{date}.md`
-- `.claude/PRPs/marketing/proposal-{company}.md`
+- `.prp-output/marketing/pitch-deck-{date}.md`
+- `.prp-output/marketing/one-pager-{date}.md`
+- `.prp-output/marketing/email-templates-{date}.md`
+- `.prp-output/marketing/proposal-{company}.md`
 
 ---
 
@@ -348,9 +348,9 @@ Create Branch → Plan → Implement → Commit → PR → Review
 ```
 
 **Output**:
-- `.claude/PRPs/marketing/competitive-analysis-{date}.md`
-- `.claude/PRPs/marketing/feature-comparison-{date}.md`
-- `.claude/PRPs/marketing/battle-cards-{date}.md`
+- `.prp-output/marketing/competitive-analysis-{date}.md`
+- `.prp-output/marketing/feature-comparison-{date}.md`
+- `.prp-output/marketing/battle-cards-{date}.md`
 
 **ครอบคลุม**:
 - Competitor profiles
@@ -382,8 +382,8 @@ Create Branch → Plan → Implement → Commit → PR → Review
 ```
 
 **Output**:
-- `.claude/PRPs/intents/intent-schema-{date}.json`
-- `.claude/PRPs/intents/intent-documentation-{date}.md`
+- `.prp-output/intents/intent-schema-{date}.json`
+- `.prp-output/intents/intent-documentation-{date}.md`
 
 **ครอบคลุม**:
 - Intent hierarchy
@@ -412,7 +412,7 @@ Create Branch → Plan → Implement → Commit → PR → Review
 /prp-bot:flow --optimize
 ```
 
-**Output**: `.claude/PRPs/flows/flow-{name}-{date}.md`
+**Output**: `.prp-output/flows/flow-{name}-{date}.md`
 
 **ครอบคลุม**:
 - Entry points
@@ -443,8 +443,8 @@ Create Branch → Plan → Implement → Commit → PR → Review
 ```
 
 **Output**:
-- `.claude/PRPs/prompts/system/{name}.md`
-- `.claude/PRPs/prompts/tests/{name}-tests.md`
+- `.prp-output/prompts/system/{name}.md`
+- `.prp-output/prompts/tests/{name}-tests.md`
 
 **ครอบคลุม**:
 - System prompt design
@@ -474,7 +474,7 @@ Create Branch → Plan → Implement → Commit → PR → Review
 /prp-bot:voice-ux --ivr
 ```
 
-**Output**: `.claude/PRPs/voice/flow-{name}-{date}.md`
+**Output**: `.prp-output/voice/flow-{name}-{date}.md`
 
 **ครอบคลุม**:
 - Voice-specific guidelines
@@ -504,8 +504,8 @@ Create Branch → Plan → Implement → Commit → PR → Review
 ```
 
 **Output**:
-- `.claude/PRPs/integrations/{system}-design.md`
-- `.claude/PRPs/integrations/{system}-documentation.md`
+- `.prp-output/integrations/{system}-design.md`
+- `.prp-output/integrations/{system}-documentation.md`
 
 **ครอบคลุม**:
 - CRM (Salesforce, HubSpot)
@@ -532,7 +532,7 @@ Create Branch → Plan → Implement → Commit → PR → Review
 # Focus options: code, product, performance, security, all
 ```
 
-**Output**: `.claude/PRPs/reviews/feature-review-{name}-{date}.md`
+**Output**: `.prp-output/reviews/feature-review-{name}-{date}.md`
 
 ---
 
@@ -563,7 +563,7 @@ Create Branch → Plan → Implement → Commit → PR → Review
 - type-design-analyzer
 - silent-failure-hunter
 
-**Output**: `.claude/PRPs/reviews/feature-review-{name}-agents-{date}.md`
+**Output**: `.prp-output/reviews/feature-review-{name}-agents-{date}.md`
 
 ---
 
@@ -582,7 +582,7 @@ Create Branch → Plan → Implement → Commit → PR → Review
 /prp-core:review-agents 123 all parallel
 ```
 
-**Output**: `.claude/PRPs/reviews/pr-{number}-agents-review.md`
+**Output**: `.prp-output/reviews/pr-{number}-agents-review.md`
 
 ---
 
@@ -600,7 +600,7 @@ Create Branch → Plan → Implement → Commit → PR → Review
 /prp-core:debug "TypeError: Cannot read property 'id' of undefined"
 ```
 
-**Output**: `.claude/PRPs/debug/rca-{issue-slug}-{TIMESTAMP}.md`
+**Output**: `.prp-output/debug/rca-{issue-slug}-{TIMESTAMP}.md`
 
 ---
 
@@ -616,7 +616,7 @@ Create Branch → Plan → Implement → Commit → PR → Review
 /prp-core:issue-investigate https://github.com/org/repo/issues/45
 ```
 
-**Output**: `.claude/PRPs/issues/issue-{number}-{TIMESTAMP}.md`
+**Output**: `.prp-output/issues/issue-{number}-{TIMESTAMP}.md`
 
 ---
 
@@ -625,7 +625,7 @@ Create Branch → Plan → Implement → Commit → PR → Review
 **เมื่อไหร่ใช้**: Implement fix จาก investigation
 
 ```bash
-# Fix from investigation artifact (find latest: ls -t .claude/PRPs/issues/issue-45*.md | head -1)
+# Fix from investigation artifact (find latest: ls -t .prp-output/issues/issue-45*.md | head -1)
 /prp-core:issue-fix 45
 ```
 
@@ -639,7 +639,7 @@ Create Branch → Plan → Implement → Commit → PR → Review
 
 ```bash
 # Start Ralph with plan
-/prp-core:ralph .claude/PRPs/plans/feature-plan.md
+/prp-core:ralph .prp-output/plans/feature-plan.md
 ```
 
 **Ralph จะ**:
@@ -733,7 +733,7 @@ Create Branch → Plan → Implement → Commit → PR → Review
    ```bash
    /prp-core:prd "Add X feature"
    # Then use the PRD
-   /prp-core:plan --prd .claude/PRPs/prds/x-prd.md
+   /prp-core:plan --prd .prp-output/prds/x-prd.md
    ```
 
 ### Implementation Fails
@@ -760,7 +760,7 @@ Create Branch → Plan → Implement → Commit → PR → Review
 ## Artifacts Location
 
 ```
-.claude/PRPs/
+.prp-output/
 ├── prds/              # Product Requirements Documents
 │   └── drafts/        # Draft PRDs
 ├── designs/           # Design Documents
@@ -849,7 +849,7 @@ Create Branch → Plan → Implement → Commit → PR → Review
 "ใช้ business-context-agent ตรวจสอบว่า context ครบถ้วนไหม"
 ```
 
-**Output**: `.claude/PRPs/BUSINESS-CONTEXT.md` - ไฟล์นี้จะถูกอ้างอิงโดย agents อื่นทั้งหมด
+**Output**: `.prp-output/BUSINESS-CONTEXT.md` - ไฟล์นี้จะถูกอ้างอิงโดย agents อื่นทั้งหมด
 
 ### Tier 1: Customer Acquisition (Critical)
 
@@ -902,7 +902,7 @@ Create Branch → Plan → Implement → Commit → PR → Review
 ```
 # ใน Claude Code - เรียกใช้ agent โดยตรง
 "ใช้ customer-discovery-agent วิเคราะห์ target customer
-อ้างอิง context จาก .claude/PRPs/BUSINESS-CONTEXT.md"
+อ้างอิง context จาก .prp-output/BUSINESS-CONTEXT.md"
 
 # หรือแบบสั้น (ถ้า context มีอยู่แล้ว)
 "ใช้ outreach-agent สร้าง cold email sequence"

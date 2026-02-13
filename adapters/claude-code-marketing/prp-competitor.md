@@ -448,9 +448,9 @@ our voice AI handled 60% more calls without human intervention."
 ### 7.1 Save Analysis
 
 **Paths**:
-- `.claude/PRPs/marketing/competitive-analysis-{date}.md`
-- `.claude/PRPs/marketing/feature-comparison-{date}.md`
-- `.claude/PRPs/marketing/battle-cards-{date}.md`
+- `.prp-output/marketing/competitive-analysis-{date}.md`
+- `.prp-output/marketing/feature-comparison-{date}.md`
+- `.prp-output/marketing/battle-cards-{date}.md`
 
 ### 7.2 Present to User
 
@@ -480,9 +480,9 @@ our voice AI handled 60% more calls without human intervention."
 
 ### Artifacts
 
-📄 **Full Analysis**: `.claude/PRPs/marketing/competitive-analysis-{date}.md`
-📊 **Feature Matrix**: `.claude/PRPs/marketing/feature-comparison-{date}.md`
-⚔️ **Battle Cards**: `.claude/PRPs/marketing/battle-cards-{date}.md`
+📄 **Full Analysis**: `.prp-output/marketing/competitive-analysis-{date}.md`
+📊 **Feature Matrix**: `.prp-output/marketing/feature-comparison-{date}.md`
+⚔️ **Battle Cards**: `.prp-output/marketing/battle-cards-{date}.md`
 
 ### Next Steps
 

@@ -74,15 +74,6 @@ USED_COPY=false
 echo "📦 Installing adapters..."
 echo ""
 
-# Install prompts
-echo "→ Prompts (.ai-workflows/)"
-mkdir -p "$PROJECT_DIR/.ai-workflows"
-if install_directory "$FRAMEWORK_DIR/prompts" "$PROJECT_DIR/.ai-workflows/prompts" "prompts"; then
-    USED_SYMLINKS=true
-else
-    USED_COPY=true
-fi
-
 # Install Claude Code Commands
 echo "→ Claude Code Commands (.claude/commands/prp-core/)"
 mkdir -p "$PROJECT_DIR/.claude/commands"
@@ -191,8 +182,8 @@ fi
 
 echo ""
 echo "📁 Creating runtime artifact directories..."
-mkdir -p "$PROJECT_DIR/.claude/PRPs"/{prds/drafts,designs,plans/completed,reports,reviews}
-echo -e "${GREEN}  ✅ Created .claude/PRPs/ structure${NC}"
+mkdir -p "$PROJECT_DIR/.prp-output"/{prds/drafts,designs,plans/completed,reports,reviews,debug,issues/completed}
+echo -e "${GREEN}  ✅ Created .prp-output/ structure${NC}"
 
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

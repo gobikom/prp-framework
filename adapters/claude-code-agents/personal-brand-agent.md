@@ -435,15 +435,15 @@ Would be honored to connect.
 **Artifact Naming (Timestamp Format)**:
 ```bash
 TIMESTAMP=$(date +%Y%m%d-%H%M)
-ls .claude/PRPs/branding/{person-or-strategy}*.branding.md 2>/dev/null
+ls .prp-output/branding/{person-or-strategy}*.branding.md 2>/dev/null
 ```
 
-**OUTPUT_PATH**: `.claude/PRPs/branding/{person-or-strategy}-{TIMESTAMP}.branding.md`
+**OUTPUT_PATH**: `.prp-output/branding/{person-or-strategy}-{TIMESTAMP}.branding.md`
 
 **NAMING**: `{person-or-strategy-kebab-case}-{TIMESTAMP}.branding.md`
 
 **INSTRUCTIONS**:
-1. Create directory if needed: `mkdir -p .claude/PRPs/branding`
+1. Create directory if needed: `mkdir -p .prp-output/branding`
 2. Generate timestamp and check for existing files
 3. Save the complete output to the path above
 4. Include content calendar and metrics tracking
@@ -454,8 +454,8 @@ ls .claude/PRPs/branding/{person-or-strategy}*.branding.md 2>/dev/null
 
 **EXAMPLE**:
 ```
-.claude/PRPs/branding/founder-linkedin-strategy-20260210-1430.branding.md
-.claude/PRPs/branding/thought-leadership-q1-20260210-1545.branding.md
+.prp-output/branding/founder-linkedin-strategy-20260210-1430.branding.md
+.prp-output/branding/thought-leadership-q1-20260210-1545.branding.md
 ```
 
 ## Key Principles

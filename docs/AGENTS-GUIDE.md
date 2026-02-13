@@ -141,7 +141,7 @@ security-reviewer → silent-failure-hunter → dependency-analyzer
 ```
 
 **Output ที่ได้**:
-- `.claude/PRPs/BUSINESS-CONTEXT.md` - Centralized context file
+- `.prp-output/BUSINESS-CONTEXT.md` - Centralized context file
 
 **ใช้ร่วมกับ Agents อื่น**:
 ```

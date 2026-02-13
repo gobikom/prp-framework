@@ -529,7 +529,7 @@ Any questions before I let you go?"
 
 ### 7.1 Voice Flow Documentation
 
-**Path**: `.claude/PRPs/voice/flow-{name}-{date}.md`
+**Path**: `.prp-output/voice/flow-{name}-{date}.md`
 
 ```markdown
 ---
@@ -594,9 +594,9 @@ version: "1.0"
 
 ### Artifacts
 
-📞 **Voice Flow**: `.claude/PRPs/voice/flow-{name}.md`
-📝 **Scripts**: `.claude/PRPs/voice/scripts-{name}.md`
-🧪 **Test Cases**: `.claude/PRPs/voice/tests-{name}.md`
+📞 **Voice Flow**: `.prp-output/voice/flow-{name}.md`
+📝 **Scripts**: `.prp-output/voice/scripts-{name}.md`
+🧪 **Test Cases**: `.prp-output/voice/tests-{name}.md`
 
 ### Next Steps
 

@@ -61,9 +61,6 @@ sync_file() {
 echo "📦 Syncing adapters..."
 echo ""
 
-# Sync prompts
-sync_directory "$FRAMEWORK_DIR/prompts" "$PROJECT_DIR/.ai-workflows/prompts" "Prompts"
-
 # Sync Claude Code Commands
 sync_directory "$FRAMEWORK_DIR/adapters/claude-code" "$PROJECT_DIR/.claude/commands/prp-core" "Claude Code Commands"
 

@@ -24,7 +24,7 @@ Transform the input into a battle-tested implementation plan. PLAN ONLY — no c
 4. **Research**: ONLY AFTER exploration. Official docs (match versions), gotchas, security. Format: URL + KEY_INSIGHT + APPLIES_TO + GOTCHA.
 5. **Design UX**: Before/After ASCII diagrams with data flows. Interaction changes table.
 6. **Architect**: Analyze architecture fit, execution order, failure modes, performance, security, maintainability. Document approach chosen, rationale, alternatives rejected, scope limits.
-7. **Generate Plan**: Save to `.ai-workflows/plans/{feature}.plan.md` with ALL sections:
+7. **Generate Plan**: Save to `.prp-output/plans/{feature}.plan.md` with ALL sections:
    - Summary, User Story, Problem/Solution Statements, Metadata
    - UX Design (before/after ASCII diagrams + interaction changes)
    - Mandatory Reading (P0/P1/P2 priority files)

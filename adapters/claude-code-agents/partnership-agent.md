@@ -383,15 +383,15 @@ Thanks!
 **Artifact Naming (Timestamp Format)**:
 ```bash
 TIMESTAMP=$(date +%Y%m%d-%H%M)
-ls .claude/PRPs/partnerships/{partner-or-program}*.partnership.md 2>/dev/null
+ls .prp-output/partnerships/{partner-or-program}*.partnership.md 2>/dev/null
 ```
 
-**OUTPUT_PATH**: `.claude/PRPs/partnerships/{partner-or-program}-{TIMESTAMP}.partnership.md`
+**OUTPUT_PATH**: `.prp-output/partnerships/{partner-or-program}-{TIMESTAMP}.partnership.md`
 
 **NAMING**: `{partner-or-program-kebab-case}-{TIMESTAMP}.partnership.md`
 
 **INSTRUCTIONS**:
-1. Create directory if needed: `mkdir -p .claude/PRPs/partnerships`
+1. Create directory if needed: `mkdir -p .prp-output/partnerships`
 2. Generate timestamp and check for existing files
 3. Save the complete output to the path above
 4. Include partner scorecard and joint success metrics
@@ -402,8 +402,8 @@ ls .claude/PRPs/partnerships/{partner-or-program}*.partnership.md 2>/dev/null
 
 **EXAMPLE**:
 ```
-.claude/PRPs/partnerships/zendesk-integration-20260210-1430.partnership.md
-.claude/PRPs/partnerships/reseller-program-20260210-1545.partnership.md
+.prp-output/partnerships/zendesk-integration-20260210-1430.partnership.md
+.prp-output/partnerships/reseller-program-20260210-1545.partnership.md
 ```
 
 ## Key Principles

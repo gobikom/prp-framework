@@ -277,9 +277,9 @@ NOT_BUILDING (explicit scope limits):
 
 ## Phase 6: GENERATE — Implementation Plan File
 
-**OUTPUT_PATH**: `.ai-workflows/plans/{kebab-case-feature-name}.plan.md`
+**OUTPUT_PATH**: `.prp-output/plans/{kebab-case-feature-name}.plan.md`
 
-Create directory if needed: `mkdir -p .ai-workflows/plans`
+Create directory if needed: `mkdir -p .prp-output/plans`
 
 **PLAN_STRUCTURE** (the template to fill and save):
 
@@ -622,7 +622,7 @@ Verify using browser/UI testing:
 
 ## Output
 
-**OUTPUT_FILE**: `.ai-workflows/plans/{kebab-case-feature-name}.plan.md`
+**OUTPUT_FILE**: `.prp-output/plans/{kebab-case-feature-name}.plan.md`
 
 **If input was from PRD file**, also update the PRD:
 
@@ -637,7 +637,7 @@ Verify using browser/UI testing:
 ```markdown
 ## Plan Created
 
-**File**: `.ai-workflows/plans/{feature-name}.plan.md`
+**File**: `.prp-output/plans/{feature-name}.plan.md`
 
 {If from PRD:}
 **Source PRD**: `{prd-file-path}`

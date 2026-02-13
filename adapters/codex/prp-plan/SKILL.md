@@ -92,7 +92,7 @@ Document: APPROACH_CHOSEN + RATIONALE, ALTERNATIVES_REJECTED, NOT_BUILDING (scop
 
 ## Phase 6: Generate — Plan File
 
-Save to: `.ai-workflows/plans/{kebab-case-feature-name}.plan.md`
+Save to: `.prp-output/plans/{kebab-case-feature-name}.plan.md`
 
 Plan must include ALL of these sections:
 1. **Summary** — what we're building

@@ -17,7 +17,7 @@ Design Doc = Architecture blueprint for complex features. Simple features can sk
 ## Phase 1: Load Context
 
 1. **Read PRD**: Extract problem statement, solution approach, technical approach, constraints
-2. **Validate PRD**: Must be final merged PRD (not draft). Check for `.claude/PRPs/prds/{name}-prd.md` (no suffix)
+2. **Validate PRD**: Must be final merged PRD (not draft). Check for `.prp-output/prds/{name}-prd.md` (no suffix)
 3. **Extract Feature Name**: Derive from PRD filename for design doc naming
 
 ---
@@ -214,9 +214,9 @@ Document key decisions with rationale:
 
 ## Phase 8: Generate Design Doc
 
-**Output path**: `.claude/PRPs/designs/{feature}-design-other.md`
+**Output path**: `.prp-output/designs/{feature}-design-other.md`
 
-Create directory: `mkdir -p .claude/PRPs/designs`
+Create directory: `mkdir -p .prp-output/designs`
 
 > **Note**: Uses `-other` suffix to identify generic/Kimi design docs. Multiple tools can create design docs with different tool suffixes for comparison.
 
@@ -224,7 +224,7 @@ Create directory: `mkdir -p .claude/PRPs/designs`
 
 ```markdown
 ---
-source-prd: .claude/PRPs/prds/{feature}-prd.md
+source-prd: .prp-output/prds/{feature}-prd.md
 created: {timestamp}
 status: reference
 tool: other
@@ -461,7 +461,7 @@ Report:
 ```markdown
 ## Design Doc Created
 
-**File**: `.claude/PRPs/designs/{name}-design-other.md` (REFERENCE ONLY)
+**File**: `.prp-output/designs/{name}-design-other.md` (REFERENCE ONLY)
 
 ### Summary
 
@@ -492,7 +492,7 @@ Report:
 This is a **reference document**. Workflow continues as:
 
 1. Use this design doc as reference (optional)
-2. Create Plan from PRD: `/prp-plan .claude/PRPs/prds/{name}-prd.md`
+2. Create Plan from PRD: `/prp-plan .prp-output/prds/{name}-prd.md`
 3. Implement from Plan
 
 **Design Doc does NOT block workflow** - implementer can reference it for architecture guidance.

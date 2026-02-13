@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **BREAKING**: Unified all artifact output paths to `.prp-output/`
+  - `.claude/PRPs/` (Claude Code) → `.prp-output/`
+  - `.ai-workflows/plans/` (Codex/OpenCode/Gemini/Generic) → `.prp-output/plans/`
+  - `.ai-workflows/reports/` → `.prp-output/reports/`
+- Removed `.ai-workflows/prompts` symlink from install.sh (source prompts accessible via `.prp/prompts/`)
+- Updated `.gitignore` to ignore `.prp-output/` instead of `.ai-workflows/plans/`
+- Added `scripts/migrate-artifacts.sh` for migrating existing artifacts
+
 ### Planned
 - GitHub Actions workflow templates
 - Example projects showcase
@@ -18,7 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - **Artifact Output Instructions** for all 14 business agents
-  - Each agent now saves structured output to `.claude/PRPs/{category}/`
+  - Each agent now saves structured output to `.prp-output/{category}/`
   - 14 new artifact directories for business workflows
   - Workflow connections between agents documented
 

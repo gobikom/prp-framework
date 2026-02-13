@@ -615,7 +615,7 @@ Would you like to add this to your calendar?"
 
 ### 6.1 Flow Documentation
 
-**Path**: `.claude/PRPs/flows/flow-{name}-{date}.md`
+**Path**: `.prp-output/flows/flow-{name}-{date}.md`
 
 ### 6.2 Flow Diagram (Mermaid)
 
@@ -659,9 +659,9 @@ graph TD
 
 ### Artifacts
 
-📊 **Flow Diagram**: `.claude/PRPs/flows/flow-{name}-diagram.md`
-📋 **Documentation**: `.claude/PRPs/flows/flow-{name}-{date}.md`
-🧪 **Test Scenarios**: `.claude/PRPs/flows/flow-{name}-tests.md`
+📊 **Flow Diagram**: `.prp-output/flows/flow-{name}-diagram.md`
+📋 **Documentation**: `.prp-output/flows/flow-{name}-{date}.md`
+🧪 **Test Scenarios**: `.prp-output/flows/flow-{name}-tests.md`
 
 ### Next Steps
 

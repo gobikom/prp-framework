@@ -227,15 +227,15 @@ Create hypotheses to test:
 **Artifact Naming (Timestamp Format)**:
 ```bash
 TIMESTAMP=$(date +%Y%m%d-%H%M)
-ls .claude/PRPs/discovery/{segment-name}*.discovery.md 2>/dev/null
+ls .prp-output/discovery/{segment-name}*.discovery.md 2>/dev/null
 ```
 
-**OUTPUT_PATH**: `.claude/PRPs/discovery/{segment-name}-{TIMESTAMP}.discovery.md`
+**OUTPUT_PATH**: `.prp-output/discovery/{segment-name}-{TIMESTAMP}.discovery.md`
 
 **NAMING**: `{target-segment-kebab-case}-{TIMESTAMP}.discovery.md`
 
 **INSTRUCTIONS**:
-1. Create directory if needed: `mkdir -p .claude/PRPs/discovery`
+1. Create directory if needed: `mkdir -p .prp-output/discovery`
 2. Generate timestamp and check for existing files
 3. Save the complete output to the path above
 4. Include date created in the document
@@ -246,8 +246,8 @@ ls .claude/PRPs/discovery/{segment-name}*.discovery.md 2>/dev/null
 
 **EXAMPLE**:
 ```
-.claude/PRPs/discovery/smb-support-teams-20260210-1430.discovery.md
-.claude/PRPs/discovery/enterprise-cx-leaders-20260210-1545.discovery.md
+.prp-output/discovery/smb-support-teams-20260210-1430.discovery.md
+.prp-output/discovery/enterprise-cx-leaders-20260210-1545.discovery.md
 ```
 
 ## Key Principles

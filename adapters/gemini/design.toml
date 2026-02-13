@@ -9,7 +9,7 @@ Generate design doc from PRD as **optional reference** (NOT in workflow). Workfl
 
 ## Steps
 
-1. **Load**: Read PRD (must be final merged at `.claude/PRPs/prds/{name}-prd.md`, not draft), extract feature name.
+1. **Load**: Read PRD (must be final merged at `.prp-output/prds/{name}-prd.md`, not draft), extract feature name.
 2. **Explore**: Find architecture/API/database/component patterns, integration points. Use actual code with file:line references.
 3. **Research**: Official docs (match versions from package.json/config), architecture patterns, trade-offs, security (OWASP), scalability.
 4. **Design**:
@@ -22,7 +22,7 @@ Generate design doc from PRD as **optional reference** (NOT in workflow). Workfl
 5. **Decisions**: Table with Decision/Choice/Alternatives/Rationale/Trade-offs.
 6. **NFRs**: Performance (p50/p95/p99 targets, caching, DB optimization), Security (auth, authz, input validation, XSS/CSRF/SQL injection prevention), Scalability (horizontal scaling, stateless design, async processing, DB sharding), Monitoring (metrics, logging, alerts, tracing).
 7. **Migration**: Backward compatibility plan, data migration scripts, feature flags, rollback plan.
-8. **Generate**: Save to `.claude/PRPs/designs/{feature}-design-gemini.md` (create directory: `mkdir -p .claude/PRPs/designs`)
+8. **Generate**: Save to `.prp-output/designs/{feature}-design-gemini.md` (create directory: `mkdir -p .prp-output/designs`)
 
    > **Note**: Uses `-gemini` suffix to identify Gemini design docs. Multiple tools can create design docs with different suffixes for comparison.
 
@@ -30,7 +30,7 @@ Generate design doc from PRD as **optional reference** (NOT in workflow). Workfl
 
 ```markdown
 ---
-source-prd: .claude/PRPs/prds/{feature}-prd.md
+source-prd: .prp-output/prds/{feature}-prd.md
 created: {timestamp}
 status: reference
 tool: gemini
@@ -135,7 +135,7 @@ tool: gemini
 ## Output
 
 Report:
-- **File**: `.claude/PRPs/designs/{name}-design-gemini.md` (REFERENCE ONLY)
+- **File**: `.prp-output/designs/{name}-design-gemini.md` (REFERENCE ONLY)
 - **Summary**: Feature name, Complexity level, Components count, API endpoints count, Database changes count
 - **Key Design Decisions**: Top 3 decisions with choice and rationale
 - **Security Considerations**: List of key considerations

@@ -349,15 +349,15 @@ Full case study: [Link]
 **Artifact Naming (Timestamp Format)**:
 ```bash
 TIMESTAMP=$(date +%Y%m%d-%H%M)
-ls .claude/PRPs/case-studies/{customer-name}*.case-study.md 2>/dev/null
+ls .prp-output/case-studies/{customer-name}*.case-study.md 2>/dev/null
 ```
 
-**OUTPUT_PATH**: `.claude/PRPs/case-studies/{customer-name}-{TIMESTAMP}.case-study.md`
+**OUTPUT_PATH**: `.prp-output/case-studies/{customer-name}-{TIMESTAMP}.case-study.md`
 
 **NAMING**: `{customer-name-kebab-case}-{TIMESTAMP}.case-study.md`
 
 **INSTRUCTIONS**:
-1. Create directory if needed: `mkdir -p .claude/PRPs/case-studies`
+1. Create directory if needed: `mkdir -p .prp-output/case-studies`
 2. Generate timestamp and check for existing files
 3. Save the complete output to the path above
 4. Include all derivative content (one-pager, social snippets, etc.)
@@ -368,8 +368,8 @@ ls .claude/PRPs/case-studies/{customer-name}*.case-study.md 2>/dev/null
 
 **EXAMPLE**:
 ```
-.claude/PRPs/case-studies/acme-corp-20260210-1430.case-study.md
-.claude/PRPs/case-studies/fintech-startup-20260210-1545.case-study.md
+.prp-output/case-studies/acme-corp-20260210-1430.case-study.md
+.prp-output/case-studies/fintech-startup-20260210-1545.case-study.md
 ```
 
 ## Key Principles

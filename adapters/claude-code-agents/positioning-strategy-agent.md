@@ -283,15 +283,15 @@ Our product [statement of primary differentiation]
 **Artifact Naming (Timestamp Format)**:
 ```bash
 TIMESTAMP=$(date +%Y%m%d-%H%M)
-ls .claude/PRPs/positioning/{product-or-segment}*.positioning.md 2>/dev/null
+ls .prp-output/positioning/{product-or-segment}*.positioning.md 2>/dev/null
 ```
 
-**OUTPUT_PATH**: `.claude/PRPs/positioning/{product-or-segment}-{TIMESTAMP}.positioning.md`
+**OUTPUT_PATH**: `.prp-output/positioning/{product-or-segment}-{TIMESTAMP}.positioning.md`
 
 **NAMING**: `{product-or-segment-kebab-case}-{TIMESTAMP}.positioning.md`
 
 **INSTRUCTIONS**:
-1. Create directory if needed: `mkdir -p .claude/PRPs/positioning`
+1. Create directory if needed: `mkdir -p .prp-output/positioning`
 2. Generate timestamp and check for existing files
 3. Save the complete output to the path above
 4. Include version number for iteration tracking
@@ -302,8 +302,8 @@ ls .claude/PRPs/positioning/{product-or-segment}*.positioning.md 2>/dev/null
 
 **EXAMPLE**:
 ```
-.claude/PRPs/positioning/ai-chatbot-smb-20260210-1430.positioning.md
-.claude/PRPs/positioning/call-center-enterprise-20260210-1545.positioning.md
+.prp-output/positioning/ai-chatbot-smb-20260210-1430.positioning.md
+.prp-output/positioning/call-center-enterprise-20260210-1545.positioning.md
 ```
 
 ## Key Principles

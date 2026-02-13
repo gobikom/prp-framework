@@ -273,7 +273,7 @@ Run any edge case tests specified in the plan.
 ### 5.1 Create Report Directory
 
 ```bash
-mkdir -p .claude/PRPs/reports
+mkdir -p .prp-output/reports
 ```
 
 ### 5.2 Generate Report
@@ -283,10 +283,10 @@ mkdir -p .claude/PRPs/reports
 ```bash
 TIMESTAMP=$(date +%Y%m%d-%H%M)
 # Check for existing files with same base name
-ls .claude/PRPs/reports/{plan-name}-report*.md 2>/dev/null
+ls .prp-output/reports/{plan-name}-report*.md 2>/dev/null
 ```
 
-**Path**: `.claude/PRPs/reports/{plan-name}-report-{TIMESTAMP}.md`
+**Path**: `.prp-output/reports/{plan-name}-report-{TIMESTAMP}.md`
 
 Example: `user-auth-report-20260210-1430.md`
 
@@ -413,34 +413,34 @@ Compare the original investigation's assessment with what actually happened:
 
 ```bash
 # Create completed directory if it doesn't exist
-mkdir -p .claude/PRPs/plans/completed
+mkdir -p .prp-output/plans/completed
 
 # Move plan to completed folder
-mv "$ARGUMENTS" .claude/PRPs/plans/completed/
+mv "$ARGUMENTS" .prp-output/plans/completed/
 ```
 
 **Verify the move:**
 ```bash
-ls -la .claude/PRPs/plans/completed/
+ls -la .prp-output/plans/completed/
 ```
 
 **If move fails** (e.g., file already exists), use a timestamped name:
 ```bash
-mv "$ARGUMENTS" ".claude/PRPs/plans/completed/$(basename $ARGUMENTS .md)-$(date +%Y%m%d).md"
+mv "$ARGUMENTS" ".prp-output/plans/completed/$(basename $ARGUMENTS .md)-$(date +%Y%m%d).md"
 ```
 
 ### 5.5 Generate Review Context File (for run-all workflow)
 
 **Purpose**: Pre-generate context for `/prp-review-agents` to save ~60K tokens when running via `/prp-core-run-all`.
 
-**Path**: `.claude/PRPs/reviews/pr-context-{BRANCH}.md`
+**Path**: `.prp-output/reviews/pr-context-{BRANCH}.md`
 
 ```bash
 # Get current branch name
 BRANCH=$(git branch --show-current)
 
 # Create reviews directory
-mkdir -p .claude/PRPs/reviews
+mkdir -p .prp-output/reviews
 ```
 
 **Generate the context file:**
@@ -503,15 +503,15 @@ Based on implementation:
 - {Any gotchas or edge cases}
 ```
 
-**Save the file** to `.claude/PRPs/reviews/pr-context-{BRANCH}.md`
+**Save the file** to `.prp-output/reviews/pr-context-{BRANCH}.md`
 
 **PHASE_5_CHECKPOINT:**
 
-- [ ] Report created at `.claude/PRPs/reports/{plan-name}-report-{TIMESTAMP}.md`
+- [ ] Report created at `.prp-output/reports/{plan-name}-report-{TIMESTAMP}.md`
 - [ ] PRD updated (if applicable) - phase status changed from `in-progress` to `complete`
-- [ ] Plan moved to `.claude/PRPs/plans/completed/`
+- [ ] Plan moved to `.prp-output/plans/completed/`
 - [ ] Verified plan file no longer exists in original location
-- [ ] Review context file created at `.claude/PRPs/reviews/pr-context-{BRANCH}.md`
+- [ ] Review context file created at `.prp-output/reviews/pr-context-{BRANCH}.md`
 
 **GATE**: Do NOT proceed to Phase 6 until plan is archived. This prevents re-running the same plan.
 
@@ -549,9 +549,9 @@ Based on implementation:
 
 ### Artifacts
 
-- Report: `.claude/PRPs/reports/{name}-report-{TIMESTAMP}.md`
-- Review Context: `.claude/PRPs/reviews/pr-context-{BRANCH}.md`
-- Plan archived to: `.claude/PRPs/plans/completed/`
+- Report: `.prp-output/reports/{name}-report-{TIMESTAMP}.md`
+- Review Context: `.prp-output/reviews/pr-context-{BRANCH}.md`
+- Plan archived to: `.prp-output/plans/completed/`
 
 {If from PRD:}
 ### PRD Progress
@@ -624,8 +624,8 @@ To continue: `/prp-plan {prd-path}`
 - **LINT_PASS**: Lint command exits 0 (warnings OK)
 - **TESTS_PASS**: Test command all green
 - **BUILD_PASS**: Build command succeeds
-- **REPORT_CREATED**: Implementation report exists at `.claude/PRPs/reports/`
-- **PR_CONTEXT_CREATED**: Review context file exists at `.claude/PRPs/reviews/pr-context-{BRANCH}.md`
+- **REPORT_CREATED**: Implementation report exists at `.prp-output/reports/`
+- **PR_CONTEXT_CREATED**: Review context file exists at `.prp-output/reviews/pr-context-{BRANCH}.md`
 - **PRD_UPDATED**: If plan came from PRD, phase status is `complete`
-- **PLAN_ARCHIVED**: Original plan moved to `.claude/PRPs/plans/completed/`
-- **PLAN_REMOVED**: Original plan no longer in `.claude/PRPs/plans/` (prevents re-run)
+- **PLAN_ARCHIVED**: Original plan moved to `.prp-output/plans/completed/`
+- **PLAN_REMOVED**: Original plan no longer in `.prp-output/plans/` (prevents re-run)

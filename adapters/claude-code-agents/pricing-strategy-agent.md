@@ -309,15 +309,15 @@ Starter → Professional → Enterprise
 **Artifact Naming (Timestamp Format)**:
 ```bash
 TIMESTAMP=$(date +%Y%m%d-%H%M)
-ls .claude/PRPs/pricing/{product-or-segment}*.pricing.md 2>/dev/null
+ls .prp-output/pricing/{product-or-segment}*.pricing.md 2>/dev/null
 ```
 
-**OUTPUT_PATH**: `.claude/PRPs/pricing/{product-or-segment}-{TIMESTAMP}.pricing.md`
+**OUTPUT_PATH**: `.prp-output/pricing/{product-or-segment}-{TIMESTAMP}.pricing.md`
 
 **NAMING**: `{product-or-segment-kebab-case}-{TIMESTAMP}.pricing.md`
 
 **INSTRUCTIONS**:
-1. Create directory if needed: `mkdir -p .claude/PRPs/pricing`
+1. Create directory if needed: `mkdir -p .prp-output/pricing`
 2. Generate timestamp and check for existing files
 3. Save the complete output to the path above
 4. Include version for A/B test tracking
@@ -328,8 +328,8 @@ ls .claude/PRPs/pricing/{product-or-segment}*.pricing.md 2>/dev/null
 
 **EXAMPLE**:
 ```
-.claude/PRPs/pricing/chatbot-saas-tiers-20260210-1430.pricing.md
-.claude/PRPs/pricing/enterprise-custom-pricing-20260210-1545.pricing.md
+.prp-output/pricing/chatbot-saas-tiers-20260210-1430.pricing.md
+.prp-output/pricing/enterprise-custom-pricing-20260210-1545.pricing.md
 ```
 
 ## Key Principles

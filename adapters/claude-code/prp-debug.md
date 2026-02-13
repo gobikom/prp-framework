@@ -179,7 +179,7 @@ For deep mode, document why other hypotheses were rejected:
 ### 5.1 Create Report Directory
 
 ```bash
-mkdir -p .claude/PRPs/debug
+mkdir -p .prp-output/debug
 ```
 
 ### 5.2 Generate Report
@@ -189,10 +189,10 @@ mkdir -p .claude/PRPs/debug
 ```bash
 TIMESTAMP=$(date +%Y%m%d-%H%M)
 # Check for existing files with same base name
-ls .claude/PRPs/debug/rca-{issue-slug}*.md 2>/dev/null
+ls .prp-output/debug/rca-{issue-slug}*.md 2>/dev/null
 ```
 
-**Path**: `.claude/PRPs/debug/rca-{issue-slug}-{TIMESTAMP}.md`
+**Path**: `.prp-output/debug/rca-{issue-slug}-{TIMESTAMP}.md`
 
 Example: `rca-login-failure-20260210-1430.md`
 
@@ -275,7 +275,7 @@ WHY: {First level cause}
 **Root Cause**: {cause}
 **Confidence**: {High/Medium/Low}
 
-**Report**: `.claude/PRPs/debug/rca-{issue-slug}-{TIMESTAMP}.md`
+**Report**: `.prp-output/debug/rca-{issue-slug}-{TIMESTAMP}.md`
 
 ### Summary
 

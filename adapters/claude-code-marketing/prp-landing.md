@@ -227,7 +227,7 @@ If no flags provided, ask:
 
 ### 4.1 Analysis Report (if --analyze)
 
-**Path**: `.claude/PRPs/marketing/landing-analysis-{date}.md`
+**Path**: `.prp-output/marketing/landing-analysis-{date}.md`
 
 ```markdown
 ---
@@ -284,7 +284,7 @@ analyzed: {ISO_TIMESTAMP}
 
 ### 4.2 Generated Content (if --generate)
 
-**Path**: `.claude/PRPs/marketing/landing-content-{date}.md`
+**Path**: `.prp-output/marketing/landing-content-{date}.md`
 
 ```markdown
 ---
@@ -401,7 +401,7 @@ A: {answer}
 
 ### Artifacts
 
-📄 **Full Report**: `.claude/PRPs/marketing/landing-{type}-{date}.md`
+📄 **Full Report**: `.prp-output/marketing/landing-{type}-{date}.md`
 
 ### Next Steps
 

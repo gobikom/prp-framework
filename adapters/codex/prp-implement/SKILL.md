@@ -96,7 +96,7 @@ Run any edge case tests specified in the plan.
 ## Phase 5: Report
 
 ### 5.1 Generate Report
-Save to `.claude/PRPs/reports/{plan-name}-report-codex.md` with:
+Save to `.prp-output/reports/{plan-name}-report-codex.md` with:
 
 > **Note**: Uses `-codex` suffix to identify Codex implementation reports and prevent overwriting reports from other tools (each tool uses its own suffix for parallel implementation capability).
 - Plan reference, branch, date, status (COMPLETE | PARTIAL)
@@ -109,7 +109,7 @@ Save to `.claude/PRPs/reports/{plan-name}-report-codex.md` with:
 - Tests written table
 
 ### 5.2 Generate Review Context (for run-all workflow)
-Save to `.claude/PRPs/reviews/pr-context-{BRANCH}.md` with:
+Save to `.prp-output/reviews/pr-context-{BRANCH}.md` with:
 - Branch name, files changed, implementation summary
 - Validation status, key changes for review, focus areas
 - This saves ~60K tokens when running via run-all workflow
@@ -119,8 +119,8 @@ If plan was from PRD: read PRD → find phase → change status from `in-progres
 
 ### 5.4 Archive Plan
 ```bash
-mkdir -p .ai-workflows/plans/completed
-mv $ARGUMENTS .ai-workflows/plans/completed/
+mkdir -p .prp-output/plans/completed
+mv $ARGUMENTS .prp-output/plans/completed/
 ```
 
 ## Phase 6: Output
@@ -148,6 +148,6 @@ Next steps: review, create PR, merge.
 - LINT_PASS: Lint exits 0
 - TESTS_PASS: All tests green
 - BUILD_PASS: Build succeeds
-- REPORT_CREATED: Implementation report exists at `.claude/PRPs/reports/`
-- PR_CONTEXT_CREATED: Review context exists at `.claude/PRPs/reviews/pr-context-{BRANCH}.md`
+- REPORT_CREATED: Implementation report exists at `.prp-output/reports/`
+- PR_CONTEXT_CREATED: Review context exists at `.prp-output/reviews/pr-context-{BRANCH}.md`
 - PLAN_ARCHIVED: Original plan moved to completed

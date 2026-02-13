@@ -292,15 +292,15 @@ Here's how to get started:
 **Artifact Naming (Timestamp Format)**:
 ```bash
 TIMESTAMP=$(date +%Y%m%d-%H%M)
-ls .claude/PRPs/content/{content-type-or-campaign}*.content.md 2>/dev/null
+ls .prp-output/content/{content-type-or-campaign}*.content.md 2>/dev/null
 ```
 
-**OUTPUT_PATH**: `.claude/PRPs/content/{content-type-or-campaign}-{TIMESTAMP}.content.md`
+**OUTPUT_PATH**: `.prp-output/content/{content-type-or-campaign}-{TIMESTAMP}.content.md`
 
 **NAMING**: `{content-type-or-campaign-kebab-case}-{TIMESTAMP}.content.md`
 
 **INSTRUCTIONS**:
-1. Create directory if needed: `mkdir -p .claude/PRPs/content`
+1. Create directory if needed: `mkdir -p .prp-output/content`
 2. Generate timestamp and check for existing files
 3. Save the complete output to the path above
 4. Include content calendar and distribution plan
@@ -311,8 +311,8 @@ ls .claude/PRPs/content/{content-type-or-campaign}*.content.md 2>/dev/null
 
 **EXAMPLE**:
 ```
-.claude/PRPs/content/thought-leadership-q1-20260210-1430.content.md
-.claude/PRPs/content/chatbot-comparison-guide-20260210-1545.content.md
+.prp-output/content/thought-leadership-q1-20260210-1430.content.md
+.prp-output/content/chatbot-comparison-guide-20260210-1545.content.md
 ```
 
 ## Key Principles

@@ -18,7 +18,7 @@ Thumbs.db
 
 # Runtime artifacts (created when framework is used)
 .claude/
-.ai-workflows/plans/
+.prp-output/
 
 # Logs
 *.log

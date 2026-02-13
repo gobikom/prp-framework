@@ -441,7 +441,7 @@ Trial or follow-up call
 
 ### 6.1 Demo Status Report
 
-**Path**: `.claude/PRPs/demos/demo-status-{date}.md`
+**Path**: `.prp-output/demos/demo-status-{date}.md`
 
 ```markdown
 ---
@@ -477,11 +477,11 @@ status: READY | ISSUES
 
 ### 6.2 Demo Script
 
-**Path**: `.claude/PRPs/demos/demo-script-{customer}-{date}.md`
+**Path**: `.prp-output/demos/demo-script-{customer}-{date}.md`
 
 ### 6.3 Checklist
 
-**Path**: `.claude/PRPs/demos/demo-checklist-{date}.md`
+**Path**: `.prp-output/demos/demo-checklist-{date}.md`
 
 ---
 
@@ -501,9 +501,9 @@ status: READY | ISSUES
 
 ### Artifacts
 
-📄 **Status Report**: `.claude/PRPs/demos/demo-status-{date}.md`
-📋 **Demo Script**: `.claude/PRPs/demos/demo-script-{date}.md`
-✅ **Checklist**: `.claude/PRPs/demos/demo-checklist-{date}.md`
+📄 **Status Report**: `.prp-output/demos/demo-status-{date}.md`
+📋 **Demo Script**: `.prp-output/demos/demo-script-{date}.md`
+✅ **Checklist**: `.prp-output/demos/demo-checklist-{date}.md`
 
 ### Next Steps
 

@@ -218,17 +218,17 @@ git blame -L {start},{end} {affected-file}
 ### 4.1 Artifact Path
 
 ```bash
-mkdir -p .claude/PRPs/issues
+mkdir -p .prp-output/issues
 TIMESTAMP=$(date +%Y%m%d-%H%M)
 # Check for existing files with same base name
-ls .claude/PRPs/issues/issue-{number}*.md 2>/dev/null
+ls .prp-output/issues/issue-{number}*.md 2>/dev/null
 ```
 
-**Path (with issue number):** `.claude/PRPs/issues/issue-{number}-{TIMESTAMP}.md`
+**Path (with issue number):** `.prp-output/issues/issue-{number}-{TIMESTAMP}.md`
 
 Example: `issue-123-20260210-1430.md`
 
-**Path (free-form, no issue number):** `.claude/PRPs/issues/investigation-{TIMESTAMP}.md`
+**Path (free-form, no issue number):** `.prp-output/issues/investigation-{TIMESTAMP}.md`
 
 Example: `investigation-20260210-1430.md`
 
@@ -420,7 +420,7 @@ describe("{feature}", () => {
 
 - **Investigated by**: Claude
 - **Timestamp**: {ISO timestamp}
-- **Artifact**: `.claude/PRPs/issues/issue-{number}-{TIMESTAMP}.md`
+- **Artifact**: `.prp-output/issues/issue-{number}-{TIMESTAMP}.md`
 
 ````
 
@@ -435,7 +435,7 @@ describe("{feature}", () => {
 ## Phase 5: COMMIT - Save Artifact
 
 ```bash
-git add .claude/PRPs/issues/
+git add .prp-output/issues/
 git status
 ````
 
@@ -559,7 +559,7 @@ EOF
 
 ### Artifact
 
-`.claude/PRPs/issues/issue-{number}-{TIMESTAMP}.md`
+`.prp-output/issues/issue-{number}-{TIMESTAMP}.md`
 
 ### GitHub
 

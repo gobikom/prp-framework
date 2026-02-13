@@ -292,14 +292,14 @@ TIMESTAMP=$(date +%Y%m%d-%H%M)
 **Check for existing files**:
 ```bash
 # Look for existing files with same base name
-ls .claude/PRPs/plans/{kebab-case-feature-name}*.plan.md 2>/dev/null
+ls .prp-output/plans/{kebab-case-feature-name}*.plan.md 2>/dev/null
 ```
 
-**OUTPUT_PATH**: `.claude/PRPs/plans/{kebab-case-feature-name}-{TIMESTAMP}.plan.md`
+**OUTPUT_PATH**: `.prp-output/plans/{kebab-case-feature-name}-{TIMESTAMP}.plan.md`
 
 Example: `user-auth-feature-20260210-1430.plan.md`
 
-Create directory if needed: `mkdir -p .claude/PRPs/plans`
+Create directory if needed: `mkdir -p .prp-output/plans`
 
 **PLAN_STRUCTURE** (the template to fill and save):
 
@@ -641,7 +641,7 @@ Use Browser MCP to verify:
 </process>
 
 <output>
-**OUTPUT_FILE**: `.claude/PRPs/plans/{kebab-case-feature-name}-{TIMESTAMP}.plan.md`
+**OUTPUT_FILE**: `.prp-output/plans/{kebab-case-feature-name}-{TIMESTAMP}.plan.md`
 
 **If input was from PRD file**, also update the PRD:
 
@@ -656,7 +656,7 @@ Use Browser MCP to verify:
 ```markdown
 ## Plan Created
 
-**File**: `.claude/PRPs/plans/{feature-name}-{TIMESTAMP}.plan.md`
+**File**: `.prp-output/plans/{feature-name}-{TIMESTAMP}.plan.md`
 
 {If from PRD:}
 **Source PRD**: `{prd-file-path}`
@@ -694,7 +694,7 @@ To start: `git worktree add -b phase-{X} ../project-phase-{X} && cd ../project-p
 **Confidence Score**: {1-10}/10 for one-pass implementation success
 - {Rationale for score}
 
-**Next Step**: To execute, run: `/prp-implement .claude/PRPs/plans/{feature-name}-{TIMESTAMP}.plan.md`
+**Next Step**: To execute, run: `/prp-implement .prp-output/plans/{feature-name}-{TIMESTAMP}.plan.md`
 ````
 
 </output>

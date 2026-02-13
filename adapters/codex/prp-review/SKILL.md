@@ -90,17 +90,17 @@ Perform a comprehensive multi-pass code review. Each pass focuses on a specific 
 ## Output
 
 ### Save Local Review
-Save aggregated review to `.claude/PRPs/reviews/pr-{NUMBER}-review-codex.md` before posting to GitHub.
+Save aggregated review to `.prp-output/reviews/pr-{NUMBER}-review-codex.md` before posting to GitHub.
 
 > **Note**: Uses `-codex` suffix to identify Codex reviews and prevent overwriting reviews from other tools (each tool uses its own suffix for parallel review capability).
 
 ### Post to GitHub
-`gh pr comment <PR_NUMBER> --body-file .claude/PRPs/reviews/pr-{NUMBER}-review-codex.md`
+`gh pr comment <PR_NUMBER> --body-file .prp-output/reviews/pr-{NUMBER}-review-codex.md`
 
 Summary includes: Critical/Important/Suggestions/Strengths tables, Documentation Updates, Verdict (READY TO MERGE / NEEDS FIXES / CRITICAL ISSUES), Recommended Actions.
 
 ### Update Implementation Report
-After posting, find implementation report (`ls .claude/PRPs/reports/*-report.md`). If exists, append "Review Outcome" section with: review date, PR number, verdict, link to review file, issue counts by category (Critical/Important/Suggestions). If no report found, skip silently.
+After posting, find implementation report (`ls .prp-output/reports/*-report.md`). If exists, append "Review Outcome" section with: review date, PR number, verdict, link to review file, issue counts by category (Critical/Important/Suggestions). If no report found, skip silently.
 
 ## Usage Examples
 

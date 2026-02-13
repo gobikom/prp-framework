@@ -35,9 +35,9 @@ Each question set builds on previous answers. Grounding phases validate assumpti
 
 6. **DECISIONS**: Ask: MVP definition, Must Have vs Nice to Have, Key Hypothesis ("We believe [X] will [Y] for [Z]. We'll know when [metric]"), Out of Scope, Open Questions. **GATE**: Wait for responses.
 
-7. **GENERATE**: Save PRD to `.claude/PRPs/prds/drafts/{kebab-case-name}-prd-opencode.md` (create directory: `mkdir -p .claude/PRPs/prds/drafts`) with ALL sections:
+7. **GENERATE**: Save PRD to `.prp-output/prds/drafts/{kebab-case-name}-prd-opencode.md` (create directory: `mkdir -p .prp-output/prds/drafts`) with ALL sections:
 
-   > **Note**: Uses `-opencode` suffix to identify OpenCode PRD drafts. Multiple tools can create draft PRDs in `drafts/` subdirectory for comparison. User manually merges best sections to final version at `.claude/PRPs/prds/{name}-prd.md` (no suffix, root level) which Plan command will reference.
+   > **Note**: Uses `-opencode` suffix to identify OpenCode PRD drafts. Multiple tools can create draft PRDs in `drafts/` subdirectory for comparison. User manually merges best sections to final version at `.prp-output/prds/{name}-prd.md` (no suffix, root level) which Plan command will reference.
    - Problem Statement, Evidence, Proposed Solution, Key Hypothesis
    - What We're NOT Building, Success Metrics, Open Questions
    - Users & Context (primary user, JTBD, non-users)
@@ -52,7 +52,7 @@ Each question set builds on previous answers. Grounding phases validate assumpti
 
    **To start implementation**:
    1. Manually compare draft PRDs from different tools (in `drafts/` subdirectory)
-   2. Merge best sections to final PRD: `.claude/PRPs/prds/{name}-prd.md` (no suffix)
+   2. Merge best sections to final PRD: `.prp-output/prds/{name}-prd.md` (no suffix)
    3. Run Plan workflow with final PRD path
 
    Plan command references final merged PRD only (not drafts).

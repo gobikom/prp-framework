@@ -23,14 +23,14 @@ GROUNDING (Technical) → DECISIONS → GENERATE → OUTPUT
 4. **DEEP DIVE:** Vision, Primary user, JTBD, Non-users, Constraints
 5. **GROUNDING (Technical):** Assess feasibility via codebase exploration
 6. **DECISIONS:** MVP, Must-haves, Hypothesis, Out of scope
-7. **GENERATE:** Create draft PRD in `.claude/PRPs/prds/drafts/`
+7. **GENERATE:** Create draft PRD in `.prp-output/prds/drafts/`
 8. **OUTPUT:** Summary and next steps
 
 ### Output
 
 Draft PRD with tool-specific suffix:
-- `.claude/PRPs/prds/drafts/feature-prd-agents.md` (Claude Code)
-- `.claude/PRPs/prds/drafts/feature-prd-codex.md` (Codex)
+- `.prp-output/prds/drafts/feature-prd-agents.md` (Claude Code)
+- `.prp-output/prds/drafts/feature-prd-codex.md` (Codex)
 - etc.
 
 ### Usage
@@ -76,17 +76,17 @@ Technical Decisions → NFRs → Migration Strategy → GENERATE
 ### Output
 
 Design Doc with tool-specific suffix:
-- `.claude/PRPs/designs/feature-design-agents.md`
+- `.prp-output/designs/feature-design-agents.md`
 - Includes: System architecture, API contracts, database schema, sequence diagrams, technical decisions, NFRs
 
 ### Usage
 
 ```bash
 # Claude Code
-/prp-design .claude/PRPs/prds/jwt-prd.md
+/prp-design .prp-output/prds/jwt-prd.md
 
 # Codex
-$prp-design .claude/PRPs/prds/jwt-prd.md
+$prp-design .prp-output/prds/jwt-prd.md
 
 # Others similar
 ```
@@ -113,7 +113,7 @@ Design UX → Architect → Generate Plan
 
 ### Output
 
-Plan file: `.claude/PRPs/plans/feature-name.plan.md`
+Plan file: `.prp-output/plans/feature-name.plan.md`
 
 Contains:
 - User story and problem statement
@@ -131,7 +131,7 @@ Contains:
 /prp-plan Add JWT authentication
 
 # From PRD
-/prp-plan .claude/PRPs/prds/jwt-prd.md
+/prp-plan .prp-output/prds/jwt-prd.md
 ```
 
 ---
@@ -158,12 +158,12 @@ Full Validation → Report → PRD Update → Archive Plan
 
 ### Output
 
-Implementation report: `.claude/PRPs/reports/feature-report-{tool}.md`
+Implementation report: `.prp-output/reports/feature-report-{tool}.md`
 
 ### Usage
 
 ```bash
-/prp-implement .claude/PRPs/plans/jwt-auth.plan.md
+/prp-implement .prp-output/plans/jwt-auth.plan.md
 ```
 
 ---
@@ -191,7 +191,7 @@ Implementation report: `.claude/PRPs/reports/feature-report-{tool}.md`
 
 ### Output
 
-Review report: `.claude/PRPs/reviews/pr-{N}-{tool}-review.md`
+Review report: `.prp-output/reviews/pr-{N}-{tool}-review.md`
 Posted to GitHub as comment
 
 ### Usage
@@ -351,7 +351,7 @@ TIMESTAMP=$(date +%Y%m%d-%H%M)
 
 ```bash
 # หา artifact ล่าสุดโดย sort by modified time
-ls -t .claude/PRPs/plans/*.plan.md | head -1
+ls -t .prp-output/plans/*.plan.md | head -1
 ```
 
 ### Cleanup

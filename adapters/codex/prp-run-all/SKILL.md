@@ -71,8 +71,8 @@ Failure → STOP, report which task failed.
 
 **3.1 Verify Artifacts**: After implement completes, check:
 ```bash
-ls -la .claude/PRPs/reports/*-report*.md 2>/dev/null
-ls -la .claude/PRPs/reviews/pr-context-*.md 2>/dev/null
+ls -la .prp-output/reports/*-report*.md 2>/dev/null
+ls -la .prp-output/reviews/pr-context-*.md 2>/dev/null
 ```
 
 **3.2 Fallback**: If report missing, create minimal report with files changed. If pr-context missing, create minimal context from `git diff --name-only origin/main...HEAD`.

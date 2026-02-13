@@ -20,7 +20,7 @@ Generate design doc from PRD as **optional reference** (NOT in workflow). Workfl
 5. **Decisions**: Table with Choice/Alternatives/Rationale/Trade-offs
 6. **NFRs**: Performance (p50/p95/p99), Security (auth, validation, XSS/CSRF), Scalability (horizontal, async), Monitoring (metrics, logging, alerts)
 7. **Migration**: Backward compatibility, data migration, feature flags, rollback
-8. **Generate**: Save to `.claude/PRPs/designs/{feature}-design-opencode.md` (create dir: `mkdir -p .claude/PRPs/designs`)
+8. **Generate**: Save to `.prp-output/designs/{feature}-design-opencode.md` (create dir: `mkdir -p .prp-output/designs`)
 
    > **Note**: `-opencode` suffix for OpenCode design docs. Multiple tools can create designs for comparison.
 
@@ -28,7 +28,7 @@ Generate design doc from PRD as **optional reference** (NOT in workflow). Workfl
 
 ```markdown
 ---
-source-prd: .claude/PRPs/prds/{feature}-prd.md
+source-prd: .prp-output/prds/{feature}-prd.md
 created: {timestamp}
 status: reference
 tool: opencode

@@ -83,7 +83,7 @@ cp -r prp-framework/* my-project/
 ### Codex
 ```bash
 $prp-prd Add usage metrics
-$prp-design .claude/PRPs/prds/metrics-prd.md
+$prp-design .prp-output/prds/metrics-prd.md
 $prp-plan Add JWT authentication
 $prp-implement plan.md
 $prp-review 25
@@ -94,7 +94,7 @@ $prp-pr
 ### OpenCode / Gemini
 ```bash
 /prp:prd Add usage metrics
-/prp:design .claude/PRPs/prds/metrics-prd.md
+/prp:design .prp-output/prds/metrics-prd.md
 /prp:plan Add JWT authentication
 /prp:implement plan.md
 /prp:review 25
@@ -143,10 +143,10 @@ prp-framework/
 
 ## Artifacts
 
-All tools produce artifacts in `.claude/PRPs/`:
+All tools produce artifacts in `.prp-output/`:
 
 ```
-.claude/PRPs/
+.prp-output/
 ├── prds/
 │   ├── drafts/          # Draft PRDs with tool suffixes
 │   └── {name}-prd.md    # Final merged PRD

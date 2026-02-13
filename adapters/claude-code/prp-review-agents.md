@@ -159,10 +159,10 @@ After all agents complete, aggregate findings:
 
 Before posting to GitHub, save the aggregated review locally:
 
-**Path**: `.claude/PRPs/reviews/pr-{NUMBER}-agents-review.md`
+**Path**: `.prp-output/reviews/pr-{NUMBER}-agents-review.md`
 
 ```bash
-mkdir -p .claude/PRPs/reviews
+mkdir -p .prp-output/reviews
 ```
 
 Save the full summary markdown (same content that will be posted to GitHub) to this file. This ensures a local artifact exists for reference and traceability.
@@ -174,7 +174,7 @@ Save the full summary markdown (same content that will be posted to GitHub) to t
 **Always post the summary to the PR when a PR number is provided**:
 
 ```bash
-gh pr comment <PR_NUMBER> --body-file .claude/PRPs/reviews/pr-{NUMBER}-agents-review.md
+gh pr comment <PR_NUMBER> --body-file .prp-output/reviews/pr-{NUMBER}-agents-review.md
 ```
 
 ## Update Implementation Report
@@ -186,7 +186,7 @@ After posting to GitHub, update the implementation report to close the feedback 
 ```bash
 # Find report matching the PR branch
 BRANCH=$(gh pr view <PR_NUMBER> --json headRefName -q '.headRefName')
-ls .claude/PRPs/reports/*-report.md 2>/dev/null
+ls .prp-output/reports/*-report.md 2>/dev/null
 ```
 
 ### Append Review Outcome
@@ -202,7 +202,7 @@ ls .claude/PRPs/reports/*-report.md 2>/dev/null
 **Reviewed**: {ISO_TIMESTAMP}
 **PR**: #{NUMBER}
 **Verdict**: {READY TO MERGE / NEEDS FIXES / CRITICAL ISSUES}
-**Review File**: `.claude/PRPs/reviews/pr-{NUMBER}-agents-review.md`
+**Review File**: `.prp-output/reviews/pr-{NUMBER}-agents-review.md`
 
 | Category | Count |
 |----------|-------|

@@ -30,12 +30,12 @@ Format: <pr-number> [aspects: comments|tests|errors|types|code|docs|simplify|all
 Categorize: Critical (block merge), Important (address), Suggestions, Strengths.
 Include: Documentation Updates, Verdict (READY TO MERGE / NEEDS FIXES / CRITICAL ISSUES).
 
-Save review locally to `.claude/PRPs/reviews/pr-{NUMBER}-review-gemini.md` before posting.
+Save review locally to `.prp-output/reviews/pr-{NUMBER}-review-gemini.md` before posting.
 
 Note: Uses `-gemini` suffix to identify Gemini reviews and prevent overwriting reviews from other tools (each tool uses its own suffix for parallel review capability).
 
-Post to GitHub: `gh pr comment <number> --body-file .claude/PRPs/reviews/pr-{NUMBER}-review-gemini.md`
-After posting, find implementation report (`.claude/PRPs/reports/*-report.md`). If exists, append Review Outcome section with verdict and issue counts. If not found, skip.
+Post to GitHub: `gh pr comment <number> --body-file .prp-output/reviews/pr-{NUMBER}-review-gemini.md`
+After posting, find implementation report (`.prp-output/reports/*-report.md`). If exists, append Review Outcome section with verdict and issue counts. If not found, skip.
 
 ## Usage
 

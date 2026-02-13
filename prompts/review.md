@@ -223,12 +223,12 @@ After all passes complete, aggregate findings:
 
 Before posting to GitHub, save the aggregated review locally:
 
-**Path**: `.claude/PRPs/reviews/pr-{NUMBER}-review-other.md`
+**Path**: `.prp-output/reviews/pr-{NUMBER}-review-other.md`
 
 > **Note**: Uses `-other` suffix to identify generic/multi-pass reviews and prevent overwriting reviews from other tools (Codex, OpenCode, Gemini use their own suffixes; Claude Code uses `-agents` suffix).
 
 ```bash
-mkdir -p .claude/PRPs/reviews
+mkdir -p .prp-output/reviews
 ```
 
 Save the full summary markdown (same content that will be posted to GitHub) to this file. This ensures a local artifact exists for reference and traceability.
@@ -240,7 +240,7 @@ Save the full summary markdown (same content that will be posted to GitHub) to t
 **Always post the summary to the PR when a PR number is provided**:
 
 ```bash
-gh pr comment <PR_NUMBER> --body-file .claude/PRPs/reviews/pr-{NUMBER}-review-other.md
+gh pr comment <PR_NUMBER> --body-file .prp-output/reviews/pr-{NUMBER}-review-other.md
 ```
 
 ---
@@ -252,7 +252,7 @@ After posting to GitHub, update the implementation report to close the feedback 
 ### Find Implementation Report
 
 ```bash
-ls .claude/PRPs/reports/*-report.md 2>/dev/null
+ls .prp-output/reports/*-report.md 2>/dev/null
 ```
 
 ### Append Review Outcome
@@ -268,7 +268,7 @@ ls .claude/PRPs/reports/*-report.md 2>/dev/null
 **Reviewed**: {ISO_TIMESTAMP}
 **PR**: #{NUMBER}
 **Verdict**: {READY TO MERGE / NEEDS FIXES / CRITICAL ISSUES}
-**Review File**: `.claude/PRPs/reviews/pr-{NUMBER}-review-other.md`
+**Review File**: `.prp-output/reviews/pr-{NUMBER}-review-other.md`
 
 | Category | Count |
 |----------|-------|
