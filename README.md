@@ -166,18 +166,35 @@ All tools produce artifacts in `.prp-output/`:
 
 ## Updating Framework
 
-### With Symlinks (Auto-update)
+### With Submodule (Symlinks)
+
 ```bash
-cd .prp
-git pull origin main
-# Changes applied automatically
+cd .prp && git pull origin main && cd ..
+# Command content updates automatically via symlinks!
 ```
 
-### With Hard Copy
+**After major version updates** (re-run install to update directory structure and .gitignore):
+
 ```bash
-cd .prp
-git pull origin main
-./scripts/sync.sh
+cd .prp && git pull origin main && ./scripts/install.sh && cd ..
+```
+
+### With Submodule (Hard Copy)
+
+```bash
+cd .prp && git pull origin main && ./scripts/sync.sh && cd ..
+```
+
+### With Template
+
+Manual update — copy new files from framework repo.
+
+### Re-install from Scratch
+
+If something is broken, force a clean re-install:
+
+```bash
+cd .prp && ./scripts/install.sh && cd ..
 ```
 
 ## Documentation

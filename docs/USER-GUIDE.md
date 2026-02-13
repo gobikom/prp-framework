@@ -12,6 +12,7 @@
 8. [Automation](#automation)
 9. [Best Practices](#best-practices)
 10. [Troubleshooting](#troubleshooting)
+11. [Updating & Re-install](#updating--re-install)
 
 ---
 
@@ -757,6 +758,49 @@ Create Branch → Plan → Implement → Commit → PR → Review
 
 ---
 
+## Updating & Re-install
+
+### อัพเดท Framework (Submodule + Symlinks)
+
+```bash
+cd .prp && git pull origin main && cd ..
+# Command content อัพเดทอัตโนมัติผ่าน symlinks!
+```
+
+### อัพเดท Major Version (มีการเปลี่ยน directory structure)
+
+```bash
+cd .prp && git pull origin main && ./scripts/install.sh && cd ..
+```
+
+> **เมื่อไหร่ต้องรัน install.sh ใหม่**: เมื่อมีการเปลี่ยน directory structure, เพิ่ม commands/agents ใหม่, หรือแก้ไข .gitignore rules
+
+### อัพเดท Framework (Hard Copy)
+
+```bash
+cd .prp && git pull origin main && ./scripts/sync.sh && cd ..
+```
+
+### ติดตั้งใหม่ทั้งหมด (Re-install)
+
+ถ้า symlinks หรือ config มีปัญหา:
+
+```bash
+cd .prp && ./scripts/install.sh && cd ..
+```
+
+### Migrate Artifacts จาก Version เก่า
+
+ถ้าเคยใช้ `.claude/PRPs/` หรือ `.ai-workflows/` (ก่อน v2.0):
+
+```bash
+cd .prp && ./scripts/migrate-artifacts.sh && cd ..
+```
+
+Script จะ copy artifacts เก่าไปยัง `.prp-output/` โดยไม่ลบต้นฉบับ
+
+---
+
 ## Artifacts Location
 
 ```
@@ -916,5 +960,5 @@ Create Branch → Plan → Implement → Commit → PR → Review
 
 ---
 
-*Document version: 1.3*
-*Last updated: 2026-02-09*
+*Document version: 1.4*
+*Last updated: 2026-02-13*
