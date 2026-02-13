@@ -17,6 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added `scripts/migrate-artifacts.sh` for migrating existing artifacts
 - Gitignore generated adapter directories (`.claude/`, `.claude-plugin/`, `.codex/`, `.opencode/`, `.gemini/`, `AGENTS.md`)
 - Streamlined `CLAUDE.md` to user-facing content only; moved dev guidelines to `docs/CONTRIBUTING.md`
+- `install.sh` now auto-configures consumer project `.gitignore` (adapters + artifact visibility)
+- `.prp-output/` directory visible to AI tools while content is not tracked in git
 
 ### Planned
 - GitHub Actions workflow templates

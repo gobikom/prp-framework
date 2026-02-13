@@ -185,6 +185,33 @@ echo "📁 Creating runtime artifact directories..."
 mkdir -p "$PROJECT_DIR/.prp-output"/{prds/drafts,designs,plans/completed,reports,reviews,debug,issues/completed}
 echo -e "${GREEN}  ✅ Created .prp-output/ structure${NC}"
 
+# Add gitignore rules to consumer project
+echo ""
+echo "📝 Configuring .gitignore..."
+GITIGNORE_FILE="$PROJECT_DIR/.gitignore"
+PRP_MARKER="# PRP Framework"
+
+if [ -f "$GITIGNORE_FILE" ] && grep -q "$PRP_MARKER" "$GITIGNORE_FILE"; then
+    echo -e "${GREEN}  ✅ .gitignore already configured${NC}"
+else
+    cat >> "$GITIGNORE_FILE" << 'GITIGNORE'
+
+# PRP Framework - generated adapters (recreate with: cd .prp && ./scripts/install.sh)
+.claude/
+.claude-plugin/
+.codex/
+.opencode/
+.gemini/
+AGENTS.md
+
+# PRP Framework - artifacts (directory visible to AI tools, content not tracked)
+.prp-output/**
+!.prp-output/
+!.prp-output/**/
+GITIGNORE
+    echo -e "${GREEN}  ✅ Added PRP rules to .gitignore${NC}"
+fi
+
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""

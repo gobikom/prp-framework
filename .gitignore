@@ -24,8 +24,10 @@ Thumbs.db
 .gemini/
 AGENTS.md
 
-# Runtime artifacts
-.prp-output/
+# Runtime artifacts (directory visible to AI tools, content not tracked)
+.prp-output/**
+!.prp-output/
+!.prp-output/**/
 
 # Logs
 *.log
