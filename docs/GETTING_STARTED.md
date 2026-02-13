@@ -31,14 +31,14 @@ cd .prp
 cd ..
 
 # 4. Commit the submodule
-git add .gitmodules .prp .claude .codex .opencode .gemini AGENTS.md
+git add .gitmodules .prp
 git commit -m "feat: add PRP Framework via submodule"
 ```
 
 **Result:**
-- Framework code in `.prp/` (submodule)
-- Symlinks created to adapters (auto-updates on `git pull`)
-- Runtime artifact directories created
+- Framework code in `.prp/` (submodule, committed to git)
+- Symlinks created to adapters (`.claude/`, `.codex/`, etc. — gitignored, regenerate with `install.sh`)
+- Runtime artifact directory `.prp-output/` created (gitignored)
 
 ### Method 2: Template Repository
 

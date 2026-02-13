@@ -16,8 +16,15 @@ Thumbs.db
 .project
 .settings/
 
-# Runtime artifacts (created when framework is used)
+# Generated adapters (created by install.sh - regenerate with ./scripts/install.sh)
 .claude/
+.claude-plugin/
+.codex/
+.opencode/
+.gemini/
+AGENTS.md
+
+# Runtime artifacts
 .prp-output/
 
 # Logs
