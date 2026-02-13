@@ -9,32 +9,6 @@ PRP (Plan-Review-PR) Framework เป็น cross-tool AI coding workflow framew
 - **Structured Workflow**: PRD → Design → Plan → Implement → Review → Commit → PR
 - **Token Optimized**: ใช้ context file caching เพื่อลด token consumption
 
-## Project Structure
-
-```
-prp-framework/
-├── adapters/                      # Tool-specific adapters
-│   ├── claude-code/               # Core commands (16 commands)
-│   ├── claude-code-marketing/     # Marketing commands (4 commands)
-│   ├── claude-code-bot/           # AI Bot commands (5 commands)
-│   ├── claude-code-agents/        # Custom agents (31 agents)
-│   ├── claude-code-skills/        # Skills
-│   ├── claude-code-hooks/         # Hooks
-│   ├── codex/                     # Codex adapter
-│   ├── opencode/                  # OpenCode adapter
-│   ├── gemini/                    # Gemini adapter
-│   └── generic/                   # Generic AGENTS.md
-├── prompts/                       # Source prompts (tool-agnostic)
-├── scripts/                       # Installation scripts
-│   └── install.sh                 # Main installer
-├── docs/                          # Documentation
-│   ├── USER-GUIDE.md              # Complete command reference
-│   ├── GETTING_STARTED.md
-│   ├── WORKFLOWS.md
-│   └── CONTRIBUTING.md
-└── README.md
-```
-
 ## Command Namespaces
 
 | Namespace | หมวดหมู่ | จำนวน |
@@ -223,64 +197,17 @@ customer-discovery → positioning-strategy → content-marketing
                     customer-success  →  case-study-agent
 ```
 
-## Development Guidelines
-
-### Adding New Commands
-
-1. สร้างไฟล์ `.md` ใน folder ที่เหมาะสม (`adapters/claude-code/`, `claude-code-marketing/`, หรือ `claude-code-bot/`)
-2. ใช้ format: `prp-{command-name}.md`
-3. รัน `install.sh` ใหม่เพื่อสร้าง symlinks
-
-### Adding New Agents
-
-1. สร้างไฟล์ `.md` ใน `adapters/claude-code-agents/`
-2. ใส่ frontmatter:
-   ```yaml
-   ---
-   name: agent-name
-   description: What the agent does
-   model: sonnet (or haiku/opus)
-   color: "#hexcode"
-   ---
-   ```
-3. รัน `install.sh` ใหม่
-
-### Token Optimization
+## Token Optimization
 
 สำหรับ multi-agent reviews ใช้ context file caching:
 1. Extract context ครั้งเดียวใน Phase 1
 2. เก็บใน `.prp-output/reviews/feature-context-*.md`
 3. Agents อ่านจาก context file แทนการ scan ใหม่
 
-## Testing
-
-ทดสอบ commands หลังแก้ไข:
-```bash
-# ทดสอบการติดตั้ง
-./scripts/install.sh
-
-# ตรวจสอบ symlinks
-ls -la ~/.claude/commands/prp-core/
-ls -la ~/.claude/commands/prp-mkt/
-ls -la ~/.claude/commands/prp-bot/
-```
-
-## Key Files
-
-- `scripts/install.sh` - Main installation script
-- `docs/USER-GUIDE.md` - Complete command reference (Thai)
-- `README.md` - Project overview (English)
-- `adapters/claude-code/prp-feature-review.md` - Feature review with token optimization
-- `adapters/claude-code/prp-feature-review-agents.md` - Multi-agent feature review
-
-## Contributing
-
-1. Fork repository
-2. Create feature branch
-3. Make changes
-4. Run install.sh to test
-5. Submit PR
-
 ## License
 
 MIT License - See LICENSE file
+
+## Contributing
+
+See `docs/CONTRIBUTING.md` for development guidelines.

@@ -98,6 +98,38 @@ gemini
 /prp:plan test-feature
 ```
 
+## Adding a New Agent
+
+Create a new agent file in `adapters/claude-code-agents/`:
+
+```bash
+vim adapters/claude-code-agents/my-agent.md
+```
+
+Required frontmatter:
+```yaml
+---
+name: my-agent
+description: What the agent does
+model: sonnet (or haiku/opus)
+color: "#hexcode"
+---
+```
+
+Then run `install.sh` to create symlinks.
+
+## Key Files
+
+| File | Purpose |
+| ------ | ------- |
+| `scripts/install.sh` | Main installation script |
+| `scripts/cleanup-artifacts.sh` | Artifact cleanup utility |
+| `scripts/migrate-artifacts.sh` | Migration from old artifact paths |
+| `docs/USER-GUIDE.md` | Complete command reference (Thai) |
+| `README.md` | Project overview (English) |
+| `adapters/claude-code/prp-feature-review.md` | Feature review with token optimization |
+| `adapters/claude-code/prp-feature-review-agents.md` | Multi-agent feature review |
+
 ## Adding a New Workflow
 
 ### 1. Create Source Prompt
