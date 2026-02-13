@@ -20,13 +20,21 @@
 
 ### การติดตั้ง
 
-```bash
-# เพิ่ม PRP Framework เป็น submodule
-git submodule add https://github.com/gobikom/prp-framework .prp
+**วิธีที่ 1: Git Submodule** (สำหรับทีม)
 
-# รัน installation script
+```bash
+git submodule add https://github.com/gobikom/prp-framework .prp
 cd .prp && ./scripts/install.sh && cd ..
 ```
+
+**วิธีที่ 2: Local Clone** (แนะนำ สำหรับ deploy Railway/Vercel)
+
+```bash
+git clone https://github.com/gobikom/prp-framework .prp
+cd .prp && ./scripts/install.sh && cd ..
+```
+
+> Local clone ไม่ commit อะไรเข้า git — CI/CD สะอาด ไม่มี dangling symlinks
 
 ### การใช้งานเบื้องต้น
 

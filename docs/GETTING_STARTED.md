@@ -14,9 +14,9 @@ This guide will help you set up PRP Framework in your project.
 
 ## Installation Methods
 
-### Method 1: Git Submodule (Recommended)
+### Method 1: Git Submodule
 
-Best for projects that want automatic updates.
+Best for team projects where everyone needs PRP workflows.
 
 ```bash
 # 1. Navigate to your project
@@ -40,7 +40,38 @@ git commit -m "feat: add PRP Framework via submodule"
 - Symlinks created to adapters (`.claude/`, `.codex/`, etc. — gitignored, regenerate with `install.sh`)
 - Runtime artifact directory `.prp-output/` created (gitignored)
 
-### Method 2: Template Repository
+> **Deploy note:** Submodules are tracked in git. If your CI/CD (Railway, Vercel, etc.) can't clone the submodule, use Method 2 instead.
+
+### Method 2: Local Clone (Recommended for Deploy)
+
+Best for projects deployed to CI/CD platforms. Nothing PRP-related is committed — clean deploys.
+
+```bash
+# 1. Navigate to your project
+cd your-project
+
+# 2. Clone framework locally (not tracked by git)
+git clone https://github.com/gobikom/prp-framework .prp
+
+# 3. Run installation script
+cd .prp
+./scripts/install.sh
+cd ..
+```
+
+**Result:**
+
+- Framework code in `.prp/` (local only, gitignored)
+- Symlinks created to adapters (`.claude/`, `.codex/`, etc. — gitignored)
+- Runtime artifact directory `.prp-output/` created (gitignored)
+- No `.gitmodules`, no submodule reference — CI/CD sees nothing
+
+**Update later:**
+```bash
+cd .prp && git pull origin main && cd ..
+```
+
+### Method 3: Template Repository
 
 Best for one-time setup without tracking framework updates.
 

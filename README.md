@@ -18,11 +18,28 @@ PRP (Plan-Review-PR) Framework is a portable, tool-agnostic workflow system for 
 
 ## Quick Start
 
-### Installation via Git Submodule (Recommended)
+### Installation via Git Submodule
+
+Best for team projects where everyone needs PRP workflows.
 
 ```bash
 # Add PRP Framework as submodule
 git submodule add https://github.com/gobikom/prp-framework .prp
+
+# Run installation script
+cd .prp && ./scripts/install.sh && cd ..
+
+# Start using workflows
+/prp-core:plan "Add user authentication"
+```
+
+### Installation via Local Clone (Recommended for Deploy)
+
+Best for projects deployed to Railway, Vercel, etc. — nothing PRP-related goes to CI/CD.
+
+```bash
+# Clone framework locally (not tracked by git)
+git clone https://github.com/gobikom/prp-framework .prp
 
 # Run installation script
 cd .prp && ./scripts/install.sh && cd ..
@@ -177,6 +194,12 @@ cd .prp && git pull origin main && cd ..
 
 ```bash
 cd .prp && git pull origin main && ./scripts/install.sh && cd ..
+```
+
+### With Local Clone
+
+```bash
+cd .prp && git pull origin main && cd ..
 ```
 
 ### With Submodule (Hard Copy)

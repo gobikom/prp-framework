@@ -212,6 +212,18 @@ GITIGNORE
     echo -e "${GREEN}  ✅ Added PRP rules to .gitignore${NC}"
 fi
 
+# If .prp is NOT a submodule (local clone), also gitignore it
+if [ -f "$PROJECT_DIR/.gitmodules" ] && grep -q '\.prp' "$PROJECT_DIR/.gitmodules" 2>/dev/null; then
+    : # Submodule — don't gitignore .prp/
+elif ! grep -q '^\.prp/$' "$GITIGNORE_FILE" 2>/dev/null; then
+    cat >> "$GITIGNORE_FILE" << 'GITIGNORE2'
+
+# PRP Framework - local clone (not a submodule)
+.prp/
+GITIGNORE2
+    echo -e "${GREEN}  ✅ Added .prp/ to .gitignore (local clone detected)${NC}"
+fi
+
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
