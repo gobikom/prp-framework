@@ -205,7 +205,7 @@ else
 AGENTS.md
 
 # PRP Framework - artifacts (directory visible to AI tools, content not tracked)
-.prp-output/**
+# .prp-output/** is intentionally not ignored to allow AI tools to read/write artifacts, but we ignore all files within it to prevent tracking
 !.prp-output/
 !.prp-output/**/
 GITIGNORE
