@@ -90,6 +90,12 @@ curl -s http://localhost:{port}/health | jq
 kill $SERVER_PID
 ```
 
+### 4.2.1 Coverage Check
+After tests pass, verify coverage on new/changed code (target: **90%**).
+- Detect coverage tool (jest `--coverage`, vitest `--coverage`, pytest `--cov`, `go test -cover`, `cargo tarpaulin`)
+- Focus on new/changed files only: `git diff --name-only origin/main...HEAD`
+- If >= 90% → proceed. If < 90% → write more tests. If no coverage tool → skip with warning.
+
 ### 4.5 Edge Case Testing
 Run any edge case tests specified in the plan.
 

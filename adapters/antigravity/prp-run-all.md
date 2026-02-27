@@ -13,7 +13,11 @@ Input: $ARGUMENTS
 | `--plan-path <path>` | Extract path. Set PLAN_PATH. Skip Step 2. |
 | `--skip-review` | Skip Step 6. |
 | `--no-pr` | Skip Steps 5 and 6. |
+| `--fix-severity <levels>` | Override review-fix severity (default: `critical,high`) |
+| `--resume` | Resume from last failed step |
 | Remaining text | Set FEATURE = remaining text |
+
+**If `--plan-path` provided, validate file exists** — STOP if not found.
 
 **Set variables:**
 ```
@@ -21,9 +25,13 @@ FEATURE = "{text after removing flags}"
 PLAN_PATH = "{from --plan-path, or TBD}"
 BRANCH = "{TBD — set in Step 1}"
 PR_NUMBER = "{TBD — set in Step 5}"
+REVIEW_ARTIFACT = "{TBD — set in Step 6.1}"
 SKIP_REVIEW = {true if --skip-review or --no-pr}
 NO_PR = {true if --no-pr}
+FIX_SEVERITY = "{from --fix-severity, default 'critical,high'}"
 ```
+
+**State management**: `.claude/prp-run-all.state.md` — create on start, update per step, delete on completion. Supports `--resume` from last failed step.
 
 **Examples:**
 - `Add JWT auth` → full workflow
@@ -73,7 +81,7 @@ Failure → STOP.
 
 ### Step 6: Review (skip if --skip-review or --no-pr)
 `/prp-review {PR_NUMBER}` — Invoke the workflow, DO NOT inline its logic.
-Critical issues → fix, commit, push, re-review (max 2 cycles).
+Critical issues → `/prp-review-fix {REVIEW_ARTIFACT} --severity {FIX_SEVERITY}` → commit, push, re-review (max 2 cycles).
 ❌ DO NOT: Read code and review it yourself, skip the workflow.
 ✅ CHECKPOINT: Did you invoke `/prp-review`? If not → STOP → invoke it.
 

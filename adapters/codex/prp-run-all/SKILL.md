@@ -26,7 +26,11 @@ Execute the complete PRP workflow end-to-end autonomously. Each step delegates t
 | `--plan-path <path>` | Extract path. Set PLAN_PATH = path. Skip Step 2. |
 | `--skip-review` | Set SKIP_REVIEW = true. Skip Step 6. |
 | `--no-pr` | Set NO_PR = true. Skip Steps 5 and 6. |
+| `--fix-severity <levels>` | Override review-fix severity (default: `critical,high`) |
+| `--resume` | Resume from last failed step using saved state |
 | Remaining text (after removing flags) | Set FEATURE = text |
+
+**If `--plan-path` provided, validate file exists** — STOP if not found, show available plans.
 
 **Set workflow variables:**
 ```
@@ -34,9 +38,21 @@ FEATURE = "{remaining text after flags, or title from plan file}"
 PLAN_PATH = "{from --plan-path, or TBD — set in Step 2}"
 BRANCH = "{TBD — set in Step 1}"
 PR_NUMBER = "{TBD — set in Step 5}"
+REVIEW_ARTIFACT = "{TBD — set in Step 6.1}"
 SKIP_REVIEW = {true if --skip-review or --no-pr}
 NO_PR = {true if --no-pr}
+FIX_SEVERITY = "{from --fix-severity, default 'critical,high'}"
 ```
+
+### Step 0.5: State Management
+
+**State file**: `.claude/prp-run-all.state.md` (YAML frontmatter with step, feature, plan_path, branch, pr_number, etc.)
+
+- If `--resume` + state file exists → restore variables, skip completed steps
+- If `--resume` + no state file → STOP with error
+- If state file exists + no `--resume` → warn user, ask to resume or start fresh
+- If no state file → create new one, proceed normally
+- Update state after each step completes. Delete on Step 7 completion.
 
 **Examples:**
 - `Add JWT auth` → full workflow
@@ -103,7 +119,7 @@ Set `REVIEW_CYCLE = 1`, `MAX_CYCLES = 2`.
 - Critical/high found + `REVIEW_CYCLE <= MAX_CYCLES` → Step 6.3
 - Critical/high found + `REVIEW_CYCLE > MAX_CYCLES` → report remaining issues → Step 7 (NEEDS MANUAL FIXES)
 
-**6.3 Fix**: Use `$prp-review-fix` skill with `{PR_NUMBER} --severity critical,high`.
+**6.3 Fix**: Use `$prp-review-fix` skill with `{REVIEW_ARTIFACT} --severity {FIX_SEVERITY}`.
 Fixes Critical and High only (non-blocking issues don't need to block merge).
 ❌ DO NOT: Manually read and fix issues yourself, run validation separately.
 ✅ CHECKPOINT: Did you invoke `$prp-review-fix`? If not → STOP → invoke it.
@@ -127,10 +143,11 @@ Report: feature, branch, status, steps executed table, artifacts, review verdict
 ## Success Criteria
 
 - PLAN_CREATED: Plan exists and is valid
-- CODE_IMPLEMENTED: All tasks complete, validation passing
+- CODE_IMPLEMENTED: All tasks complete, validation passing (including coverage >= 90%)
 - REPORT_EXISTS: Implementation report exists (created or fallback)
 - CONTEXT_GENERATED: Review context file exists (created or fallback)
 - COMMITTED: Clean commit on feature branch
 - PR_CREATED: PR exists (unless --no-pr)
 - REVIEWED: Review posted with verdict (unless --skip-review)
+- STATE_CLEANED: State and lock files deleted after completion
 - SUMMARY_REPORTED: User has clear next steps

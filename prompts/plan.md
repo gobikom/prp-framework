@@ -548,7 +548,7 @@ Execute in order. Each task is atomic and independently verifiable.
 # Examples: npm test, pytest tests/, cargo test, go test ./...
 ```
 
-**EXPECT**: All tests pass, coverage >= 80%
+**EXPECT**: All tests pass, coverage >= 90%
 
 ### Level 3: FULL_SUITE
 
@@ -585,7 +585,7 @@ Verify using browser/UI testing:
 
 - [ ] All specified functionality implemented per user story
 - [ ] Level 1-3 validation commands pass with exit 0
-- [ ] Unit tests cover >= 80% of new code
+- [ ] Unit tests cover >= 90% of new code
 - [ ] Code mirrors existing patterns exactly (naming, structure, logging)
 - [ ] No regressions in existing tests
 - [ ] UX matches "After State" diagram

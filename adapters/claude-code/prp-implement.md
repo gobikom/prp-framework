@@ -224,6 +224,40 @@ Common patterns:
 4. Re-run tests
 5. Repeat until green
 
+### 4.2.1 Coverage Check
+
+**After tests pass, verify coverage on new/changed code.**
+
+1. **Detect coverage tool:**
+
+| Ecosystem | Coverage Command | Report |
+|-----------|-----------------|--------|
+| JS/TS (jest) | `{runner} test --coverage` | `--coverageReporters=text` |
+| JS/TS (vitest) | `{runner} run test --coverage` | built-in |
+| Python | `pytest --cov=. --cov-report=term-missing` | or `coverage run -m pytest && coverage report` |
+| Rust | `cargo tarpaulin` | or `cargo llvm-cov` |
+| Go | `go test -coverprofile=coverage.out ./... && go tool cover -func=coverage.out` | built-in |
+
+2. **Focus on new/changed files only:**
+
+```bash
+# Get list of changed source files (exclude tests themselves)
+CHANGED_FILES=$(git diff --name-only origin/main...HEAD | grep -E '\.(ts|tsx|js|jsx|py|rs|go)$' | grep -v -E '(test|spec|__test__)' )
+```
+
+3. **Evaluate against threshold:**
+
+| Result | Action |
+|--------|--------|
+| Coverage >= 90% on new code | Proceed to Phase 4.3 |
+| Coverage 70-89% on new code | Write additional tests for uncovered paths, re-run until >= 90% |
+| Coverage < 70% on new code | Major gap — review test strategy, write tests for all critical paths |
+| No coverage tool available | Skip with warning: "Coverage tool not detected — relying on pr-test-analyzer in review phase" |
+
+**Coverage target: 90% on new/changed code** (not overall project coverage).
+
+**Important**: This is a lightweight metric gate. The deeper behavioral quality analysis happens later via `pr-test-analyzer` during the review phase.
+
 ### 4.3 Build Check
 
 **Run the build command from the plan's Validation Commands section.**
@@ -263,6 +297,7 @@ Run any edge case tests specified in the plan.
 - [ ] Type-check passes (command from plan)
 - [ ] Lint passes (0 errors)
 - [ ] Tests pass (all green)
+- [ ] Coverage >= 90% on new/changed code (or skipped if no coverage tool)
 - [ ] Build succeeds
 - [ ] Integration tests pass (if applicable)
 

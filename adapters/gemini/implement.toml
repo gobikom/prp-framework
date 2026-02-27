@@ -16,6 +16,7 @@ Execute the plan end-to-end autonomously. Validate after every change. Fix befor
 5. **Full Validation**:
    - Static: type-check + lint (zero errors). Lint fix → re-check → manual fix.
    - Tests: MUST write/update tests. If fail: determine root cause → fix → re-run until green.
+   - Coverage: After tests pass, check coverage on new/changed code (target: **90%**). Auto-detect tool (jest/vitest `--coverage`, pytest `--cov`, `go test -cover`). If < 90% → write more tests. If no tool → skip with warning.
    - Build: must succeed.
    - Integration (if applicable): start server → test endpoints → stop server.
    - Edge cases from plan.

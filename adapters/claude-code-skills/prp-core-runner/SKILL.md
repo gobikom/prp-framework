@@ -1,6 +1,6 @@
 ---
 name: prp-core-runner
-description: Orchestrate complete PRP workflow from feature request to pull request. Run create branch, create PRP, execute implementation, commit changes, and create PR in sequence. Use when implementing features using PRP methodology or when user requests full PRP workflow.
+description: Orchestrate complete PRP workflow from feature request to pull request. Run branch, plan, implement, commit, PR, review with fix loop, and summary in sequence. Use when implementing features using PRP methodology or when user requests full PRP workflow.
 ---
 
 # PRP Core Workflow Runner
@@ -12,17 +12,31 @@ When the user requests to implement a feature using the PRP workflow or wants en
 **Step-by-step execution:**
 
 1. **Invoke the workflow**: Use SlashCommand tool with `/prp-core-run-all {feature-description}`
-2. **Monitor progress**: The workflow will execute 5 steps in sequence:
+2. **Monitor progress**: The workflow will execute 7 steps in sequence:
    - Create a conventional git branch
-   - Generate comprehensive PRP document
-   - Execute the PRP implementation
+   - Generate comprehensive implementation plan
+   - Execute the implementation (or ralph loop with `--ralph` flag)
    - Create atomic git commit
-   - Create pull request
+   - Create pull request (skip with `--no-pr`)
+   - Run multi-agent review with fix loop (skip with `--skip-review`)
+   - Generate summary report with artifacts and next steps
 3. **Handle failures**: If any step fails:
    - Report which step failed and why
    - Do NOT proceed to subsequent steps
    - Provide actionable guidance for fixing the issue
 4. **Report completion**: When all steps succeed, confirm the workflow completed and provide the PR URL
+
+**Supported flags:**
+
+| Flag | Effect |
+|------|--------|
+| `--prp-path <path>` | Skip plan creation, use existing plan |
+| `--ralph` | Use autonomous ralph loop for implementation |
+| `--ralph-max-iter N` | Set max ralph iterations (default: 10) |
+| `--skip-review` | Skip review step |
+| `--no-pr` | Skip PR and review steps |
+| `--resume` | Resume from last failed step |
+| `--fix-severity <levels>` | Override review-fix severity (default: critical,high) |
 
 **Error Handling:**
 
@@ -54,6 +68,27 @@ Assistant: I'll execute the PRP workflow for refactoring the database layer.
 [Invokes: /prp-core-run-all Refactor database layer for better performance]
 ```
 
+**Example 4: Using ralph mode**
+```
+User: "Implement payment processing with PRP, use ralph mode"
+Assistant: I'll run the full PRP workflow with ralph mode for autonomous implementation.
+[Invokes: /prp-core-run-all Implement payment processing --ralph]
+```
+
+**Example 5: Resuming interrupted workflow**
+```
+User: "Resume the PRP workflow that was interrupted"
+Assistant: I'll resume the PRP workflow from where it left off.
+[Invokes: /prp-core-run-all --resume]
+```
+
+**Example 6: Skip review**
+```
+User: "Run PRP for adding dark mode but skip the review"
+Assistant: I'll run the PRP workflow without the review step.
+[Invokes: /prp-core-run-all Add dark mode support --skip-review]
+```
+
 ## When to Use
 
 Use this skill when:
@@ -62,6 +97,7 @@ Use this skill when:
 - User wants end-to-end automation from feature idea to pull request
 - User mentions both "PRP" and a feature to implement
 - User requests a complete workflow including branch, implementation, and PR
+- User wants to resume an interrupted PRP workflow
 
 Do NOT use this skill when:
 - User only wants to run a single PRP command (e.g., just create a PRP)

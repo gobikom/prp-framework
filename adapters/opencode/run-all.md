@@ -14,7 +14,11 @@ Input: $ARGUMENTS
 | `--plan-path <path>` | Extract path. Set PLAN_PATH. Skip Step 2. |
 | `--skip-review` | Skip Step 6. |
 | `--no-pr` | Skip Steps 5 and 6. |
+| `--fix-severity <levels>` | Override review-fix severity (default: `critical,high`) |
+| `--resume` | Resume from last failed step using saved state |
 | Remaining text | Set FEATURE = remaining text |
+
+**If `--plan-path` provided, validate file exists** — STOP if not found.
 
 **Set variables:**
 ```
@@ -22,9 +26,13 @@ FEATURE = "{text after removing flags}"
 PLAN_PATH = "{from --plan-path, or TBD}"
 BRANCH = "{TBD — set in Step 1}"
 PR_NUMBER = "{TBD — set in Step 5}"
+REVIEW_ARTIFACT = "{TBD — set in Step 6.1}"
 SKIP_REVIEW = {true if --skip-review or --no-pr}
 NO_PR = {true if --no-pr}
+FIX_SEVERITY = "{from --fix-severity, default 'critical,high'}"
 ```
+
+**State management**: `.claude/prp-run-all.state.md` — create on start, update per step, delete on completion. Supports `--resume` from last failed step.
 
 **Examples:**
 - `Add JWT auth` → full workflow
@@ -84,8 +92,8 @@ Set `REVIEW_CYCLE = 1`, `MAX_CYCLES = 2`.
 - Critical/high found + `REVIEW_CYCLE <= MAX_CYCLES` → Step 6.3
 - Critical/high found + `REVIEW_CYCLE > MAX_CYCLES` → report remaining → Step 7 (NEEDS MANUAL FIXES)
 
-**6.3 Fix**: `/prp:review-fix {PR_NUMBER} --severity critical,high` — DO NOT fix manually.
-Fixes Critical and High only — Medium/Suggestion don't block merge.
+**6.3 Fix**: `/prp:review-fix {REVIEW_ARTIFACT} --severity {FIX_SEVERITY}` — DO NOT fix manually.
+Default severity: `critical,high` — override with `--fix-severity`.
 ❌ DO NOT: Fix issues yourself, run validation separately. ✅ CHECKPOINT: Did you invoke `/prp:review-fix`?
 
 **6.4 Re-verify**: Increment `REVIEW_CYCLE`. `/prp:review {PR_NUMBER}` to confirm issues resolved and no regressions introduced. → Return to Step 6.2.

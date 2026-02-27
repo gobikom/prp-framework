@@ -1,6 +1,6 @@
 ---
 description: Orchestrate complete PRP workflow - plan, implement, commit, PR, and review in sequence with context passing
-argument-hint: "<feature-description>" or --prp-path <path/to/plan.md> [--ralph] [--ralph-max-iter N] [--skip-review] [--no-pr]
+argument-hint: "<feature-description>" or --prp-path <path/to/plan.md> [--ralph] [--ralph-max-iter N] [--skip-review] [--no-pr] [--fix-severity <levels>] [--resume]
 ---
 
 # PRP Full Workflow Runner
@@ -31,6 +31,28 @@ Execute the complete PRP workflow end-to-end autonomously. Each step delegates t
 | `--ralph-max-iter N` | Set max ralph iterations (default: 10, max recommended: 20) |
 | `--skip-review` | Skip Step 6 (review) |
 | `--no-pr` | Skip Steps 5 and 6 (PR and review) |
+| `--fix-severity <levels>` | Override review-fix severity (default: `critical,high`). Example: `--fix-severity critical,high,medium` |
+| `--resume` | Resume from last failed step using saved state (`.claude/prp-run-all.state.md`) |
+
+**If `--prp-path` provided, validate the file exists:**
+
+```bash
+test -f "{PLAN_PATH}" && echo "EXISTS" || echo "NOT_FOUND"
+```
+
+| Result | Action |
+|--------|--------|
+| EXISTS | Proceed (skip Step 2) |
+| NOT_FOUND | STOP with error: |
+
+```
+Plan file not found: {PLAN_PATH}
+
+Available plans:
+{Run: ls -t .prp-output/plans/*.plan.md 2>/dev/null | head -5}
+
+Create a new plan: /prp-core-run-all "feature description"
+```
 
 **Set workflow variables:**
 ```
@@ -38,8 +60,10 @@ FEATURE = "{feature description or plan title}"
 PLAN_PATH = "{path to plan, or TBD}"
 BRANCH = "{TBD — set in Step 1}"
 PR_NUMBER = "{TBD — set in Step 5}"
+REVIEW_ARTIFACT = "{TBD — set in Step 6.1}"
 USE_RALPH = {true | false}
 RALPH_MAX_ITER = {N, default 10}
+FIX_SEVERITY = "{from --fix-severity, default 'critical,high'}"
 ```
 
 **If `--ralph` flag detected — verify hook is registered:**
@@ -80,7 +104,118 @@ Then retry with --ralph flag.
 
 ---
 
-## Step 1: CREATE BRANCH
+## Step 0.5: INITIALIZE STATE
+
+**Generate unified timestamp for this run:**
+```bash
+RUN_TIMESTAMP=$(date +%Y%m%d-%H%M)
+```
+
+**Check for concurrent execution:**
+
+```bash
+LOCK_FILE=".claude/prp-run-all.lock"
+if [ -f "$LOCK_FILE" ]; then
+  LOCK_TIME=$(stat -f "%Sm" -t "%Y-%m-%d %H:%M" "$LOCK_FILE" 2>/dev/null || stat -c "%y" "$LOCK_FILE" 2>/dev/null | cut -d. -f1)
+  # Check if lock is stale (older than 2 hours)
+  LOCK_AGE=$(( $(date +%s) - $(stat -f "%m" "$LOCK_FILE" 2>/dev/null || stat -c "%Y" "$LOCK_FILE" 2>/dev/null) ))
+  if [ "$LOCK_AGE" -gt 7200 ]; then
+    echo "STALE_LOCK"
+  else
+    echo "LOCKED at $LOCK_TIME"
+  fi
+else
+  echo "UNLOCKED"
+fi
+```
+
+| Result | Action |
+|--------|--------|
+| UNLOCKED | Create lock: `echo "$$" > .claude/prp-run-all.lock` → proceed |
+| STALE_LOCK | Remove stale lock, create new one → proceed |
+| LOCKED | STOP: "Another run-all workflow is active (started {time}). Wait for it to complete or delete `.claude/prp-run-all.lock` to force." |
+
+**Check for existing state file:**
+
+```bash
+test -f .claude/prp-run-all.state.md && echo "EXISTS" || echo "NOT_FOUND"
+```
+
+| Result | `--resume` set? | Action |
+|--------|----------------|--------|
+| EXISTS | Yes | Restore variables from state file → set `RESUME_FROM` = `step` value → skip completed steps |
+| EXISTS | No | Warn user and STOP: |
+| NOT_FOUND | Yes | STOP with error: "No saved workflow state found. Start fresh with: /prp-core-run-all \"your feature description\"" |
+| NOT_FOUND | No | Create new state file → proceed normally |
+
+**If state file exists but `--resume` NOT set:**
+```
+A previous run-all workflow was interrupted at Step {N}: {step name}.
+
+Options:
+  1. Resume: /prp-core-run-all --resume
+  2. Start fresh: Delete .claude/prp-run-all.state.md and re-run
+
+To delete stale state: rm .claude/prp-run-all.state.md
+```
+STOP and wait for user decision.
+
+**If `--resume` with state file:**
+
+1. Read `.claude/prp-run-all.state.md` YAML frontmatter
+2. Restore: `FEATURE`, `PLAN_PATH`, `BRANCH`, `PR_NUMBER`, `REVIEW_ARTIFACT`, `USE_RALPH`, `RALPH_MAX_ITER`, `FIX_SEVERITY`, `SKIP_REVIEW`, `NO_PR`
+3. Set `RESUME_FROM = step` value from state
+4. Validate restored state:
+   - Branch exists: `git branch --list {BRANCH}`
+   - Plan file exists (if step > 2): `test -f {PLAN_PATH}`
+5. Display: "Resuming run-all from Step {RESUME_FROM}: {step name}"
+
+**Create new state file** (if not resuming):
+
+```bash
+mkdir -p .claude
+```
+
+Write `.claude/prp-run-all.state.md`:
+
+```markdown
+---
+step: 1
+total_steps: 7
+feature: "{FEATURE}"
+plan_path: ""
+branch: ""
+pr_number: ""
+review_artifact: ""
+use_ralph: {USE_RALPH}
+ralph_max_iter: {RALPH_MAX_ITER}
+fix_severity: "{FIX_SEVERITY}"
+skip_review: {SKIP_REVIEW}
+no_pr: {NO_PR}
+started_at: "{ISO timestamp}"
+updated_at: "{ISO timestamp}"
+---
+# PRP Run-All Workflow State
+## Completed Steps
+| Step | Name | Result | Timestamp |
+|------|------|--------|-----------|
+| 0 | Parse Input | OK | {HH:MM} |
+## Artifacts
+(none yet)
+## Error Log
+(empty)
+```
+
+**STATE UPDATE RULE**: After each step completes successfully, update the state file:
+1. Increment `step` to the next step number
+2. Update `updated_at` to current timestamp
+3. Update any new variable values (`plan_path`, `branch`, `pr_number`, `review_artifact`)
+4. Append the completed step to the "Completed Steps" table
+5. Append any new artifacts to the "Artifacts" section
+
+---
+
+## Step 1: CREATE BRANCH (skip if RESUME_FROM > 1)
 
 **Skip if**: already on a feature branch (not main/master)
 
@@ -98,7 +233,7 @@ git checkout -b feature/{slug-from-feature-description}
 
 ---
 
-## Step 2: CREATE PLAN (skip if --prp-path provided)
+## Step 2: CREATE PLAN (skip if --prp-path provided OR RESUME_FROM > 2)
 
 **⚠️ MUST use Skill tool**: `/prp-plan "{FEATURE}"`
 
@@ -127,7 +262,7 @@ If NOT → STOP → Go back and call it now.
 
 ---
 
-## Step 3: IMPLEMENT
+## Step 3: IMPLEMENT (skip if RESUME_FROM > 3)
 
 **Choose path based on `USE_RALPH`:**
 
@@ -285,7 +420,7 @@ Save to: `.prp-output/reviews/pr-context-{BRANCH}.md`
 
 ---
 
-## Step 4: COMMIT
+## Step 4: COMMIT (skip if RESUME_FROM > 4)
 
 **⚠️ MUST use Skill tool**: `/prp-commit`
 
@@ -312,7 +447,7 @@ If NOT → STOP → Go back and call it now.
 
 ---
 
-## Step 5: CREATE PR (skip if --no-pr)
+## Step 5: CREATE PR (skip if --no-pr OR RESUME_FROM > 5)
 
 **⚠️ MUST use Skill tool**: `/prp-pr`
 
@@ -341,7 +476,7 @@ If NOT → STOP → Go back and call it now.
 
 ---
 
-## Step 6: REVIEW (skip if --skip-review or --no-pr)
+## Step 6: REVIEW (skip if --skip-review or --no-pr OR RESUME_FROM > 6)
 
 **Loop variables:**
 ```
@@ -356,19 +491,20 @@ MAX_CYCLES = 2
 ```
 Use Skill tool with:
   skill: "prp-core:prp-review-agents"
-  args: "{PR_NUMBER}"
+  args: "{PR_NUMBER} --context .prp-output/reviews/pr-context-{BRANCH}.md"
 ```
 
 This command will:
-- **Detect pre-generated context file** from Step 3 → skip expensive context extraction
+- **Detect pre-generated context file** via `--context` path → skip expensive context extraction
 - Run applicable specialist agents (code, docs, tests, errors, types)
 - Post review summary to PR
 
-**Token optimization**: Because `/prp-implement` already generated `pr-context-{BRANCH}.md`, the review agents will:
-- NOT re-fetch PR diff
-- NOT re-run validation
-- NOT re-read CLAUDE.md
+**Token optimization**: Because `/prp-implement` already generated `pr-context-{BRANCH}.md` and we pass it explicitly via `--context`, the review agents will:
+- NOT re-fetch PR diff (file list from context)
+- NOT re-run validation (status from context)
 - Only read targeted files per agent domain
+
+**Variable update after review**: `REVIEW_ARTIFACT = .prp-output/reviews/pr-{PR_NUMBER}-agents-review.md`
 
 **❌ DO NOT**:
 - Read code files and review them yourself
@@ -388,23 +524,25 @@ If NOT → STOP → Go back and call it now.
 
 ### 6.3 Fix Issues
 
-**⚠️ MUST use Skill tool**: `/prp-review-fix {PR_NUMBER} --severity critical,high`
+**⚠️ MUST use Skill tool**: `/prp-review-fix`
+
+Pass the review artifact path directly (bypasses interactive selection) with severity from `FIX_SEVERITY`:
 
 ```
 Use Skill tool with:
   skill: "prp-core:prp-review-fix"
-  args: "{PR_NUMBER} --severity critical,high"
+  args: "{REVIEW_ARTIFACT} --severity {FIX_SEVERITY}"
 ```
 
 This command will:
-- Load the review artifact produced by Step 6.1
-- Fix Critical and High issues in priority order
+- Load the review artifact directly (no discovery/selection needed)
+- Fix issues matching the severity filter in priority order
 - Validate after each severity batch (type-check + lint + test)
 - Commit and push fixes to the PR branch
 - Post fix summary comment on PR
 
-**Why `--severity critical,high` only?**
-Medium and Suggestion issues don't block merge. They will be visible in the summary for manual follow-up.
+**Default severity**: `critical,high` — override with `--fix-severity critical,high,medium,suggestion` to fix all issues.
+Medium and Suggestion issues don't block merge by default. They will be visible in the summary for manual follow-up.
 
 **❌ DO NOT**:
 - Manually read and fix issues yourself
@@ -433,6 +571,13 @@ Use Skill tool with:
 ---
 
 ## Step 7: SUMMARY REPORT
+
+**Cleanup state file:**
+
+```bash
+rm -f .claude/prp-run-all.state.md
+rm -f .claude/prp-run-all.lock
+```
 
 Generate final report:
 
@@ -489,7 +634,7 @@ Generate final report:
 
 4. **Stop on failure.** If any step fails after its own retry logic, STOP the entire workflow. Do NOT skip to the next step.
 
-5. **Pass context forward.** The review context file from `/prp-implement` or `/prp-ralph` is picked up by `/prp-review-agents` automatically. Do NOT re-generate it (unless missing).
+5. **Pass context forward.** The review context file from `/prp-implement` or `/prp-ralph` is passed to `/prp-review-agents` via `--context` flag. Do NOT re-generate it (unless missing).
 
 6. **No extra validation.** Do NOT add validation steps between commands. Each command validates its own output. Adding more just wastes tokens.
 
@@ -536,10 +681,12 @@ With context file from implement step, review costs ~15-30K tokens.
 
 - **SKILL_TOOL_USED**: All `/prp-*` commands invoked via Skill tool (not inlined)
 - **PLAN_CREATED**: Plan exists and is valid
-- **CODE_IMPLEMENTED**: All tasks complete, validation passing
+- **CODE_IMPLEMENTED**: All tasks complete, validation passing (including coverage >= 90%)
 - **REPORT_EXISTS**: Implementation report exists at `.prp-output/reports/` (created or fallback)
 - **CONTEXT_GENERATED**: Review context file exists at `.prp-output/reviews/` (created or fallback)
+- **CONTEXT_PASSED**: Review context file passed to review-agents via `--context` flag
 - **COMMITTED**: Clean commit on feature branch
 - **PR_CREATED**: PR exists on GitHub (unless --no-pr)
 - **REVIEWED**: Review posted with verdict (unless --skip-review)
+- **STATE_CLEANED**: `.claude/prp-run-all.state.md` and `.claude/prp-run-all.lock` deleted after completion
 - **SUMMARY_REPORTED**: User has clear next steps

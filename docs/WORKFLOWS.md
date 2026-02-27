@@ -144,21 +144,36 @@ Contains:
 
 ```
 Detect Environment → Load Plan → Prepare Git → Execute Tasks →
-Full Validation → Report → PRD Update → Archive Plan
+Full Validation (+ Coverage Check) → Report → Generate Review Context →
+PRD Update → Archive Plan
 ```
 
 ### Validation Levels
 
 1. **Static Analysis:** Type-check + Lint (zero errors)
 2. **Unit Tests:** Write/update tests, must pass
-3. **Full Suite:** All tests + build success
-4. **Database:** Schema validation (if applicable)
-5. **Browser:** UI validation (if applicable)
-6. **Manual:** Feature-specific checks
+3. **Coverage Check:** 90% on new/changed code (auto-detect tool, graceful skip if unavailable)
+4. **Build:** Must succeed
+5. **Integration:** Server/endpoint testing (if applicable)
+6. **Edge Cases:** From plan specification
+
+### Coverage Check (Phase 4.2.1)
+
+After tests pass, coverage is checked on new/changed files only:
+
+| Result | Action |
+|--------|--------|
+| >= 90% | Proceed |
+| 70-89% | Write additional tests, re-run |
+| < 70% | Major gap — write tests for all critical paths |
+| No tool | Skip with warning |
+
+Supported coverage tools: jest `--coverage`, vitest `--coverage`, pytest `--cov`, cargo tarpaulin, go test `-cover`
 
 ### Output
 
-Implementation report: `.prp-output/reports/feature-report-{tool}.md`
+- Implementation report: `.prp-output/reports/feature-report-{tool}.md`
+- Review context: `.prp-output/reviews/pr-context-{branch}.md` (saves ~60K tokens in run-all workflow)
 
 ### Usage
 
@@ -183,6 +198,10 @@ Implementation report: `.prp-output/reports/feature-report-{tool}.md`
 | Error Handling | When errors changed | Silent failures |
 | Type Design | When types changed | Encapsulation quality |
 | Simplification | Last pass | Nested ternaries, cleverness |
+
+### Context Optimization
+
+When run via `run-all`, review receives a pre-generated context file via `--context` flag. This skips redundant file gathering and saves ~60K tokens. If context file is not available, review proceeds normally.
 
 ### Methodology
 
@@ -418,12 +437,13 @@ cat .claude/prp-ralph.state.md
 
 ## Workflow: Run All (End-to-End)
 
-**Purpose:** Execute complete workflow from feature idea to PR.
+**Purpose:** Execute complete 7-step workflow from feature idea to reviewed PR.
 
-### Process
+### Process (7 Steps)
 
 ```
-Parse Input → Create Branch → Plan → Implement (or Ralph) → Commit → PR → Review → Summary
+Parse Input → Create Branch → Plan → Implement (or Ralph) →
+Commit → PR → Review/Fix Loop → Summary
 ```
 
 ### Options
@@ -441,12 +461,51 @@ Parse Input → Create Branch → Plan → Implement (or Ralph) → Commit → P
 # Ralph with custom max iterations
 /prp-core-run-all Add JWT authentication --ralph --ralph-max-iter 10
 
+# Resume from last failed step
+/prp-core-run-all --resume
+
 # Skip review
 /prp-core-run-all Add JWT auth --skip-review
 
 # No PR (just implement + commit)
 /prp-core-run-all Add JWT auth --no-pr
+
+# Override review-fix severity (default: critical,high)
+/prp-core-run-all Add JWT auth --fix-severity critical,high,medium
 ```
+
+### Supported Flags
+
+| Flag | Description |
+|------|-------------|
+| `--prp-path <path>` | Use existing plan, skip plan step. Validates file exists. |
+| `--ralph` | Use ralph loop instead of one-shot implement |
+| `--ralph-max-iter N` | Set ralph max iterations (default: 5) |
+| `--resume` | Resume from last failed step using saved state |
+| `--skip-review` | Skip review step |
+| `--no-pr` | Skip PR and review steps |
+| `--fix-severity <levels>` | Override review-fix severity (default: `critical,high`) |
+
+### State Management
+
+run-all creates a state file at `.claude/prp-run-all.state.md` to track progress:
+- Created at workflow start (Step 0.5)
+- Updated after each step completion
+- Supports `--resume` to continue from last failed step
+- Automatically cleaned up on successful completion
+- Lock file prevents concurrent execution (`.claude/prp-run-all.lock`)
+
+### Review-Fix Loop (Step 6)
+
+After PR creation, the review step runs a fix loop:
+1. Run `/prp:review` on the PR
+2. If critical/high issues found and cycle <= 2: run `/prp:review-fix` with `--severity` filter
+3. Re-verify with another `/prp:review` to confirm fixes and catch regressions
+4. Max 2 cycles — if still critical after 2 rounds, report remaining issues for manual fix
+
+### Context Handoff
+
+Implement step generates `pr-context-{branch}.md` which is passed explicitly to review via `--context` flag, saving ~60K tokens by skipping redundant file gathering.
 
 ### --ralph Flag
 

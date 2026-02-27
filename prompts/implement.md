@@ -218,6 +218,37 @@ Common patterns:
 4. Re-run tests
 5. Repeat until green
 
+### 4.2.1 Coverage Check
+
+**After tests pass, verify coverage on new/changed code.**
+
+1. **Detect coverage tool:**
+
+| Ecosystem | Coverage Command |
+|-----------|-----------------|
+| JS/TS (jest) | `{runner} test --coverage` |
+| JS/TS (vitest) | `{runner} run test --coverage` |
+| Python | `pytest --cov=. --cov-report=term-missing` |
+| Rust | `cargo tarpaulin` or `cargo llvm-cov` |
+| Go | `go test -coverprofile=coverage.out ./... && go tool cover -func=coverage.out` |
+
+2. **Focus on new/changed files only:**
+
+```bash
+CHANGED_FILES=$(git diff --name-only origin/main...HEAD | grep -E '\.(ts|tsx|js|jsx|py|rs|go)$' | grep -v -E '(test|spec|__test__)')
+```
+
+3. **Evaluate against threshold:**
+
+| Result | Action |
+|--------|--------|
+| Coverage >= 90% on new code | Proceed to Phase 4.3 |
+| Coverage 70-89% on new code | Write additional tests for uncovered paths, re-run until >= 90% |
+| Coverage < 70% on new code | Major gap — review test strategy, write tests for all critical paths |
+| No coverage tool available | Skip with warning: "Coverage tool not detected — relying on review phase" |
+
+**Coverage target: 90% on new/changed code** (not overall project coverage).
+
 ### 4.3 Build Check
 
 **Run the build command from the plan's Validation Commands section.**
@@ -257,6 +288,7 @@ Run any edge case tests specified in the plan.
 - [ ] Type-check passes (command from plan)
 - [ ] Lint passes (0 errors)
 - [ ] Tests pass (all green)
+- [ ] Coverage >= 90% on new/changed code (or skipped if no coverage tool)
 - [ ] Build succeeds
 - [ ] Integration tests pass (if applicable)
 
@@ -386,11 +418,68 @@ mkdir -p .prp-output/plans/completed
 mv {ARGS} .prp-output/plans/completed/
 ```
 
+### 5.5 Generate Review Context File (for run-all workflow)
+
+**Purpose**: Pre-generate context for review workflows to save ~60K tokens when running via the full run-all workflow.
+
+**Path**: `.prp-output/reviews/pr-context-{BRANCH}.md`
+
+```bash
+BRANCH=$(git branch --show-current)
+mkdir -p .prp-output/reviews
+```
+
+Generate a context file containing:
+
+```markdown
+# PR Review Context
+
+**Branch**: `{BRANCH}`
+**Generated**: {YYYY-MM-DD HH:MM}
+**Source Plan**: `{ARGS}`
+
+## Files Changed
+
+{Output of: git diff --name-only origin/main...HEAD}
+
+## Implementation Summary
+
+{Brief summary from the implementation report}
+
+## Validation Status
+
+| Check | Result |
+|-------|--------|
+| Type check | {result} |
+| Lint | {result} |
+| Tests | {result} |
+| Build | {result} |
+| Coverage | {result} |
+
+## Key Changes for Review
+
+### New Files
+{List new files with brief description}
+
+### Modified Files
+{List modified files with what changed}
+
+### Tests Added
+{List test files with coverage summary}
+
+## Review Focus Areas
+
+{List areas that need careful review — complex logic, security, performance}
+```
+
+Save the file to `.prp-output/reviews/pr-context-{BRANCH}.md`
+
 **PHASE_5_CHECKPOINT:**
 
 - [ ] Report created at `.prp-output/reports/`
 - [ ] PRD updated (if applicable) — phase marked complete
 - [ ] Plan moved to completed folder
+- [ ] Review context file created at `.prp-output/reviews/pr-context-{BRANCH}.md`
 
 ---
 
@@ -501,4 +590,5 @@ To continue: run plan workflow with `{prd-path}`
 - **TESTS_PASS**: Test command all green
 - **BUILD_PASS**: Build command succeeds
 - **REPORT_CREATED**: Implementation report exists
+- **PR_CONTEXT_CREATED**: Review context file exists at `.prp-output/reviews/pr-context-{BRANCH}.md`
 - **PLAN_ARCHIVED**: Original plan moved to completed

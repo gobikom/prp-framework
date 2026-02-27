@@ -1,0 +1,183 @@
+#!/usr/bin/env bats
+# Tests for prp-run-all-state.sh state management helper
+#
+# Requirements: bats-core (https://github.com/bats-core/bats-core)
+# Install: brew install bats-core
+# Run: bats tests/run-all/state-file.bats
+
+HELPER="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)/scripts/prp-run-all-state.sh"
+
+setup() {
+    TEST_DIR="$(mktemp -d)"
+    mkdir -p "$TEST_DIR/.claude"
+    cd "$TEST_DIR"
+}
+
+teardown() {
+    rm -rf "$TEST_DIR"
+}
+
+# ─────────────────────────────────────────────
+# 1. State file creation
+# ─────────────────────────────────────────────
+@test "create: generates state file with valid YAML frontmatter" {
+    run bash "$HELPER" create "Add JWT authentication"
+    [ "$status" -eq 0 ]
+    [ -f ".claude/prp-run-all.state.md" ]
+}
+
+@test "create: state file contains correct feature name" {
+    bash "$HELPER" create "Add JWT authentication"
+    run grep 'feature: "Add JWT authentication"' .claude/prp-run-all.state.md
+    [ "$status" -eq 0 ]
+}
+
+@test "create: state file starts at step 1" {
+    bash "$HELPER" create "Test feature"
+    run bash "$HELPER" get-step
+    [ "$status" -eq 0 ]
+    [ "$output" = "1" ]
+}
+
+@test "create: state file includes custom ralph settings" {
+    bash "$HELPER" create "Test feature" true 15 "critical,high,medium" true false
+    run grep 'use_ralph: true' .claude/prp-run-all.state.md
+    [ "$status" -eq 0 ]
+    run grep 'ralph_max_iter: 15' .claude/prp-run-all.state.md
+    [ "$status" -eq 0 ]
+    run grep 'fix_severity: "critical,high,medium"' .claude/prp-run-all.state.md
+    [ "$status" -eq 0 ]
+}
+
+# ─────────────────────────────────────────────
+# 2. Step update
+# ─────────────────────────────────────────────
+@test "update-step: increments step number in frontmatter" {
+    bash "$HELPER" create "Test feature"
+    bash "$HELPER" update-step 2 "Create Plan" "jwt-auth.plan.md"
+    run bash "$HELPER" get-step
+    [ "$status" -eq 0 ]
+    [ "$output" = "2" ]
+}
+
+@test "update-step: appends to completed steps table" {
+    bash "$HELPER" create "Test feature"
+    bash "$HELPER" update-step 2 "Create Plan" "jwt-auth.plan.md"
+    run grep "Create Plan" .claude/prp-run-all.state.md
+    [ "$status" -eq 0 ]
+}
+
+@test "update-step: fails if no state file" {
+    run bash "$HELPER" update-step 2 "Create Plan" "result"
+    [ "$status" -eq 1 ]
+}
+
+# ─────────────────────────────────────────────
+# 3. Variable retrieval
+# ─────────────────────────────────────────────
+@test "get-var: retrieves feature name" {
+    bash "$HELPER" create "My Feature"
+    run bash "$HELPER" get-var feature
+    [ "$status" -eq 0 ]
+    [ "$output" = "My Feature" ]
+}
+
+@test "get-var: retrieves use_ralph" {
+    bash "$HELPER" create "Test" true
+    run bash "$HELPER" get-var use_ralph
+    [ "$status" -eq 0 ]
+    [ "$output" = "true" ]
+}
+
+@test "get-var: fails for missing variable" {
+    bash "$HELPER" create "Test"
+    run bash "$HELPER" get-var nonexistent
+    [ "$status" -eq 1 ]
+}
+
+# ─────────────────────────────────────────────
+# 4. Artifact management
+# ─────────────────────────────────────────────
+@test "add-artifact: replaces '(none yet)' with first artifact" {
+    bash "$HELPER" create "Test"
+    bash "$HELPER" add-artifact "Plan: .prp-output/plans/test.plan.md"
+    run grep "Plan: .prp-output/plans/test.plan.md" .claude/prp-run-all.state.md
+    [ "$status" -eq 0 ]
+    # "(none yet)" should be gone
+    run grep "(none yet)" .claude/prp-run-all.state.md
+    [ "$status" -ne 0 ]
+}
+
+# ─────────────────────────────────────────────
+# 5. Cleanup
+# ─────────────────────────────────────────────
+@test "cleanup: removes state and lock files" {
+    bash "$HELPER" create "Test"
+    echo "$$" > .claude/prp-run-all.lock
+    [ -f ".claude/prp-run-all.state.md" ]
+    [ -f ".claude/prp-run-all.lock" ]
+    bash "$HELPER" cleanup
+    [ ! -f ".claude/prp-run-all.state.md" ]
+    [ ! -f ".claude/prp-run-all.lock" ]
+}
+
+@test "cleanup: succeeds even if files don't exist" {
+    run bash "$HELPER" cleanup
+    [ "$status" -eq 0 ]
+}
+
+# ─────────────────────────────────────────────
+# 6. Exists check
+# ─────────────────────────────────────────────
+@test "exists: returns 0 when state file exists" {
+    bash "$HELPER" create "Test"
+    run bash "$HELPER" exists
+    [ "$status" -eq 0 ]
+}
+
+@test "exists: returns 1 when state file missing" {
+    run bash "$HELPER" exists
+    [ "$status" -eq 1 ]
+}
+
+# ─────────────────────────────────────────────
+# 7. Lock management
+# ─────────────────────────────────────────────
+@test "lock: creates lock file" {
+    run bash "$HELPER" lock
+    [ "$status" -eq 0 ]
+    [ -f ".claude/prp-run-all.lock" ]
+}
+
+@test "lock: fails if already locked (non-stale)" {
+    bash "$HELPER" lock
+    run bash "$HELPER" lock
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"already locked"* ]]
+}
+
+@test "lock: removes stale lock (>2 hours old)" {
+    mkdir -p .claude
+    echo "12345" > .claude/prp-run-all.lock
+    # Touch with old timestamp (3 hours ago)
+    touch -t "$(date -v-3H +%Y%m%d%H%M.%S 2>/dev/null || date -d '3 hours ago' +%Y%m%d%H%M.%S 2>/dev/null)" .claude/prp-run-all.lock
+    run bash "$HELPER" lock
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"stale"* ]]
+}
+
+@test "unlock: removes lock file" {
+    bash "$HELPER" lock
+    [ -f ".claude/prp-run-all.lock" ]
+    bash "$HELPER" unlock
+    [ ! -f ".claude/prp-run-all.lock" ]
+}
+
+# ─────────────────────────────────────────────
+# 8. Invalid usage
+# ─────────────────────────────────────────────
+@test "unknown command: exits with error" {
+    run bash "$HELPER" unknown_command
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"Usage"* ]]
+}

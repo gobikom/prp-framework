@@ -25,7 +25,11 @@ Execute the complete PRP workflow end-to-end autonomously. Each step delegates t
 | `--plan-path <path>` | Extract path. Set PLAN_PATH = path. Skip Step 2 (plan). |
 | `--skip-review` | Set SKIP_REVIEW = true. Skip Step 6 (review). |
 | `--no-pr` | Set NO_PR = true. Skip Steps 5 (PR) and 6 (review). |
+| `--fix-severity <levels>` | Override review-fix severity (default: `critical,high`) |
+| `--resume` | Resume from last failed step using saved state |
 | Remaining text (after removing flags) | Set FEATURE = text |
+
+**If `--plan-path` provided, validate file exists** — STOP if not found, show available plans.
 
 **Set workflow variables:**
 
@@ -34,9 +38,13 @@ FEATURE = "{remaining text after flags, or title from plan file}"
 PLAN_PATH = "{from --plan-path, or TBD — set in Step 2}"
 BRANCH = "{TBD — set in Step 1}"
 PR_NUMBER = "{TBD — set in Step 5}"
+REVIEW_ARTIFACT = "{TBD — set in Step 6.1}"
 SKIP_REVIEW = {true if --skip-review or --no-pr, false otherwise}
 NO_PR = {true if --no-pr, false otherwise}
+FIX_SEVERITY = "{from --fix-severity, default 'critical,high'}"
 ```
+
+**State management**: `.claude/prp-run-all.state.md` — create on start, update per step, delete on completion. Supports `--resume` from last failed step.
 
 **Examples:**
 - `Add JWT auth` → full workflow (all steps)
@@ -142,8 +150,10 @@ This will:
 - Run applicable review passes (code, docs, tests, errors, types)
 - Post review summary to PR
 
+**Variable update**: `REVIEW_ARTIFACT = {review artifact path}`
+
 **If critical issues found**:
-1. Fix each critical issue
+1. Execute review-fix workflow with `{REVIEW_ARTIFACT} --severity {FIX_SEVERITY}`
 2. Run validation
 3. Commit fixes
 4. Push

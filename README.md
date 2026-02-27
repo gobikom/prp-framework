@@ -12,6 +12,7 @@ PRP (Plan-Review-PR) Framework is a portable, tool-agnostic workflow system for 
 ✅ **Portable Design** - Use as Git submodule or template
 ✅ **Tool-Specific Naming** - Parallel artifact creation for comparison
 ✅ **Complete Workflows** - PRD → Design → Plan → Implement → Review → Commit → PR
+✅ **Resilient Automation** - State management with `--resume`, review-fix loops, coverage enforcement (90%)
 ✅ **100% Feature Parity** - All tools implement the same logic
 ✅ **Claude Code Advanced** - 30 specialized agents, skills, hooks for enhanced workflows
 ✅ **Domain Extensions** - Marketing automation and AI Bot development command packs
@@ -71,7 +72,7 @@ cp -r prp-framework/* my-project/
 | **Review Fix** | Auto-fix all review issues to PR branch | After review, fix critical/high/medium/suggestions |
 | **Commit** | Smart staging + conventional commit | Code ready to commit |
 | **PR** | Create pull request | Ready to push |
-| **Run All** | Full workflow end-to-end (supports `--ralph`) | Complete automation |
+| **Run All** | Full workflow end-to-end (supports `--ralph`, `--resume`, `--fix-severity`) | Complete automation |
 
 ## Tool Support
 
@@ -86,6 +87,8 @@ cp -r prp-framework/* my-project/
 /prp-core:ralph-cancel                                     # Cancel active ralph loop
 /prp-core:run-all Add JWT auth                             # Full workflow (plan→implement→commit→PR→review)
 /prp-core:run-all Add JWT auth --ralph                     # Full workflow using ralph loop
+/prp-core:run-all Add JWT auth --resume                    # Resume from last failed step
+/prp-core:run-all Add JWT auth --fix-severity critical     # Override review-fix severity
 /prp-core:review-agents 25                                 # Multi-agent PR review
 /prp-core:review-fix 25                                    # Fix all review issues
 /prp-core:commit                                           # Smart commit

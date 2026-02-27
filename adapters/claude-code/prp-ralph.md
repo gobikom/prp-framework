@@ -193,6 +193,23 @@ bun test || npm test
 bun run build || npm run build
 ```
 
+### 3.4.1 Coverage Check
+
+**After tests pass, verify coverage on new/changed code:**
+
+```bash
+# Get changed source files (exclude tests)
+CHANGED_FILES=$(git diff --name-only origin/main...HEAD | grep -E '\.(ts|tsx|js|jsx|py|rs|go)$' | grep -v -E '(test|spec|__test__)')
+```
+
+Run coverage tool (auto-detect: jest `--coverage`, vitest `--coverage`, pytest `--cov`, `go test -cover`, `cargo tarpaulin`).
+
+| Result | Action |
+|--------|--------|
+| Coverage >= 90% on new code | Proceed |
+| Coverage < 90% on new code | Write additional tests, re-run until >= 90% |
+| No coverage tool available | Skip with note in results |
+
 ### 3.5 Track Results
 
 | Check | Result | Notes |
@@ -200,6 +217,7 @@ bun run build || npm run build
 | Type check | PASS/FAIL | {details} |
 | Lint | PASS/FAIL | {details} |
 | Tests | PASS/FAIL | {details} |
+| Coverage | PASS/FAIL/SKIP | {percentage on new code, target: 90%} |
 | Build | PASS/FAIL | {details} |
 
 ### 3.6 If Any Validation Fails
