@@ -210,6 +210,83 @@ $prp-review 42 tests errors
 
 ---
 
+## Workflow: Review Fix (Apply Review Findings)
+
+**Purpose:** Fix all issues found by the Review workflow — applied directly to the PR branch.
+
+**When to Use:** After running Review (or Review Agents) and wanting AI to automatically fix Critical, High, Medium, and/or Suggestion issues.
+
+### Process
+
+```
+Load Artifact → Resolve Artifact → Checkout PR Branch →
+Triage → Fix (per severity batch) → Validate → Commit → Push → Comment on PR
+```
+
+### Artifact Resolution
+
+When multiple tools have reviewed the same PR, the command lists all artifacts and prompts the user to select:
+
+```
+Multiple reviews found for PR #123:
+  [1] pr-123-review.md          (claude-code)   2026-02-27 14:30  ← most recent
+  [2] pr-123-review-codex.md    (codex)         2026-02-27 10:15
+  [3] pr-123-review-gemini.md   (gemini)        2026-02-26 09:00
+
+Which review to fix? (Enter for [1]):
+```
+
+To skip the prompt: pass the artifact path directly as input.
+
+### Fix Order
+
+Issues are fixed in priority order, with validation after each batch:
+
+```
+Critical → [validate] → High → [validate] → Medium → [validate] → Suggestion
+```
+
+If a fix causes validation to fail: revert that fix, add to skip log, continue.
+
+### Severity Filter
+
+| Flag | Fixes |
+|------|-------|
+| `--severity critical` | Critical only |
+| `--severity critical,high` | Critical + High |
+| `--severity critical,high,medium` | All except suggestions |
+| No flag | All (default) |
+
+### Output
+
+- Fix summary: `.prp-output/reviews/pr-{N}-fix-summary.md`
+- PR comment with fixed/skipped counts per severity
+- "Fix Outcome" section appended to the review artifact
+
+### Usage
+
+```bash
+# Claude Code — fix all issues
+/prp-core:review-fix 42
+
+# Fix only critical and high
+/prp-core:review-fix 42 --severity critical,high
+
+# Fix from specific artifact (skip disambiguation)
+/prp-core:review-fix .prp-output/reviews/pr-42-review-codex.md
+
+# Codex
+$prp-review-fix 42
+
+# OpenCode/Gemini
+/prp:review-fix 42
+
+# Kimi/Generic
+"Fix review issues for PR #42, critical and high only"
+```
+
+---
+
 ## Workflow: Commit (Smart Commit)
 
 **Purpose:** Stage files and create conventional commit.
@@ -345,6 +422,7 @@ TIMESTAMP=$(date +%Y%m%d-%H%M)
 | Debug | `debug/rca-login-error-20260210-1430.md` |
 | Issue Investigate | `issues/issue-123-20260210-1430.md` |
 | Review | `reviews/pr-42-review.md` (ใช้ PR number) |
+| Review Fix | `reviews/pr-42-fix-summary.md` (อ่านจาก review artifact) |
 | Feature Review | `reviews/feature-review-auth-20260210.md` (ใช้ date) |
 
 ### หา Artifact ล่าสุด

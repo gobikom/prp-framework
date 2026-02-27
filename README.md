@@ -67,6 +67,7 @@ cp -r prp-framework/* my-project/
 | **Plan** | Implementation plan with validation | Starting a new feature |
 | **Implement** | Execute plan with validation loops | Have a plan, ready to code |
 | **Review** | Multi-pass PR code review | PR created, need review |
+| **Review Fix** | Auto-fix all review issues to PR branch | After review, fix critical/high/medium/suggestions |
 | **Commit** | Smart staging + conventional commit | Code ready to commit |
 | **PR** | Create pull request | Ready to push |
 | **Run All** | Full workflow end-to-end | Complete automation |
@@ -80,6 +81,7 @@ cp -r prp-framework/* my-project/
 /prp-core:plan Add JWT authentication  # Create plan
 /prp-core:implement plan.md            # Execute plan
 /prp-core:review-agents 25             # Multi-agent PR review
+/prp-core:review-fix 25                # Fix all review issues
 /prp-core:commit                       # Smart commit
 /prp-core:pr                           # Create PR
 
@@ -104,6 +106,7 @@ $prp-design .prp-output/prds/metrics-prd.md
 $prp-plan Add JWT authentication
 $prp-implement plan.md
 $prp-review 25
+$prp-review-fix 25
 $prp-commit
 $prp-pr
 ```
@@ -115,6 +118,7 @@ $prp-pr
 /prp:plan Add JWT authentication
 /prp:implement plan.md
 /prp:review 25
+/prp:review-fix 25
 /prp:commit
 /prp:pr
 ```
@@ -126,6 +130,7 @@ Use natural language:
 "Create a design doc for the PRD at ..."
 "Create a plan for adding JWT authentication"
 "Implement the plan at ..."
+"Fix review issues for PR #25"
 ```
 
 ## Architecture
@@ -138,20 +143,21 @@ prp-framework/
 │   ├── plan.md
 │   ├── implement.md
 │   ├── review.md
+│   ├── review-fix.md
 │   ├── commit.md
 │   ├── pr.md
 │   └── run-all.md
 ├── adapters/                   # Tool-specific adapters
-│   ├── claude-code/            # Claude Code core commands (16 commands)
+│   ├── claude-code/            # Claude Code core commands (17 commands)
 │   ├── claude-code-marketing/  # Marketing commands (4 commands)
 │   ├── claude-code-bot/        # AI Bot commands (5 commands)
 │   ├── claude-code-agents/     # Claude Code agents (30 agents)
 │   ├── claude-code-skills/     # Claude Code skills (1 skill)
 │   ├── claude-code-hooks/      # Claude Code hooks (Ralph stop)
 │   ├── claude-code-plugin/     # Claude Code plugin metadata
-│   ├── codex/                  # Codex skills (8 skills)
-│   ├── opencode/               # OpenCode commands (8 commands)
-│   ├── gemini/                 # Gemini commands (8 commands)
+│   ├── codex/                  # Codex skills (9 skills)
+│   ├── opencode/               # OpenCode commands (9 commands)
+│   ├── gemini/                 # Gemini commands (9 commands)
 │   └── generic/                # AGENTS.md for Kimi/others
 ├── docs/                       # Documentation
 ├── scripts/                    # Installation scripts
@@ -223,7 +229,7 @@ cd .prp && ./scripts/install.sh && cd ..
 ## Documentation
 
 - [Getting Started Guide](docs/GETTING_STARTED.md) - Step-by-step setup
-- [User Guide](docs/USER-GUIDE.md) - Complete command reference (25 commands)
+- [User Guide](docs/USER-GUIDE.md) - Complete command reference (26 commands)
 - [Agents Guide](docs/AGENTS-GUIDE.md) - How to use 30 specialized agents with strategy workflows
 - [Workflows Documentation](docs/WORKFLOWS.md) - Detailed workflow descriptions
 - [Contributing Guide](docs/CONTRIBUTING.md) - How to contribute
