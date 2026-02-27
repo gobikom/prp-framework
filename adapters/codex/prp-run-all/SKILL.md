@@ -28,6 +28,7 @@ Execute the complete PRP workflow end-to-end autonomously. Each step delegates t
 | `--no-pr` | Set NO_PR = true. Skip Steps 5 and 6. |
 | `--fix-severity <levels>` | Override review-fix severity (default: `critical,high`) |
 | `--resume` | Resume from last failed step using saved state |
+| `--no-interact` | Never ask user questions — use best judgment, pick defaults |
 | Remaining text (after removing flags) | Set FEATURE = text |
 
 **If `--plan-path` provided, validate file exists** — STOP if not found, show available plans.
@@ -42,6 +43,7 @@ REVIEW_ARTIFACT = "{TBD — set in Step 6.1}"
 SKIP_REVIEW = {true if --skip-review or --no-pr}
 NO_PR = {true if --no-pr}
 FIX_SEVERITY = "{from --fix-severity, default 'critical,high'}"
+NO_INTERACT = {true if --no-interact}
 ```
 
 ### Step 0.5: State Management

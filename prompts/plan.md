@@ -109,7 +109,9 @@ So that <benefit/value>
 - [ ] Complexity assessment has rationale
 - [ ] Affected systems identified
 
-**GATE**: If requirements are AMBIGUOUS → STOP and ASK user for clarification before proceeding.
+**GATE**: If requirements are AMBIGUOUS:
+- **Default**: STOP and ASK user for clarification before proceeding.
+- **If `--no-interact` flag is set**: Do NOT ask. Use best judgment, state your assumptions in the plan under an "## Assumptions" section, and proceed.
 
 ---
 

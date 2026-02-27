@@ -12,11 +12,12 @@ Input: {{args}}
 | `--no-pr` | Skip Steps 5 and 6. |
 | `--fix-severity <levels>` | Override review-fix severity (default: `critical,high`) |
 | `--resume` | Resume from last failed step |
+| `--no-interact` | Never ask user questions — use best judgment, pick defaults |
 | Remaining text | Set FEATURE |
 
 If `--plan-path` provided, validate file exists — STOP if not found.
 
-Variables: FEATURE, PLAN_PATH (TBD), BRANCH (TBD), PR_NUMBER (TBD), REVIEW_ARTIFACT (TBD), SKIP_REVIEW, NO_PR, FIX_SEVERITY (default: critical,high)
+Variables: FEATURE, PLAN_PATH (TBD), BRANCH (TBD), PR_NUMBER (TBD), REVIEW_ARTIFACT (TBD), SKIP_REVIEW, NO_PR, NO_INTERACT, FIX_SEVERITY (default: critical,high)
 
 State: `.claude/prp-run-all.state.md` — create on start, update per step, delete on completion. `--resume` restores from saved state.
 

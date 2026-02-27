@@ -485,6 +485,7 @@ Commit → PR → Review/Fix Loop → Summary
 | `--skip-review` | Skip review step |
 | `--no-pr` | Skip PR and review steps |
 | `--fix-severity <levels>` | Override review-fix severity (default: `critical,high`) |
+| `--no-interact` | Never ask user questions — use best judgment for ambiguous requirements, pick defaults |
 
 ### State Management
 

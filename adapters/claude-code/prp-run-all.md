@@ -1,6 +1,6 @@
 ---
 description: Orchestrate complete PRP workflow - plan, implement, commit, PR, and review in sequence with context passing
-argument-hint: "<feature-description>" or --prp-path <path/to/plan.md> [--ralph] [--ralph-max-iter N] [--skip-review] [--no-pr] [--fix-severity <levels>] [--resume]
+argument-hint: "<feature-description>" or --prp-path <path/to/plan.md> [--ralph] [--ralph-max-iter N] [--skip-review] [--no-pr] [--fix-severity <levels>] [--resume] [--no-interact]
 ---
 
 # PRP Full Workflow Runner
@@ -33,6 +33,7 @@ Execute the complete PRP workflow end-to-end autonomously. Each step delegates t
 | `--no-pr` | Skip Steps 5 and 6 (PR and review) |
 | `--fix-severity <levels>` | Override review-fix severity (default: `critical,high`). Example: `--fix-severity critical,high,medium` |
 | `--resume` | Resume from last failed step using saved state (`.claude/prp-run-all.state.md`) |
+| `--no-interact` | Never ask user questions — use best judgment for ambiguous requirements, pick defaults for choices. Pre-condition errors still STOP with error (not wait). |
 
 **If `--prp-path` provided, validate the file exists:**
 
@@ -64,6 +65,7 @@ REVIEW_ARTIFACT = "{TBD — set in Step 6.1}"
 USE_RALPH = {true | false}
 RALPH_MAX_ITER = {N, default 10}
 FIX_SEVERITY = "{from --fix-severity, default 'critical,high'}"
+NO_INTERACT = {true | false}
 ```
 
 **If `--ralph` flag detected — verify hook is registered:**
@@ -149,6 +151,13 @@ test -f .claude/prp-run-all.state.md && echo "EXISTS" || echo "NOT_FOUND"
 | NOT_FOUND | No | Create new state file → proceed normally |
 
 **If state file exists but `--resume` NOT set:**
+
+**If `NO_INTERACT = true`**: Auto-delete stale state and proceed as fresh run:
+```bash
+rm -f .claude/prp-run-all.state.md
+```
+
+**If `NO_INTERACT = false`** (default):
 ```
 A previous run-all workflow was interrupted at Step {N}: {step name}.
 
@@ -192,6 +201,7 @@ ralph_max_iter: {RALPH_MAX_ITER}
 fix_severity: "{FIX_SEVERITY}"
 skip_review: {SKIP_REVIEW}
 no_pr: {NO_PR}
+no_interact: {NO_INTERACT}
 started_at: "{ISO timestamp}"
 updated_at: "{ISO timestamp}"
 ---
@@ -240,13 +250,14 @@ git checkout -b feature/{slug-from-feature-description}
 ```
 Use Skill tool with:
   skill: "prp-core:prp-plan"
-  args: "{FEATURE}"
+  args: "{FEATURE}" (append " --no-interact" if NO_INTERACT = true)
 ```
 
 This command will:
 - Analyze the codebase
 - Generate a comprehensive plan
 - Save to `.prp-output/plans/`
+- If `--no-interact`: skip clarification questions, use best judgment for ambiguous requirements
 
 **Variable update**: `PLAN_PATH = {generated plan path}`
 

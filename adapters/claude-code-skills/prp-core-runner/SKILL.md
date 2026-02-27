@@ -37,6 +37,7 @@ When the user requests to implement a feature using the PRP workflow or wants en
 | `--no-pr` | Skip PR and review steps |
 | `--resume` | Resume from last failed step |
 | `--fix-severity <levels>` | Override review-fix severity (default: critical,high) |
+| `--no-interact` | Never ask user questions — use best judgment, pick defaults |
 
 **Error Handling:**
 
