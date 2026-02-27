@@ -265,6 +265,14 @@ If NOT → STOP → Go back and call it now.
 
 ## Step 6: REVIEW (skip if --skip-review or --no-pr)
 
+**Loop variables:**
+```
+REVIEW_CYCLE = 1
+MAX_CYCLES = 2
+```
+
+### 6.1 Run Review
+
 **⚠️ MUST use Skill tool**: `/prp-review-agents {PR_NUMBER}`
 
 ```
@@ -292,14 +300,57 @@ This command will:
 **✅ CHECKPOINT**: Did you call the Skill tool with `skill: "prp-core:prp-review-agents"`?
 If NOT → STOP → Go back and call it now.
 
-**If critical issues found**:
-1. Fix each critical issue
-2. Run validation: `{runner} run type-check && {runner} run lint && {runner} run test`
-3. Commit fixes via Skill tool: `skill: "prp-core:prp-commit"`
-4. Push: `git push`
-5. Re-run review via Skill tool: `skill: "prp-core:prp-review-agents"` (max 2 cycles)
+### 6.2 Evaluate Results
 
-**If no critical issues**: Proceed to summary.
+| Result | Action |
+|--------|--------|
+| No critical or high issues | Proceed to Step 7 ✓ |
+| Critical/high found, `REVIEW_CYCLE <= MAX_CYCLES` | Go to Step 6.3 |
+| Critical/high found, `REVIEW_CYCLE > MAX_CYCLES` | Report remaining issues → Proceed to Step 7 with status NEEDS MANUAL FIXES |
+
+### 6.3 Fix Issues
+
+**⚠️ MUST use Skill tool**: `/prp-review-fix {PR_NUMBER} --severity critical,high`
+
+```
+Use Skill tool with:
+  skill: "prp-core:prp-review-fix"
+  args: "{PR_NUMBER} --severity critical,high"
+```
+
+This command will:
+- Load the review artifact produced by Step 6.1
+- Fix Critical and High issues in priority order
+- Validate after each severity batch (type-check + lint + test)
+- Commit and push fixes to the PR branch
+- Post fix summary comment on PR
+
+**Why `--severity critical,high` only?**
+Medium and Suggestion issues don't block merge. They will be visible in the summary for manual follow-up.
+
+**❌ DO NOT**:
+- Manually read and fix issues yourself
+- Run validation separately — `prp-review-fix` already validates
+- Skip the Skill tool
+
+**✅ CHECKPOINT**: Did you call the Skill tool with `skill: "prp-core:prp-review-fix"`?
+If NOT → STOP → Go back and call it now.
+
+### 6.4 Re-verify
+
+Increment: `REVIEW_CYCLE = REVIEW_CYCLE + 1`
+
+Re-run review to confirm fixes resolved all critical/high issues and no regressions were introduced:
+
+```
+Use Skill tool with:
+  skill: "prp-core:prp-review-agents"
+  args: "{PR_NUMBER}"
+```
+
+→ **Return to Step 6.2** to evaluate results.
+
+**If no critical issues**: Proceed to Step 7. ✓
 
 ---
 
@@ -322,23 +373,30 @@ Generate final report:
 | Implement | /prp-implement | {tasks completed} |
 | Commit | /prp-commit | {commit hash} |
 | PR | /prp-pr | {PR URL or "skipped"} |
-| Review | /prp-review-agents | {verdict or "skipped"} |
+| Review | /prp-review-agents | {verdict} |
+| Review Fix | /prp-review-fix | {N fixed, N skipped or "not needed"} |
+| Re-verify | /prp-review-agents | {final verdict or "not needed"} |
 
 ### Artifacts
 
 - Plan: `{PLAN_PATH}` (archived)
 - Report: `.prp-output/reports/{name}-report.md`
 - Review Context: `.prp-output/reviews/pr-context-{BRANCH}.md`
+- Review: `.prp-output/reviews/pr-{NUMBER}-review.md`
+- Fix Summary: `.prp-output/reviews/pr-{NUMBER}-fix-summary.md` (if fixes applied)
 - PR: {URL}
 
 ### Review Verdict
 
-{READY TO MERGE / NEEDS FIXES / NOT REVIEWED}
+{READY TO MERGE / NEEDS MANUAL FIXES / NOT REVIEWED}
+
+{If NEEDS MANUAL FIXES: list remaining critical/high issues that were skipped}
 
 ### Next Steps
 
 1. {Based on review verdict}
-2. Merge when approved
+2. {If medium/suggestion issues exist: "Run /prp-review-fix {NUMBER} for remaining medium/suggestion issues"}
+3. Merge when approved
 ```
 
 ---
@@ -357,9 +415,11 @@ Generate final report:
 
 6. **No extra validation.** Do NOT add validation steps between commands. Each command validates its own output. Adding more just wastes tokens.
 
-7. **One commit per implementation.** Use `/prp-commit` once after implement. If review fixes are needed, commit those separately.
+7. **One commit per implementation.** Use `/prp-commit` once after implement. Review fixes are committed separately by `/prp-review-fix`.
 
-8. **Max 2 review cycles.** If review still has critical issues after 2 fix-and-review cycles, STOP and report to user.
+8. **Max 2 review cycles.** If critical/high issues remain after 2 fix-and-re-verify cycles, STOP and report to user. Do NOT loop indefinitely.
+
+9. **Re-verify after fix.** Always re-run `/prp-review-agents` after `/prp-review-fix` to confirm issues are resolved and no regressions were introduced. This is the quality gate before merge.
 
 ---
 
