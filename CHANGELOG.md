@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Ralph enhancements** (Claude Code only):
+  - `install.sh` now auto-registers ralph stop hook in `.claude/settings.local.json` via `jq` merge — no manual setup required
+  - `install.sh` now auto-`chmod +x` the ralph stop hook on installation
+  - `prp-ralph.md`: ralph now generates `pr-context-{branch}.md` after COMPLETE, enabling token optimization (~60K saved) when used via `run-all --ralph`
+  - `prp-core-run-all.md`: added `--ralph` and `--ralph-max-iter N` flags — replaces implement step with ralph loop
+  - `prp-core-run-all.md`: added hook pre-check and token warning when `--ralph` is used
+  - `tests/ralph/ralph-stop.bats`: 23 automated bats-core tests for the stop hook
+
+### Fixed
+- **Ralph stop hook bugs** (`prp-ralph-stop.sh`):
+  - False positive: promise detection now requires `<promise>COMPLETE</promise>` on its own line (`grep -qE '^...$'`) — prevents accidental trigger from code blocks or comments
+  - Missing field crash: `grep` on missing YAML frontmatter fields now uses `|| true` to prevent `set -euo pipefail` from crashing the hook with exit code 1
+
 ### Changed
 - **BREAKING**: Unified all artifact output paths to `.prp-output/`
   - `.claude/PRPs/` (Claude Code) → `.prp-output/`

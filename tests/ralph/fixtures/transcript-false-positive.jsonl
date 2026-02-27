@@ -1,0 +1,1 @@
+{"role":"assistant","message":{"content":[{"type":"text","text":"Here is an example of the completion promise format:\n```\n  <promise>COMPLETE</promise>\n```\nNote the indentation — it must be on its own line without indentation to trigger loop exit."}]}}

@@ -18,6 +18,10 @@ Thank you for considering contributing to PRP Framework! This document provides 
 git clone https://github.com/YOUR_USERNAME/prp-framework.git
 cd prp-framework
 
+# Install dev dependencies (for running tests)
+brew install bats-core jq   # macOS
+# apt-get install bats jq   # Ubuntu/Debian
+
 # Create feature branch
 git checkout -b feature/your-feature-name
 
@@ -26,6 +30,25 @@ cd ../test-project
 git submodule add ../prp-framework .prp
 cd .prp && ./scripts/install.sh
 ```
+
+## Running Tests
+
+### Ralph Stop Hook Tests
+
+```bash
+# Run all ralph tests
+bats tests/ralph/ralph-stop.bats
+
+# Verbose output
+bats --verbose-run tests/ralph/ralph-stop.bats
+
+# TAP format (for CI)
+bats --formatter tap tests/ralph/ralph-stop.bats
+```
+
+Tests cover: no state file, COMPLETE detection, iteration increment, max iterations, false positive prevention, corrupt state handling, missing transcript, JSON output format.
+
+> **Note:** `bats-core` and `jq` are dev dependencies for testing the framework itself. Consumer projects do not need them.
 
 ## Project Structure
 
@@ -122,11 +145,16 @@ Then run `install.sh` to create symlinks.
 
 | File | Purpose |
 | ------ | ------- |
-| `scripts/install.sh` | Main installation script |
+| `scripts/install.sh` | Main installation script (auto-registers ralph hook) |
 | `scripts/cleanup-artifacts.sh` | Artifact cleanup utility |
 | `scripts/migrate-artifacts.sh` | Migration from old artifact paths |
 | `docs/USER-GUIDE.md` | Complete command reference (Thai) |
 | `README.md` | Project overview (English) |
+| `adapters/claude-code/prp-ralph.md` | Ralph autonomous loop command |
+| `adapters/claude-code/prp-core-run-all.md` | End-to-end workflow orchestrator (supports --ralph) |
+| `adapters/claude-code-hooks/prp-ralph-stop.sh` | Stop hook — core mechanism for ralph loop |
+| `adapters/claude-code-hooks/README.md` | Hook setup documentation |
+| `tests/ralph/ralph-stop.bats` | bats tests for stop hook (23 test cases) |
 | `adapters/claude-code/prp-feature-review.md` | Feature review with token optimization |
 | `adapters/claude-code/prp-feature-review-agents.md` | Multi-agent feature review |
 

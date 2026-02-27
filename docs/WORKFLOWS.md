@@ -354,6 +354,68 @@ Automatically includes:
 
 ---
 
+## Workflow: Ralph (Autonomous Implementation Loop)
+
+**Purpose:** Execute an implementation plan iteratively until ALL validations pass. Unlike `/prp-implement` (one-shot), Ralph loops autonomously — fixing failures and retrying until complete.
+
+**Claude Code only** — requires stop hook mechanism not available in other tools.
+
+### Process
+
+```
+Validate Input → Initialize State → Loop:
+  Read Plan → Implement Tasks → Run Validations →
+  Update State File → (if fail: next iteration)
+→ Generate Report → Generate pr-context → Archive → COMPLETE
+```
+
+### When to Use Ralph vs Implement
+
+| | `/prp-implement` | `/prp-ralph` |
+|---|---|---|
+| Execution | One-shot | Loop until pass |
+| On failure | STOP, report user | Auto-retry next iteration |
+| Token cost | Low (~15-30K) | High (N × ~15K) |
+| Best for | Clear, well-defined plans | Complex features, uncertain impl |
+
+### Setup (auto-configured by install.sh)
+
+`install.sh` automatically:
+1. Copies `prp-ralph-stop.sh` to `.claude/hooks/`
+2. Makes it executable (`chmod +x`)
+3. Registers it in `.claude/settings.local.json`
+
+Verify with:
+```bash
+cat .claude/settings.local.json | jq '.hooks.Stop'
+ls -la .claude/hooks/prp-ralph-stop.sh
+```
+
+### Output
+
+- Implementation report: `.prp-output/reports/{plan}-report.md`
+- Review context: `.prp-output/reviews/pr-context-{branch}.md`
+- Ralph archive: `.prp-output/ralph-archives/{date}-{plan}/`
+- State file (during run): `.claude/prp-ralph.state.md`
+
+### Usage
+
+```bash
+# Run with a plan file
+/prp-core:prp-ralph .prp-output/plans/jwt-auth.plan.md
+
+# Set max iterations
+/prp-core:prp-ralph .prp-output/plans/jwt-auth.plan.md --max-iterations 10
+
+# Monitor progress
+cat .claude/prp-ralph.state.md
+
+# Cancel loop
+/prp-core:prp-ralph-cancel
+```
+
+---
+
 ## Workflow: Run All (End-to-End)
 
 **Purpose:** Execute complete workflow from feature idea to PR.
@@ -361,17 +423,23 @@ Automatically includes:
 ### Process
 
 ```
-Parse Input → Create Branch → Plan → Implement → Commit → PR → Review → Summary
+Parse Input → Create Branch → Plan → Implement (or Ralph) → Commit → PR → Review → Summary
 ```
 
 ### Options
 
 ```bash
-# Full workflow
+# Full workflow (default: one-shot implement)
 /prp-core-run-all Add JWT authentication
 
 # Use existing plan
-/prp-core-run-all --plan-path plans/jwt.plan.md
+/prp-core-run-all --prp-path .prp-output/plans/jwt.plan.md
+
+# Use ralph loop for implement step (resilient, slower)
+/prp-core-run-all Add JWT authentication --ralph
+
+# Ralph with custom max iterations
+/prp-core-run-all Add JWT authentication --ralph --ralph-max-iter 10
 
 # Skip review
 /prp-core-run-all Add JWT auth --skip-review
@@ -379,6 +447,13 @@ Parse Input → Create Branch → Plan → Implement → Commit → PR → Revie
 # No PR (just implement + commit)
 /prp-core-run-all Add JWT auth --no-pr
 ```
+
+### --ralph Flag
+
+When `--ralph` is used, implement step is replaced with `/prp-ralph`:
+- Hook pre-check runs first — stops immediately if hook not registered
+- Token warning displayed (ralph uses 3-10× more tokens than default)
+- Ralph loops until COMPLETE, then workflow continues to commit → PR → review
 
 ---
 

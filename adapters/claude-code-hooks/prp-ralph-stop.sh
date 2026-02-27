@@ -21,10 +21,10 @@ fi
 # Parse YAML frontmatter from state file
 FRONTMATTER=$(sed -n '/^---$/,/^---$/{ /^---$/d; p; }' "$STATE_FILE")
 
-# Extract values
-ITERATION=$(echo "$FRONTMATTER" | grep '^iteration:' | sed 's/iteration: *//')
-MAX_ITERATIONS=$(echo "$FRONTMATTER" | grep '^max_iterations:' | sed 's/max_iterations: *//')
-PLAN_PATH=$(echo "$FRONTMATTER" | grep '^plan_path:' | sed 's/plan_path: *//' | sed 's/^"\(.*\)"$/\1/')
+# Extract values (|| true prevents set -e from failing on missing fields)
+ITERATION=$(echo "$FRONTMATTER" | grep '^iteration:' | sed 's/iteration: *//' || true)
+MAX_ITERATIONS=$(echo "$FRONTMATTER" | grep '^max_iterations:' | sed 's/max_iterations: *//' || true)
+PLAN_PATH=$(echo "$FRONTMATTER" | grep '^plan_path:' | sed 's/plan_path: *//' | sed 's/^"\(.*\)"$/\1/' || true)
 
 # Validate numeric fields
 if [[ ! "$ITERATION" =~ ^[0-9]+$ ]]; then
@@ -65,8 +65,8 @@ if grep -q '"role":"assistant"' "$TRANSCRIPT_PATH"; then
     join("\n")
   ' 2>/dev/null || echo "")
 
-  # Check for completion promise
-  if echo "$LAST_OUTPUT" | grep -q '<promise>COMPLETE</promise>'; then
+  # Check for completion promise (must be on its own line to avoid false positives in code blocks)
+  if echo "$LAST_OUTPUT" | grep -qE '^<promise>COMPLETE</promise>$'; then
     echo "✅ PRP Ralph: All validations passed! Loop complete."
     rm "$STATE_FILE"
     exit 0

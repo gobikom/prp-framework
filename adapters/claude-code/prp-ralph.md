@@ -359,13 +359,79 @@ ALL of these must be true:
    mv {plan_path} .prp-output/plans/completed/
    ```
 
-5. **Clean Up State**
+5. **Generate Review Context File** (enables token optimization when used via `/prp-core-run-all --ralph`)
+
+   ```bash
+   BRANCH=$(git branch --show-current)
+   mkdir -p .prp-output/reviews
+   ```
+
+   Create `.prp-output/reviews/pr-context-{BRANCH}.md`:
+
+   ```markdown
+   # PR Review Context
+
+   **Branch**: `{BRANCH}`
+   **Generated**: {YYYY-MM-DD HH:MM}
+   **Source Plan**: `{plan_path}`
+   **Ralph Iterations**: {N}
+
+   ---
+
+   ## Files Changed
+
+   {Run: git diff --name-only origin/main...HEAD}
+
+   | File | Action | Summary |
+   |------|--------|---------|
+   | `src/x.ts` | CREATE | {brief description} |
+   | `src/y.ts` | UPDATE | {brief description} |
+
+   ---
+
+   ## Implementation Summary
+
+   {Copy from the report's Summary section}
+
+   ---
+
+   ## Validation Status
+
+   | Check | Result |
+   |-------|--------|
+   | Type check | ✅ |
+   | Lint | ✅ |
+   | Tests | ✅ ({N} passed) |
+   | Build | ✅ |
+
+   ---
+
+   ## Key Changes for Review
+
+   ### New Files
+   {List new files with brief purpose}
+
+   ### Modified Files
+   {List modified files with what changed}
+
+   ### Tests Added
+   {List test files and what they cover}
+
+   ---
+
+   ## Review Focus Areas
+
+   - {Area 1 that reviewers should focus on}
+   - {Gotchas or edge cases discovered during ralph iterations}
+   ```
+
+6. **Clean Up State**
 
    ```bash
    rm .claude/prp-ralph.state.md
    ```
 
-6. **Output Completion Promise**
+7. **Output Completion Promise**
 
    ```
    <promise>COMPLETE</promise>
@@ -449,4 +515,5 @@ cat .prp-output/ralph-archives/2024-01-12-feature-name/learnings.md
 - **LEARNINGS_CAPTURED**: Progress log has useful insights
 - **PATTERNS_CONSOLIDATED**: Reusable patterns extracted
 - **ARCHIVE_CREATED**: Full run archived for future reference
+- **PR_CONTEXT_CREATED**: Review context file exists at `.prp-output/reviews/pr-context-{BRANCH}.md`
 - **CLEAN_EXIT**: Completion promise output only when genuinely complete

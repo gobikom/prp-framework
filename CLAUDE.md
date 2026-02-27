@@ -32,9 +32,9 @@ PRP (Plan-Review-PR) Framework เป็น cross-tool AI coding workflow framew
 - `debug` - Root cause analysis
 - `issue-investigate` - GitHub issue investigation
 - `issue-fix` - Fix from investigation
-- `ralph` - Autonomous loop
+- `ralph` - Autonomous implementation loop (loops until all validations pass)
 - `ralph-cancel` - Cancel loop
-- `run-all` - Full workflow
+- `run-all` - Full workflow (supports `--ralph` / `--ralph-max-iter N` flags)
 
 ### Marketing Commands (`/prp-mkt:`)
 - `landing` - Landing page analysis & optimization
@@ -88,6 +88,9 @@ Script จะสร้าง symlinks ไปยัง:
 - `.claude/commands/prp-mkt/` → Marketing commands
 - `.claude/commands/prp-bot/` → Bot commands
 - `.claude/agents/` → Custom agents
+- `.claude/hooks/` → Hooks (รวม `prp-ralph-stop.sh`)
+
+Script ยัง auto-register Ralph stop hook ใน `.claude/settings.local.json` โดยอัตโนมัติ (ต้องมี `jq` ติดตั้งอยู่)
 
 ## Artifact Naming Convention
 
@@ -110,6 +113,7 @@ TIMESTAMP=$(date +%Y%m%d-%H%M)
 | `design` | `.prp-output/designs/{name}-design-agents-{TIMESTAMP}.md` |
 | `plan` | `.prp-output/plans/{name}-{TIMESTAMP}.plan.md` |
 | `implement` | `.prp-output/reports/{name}-report-{TIMESTAMP}.md` |
+| `ralph` | `.prp-output/reports/{name}-report.md` + `.prp-output/reviews/pr-context-{branch}.md` + `.prp-output/ralph-archives/{date}-{name}/` |
 | `debug` | `.prp-output/debug/rca-{slug}-{TIMESTAMP}.md` |
 | `issue-investigate` | `.prp-output/issues/issue-{number}-{TIMESTAMP}.md` |
 | `review` | `.prp-output/reviews/pr-{NUMBER}-review.md` (ใช้ PR number แทน) |

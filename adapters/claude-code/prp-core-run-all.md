@@ -1,6 +1,6 @@
 ---
 description: Orchestrate complete PRP workflow - plan, implement, commit, PR, and review in sequence with context passing
-argument-hint: "<feature-description>" or --prp-path <path/to/plan.md> [--skip-review] [--no-pr]
+argument-hint: "<feature-description>" or --prp-path <path/to/plan.md> [--ralph] [--ralph-max-iter N] [--skip-review] [--no-pr]
 ---
 
 # PRP Full Workflow Runner
@@ -27,6 +27,8 @@ Execute the complete PRP workflow end-to-end autonomously. Each step delegates t
 |-------|--------|
 | Feature description (text) | Start from Step 1 (create plan) |
 | `--prp-path <path>` | Skip to Step 2 (plan already exists) |
+| `--ralph` | Use ralph loop for Step 3 instead of prp-implement (resilient, slower) |
+| `--ralph-max-iter N` | Set max ralph iterations (default: 10, max recommended: 20) |
 | `--skip-review` | Skip Step 6 (review) |
 | `--no-pr` | Skip Steps 5 and 6 (PR and review) |
 
@@ -36,6 +38,44 @@ FEATURE = "{feature description or plan title}"
 PLAN_PATH = "{path to plan, or TBD}"
 BRANCH = "{TBD — set in Step 1}"
 PR_NUMBER = "{TBD — set in Step 5}"
+USE_RALPH = {true | false}
+RALPH_MAX_ITER = {N, default 10}
+```
+
+**If `--ralph` flag detected — verify hook is registered:**
+
+```bash
+HOOK_CHECK=$(cat .claude/settings.local.json 2>/dev/null | \
+  jq -r '.hooks.Stop[]?.hooks[]? | select(.command | contains("prp-ralph-stop"))' 2>/dev/null)
+```
+
+| Result | Action |
+|--------|--------|
+| Hook found | Proceed normally |
+| Hook not found | STOP with message below |
+
+**If hook not found:**
+```
+❌ --ralph requires the stop hook to be registered.
+
+Run the PRP install script to auto-register:
+  cd .prp && ./scripts/install.sh
+
+Or add manually to .claude/settings.local.json:
+  {
+    "hooks": {
+      "Stop": [{"hooks": [{"type": "command", "command": ".claude/hooks/prp-ralph-stop.sh"}]}]
+    }
+  }
+
+Then retry with --ralph flag.
+```
+
+**Token warning (display to user when --ralph is set):**
+```
+⚠️  Ralph mode enabled — this uses significantly more tokens than default implement.
+    Estimated: {RALPH_MAX_ITER} iterations × ~15K tokens = ~{N*15}K tokens for implement step alone.
+    Default implement: ~15-30K tokens total.
 ```
 
 ---
@@ -89,6 +129,12 @@ If NOT → STOP → Go back and call it now.
 
 ## Step 3: IMPLEMENT
 
+**Choose path based on `USE_RALPH`:**
+
+---
+
+### 3A: Default Mode (`USE_RALPH = false`)
+
 **⚠️ MUST use Skill tool**: `/prp-implement {PLAN_PATH}`
 
 ```
@@ -116,6 +162,38 @@ This command will:
 - Skip the Skill tool because you "know what it does"
 
 **✅ CHECKPOINT**: Did you call the Skill tool with `skill: "prp-core:prp-implement"`?
+If NOT → STOP → Go back and call it now.
+
+---
+
+### 3B: Ralph Mode (`USE_RALPH = true`)
+
+**⚠️ MUST use Skill tool**: `/prp-ralph {PLAN_PATH} --max-iterations {RALPH_MAX_ITER}`
+
+```
+Use Skill tool with:
+  skill: "prp-core:prp-ralph"
+  args: "{PLAN_PATH} --max-iterations {RALPH_MAX_ITER}"
+```
+
+This command will:
+- Loop iteratively until ALL validations pass
+- Self-fix failures across iterations
+- Capture learnings in state file across iterations
+- Write implementation report
+- **Generate review context file** (`pr-context-{branch}.md`) ← Token optimization
+- Archive the plan and state
+
+**Wait for `<promise>COMPLETE</promise>`.** Ralph loops autonomously — the stop hook drives each iteration.
+
+**Failure**: If max iterations reached without COMPLETE → STOP, report which validations still failing.
+
+**❌ DO NOT**:
+- Read `prp-ralph.md` and execute its logic yourself
+- Implement code directly without calling the Skill
+- Skip the Skill tool because you "know what it does"
+
+**✅ CHECKPOINT**: Did you call the Skill tool with `skill: "prp-core:prp-ralph"`?
 If NOT → STOP → Go back and call it now.
 
 ### 3.1 VERIFY Artifacts Created
@@ -407,11 +485,11 @@ Generate final report:
 
 2. **Delegate, don't duplicate.** Each `/prp-*` command is self-contained. Do NOT re-implement their logic in this workflow. Just invoke them via Skill tool in sequence.
 
-3. **Verify artifacts after implement.** After `/prp-implement` completes, always check that report and pr-context files were created. Use fallback creation if missing.
+3. **Verify artifacts after implement.** After `/prp-implement` or `/prp-ralph` completes, always check that report and pr-context files were created. Use fallback creation if missing.
 
 4. **Stop on failure.** If any step fails after its own retry logic, STOP the entire workflow. Do NOT skip to the next step.
 
-5. **Pass context forward.** The review context file from `/prp-implement` is picked up by `/prp-review-agents` automatically. Do NOT re-generate it (unless missing).
+5. **Pass context forward.** The review context file from `/prp-implement` or `/prp-ralph` is picked up by `/prp-review-agents` automatically. Do NOT re-generate it (unless missing).
 
 6. **No extra validation.** Do NOT add validation steps between commands. Each command validates its own output. Adding more just wastes tokens.
 
@@ -425,7 +503,7 @@ Generate final report:
 
 ## Token Budget
 
-This workflow is designed for minimal token usage:
+### Default Mode (without --ralph)
 
 | Step | Token Cost | Why |
 |------|-----------|-----|
@@ -438,6 +516,19 @@ This workflow is designed for minimal token usage:
 
 Without context optimization, review alone would cost ~80-150K tokens.
 With context file from implement step, review costs ~15-30K tokens.
+
+### Ralph Mode (with --ralph)
+
+| Step | Token Cost | Why |
+|------|-----------|-----|
+| Plan | Moderate | Same as default |
+| Implement (ralph) | **Very High** | N iterations × ~15K tokens each |
+| Commit | Low | Same as default |
+| PR | Low | Same as default |
+| Review | **Low** (with context file) | Ralph generates pr-context — same optimization |
+| **Total** | 3-10× more than default | Use only for complex features with uncertain impl |
+
+**When to use --ralph**: feature is complex, first-pass implementation likely to fail validation, or you want autonomous retry without manual intervention.
 
 ---
 

@@ -131,6 +131,52 @@ else
     USED_COPY=true
 fi
 
+# Make ralph stop hook executable
+RALPH_HOOK="$PROJECT_DIR/.claude/hooks/prp-ralph-stop.sh"
+if [ -f "$RALPH_HOOK" ]; then
+    chmod +x "$RALPH_HOOK"
+    echo -e "${GREEN}  ✅ Made prp-ralph-stop.sh executable${NC}"
+fi
+
+# Register ralph stop hook in settings.local.json
+echo "→ Registering Ralph stop hook in .claude/settings.local.json"
+SETTINGS_FILE="$PROJECT_DIR/.claude/settings.local.json"
+HOOK_CMD=".claude/hooks/prp-ralph-stop.sh"
+
+if ! command -v jq &>/dev/null; then
+    echo -e "${YELLOW}  ⚠️  jq not found — add ralph hook manually to .claude/settings.local.json:${NC}"
+    echo '     {"hooks": {"Stop": [{"hooks": [{"type": "command", "command": ".claude/hooks/prp-ralph-stop.sh"}]}]}}'
+else
+    if [ -f "$SETTINGS_FILE" ]; then
+        # Check if hook already registered
+        EXISTING=$(jq -r '
+            .hooks.Stop[]?.hooks[]?
+            | select(.command == "'"$HOOK_CMD"'")
+            | .command
+        ' "$SETTINGS_FILE" 2>/dev/null)
+        if [ -n "$EXISTING" ]; then
+            echo -e "${GREEN}  ✅ Ralph stop hook already registered${NC}"
+        else
+            # Merge into existing settings
+            TEMP_FILE=$(mktemp)
+            jq --arg cmd "$HOOK_CMD" '
+                .hooks.Stop = ((.hooks.Stop // []) + [
+                    {"hooks": [{"type": "command", "command": $cmd}]}
+                ])
+            ' "$SETTINGS_FILE" > "$TEMP_FILE" && mv "$TEMP_FILE" "$SETTINGS_FILE"
+            echo -e "${GREEN}  ✅ Registered ralph stop hook in settings.local.json${NC}"
+        fi
+    else
+        # Create new settings file
+        jq -n --arg cmd "$HOOK_CMD" '{
+            "hooks": {
+                "Stop": [{"hooks": [{"type": "command", "command": $cmd}]}]
+            }
+        }' > "$SETTINGS_FILE"
+        echo -e "${GREEN}  ✅ Created settings.local.json with ralph stop hook${NC}"
+    fi
+fi
+
 # Install Claude Code Plugin metadata
 echo "→ Claude Code Plugin (.claude-plugin/)"
 mkdir -p "$PROJECT_DIR/.claude-plugin"

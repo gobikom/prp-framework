@@ -4,7 +4,22 @@ This directory contains hooks for the PRP Ralph autonomous loop system.
 
 ## Setup
 
-### Option 1: Project-level hooks (Recommended)
+### Automatic (Recommended) — via install.sh
+
+`install.sh` handles everything automatically:
+1. Copies `prp-ralph-stop.sh` to `.claude/hooks/`
+2. Makes it executable (`chmod +x`)
+3. Registers it in `.claude/settings.local.json` using `jq` merge
+
+> **Requires `jq`** to be installed. If `jq` is missing, install.sh prints manual instructions and skips registration.
+
+Verify after install:
+```bash
+cat .claude/settings.local.json | jq '.hooks.Stop'
+ls -la .claude/hooks/prp-ralph-stop.sh
+```
+
+### Manual — Option 1: Project-level hooks
 
 Add to your project's `.claude/settings.local.json`:
 
@@ -25,7 +40,7 @@ Add to your project's `.claude/settings.local.json`:
 }
 ```
 
-### Option 2: Global hooks
+### Manual — Option 2: Global hooks
 
 Add to `~/.claude/settings.json`:
 

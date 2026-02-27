@@ -98,6 +98,27 @@ ls -la .claude/commands/    # Should have prp-core/
 ls -la .codex/skills/       # Should have prp-*/
 ```
 
+### Verify Ralph Hook (Claude Code)
+
+`install.sh` automatically registers the Ralph stop hook. Verify it worked:
+
+```bash
+# Check hook is registered
+cat .claude/settings.local.json | jq '.hooks.Stop'
+# Expected: [{"hooks": [{"type": "command", "command": ".claude/hooks/prp-ralph-stop.sh"}]}]
+
+# Check hook is executable
+ls -la .claude/hooks/prp-ralph-stop.sh
+# Expected: -rwxr-xr-x
+```
+
+If hook registration was skipped (e.g. `jq` was not installed), install jq and re-run:
+
+```bash
+brew install jq        # macOS
+cd .prp && ./scripts/install.sh
+```
+
 ### Test Commands
 
 **Claude Code:**

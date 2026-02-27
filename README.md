@@ -66,24 +66,30 @@ cp -r prp-framework/* my-project/
 | **Design** | Technical design doc (optional) | Complex features needing architecture blueprint |
 | **Plan** | Implementation plan with validation | Starting a new feature |
 | **Implement** | Execute plan with validation loops | Have a plan, ready to code |
+| **Ralph** | Autonomous loop until all validations pass (Claude Code only) | Complex features where first-pass impl may fail |
 | **Review** | Multi-pass PR code review | PR created, need review |
 | **Review Fix** | Auto-fix all review issues to PR branch | After review, fix critical/high/medium/suggestions |
 | **Commit** | Smart staging + conventional commit | Code ready to commit |
 | **PR** | Create pull request | Ready to push |
-| **Run All** | Full workflow end-to-end | Complete automation |
+| **Run All** | Full workflow end-to-end (supports `--ralph`) | Complete automation |
 
 ## Tool Support
 
 ### Claude Code
 ```bash
 # Core Workflows (/prp-core:*)
-/prp-core:prd                          # Interactive PRD generation
-/prp-core:plan Add JWT authentication  # Create plan
-/prp-core:implement plan.md            # Execute plan
-/prp-core:review-agents 25             # Multi-agent PR review
-/prp-core:review-fix 25                # Fix all review issues
-/prp-core:commit                       # Smart commit
-/prp-core:pr                           # Create PR
+/prp-core:prd                                              # Interactive PRD generation
+/prp-core:plan Add JWT authentication                      # Create plan
+/prp-core:implement plan.md                                # Execute plan (one-shot)
+/prp-core:ralph plan.md                                    # Execute plan (autonomous loop until pass)
+/prp-core:ralph plan.md --max-iterations 10                # Ralph with custom iterations
+/prp-core:ralph-cancel                                     # Cancel active ralph loop
+/prp-core:run-all Add JWT auth                             # Full workflow (plan→implement→commit→PR→review)
+/prp-core:run-all Add JWT auth --ralph                     # Full workflow using ralph loop
+/prp-core:review-agents 25                                 # Multi-agent PR review
+/prp-core:review-fix 25                                    # Fix all review issues
+/prp-core:commit                                           # Smart commit
+/prp-core:pr                                               # Create PR
 
 # Marketing Commands (/prp-mkt:*)
 /prp-mkt:landing                       # Landing page analysis
