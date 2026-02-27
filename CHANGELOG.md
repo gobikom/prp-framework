@@ -15,6 +15,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `prp-core-run-all.md`: added `--ralph` and `--ralph-max-iter N` flags — replaces implement step with ralph loop
   - `prp-core-run-all.md`: added hook pre-check and token warning when `--ralph` is used
   - `tests/ralph/ralph-stop.bats`: 23 automated bats-core tests for the stop hook
+- **Run-all workflow improvements** (all adapters):
+  - State file management (`.claude/prp-run-all.state.md`) for crash recovery
+  - `--resume` flag to continue from last failed step
+  - `--fix-severity <levels>` flag to override review-fix severity (default: `critical,high`)
+  - `--prp-path` validation — checks file exists before skipping plan step
+  - Lock file (`.claude/prp-run-all.lock`) prevents concurrent execution (2-hour stale timeout)
+  - Unified `RUN_TIMESTAMP` for artifact correlation across workflow steps
+  - Auto-select review artifact in review-fix step (skip interactive selection)
+  - `scripts/prp-run-all-state.sh`: state management helper (8 commands)
+  - `tests/run-all/state-file.bats`: 20 automated tests for state management
+- **Review context handoff** (all adapters):
+  - `prp-review-agents.md`: Phase 0 context detection — reads `pr-context-{BRANCH}.md`
+  - `prp-core-run-all.md`: passes context path explicitly via `--context` flag (~60K token savings)
+- **Coverage enforcement** (all adapters):
+  - `prp-implement`: Phase 4.2.1 — 90% coverage on new/changed code
+  - Auto-detect coverage tool (jest, vitest, pytest, cargo tarpaulin, go test)
+  - Graceful skip if no coverage tool available
+  - `prp-ralph`: coverage check added to validation loop
+  - `prp-plan`: target updated 80% → 90%
+- **Generic base improvements**:
+  - `prompts/implement.md`: Section 5.5 pr-context generation + Phase 4.2.1 coverage check
+  - `prompts/plan.md`: coverage target 80% → 90%
+- **SKILL.md update**: 5-step → 7-step workflow, added flags table and examples
+- **Google Antigravity adapter**: 9 core commands in `.agents/workflows/prp/`
 
 ### Fixed
 - **Ralph stop hook bugs** (`prp-ralph-stop.sh`):
@@ -22,6 +46,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Missing field crash: `grep` on missing YAML frontmatter fields now uses `|| true` to prevent `set -euo pipefail` from crashing the hook with exit code 1
 
 ### Changed
+- Coverage target: 80% → 90% on new/changed code (plan + implement, all adapters)
+- `prp-core-runner/SKILL.md`: updated 5-step → 7-step workflow description
 - **BREAKING**: Unified all artifact output paths to `.prp-output/`
   - `.claude/PRPs/` (Claude Code) → `.prp-output/`
   - `.ai-workflows/plans/` (Codex/OpenCode/Gemini/Generic) → `.prp-output/plans/`
@@ -33,6 +59,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Streamlined `CLAUDE.md` to user-facing content only; moved dev guidelines to `docs/CONTRIBUTING.md`
 - `install.sh` now auto-configures consumer project `.gitignore` (adapters + artifact visibility)
 - `.prp-output/` directory visible to AI tools while content is not tracked in git
+
+### Documentation
+- Updated README.md, USER-GUIDE.md, WORKFLOWS.md, CLAUDE.md with new features and flags
+- Added feature availability table to generic/AGENTS.md
+- Added git edge case troubleshooting to GETTING_STARTED.md
+- Added common issues & recovery table to WORKFLOWS.md
 
 ### Planned
 - GitHub Actions workflow templates

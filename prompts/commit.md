@@ -67,6 +67,8 @@ git commit -m "{type}: {description}"
 Next: `git push` or create PR
 ```
 
+> **Note for orchestrators**: This "Next" suggestion is for standalone usage only. If invoked as part of a run-all workflow, ignore this and proceed to the next workflow step.
+
 ---
 
 ## Examples

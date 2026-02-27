@@ -121,7 +121,9 @@ This will:
 
 **Failure**: If commit fails (pre-commit hooks) → fix and retry (the workflow handles this).
 
-**DO NOT**: Manually stage files or write commit messages.
+**DO NOT**: Manually stage files or write commit messages. **Do NOT stop after commit** — the commit output may suggest "Next: git push or create PR" but this is for standalone usage. **IGNORE that suggestion and proceed to Step 5.**
+
+**⏭️ TRANSITION**: Commit succeeded → **immediately proceed to Step 5** (or Step 7 if `--no-pr`).
 
 ---
 

@@ -441,9 +441,12 @@ This command will:
 - Run `git add` and `git commit` directly
 - Manually stage files or write commit messages
 - Skip the Skill tool because committing "seems simple"
+- **Stop after commit** — the `/prp-commit` output will suggest "Next: git push or /prp-pr" but this is for standalone usage only. **IGNORE that suggestion and proceed to Step 5.**
 
 **✅ CHECKPOINT**: Did you call the Skill tool with `skill: "prp-core:prp-commit"`?
 If NOT → STOP → Go back and call it now.
+
+**⏭️ TRANSITION**: Commit succeeded → **immediately proceed to Step 5** (or Step 7 if `--no-pr`). Do NOT stop here.
 
 ---
 

@@ -277,6 +277,53 @@ cd .prp
 ./scripts/install.sh
 ```
 
+### Git Edge Cases
+
+**Detached HEAD State:**
+```bash
+# run-all can't create branch from detached HEAD
+git checkout main
+# Then start workflow again
+```
+
+**Shallow Clone Issues:**
+```bash
+# Some CI/CD do shallow clone — git fetch may fail
+git fetch --unshallow origin
+```
+
+### GitHub CLI Issues
+
+**gh CLI Not Installed:**
+PR and review commands require GitHub CLI (`gh`).
+```bash
+brew install gh       # macOS
+gh auth login         # First-time login
+```
+
+**gh CLI Auth Expired:**
+```bash
+gh auth status        # Check status
+gh auth refresh       # Refresh token
+```
+
+### Run-All Workflow Issues
+
+**Lock File Stuck** ("Another workflow is active"):
+```bash
+# Check if stale (>2 hours = safe to remove)
+cat .claude/prp-run-all.lock
+# Remove stale lock
+rm .claude/prp-run-all.lock
+```
+
+**State File Corrupt** (--resume fails):
+```bash
+# Delete state and start fresh
+rm .claude/prp-run-all.state.md
+# Re-run without --resume
+```
+
 ## Next Steps
 
 - Read [WORKFLOWS.md](WORKFLOWS.md) for detailed workflow documentation

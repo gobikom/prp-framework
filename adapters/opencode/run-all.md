@@ -70,8 +70,9 @@ ls -la .prp-output/reviews/pr-context-*.md 2>/dev/null
 
 ### Step 4: Commit
 `/prp:commit` — Invoke the command, DO NOT inline its logic.
-❌ DO NOT: Run git add/commit directly, manually stage files.
+❌ DO NOT: Run git add/commit directly, manually stage files, **stop after commit**. The commit output suggests "Next: git push or /prp:pr" — this is for standalone usage only. **IGNORE it and proceed to Step 5.**
 ✅ CHECKPOINT: Did you invoke `/prp:commit`? If not → STOP → invoke it.
+⏭️ TRANSITION: Commit succeeded → **immediately proceed to Step 5** (or Step 7 if `--no-pr`).
 
 ### Step 5: PR (skip if --no-pr)
 `/prp:pr` — Invoke the command, DO NOT inline its logic.

@@ -575,6 +575,21 @@ ls -t .prp-output/plans/*.plan.md | head -1
 
 ---
 
+## Common Issues & Recovery
+
+| Scenario | Symptom | Fix |
+|----------|---------|-----|
+| Detached HEAD | run-all can't create branch | `git checkout main` first |
+| Shallow clone | `git fetch` fails | `git fetch --unshallow origin` |
+| gh CLI missing | PR/review commands fail | `brew install gh && gh auth login` |
+| gh auth expired | 401 errors on GitHub API | `gh auth refresh` |
+| Lock file stuck | "Another workflow is active" | Delete `.claude/prp-run-all.lock` if stale (>2hrs) |
+| State file corrupt | `--resume` fails | Delete `.claude/prp-run-all.state.md`, start fresh |
+| No coverage tool | Coverage check skips | Expected — install jest/vitest/pytest for enforcement |
+| PR already exists | PR step fails | Use existing PR URL, skip to review |
+
+---
+
 ## Best Practices
 
 1. **Start with PRD** for non-trivial features

@@ -176,6 +176,7 @@ Read project conventions file (CLAUDE.md, AGENTS.md, .cursorrules, etc.). Run di
 5. **Full Validation**:
    - Static: type-check + lint (zero errors). If lint errors → auto-fix then manual.
    - Tests: MUST write/update tests. If fail → determine root cause → fix → re-run.
+   - Coverage: 90% on new/changed code. Auto-detect tool (jest/vitest `--coverage`, pytest `--cov`, go test `-cover`). If no tool → skip with warning.
    - Build: must succeed.
    - Integration (if applicable): start server → test endpoints → stop server.
    - Edge cases from plan.
@@ -360,6 +361,8 @@ First, parse the user's input for options:
 | "use this plan: path/to/plan.md" or includes `--plan-path` | Set PLAN_PATH. Skip Step 2. |
 | "skip review" or includes `--skip-review` | Skip Step 6. |
 | "no PR" or "don't create PR" or includes `--no-pr` | Skip Steps 5 and 6. |
+| "resume" or includes `--resume` | Resume from last failed step using saved state. |
+| includes `--fix-severity <levels>` | Override review-fix severity (default: `critical,high`). |
 | Everything else | Use as FEATURE description |
 
 Set variables:
@@ -397,6 +400,40 @@ Set variables:
 - **One commit per implementation** — review fixes committed separately by Review Fix workflow
 - **Max 2 review cycles** — if still critical after 2 fix-and-re-verify cycles, stop and report
 - **Re-verify after fix** — always re-run Review after Review Fix to confirm resolution and catch regressions
+
+---
+
+## Feature Availability by Tool
+
+Not all features are available in all AI coding tools. The 9 core commands work everywhere, but advanced features require Claude Code.
+
+| Feature | Claude Code | Codex | OpenCode | Gemini | Antigravity | Kimi/Generic |
+|---------|:-----------:|:-----:|:--------:|:------:|:-----------:|:------------:|
+| **Core (9 commands)** | | | | | | |
+| PRD, Design, Plan | Yes | Yes | Yes | Yes | Yes | Yes |
+| Implement, Commit, PR | Yes | Yes | Yes | Yes | Yes | Yes |
+| Review, Review-Fix | Yes | Yes | Yes | Yes | Yes | Yes |
+| Run-All | Yes | Yes | Yes | Yes | Yes | Yes |
+| **Advanced (Claude Code only)** | | | | | | |
+| Review Agents (multi-agent) | Yes | - | - | - | - | - |
+| Feature Review (single/multi) | Yes | - | - | - | - | - |
+| Debug (root cause analysis) | Yes | - | - | - | - | - |
+| Issue Investigate / Fix | Yes | - | - | - | - | - |
+| Ralph (autonomous loop) | Yes | - | - | - | - | - |
+| Marketing (4 commands) | Yes | - | - | - | - | - |
+| AI Bot (5 commands) | Yes | - | - | - | - | - |
+| 31 Specialized Agents | Yes | - | - | - | - | - |
+| **Run-All Flags** | | | | | | |
+| --prp-path | Yes | Yes | Yes | Yes | Yes | - |
+| --ralph / --ralph-max-iter | Yes | - | - | - | - | - |
+| --resume | Yes | Yes | Yes | Yes | Yes | - |
+| --fix-severity | Yes | Yes | Yes | Yes | Yes | - |
+| --skip-review / --no-pr | Yes | Yes | Yes | Yes | Yes | Yes |
+| **Quality** | | | | | | |
+| Coverage enforcement (90%) | Yes | Yes | Yes | Yes | Yes | Yes |
+| Review context handoff | Yes | Yes | Yes | Yes | Yes | - |
+
+**Note**: `-` means the feature is not available in that tool. Kimi/Generic uses natural language triggers and cannot enforce flag-based workflows.
 
 ---
 

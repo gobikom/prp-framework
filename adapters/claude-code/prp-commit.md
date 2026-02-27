@@ -69,8 +69,10 @@ git commit -m "{type}: {description}"
 **Committed**: {hash} - {message}
 **Files**: {count} files (+{add}/-{del})
 
-Next: `git push` or `/prp-pr`
+Next: `git push` or `/prp-core:prp-pr`
 ```
+
+> **Note for orchestrators**: This "Next" suggestion is for standalone usage only. If this command was invoked as part of `/prp-core:prp-run-all`, the orchestrator should ignore this and proceed to its next step.
 
 ---
 
