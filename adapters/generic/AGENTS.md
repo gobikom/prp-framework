@@ -381,8 +381,12 @@ Set variables:
 3. **Implement**: Execute plan with validation loops using PLAN_PATH. DO NOT add extra validation. Failure → STOP, report which task failed.
 4. **Commit**: Stage and commit with conventional message. DO NOT manually stage files.
 5. **PR**: Push and create pull request (skip if --no-pr). Update PR_NUMBER. Failure → STOP.
-6. **Review**: Multi-pass code review using PR_NUMBER (skip if --skip-review or --no-pr). Critical issues → fix, commit, push, re-review (max 2 cycles).
-7. **Summary**: Report all results: feature, branch, steps executed, artifacts, review verdict, next steps.
+6. **Review** (skip if --skip-review or --no-pr): Set REVIEW_CYCLE = 1, MAX_CYCLES = 2.
+   - **6.1** Run Review workflow with PR_NUMBER.
+   - **6.2 Evaluate**: No critical/high → Step 7. Found + cycle ≤ 2 → Step 6.3. Found + cycle > 2 → report remaining → Step 7 (NEEDS MANUAL FIXES).
+   - **6.3 Fix**: Run Review Fix workflow with `PR_NUMBER --severity critical,high`. Fixes Critical and High only — Medium/Suggestion don't block merge.
+   - **6.4 Re-verify**: REVIEW_CYCLE++. Re-run Review workflow to confirm fixes and check for regressions → return to Step 6.2.
+7. **Summary**: Report all results: feature, branch, steps executed, artifacts, review verdict, remaining issues (if any), next steps.
 
 ### Rules
 
@@ -390,8 +394,9 @@ Set variables:
 - **Stop on failure** — never continue with broken state
 - **Pass context forward** — info flows from earlier to later steps
 - **No extra validation** — each workflow validates its own output
-- **One commit per implementation** — separate commits for review fixes
-- **Max 2 review-fix cycles** — stop and report if still critical
+- **One commit per implementation** — review fixes committed separately by Review Fix workflow
+- **Max 2 review cycles** — if still critical after 2 fix-and-re-verify cycles, stop and report
+- **Re-verify after fix** — always re-run Review after Review Fix to confirm resolution and catch regressions
 
 ---
 

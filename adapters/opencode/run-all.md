@@ -73,10 +73,22 @@ Failure → STOP.
 ✅ CHECKPOINT: Did you invoke `/prp:pr`? If not → STOP → invoke it.
 
 ### Step 6: Review (skip if --skip-review or --no-pr)
-`/prp:review {PR_NUMBER}` — Invoke the command, DO NOT inline its logic.
-Critical issues → fix, commit, push, re-review (max 2 cycles).
-❌ DO NOT: Read code and review it yourself, skip the command.
-✅ CHECKPOINT: Did you invoke `/prp:review`? If not → STOP → invoke it.
+
+Set `REVIEW_CYCLE = 1`, `MAX_CYCLES = 2`.
+
+**6.1** `/prp:review {PR_NUMBER}` — DO NOT inline its logic.
+❌ DO NOT: Read code and review it yourself. ✅ CHECKPOINT: Did you invoke `/prp:review`?
+
+**6.2 Evaluate**:
+- No critical/high issues → Step 7 ✓
+- Critical/high found + `REVIEW_CYCLE <= MAX_CYCLES` → Step 6.3
+- Critical/high found + `REVIEW_CYCLE > MAX_CYCLES` → report remaining → Step 7 (NEEDS MANUAL FIXES)
+
+**6.3 Fix**: `/prp:review-fix {PR_NUMBER} --severity critical,high` — DO NOT fix manually.
+Fixes Critical and High only — Medium/Suggestion don't block merge.
+❌ DO NOT: Fix issues yourself, run validation separately. ✅ CHECKPOINT: Did you invoke `/prp:review-fix`?
+
+**6.4 Re-verify**: Increment `REVIEW_CYCLE`. `/prp:review {PR_NUMBER}` to confirm issues resolved and no regressions introduced. → Return to Step 6.2.
 
 ### Step 7: Summary
 Report: feature, branch, status, steps executed table, artifacts, review verdict, next steps.
@@ -88,8 +100,9 @@ Report: feature, branch, status, steps executed table, artifacts, review verdict
 - **Stop on failure** — never continue with broken state
 - **Pass context forward** — information flows from earlier to later steps
 - **No extra validation** — each command validates its own output
-- **One commit per implementation** — separate commits for review fixes
-- **Max 2 review-fix cycles** — if still critical after 2 rounds, stop and report
+- **One commit per implementation** — review fixes committed separately by `/prp:review-fix`
+- **Max 2 review cycles** — if still critical after 2 fix-and-re-verify cycles, stop and report
+- **Re-verify after fix** — always re-run `/prp:review` after `/prp:review-fix` to confirm resolution and catch regressions
 
 ## Success Criteria
 

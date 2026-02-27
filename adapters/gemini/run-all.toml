@@ -40,8 +40,16 @@ Run /prp:pr. Update PR_NUMBER. Failure → STOP.
 ❌ DO NOT: Run gh pr create directly. ✅ CHECKPOINT: Did you run /prp:pr?
 
 ### Step 6: Review (skip if --skip-review or --no-pr)
-Run /prp:review with PR_NUMBER. Critical issues → fix, commit, push, re-review (max 2 cycles).
-❌ DO NOT: Review code yourself. ✅ CHECKPOINT: Did you run /prp:review?
+
+Set REVIEW_CYCLE = 1, MAX_CYCLES = 2.
+
+6.1 Run `/prp:review {PR_NUMBER}`. ❌ DO NOT: Review code yourself. ✅ CHECKPOINT: Did you run /prp:review?
+
+6.2 Evaluate: No critical/high → Step 7 ✓. Found + cycle ≤ 2 → Step 6.3. Found + cycle > 2 → report remaining → Step 7 (NEEDS MANUAL FIXES).
+
+6.3 Fix: Run `/prp:review-fix {PR_NUMBER} --severity critical,high`. Fixes Critical and High only — Medium/Suggestion don't block merge. ❌ DO NOT: Fix manually. ✅ CHECKPOINT: Did you run /prp:review-fix?
+
+6.4 Re-verify: REVIEW_CYCLE++. Run `/prp:review {PR_NUMBER}` again to confirm fixes resolved issues and no regressions introduced. → Return to Step 6.2.
 
 ### Step 7: Summary
 Report: feature, branch, status, steps executed, artifacts, verdict, next steps.
@@ -53,8 +61,9 @@ Report: feature, branch, status, steps executed, artifacts, verdict, next steps.
 - Stop on failure — never continue with broken state
 - Pass context forward — info flows from earlier to later steps
 - No extra validation — each command validates its own output
-- One commit per implementation — separate commits for review fixes
-- Max 2 review-fix cycles
+- One commit per implementation — review fixes committed separately by /prp:review-fix
+- Max 2 review cycles — if still critical after 2 fix-and-re-verify cycles, stop and report
+- Re-verify after fix — always re-run /prp:review after /prp:review-fix to confirm resolution and catch regressions
 
 ## Success Criteria
 

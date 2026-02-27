@@ -91,10 +91,24 @@ Failure → STOP.
 ✅ CHECKPOINT: Did you invoke `$prp-pr`? If not → STOP → invoke it.
 
 ### Step 6: Review (skip if SKIP_REVIEW or NO_PR)
-Use `$prp-review` skill with PR_NUMBER.
-If critical issues: fix → commit → push → re-review (max 2 cycles).
+
+Set `REVIEW_CYCLE = 1`, `MAX_CYCLES = 2`.
+
+**6.1 Run review**: Use `$prp-review` skill with PR_NUMBER.
 ❌ DO NOT: Read code and review it yourself, skip the skill.
 ✅ CHECKPOINT: Did you invoke `$prp-review`? If not → STOP → invoke it.
+
+**6.2 Evaluate**:
+- No critical/high issues → Step 7 ✓
+- Critical/high found + `REVIEW_CYCLE <= MAX_CYCLES` → Step 6.3
+- Critical/high found + `REVIEW_CYCLE > MAX_CYCLES` → report remaining issues → Step 7 (NEEDS MANUAL FIXES)
+
+**6.3 Fix**: Use `$prp-review-fix` skill with `{PR_NUMBER} --severity critical,high`.
+Fixes Critical and High only (non-blocking issues don't need to block merge).
+❌ DO NOT: Manually read and fix issues yourself, run validation separately.
+✅ CHECKPOINT: Did you invoke `$prp-review-fix`? If not → STOP → invoke it.
+
+**6.4 Re-verify**: Increment `REVIEW_CYCLE`. Use `$prp-review` skill again to confirm fixes resolved issues and no regressions introduced. → Return to Step 6.2.
 
 ### Step 7: Summary
 Report: feature, branch, status, steps executed table, artifacts, review verdict, next steps.
@@ -106,8 +120,9 @@ Report: feature, branch, status, steps executed table, artifacts, review verdict
 3. **Stop on failure** — never continue with broken state
 4. **Pass context forward** — information flows from earlier to later steps
 5. **No extra validation** — each skill validates its own output
-6. **One commit per implementation** — separate commits for review fixes
-7. **Max 2 review cycles** — if still critical after 2 rounds, STOP and report
+6. **One commit per implementation** — review fixes committed separately by `$prp-review-fix`
+7. **Max 2 review cycles** — if still critical after 2 fix-and-re-verify cycles, STOP and report
+8. **Re-verify after fix** — always re-run `$prp-review` after `$prp-review-fix` to confirm resolution and catch regressions
 
 ## Success Criteria
 
