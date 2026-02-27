@@ -236,6 +236,79 @@ Include Documentation Updates and Verdict: READY TO MERGE / NEEDS FIXES / CRITIC
 
 ---
 
+## Workflow: Review Fix
+
+**Trigger**: User says "fix review issues for PR #X" or "apply review fixes" or "fix all critical and high issues in PR #X".
+
+### Input
+
+`<pr-number|review-artifact-path> [--severity critical,high,medium,suggestion]`
+
+### Steps
+
+1. **Load Artifact**:
+   - If input is a path → use directly.
+   - If PR number (or no input → `gh pr view --json number`): `ls -t .prp-output/reviews/pr-{NUMBER}-review*.md`
+   - 1 artifact → use it, show filename to user.
+   - Multiple → list with tool suffix + modified date, ask user to select (default: most recent). User can skip prompt by passing path directly.
+   - None → STOP: "Run Review workflow first."
+   Parse severity filter (default: all). Map sections: Critical / Important / Suggestions.
+
+2. **Checkout PR Branch**: `gh pr view {NUMBER} --json headRefName,state` → if MERGED/CLOSED: STOP. `gh pr checkout {NUMBER}` → pull latest.
+
+3. **Triage**: Print fix plan with counts per severity before making any changes.
+
+4. **Fix (Critical → High → Medium → Suggestion)**:
+   - For each issue: read flagged file, apply recommended fix
+   - Don't refactor unrelated code
+   - If fix is ambiguous or risky → SKIP with logged reason
+   - After each severity batch: run type-check + lint
+   - If batch fails: revert failing fix, add to skip log, re-validate
+
+5. **Full Validation**: Type check + lint + tests + build — all must pass. Revert fixes that cause failures.
+
+6. **Commit & Push**:
+   ```
+   git add -A
+   git commit -m "fix: apply review fixes for PR #{NUMBER} ({N} fixed, {N} skipped)"
+   git push origin $(git branch --show-current)
+   ```
+   Skip commit if no changes.
+
+7. **Post Comment**: `gh pr comment {NUMBER} --body "..."` with: fixed/skipped table per severity, validation results, skipped issue list with reasons, commit hash.
+
+8. **Update Artifact**: Append "Fix Outcome" section to review file with timestamp, commit, counts.
+
+### Severity Filter
+
+| Flag | Fixes |
+|------|-------|
+| `--severity critical` | Critical only |
+| `--severity critical,high` | Critical + High |
+| `--severity critical,high,medium` | All except suggestions |
+| No flag | All (default) |
+
+### Output
+
+Report: fixed/skipped per severity, validation status, next steps.
+- All critical/high fixed → "Ready for re-review."
+- Critical still open → "⚠️ {N} critical issues require manual attention."
+
+### Edge Cases
+
+- No artifact → STOP, instruct to run Review workflow first
+- Drift detected → warn, attempt if context clear, else skip
+- Already fixed → skip silently
+- All skipped → no commit, report reasons
+
+### Usage
+
+- "Fix review issues for PR #163" → fix all severities
+- "Fix only critical and high in PR #163" → `--severity critical,high`
+- "Apply review fixes" → current branch's PR, all severities
+
+---
+
 ## Workflow: Commit
 
 **Trigger**: User says "commit" or "commit the typescript files".

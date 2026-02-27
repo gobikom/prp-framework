@@ -13,7 +13,7 @@ PRP (Plan-Review-PR) Framework เป็น cross-tool AI coding workflow framew
 
 | Namespace | หมวดหมู่ | จำนวน |
 |-----------|----------|-------|
-| `/prp-core:` | Development, Debug, Review, Automation | 16 |
+| `/prp-core:` | Development, Debug, Review, Automation | 17 |
 | `/prp-mkt:` | Marketing & Sales | 4 |
 | `/prp-bot:` | AI Call Center / Chatbot | 5 |
 
@@ -25,6 +25,7 @@ PRP (Plan-Review-PR) Framework เป็น cross-tool AI coding workflow framew
 - `commit` - Smart commit
 - `pr` - Create PR
 - `review` - PR review
+- `review-fix` - Fix all issues from PR review (critical, high, medium, suggestion)
 - `review-agents` - Multi-agent PR review
 - `feature-review` - Single agent feature review
 - `feature-review-agents` - Multi-agent feature review
@@ -112,6 +113,7 @@ TIMESTAMP=$(date +%Y%m%d-%H%M)
 | `debug` | `.prp-output/debug/rca-{slug}-{TIMESTAMP}.md` |
 | `issue-investigate` | `.prp-output/issues/issue-{number}-{TIMESTAMP}.md` |
 | `review` | `.prp-output/reviews/pr-{NUMBER}-review.md` (ใช้ PR number แทน) |
+| `review-fix` | `.prp-output/reviews/pr-{NUMBER}-fix-summary.md` (อ่านจาก review artifact) |
 | `feature-review` | `.prp-output/reviews/feature-review-{pkg}-{date}.md` (ใช้ date แทน) |
 
 ### หา Artifact ล่าสุด

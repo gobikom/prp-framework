@@ -1,0 +1,57 @@
+description = "Fix all issues from PR review artifact - applies critical, high, medium, and suggestion fixes to the PR branch"
+prompt = """# PRP Review Fix — Apply Review Findings
+
+Target: {{args}}
+
+Format: <pr-number|review-artifact-path> [--severity critical,high,medium,suggestion]
+
+## Steps
+
+1. **Load Artifact**:
+   - If input is a path → use directly.
+   - If PR number (or no input → `gh pr view --json number -q '.number'`): `ls -t .prp-output/reviews/pr-{NUMBER}-review*.md`
+   - 1 artifact → use it, show which one was selected.
+   - Multiple artifacts → list them with tool suffix and modified date, ask user to select (default: most recent). Tip: pass artifact path directly to skip prompt.
+   - None found → STOP: "Run `/prp:review {NUMBER}` first."
+   - Parse severity filter (default: all). Map issue sections: Critical / High Priority / Medium Priority / Suggestions (also accepts: Critical / Important / Suggestions).
+
+2. **Checkout PR Branch**: `gh pr view {NUMBER} --json headRefName,state` → if MERGED/CLOSED: STOP. `gh pr checkout {NUMBER}` → `git pull --rebase`.
+
+3. **Triage**: Print fix plan showing counts per severity before making changes.
+
+4. **Fix (Critical → High → Medium → Suggestion)**:
+   - For each issue: read flagged file, apply recommended fix, don't refactor unrelated code
+   - If fix is ambiguous or risky → SKIP with reason logged
+   - After each severity batch: `npm run type-check || bun run type-check || npx tsc --noEmit` + `npm run lint || bun run lint`
+   - If batch validation fails: revert failing fix, add to skip log, re-validate
+
+5. **Full Validate**: Type check + lint + tests + build — all must pass. Revert unfixable failures.
+
+6. **Commit**:
+```
+git add -A
+git commit -m "fix: apply review fixes for PR #{NUMBER}\n\n{N_critical} critical, {N_high} high, {N_medium} medium, {N_suggestion} suggestions fixed\nSkipped {N_skipped} (see PR comment)"
+git push origin $(git branch --show-current)
+```
+If no changes: skip commit.
+
+7. **Post PR Comment**:
+`gh pr comment {NUMBER} --body "$(cat review-fix-summary.md)"` with table: Severity | Fixed | Skipped, validation results, skipped issue list (with reasons), commit hash.
+
+8. **Update Artifact**: Append "Fix Outcome" section to `.prp-output/reviews/pr-{NUMBER}-review-gemini.md` with timestamp, commit, counts.
+
+9. **Output**: Fixed/skipped counts per severity, validation summary, next step ("Re-run `/prp:review`" or "⚠️ Manual attention needed for {N} critical issues").
+
+## Edge Cases
+
+- No artifact → STOP, instruct to run review first
+- Drift detected → warn, attempt if context clear, else skip
+- Already fixed → skip silently
+- All skipped → no commit, report all skips
+
+## Usage
+
+/prp:review-fix 163                          # Fix all
+/prp:review-fix 163 --severity critical,high # Critical and high only
+/prp:review-fix                              # Current branch's PR
+"""
