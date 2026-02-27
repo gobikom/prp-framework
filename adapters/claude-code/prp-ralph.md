@@ -377,7 +377,7 @@ ALL of these must be true:
    mv {plan_path} .prp-output/plans/completed/
    ```
 
-5. **Generate Review Context File** (enables token optimization when used via `/prp-core-run-all --ralph`)
+5. **Generate Review Context File** (enables token optimization when used via `/prp-run-all --ralph`)
 
    ```bash
    BRANCH=$(git branch --show-current)

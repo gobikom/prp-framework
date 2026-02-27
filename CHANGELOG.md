@@ -12,8 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `install.sh` now auto-registers ralph stop hook in `.claude/settings.local.json` via `jq` merge — no manual setup required
   - `install.sh` now auto-`chmod +x` the ralph stop hook on installation
   - `prp-ralph.md`: ralph now generates `pr-context-{branch}.md` after COMPLETE, enabling token optimization (~60K saved) when used via `run-all --ralph`
-  - `prp-core-run-all.md`: added `--ralph` and `--ralph-max-iter N` flags — replaces implement step with ralph loop
-  - `prp-core-run-all.md`: added hook pre-check and token warning when `--ralph` is used
+  - `prp-run-all.md`: added `--ralph` and `--ralph-max-iter N` flags — replaces implement step with ralph loop
+  - `prp-run-all.md`: added hook pre-check and token warning when `--ralph` is used
   - `tests/ralph/ralph-stop.bats`: 23 automated bats-core tests for the stop hook
 - **Run-all workflow improvements** (all adapters):
   - State file management (`.claude/prp-run-all.state.md`) for crash recovery
@@ -27,7 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `tests/run-all/state-file.bats`: 20 automated tests for state management
 - **Review context handoff** (all adapters):
   - `prp-review-agents.md`: Phase 0 context detection — reads `pr-context-{BRANCH}.md`
-  - `prp-core-run-all.md`: passes context path explicitly via `--context` flag (~60K token savings)
+  - `prp-run-all.md`: passes context path explicitly via `--context` flag (~60K token savings)
 - **Coverage enforcement** (all adapters):
   - `prp-implement`: Phase 4.2.1 — 90% coverage on new/changed code
   - Auto-detect coverage tool (jest, vitest, pytest, cargo tarpaulin, go test)

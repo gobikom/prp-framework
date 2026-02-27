@@ -450,28 +450,28 @@ Commit → PR → Review/Fix Loop → Summary
 
 ```bash
 # Full workflow (default: one-shot implement)
-/prp-core-run-all Add JWT authentication
+/prp-run-all Add JWT authentication
 
 # Use existing plan
-/prp-core-run-all --prp-path .prp-output/plans/jwt.plan.md
+/prp-run-all --prp-path .prp-output/plans/jwt.plan.md
 
 # Use ralph loop for implement step (resilient, slower)
-/prp-core-run-all Add JWT authentication --ralph
+/prp-run-all Add JWT authentication --ralph
 
 # Ralph with custom max iterations
-/prp-core-run-all Add JWT authentication --ralph --ralph-max-iter 10
+/prp-run-all Add JWT authentication --ralph --ralph-max-iter 10
 
 # Resume from last failed step
-/prp-core-run-all --resume
+/prp-run-all --resume
 
 # Skip review
-/prp-core-run-all Add JWT auth --skip-review
+/prp-run-all Add JWT auth --skip-review
 
 # No PR (just implement + commit)
-/prp-core-run-all Add JWT auth --no-pr
+/prp-run-all Add JWT auth --no-pr
 
 # Override review-fix severity (default: critical,high)
-/prp-core-run-all Add JWT auth --fix-severity critical,high,medium
+/prp-run-all Add JWT auth --fix-severity critical,high,medium
 ```
 
 ### Supported Flags

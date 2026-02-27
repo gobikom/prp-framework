@@ -151,7 +151,7 @@ Then run `install.sh` to create symlinks.
 | `docs/USER-GUIDE.md` | Complete command reference (Thai) |
 | `README.md` | Project overview (English) |
 | `adapters/claude-code/prp-ralph.md` | Ralph autonomous loop command |
-| `adapters/claude-code/prp-core-run-all.md` | End-to-end workflow orchestrator (supports --ralph) |
+| `adapters/claude-code/prp-run-all.md` | End-to-end workflow orchestrator (supports --ralph) |
 | `adapters/claude-code-hooks/prp-ralph-stop.sh` | Stop hook — core mechanism for ralph loop |
 | `adapters/claude-code-hooks/README.md` | Hook setup documentation |
 | `tests/ralph/ralph-stop.bats` | bats tests for stop hook (23 test cases) |

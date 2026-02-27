@@ -20,7 +20,7 @@ FRAMEWORK_DIR="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)"
     [ -f "$FRAMEWORK_DIR/adapters/claude-code/prp-pr.md" ]
     [ -f "$FRAMEWORK_DIR/adapters/claude-code/prp-review.md" ]
     [ -f "$FRAMEWORK_DIR/adapters/claude-code/prp-review-fix.md" ]
-    [ -f "$FRAMEWORK_DIR/adapters/claude-code/prp-core-run-all.md" ]
+    [ -f "$FRAMEWORK_DIR/adapters/claude-code/prp-run-all.md" ]
 }
 
 @test "codex has all 9 core skills" {
@@ -103,7 +103,7 @@ FRAMEWORK_DIR="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)"
 }
 
 @test "all run-all files mention --resume" {
-    grep -q "\-\-resume" "$FRAMEWORK_DIR/adapters/claude-code/prp-core-run-all.md"
+    grep -q "\-\-resume" "$FRAMEWORK_DIR/adapters/claude-code/prp-run-all.md"
     grep -q "\-\-resume" "$FRAMEWORK_DIR/adapters/codex/prp-run-all/SKILL.md"
     grep -q "\-\-resume" "$FRAMEWORK_DIR/adapters/opencode/run-all.md"
     grep -q "\-\-resume" "$FRAMEWORK_DIR/adapters/gemini/run-all.toml"
@@ -112,7 +112,7 @@ FRAMEWORK_DIR="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)"
 }
 
 @test "all run-all files mention --fix-severity" {
-    grep -q "\-\-fix-severity" "$FRAMEWORK_DIR/adapters/claude-code/prp-core-run-all.md"
+    grep -q "\-\-fix-severity" "$FRAMEWORK_DIR/adapters/claude-code/prp-run-all.md"
     grep -q "\-\-fix-severity" "$FRAMEWORK_DIR/adapters/codex/prp-run-all/SKILL.md"
     grep -q "\-\-fix-severity" "$FRAMEWORK_DIR/adapters/opencode/run-all.md"
     grep -q "\-\-fix-severity" "$FRAMEWORK_DIR/adapters/gemini/run-all.toml"
@@ -121,7 +121,7 @@ FRAMEWORK_DIR="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)"
 }
 
 @test "all run-all files mention state management" {
-    grep -qi "state" "$FRAMEWORK_DIR/adapters/claude-code/prp-core-run-all.md"
+    grep -qi "state" "$FRAMEWORK_DIR/adapters/claude-code/prp-run-all.md"
     grep -qi "state" "$FRAMEWORK_DIR/adapters/codex/prp-run-all/SKILL.md"
     grep -qi "state" "$FRAMEWORK_DIR/adapters/opencode/run-all.md"
     grep -qi "state" "$FRAMEWORK_DIR/adapters/gemini/run-all.toml"

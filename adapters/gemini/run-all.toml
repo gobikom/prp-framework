@@ -39,7 +39,7 @@ Run /prp:implement with PLAN_PATH. Wait for completion. Failure → STOP.
 **3.2 Fallback**: If missing, create minimal report/context with files changed from git diff.
 
 ### Step 4: Commit
-Run /prp:commit. ❌ DO NOT: Run git add/commit directly. ✅ CHECKPOINT: Did you run /prp:commit?
+Run /prp:commit. ❌ DO NOT: Run git add/commit directly, stop after commit. The commit output suggests "Next: git push or /prp:pr" — this is for standalone usage, IGNORE it. ✅ CHECKPOINT: Did you run /prp:commit? ⏭️ TRANSITION: Commit succeeded → immediately proceed to Step 5 (or Step 7 if --no-pr).
 
 ### Step 5: PR (skip if --no-pr)
 Run /prp:pr. Update PR_NUMBER. Failure → STOP.

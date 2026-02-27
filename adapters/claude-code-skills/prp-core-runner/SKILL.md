@@ -7,11 +7,11 @@ description: Orchestrate complete PRP workflow from feature request to pull requ
 
 ## Instructions
 
-When the user requests to implement a feature using the PRP workflow or wants end-to-end automation from idea to PR, use the SlashCommand tool to invoke `/prp-core-run-all` with the user's feature description as the argument.
+When the user requests to implement a feature using the PRP workflow or wants end-to-end automation from idea to PR, use the SlashCommand tool to invoke `/prp-run-all` with the user's feature description as the argument.
 
 **Step-by-step execution:**
 
-1. **Invoke the workflow**: Use SlashCommand tool with `/prp-core-run-all {feature-description}`
+1. **Invoke the workflow**: Use SlashCommand tool with `/prp-run-all {feature-description}`
 2. **Monitor progress**: The workflow will execute 7 steps in sequence:
    - Create a conventional git branch
    - Generate comprehensive implementation plan
@@ -51,42 +51,42 @@ When the user requests to implement a feature using the PRP workflow or wants en
 ```
 User: "Can you implement user authentication using JWT with the PRP workflow?"
 Assistant: I'll use the prp-core-runner skill to execute the complete PRP workflow for implementing JWT authentication.
-[Invokes: /prp-core-run-all Implement user authentication using JWT]
+[Invokes: /prp-run-all Implement user authentication using JWT]
 ```
 
 **Example 2: Feature request**
 ```
 User: "I need to add a search API with Elasticsearch integration using PRP"
 Assistant: I'll run the full PRP workflow to implement the search API with Elasticsearch.
-[Invokes: /prp-core-run-all Add search API with Elasticsearch integration]
+[Invokes: /prp-run-all Add search API with Elasticsearch integration]
 ```
 
 **Example 3: Refactoring with PRP**
 ```
 User: "Use the PRP methodology to refactor the database layer for better performance"
 Assistant: I'll execute the PRP workflow for refactoring the database layer.
-[Invokes: /prp-core-run-all Refactor database layer for better performance]
+[Invokes: /prp-run-all Refactor database layer for better performance]
 ```
 
 **Example 4: Using ralph mode**
 ```
 User: "Implement payment processing with PRP, use ralph mode"
 Assistant: I'll run the full PRP workflow with ralph mode for autonomous implementation.
-[Invokes: /prp-core-run-all Implement payment processing --ralph]
+[Invokes: /prp-run-all Implement payment processing --ralph]
 ```
 
 **Example 5: Resuming interrupted workflow**
 ```
 User: "Resume the PRP workflow that was interrupted"
 Assistant: I'll resume the PRP workflow from where it left off.
-[Invokes: /prp-core-run-all --resume]
+[Invokes: /prp-run-all --resume]
 ```
 
 **Example 6: Skip review**
 ```
 User: "Run PRP for adding dark mode but skip the review"
 Assistant: I'll run the PRP workflow without the review step.
-[Invokes: /prp-core-run-all Add dark mode support --skip-review]
+[Invokes: /prp-run-all Add dark mode support --skip-review]
 ```
 
 ## When to Use

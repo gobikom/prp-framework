@@ -466,7 +466,7 @@ mv "$ARGUMENTS" ".prp-output/plans/completed/$(basename $ARGUMENTS .md)-$(date +
 
 ### 5.5 Generate Review Context File (for run-all workflow)
 
-**Purpose**: Pre-generate context for `/prp-review-agents` to save ~60K tokens when running via `/prp-core-run-all`.
+**Purpose**: Pre-generate context for `/prp-review-agents` to save ~60K tokens when running via `/prp-run-all`.
 
 **Path**: `.prp-output/reviews/pr-context-{BRANCH}.md`
 
