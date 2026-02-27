@@ -172,6 +172,15 @@ else
     USED_COPY=true
 fi
 
+# Install Antigravity
+echo "→ Antigravity (.agents/workflows/)"
+mkdir -p "$PROJECT_DIR/.agents/workflows"
+if install_directory "$FRAMEWORK_DIR/adapters/antigravity" "$PROJECT_DIR/.agents/workflows/prp" "Antigravity"; then
+    USED_SYMLINKS=true
+else
+    USED_COPY=true
+fi
+
 # Install Generic (single file)
 echo "→ Generic (AGENTS.md)"
 if install_file "$FRAMEWORK_DIR/adapters/generic/AGENTS.md" "$PROJECT_DIR/AGENTS.md" "AGENTS.md"; then
@@ -202,6 +211,7 @@ else
 .codex/
 .opencode/
 .gemini/
+.agents/
 AGENTS.md
 
 # PRP Framework - artifacts (directory visible to AI tools, content not tracked)
@@ -248,6 +258,7 @@ echo "  • Claude Code Bot: /prp-bot:intent, /prp-bot:flow, /prp-bot:prompt-eng
 echo "  • Codex: \$prp-prd, \$prp-design, \$prp-plan, etc."
 echo "  • OpenCode: /prp:prd, /prp:design, /prp:plan, etc."
 echo "  • Gemini: /prp:prd, /prp:design, /prp:plan, etc."
+echo "  • Antigravity: /prp-prd, /prp-design, /prp-plan, etc."
 echo "  • Kimi/Generic: Use natural language (see AGENTS.md)"
 echo ""
 echo "Documentation: $FRAMEWORK_DIR/docs/"

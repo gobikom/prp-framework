@@ -1,6 +1,6 @@
 # PRP Framework
 
-Cross-tool AI coding workflow framework that works with Claude Code, Codex, OpenCode, Gemini CLI, Kimi, and any other AI coding tool.
+Cross-tool AI coding workflow framework that works with Claude Code, Codex, OpenCode, Gemini CLI, Google Antigravity, Kimi, and any other AI coding tool.
 
 ## Overview
 
@@ -123,6 +123,18 @@ $prp-pr
 /prp:pr
 ```
 
+### Google Antigravity
+```bash
+/prp-prd Add usage metrics
+/prp-design .prp-output/prds/metrics-prd.md
+/prp-plan Add JWT authentication
+/prp-implement plan.md
+/prp-review 25
+/prp-review-fix 25
+/prp-commit
+/prp-pr
+```
+
 ### Kimi / Other Tools
 Use natural language:
 ```
@@ -158,6 +170,7 @@ prp-framework/
 │   ├── codex/                  # Codex skills (9 skills)
 │   ├── opencode/               # OpenCode commands (9 commands)
 │   ├── gemini/                 # Gemini commands (9 commands)
+│   ├── antigravity/            # Antigravity workflows (9 workflows)
 │   └── generic/                # AGENTS.md for Kimi/others
 ├── docs/                       # Documentation
 ├── scripts/                    # Installation scripts
