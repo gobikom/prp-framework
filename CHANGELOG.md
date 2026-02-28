@@ -148,6 +148,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `.prp-output/` directory visible to AI tools while content is not tracked in git
 
 ### Documentation
+- **Recommended Claude Code permissions config** added to USER-GUIDE.md and GETTING_STARTED.md
+  - Allowlist-based config for all PRP-required bash commands (git, gh, file ops, build tools)
+  - Three-tier approach: allowlist (recommended), `--no-interact` flag, `--dangerously-skip-permissions` (CI only)
+  - Scenario-based recommendation table
 - Updated README.md, USER-GUIDE.md, WORKFLOWS.md, CLAUDE.md with new features and flags
 - Added feature availability table to generic/AGENTS.md
 - Added git edge case troubleshooting to GETTING_STARTED.md

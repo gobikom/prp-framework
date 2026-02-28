@@ -92,6 +92,26 @@ Script จะสร้าง symlinks ไปยัง:
 
 Script ยัง auto-register Ralph stop hook ใน `.claude/settings.local.json` โดยอัตโนมัติ (ต้องมี `jq` ติดตั้งอยู่)
 
+### Permissions Config (ลด Permission Prompts)
+
+เพิ่ม allowlist ใน `.claude/settings.json` เพื่อให้ workflow รันได้โดยไม่ต้องถาม permission ทุกครั้ง:
+
+```json
+{
+  "permissions": {
+    "allow": [
+      "Bash(git *)", "Bash(gh *)", "Bash(ls *)", "Bash(mkdir *)",
+      "Bash(mv *)", "Bash(cp *)", "Bash(rm *)", "Bash(cat *)",
+      "Bash(test *)", "Bash(find *)", "Bash(date *)", "Bash(head *)",
+      "Bash(echo *)", "Bash(grep *)", "Bash(sed *)", "Bash(jq *)",
+      "Bash(npm *)", "Bash(npx *)", "Bash(bun *)"
+    ]
+  }
+}
+```
+
+ดู config ฉบับเต็ม + tech stack เพิ่มเติมที่ `docs/USER-GUIDE.md` → Permissions & Unattended Mode
+
 ## Artifact Naming Convention
 
 ทุก artifact ใช้ **timestamp format** เพื่อป้องกันการเขียนไฟล์ซ้ำ:

@@ -119,6 +119,26 @@ brew install jq        # macOS
 cd .prp && ./scripts/install.sh
 ```
 
+### Configure Permissions (Claude Code — แนะนำ)
+
+เพื่อลด permission prompts ระหว่าง workflow ให้เพิ่ม allowlist ใน `.claude/settings.json`:
+
+```json
+{
+  "permissions": {
+    "allow": [
+      "Bash(git *)", "Bash(gh *)", "Bash(ls *)", "Bash(mkdir *)",
+      "Bash(mv *)", "Bash(cp *)", "Bash(rm *)", "Bash(cat *)",
+      "Bash(test *)", "Bash(find *)", "Bash(date *)", "Bash(head *)",
+      "Bash(echo *)", "Bash(grep *)", "Bash(sed *)", "Bash(jq *)",
+      "Bash(npm *)", "Bash(npx *)", "Bash(bun *)"
+    ]
+  }
+}
+```
+
+> ดู config ฉบับเต็มที่ [USER-GUIDE.md — Permissions & Unattended Mode](USER-GUIDE.md#permissions--unattended-mode-claude-code)
+
 ### Test Commands
 
 **Claude Code:**

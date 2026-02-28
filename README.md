@@ -35,6 +35,26 @@ cd .prp && ./scripts/install.sh && cd ..
 /prp-core:plan "Add user authentication"
 ```
 
+### Configure Permissions (Claude Code)
+
+ลด permission prompts ระหว่าง workflow โดยเพิ่ม allowlist ใน `.claude/settings.json`:
+
+```json
+{
+  "permissions": {
+    "allow": [
+      "Bash(git *)", "Bash(gh *)", "Bash(ls *)", "Bash(mkdir *)",
+      "Bash(mv *)", "Bash(cp *)", "Bash(rm *)", "Bash(cat *)",
+      "Bash(test *)", "Bash(find *)", "Bash(date *)", "Bash(head *)",
+      "Bash(echo *)", "Bash(grep *)", "Bash(sed *)", "Bash(jq *)",
+      "Bash(npm *)", "Bash(npx *)", "Bash(bun *)"
+    ]
+  }
+}
+```
+
+> Full config + unattended mode guide: [USER-GUIDE.md — Permissions](docs/USER-GUIDE.md#permissions--unattended-mode-claude-code)
+
 ### Installation via Local Clone (Recommended for Deploy)
 
 Best for projects deployed to Railway, Vercel, etc. — nothing PRP-related goes to CI/CD.
