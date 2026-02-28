@@ -94,6 +94,11 @@ Proceed directly to Phase 1 with the input as feature description.
 - Complexity: LOW | MEDIUM | HIGH
 - Affected systems list
 
+**COMPLEXITY_TRIGGERS** (determines which conditional sections to include in the plan):
+- **LOW**: Skip Technical Design sections, skip expanded Testing Strategy (integration/performance)
+- **MEDIUM**: Include Technical Design if API or database changes detected; include Integration Tests in Testing Strategy
+- **HIGH**: Include ALL Technical Design sub-sections (API contracts, DB schema, sequence diagrams, NFRs, migration); include full Testing Strategy with performance benchmarks
+
 **FORMULATE user story:**
 
 ```
@@ -274,6 +279,55 @@ NOT_BUILDING (explicit scope limits):
 - [ ] Dependencies ordered correctly (types → repository → service → routes)
 - [ ] Edge cases identified with specific mitigation strategies
 - [ ] Scope boundaries are explicit and justified
+
+### Phase 5.2: TECHNICAL DESIGN (Conditional)
+
+> **Include if**: Complexity is HIGH, OR feature involves new API endpoints, database schema changes, or multi-service integration.
+> **Skip if**: Complexity is LOW, or feature is a simple enhancement/bug fix within existing patterns.
+>
+> **If a Design Doc exists** at `.prp-output/designs/{feature}-design-*.md`: Reference it and incorporate relevant sections rather than re-creating.
+
+#### 5.2.1 API Contracts (if new/modified endpoints)
+
+Define request/response schemas using project conventions:
+- Endpoint path, method, authentication requirement
+- Request schema with types and validation rules
+- Response schema with success and error shapes
+- Error codes table (status, code, description)
+
+#### 5.2.2 Database Schema (if schema changes)
+
+- New/modified table definitions (SQL or ORM format matching project conventions)
+- Index strategy for query performance
+- Migration approach (forward steps)
+- Rollback plan (reverse migration steps)
+
+#### 5.2.3 Sequence Diagrams (if complex multi-component flow)
+
+- Critical path flow using Mermaid syntax
+- Error/failure path flow
+- Show all components involved and their interactions
+
+#### 5.2.4 Non-Functional Requirements (if complexity is HIGH)
+
+- Performance targets: p50, p95, p99 latency
+- Caching strategy (what, TTL, invalidation)
+- Security considerations specific to this feature
+- Monitoring: key metrics, alerts, logging
+
+#### 5.2.5 Migration & Rollback Plan (if modifying existing behavior)
+
+- Data migration steps (if schema changes)
+- Feature flag approach (flag name, default, rollout plan)
+- Rollback trigger conditions
+- Rollback execution steps
+
+**PHASE_5B_CHECKPOINT:**
+
+- [ ] API contracts defined with request/response schemas (if applicable)
+- [ ] Database schema includes migration AND rollback (if applicable)
+- [ ] Sequence diagrams cover happy path and error path (if applicable)
+- [ ] NFR targets are specific and measurable (if applicable)
 
 ---
 
@@ -519,6 +573,25 @@ Execute in order. Each task is atomic and independently verifiable.
 | `src/features/new/tests/errors.test.ts` | error properties | Error classes |
 | `src/features/new/tests/service.test.ts` | CRUD ops, access control | Business logic |
 
+### Integration Tests (conditional — include if MEDIUM+ complexity with multi-component interaction)
+
+| Test Scenario | Components Involved | Setup Required | Expected Behavior |
+|---------------|-------------------|----------------|-------------------|
+| {end-to-end scenario} | {API → Service → DB} | {test fixtures/seed data} | {assertion} |
+
+### Test Data Requirements
+
+| Test Category | Data Needed | Source | Notes |
+|---------------|-------------|--------|-------|
+| Unit tests | {mock data} | {factory/fixture} | {special handling} |
+| Integration | {seed data} | {snapshot/seed script} | {cleanup strategy} |
+
+### Performance Benchmarks (conditional — include if HIGH complexity or performance-sensitive)
+
+| Operation | Current Baseline | Target | Tool |
+|-----------|-----------------|--------|------|
+| {operation} | {p95 current or "N/A"} | {target} | {benchmark tool} |
+
 ### Edge Cases Checklist
 
 - [ ] Empty string inputs
@@ -612,6 +685,32 @@ Verify using browser/UI testing:
 | Risk | Likelihood | Impact | Mitigation |
 |------|-----------|--------|------------|
 | {Risk description} | LOW/MED/HIGH | LOW/MED/HIGH | {Specific prevention/handling strategy} |
+
+---
+
+## Technical Design (Conditional — include for HIGH complexity or API/DB changes)
+
+### API Contracts
+
+{Endpoint definitions with request/response schemas — skip if no API changes}
+
+### Database Schema Changes
+
+{SQL/ORM definitions, indexes, migration steps, rollback plan — skip if no schema changes}
+
+### Sequence Diagrams
+
+```mermaid
+{Sequence diagram for critical flows — skip if straightforward CRUD}
+```
+
+### Non-Functional Requirements
+
+{Performance targets, caching, security specifics — skip if LOW complexity}
+
+### Migration & Rollback
+
+{Data migration steps, feature flags, rollback triggers and steps — skip if no existing behavior changes}
 
 ---
 

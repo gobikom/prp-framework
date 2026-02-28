@@ -120,3 +120,63 @@ PROMPTS_DIR="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)/prompts"
 @test "review.md contains aspect selection" {
     grep -qi "Code Quality\|aspect\|review pass" "$PROMPTS_DIR/review.md"
 }
+
+# ─────────────────────────────────────────────
+# 10. Quality enhancement tests
+# ─────────────────────────────────────────────
+
+# Plan: Technical Design (conditional)
+@test "plan.md contains Technical Design section" {
+    grep -qi "Technical Design" "$PROMPTS_DIR/plan.md"
+}
+
+@test "plan.md contains complexity triggers" {
+    grep -qi "COMPLEXITY_TRIGGERS\|complexity.*trigger" "$PROMPTS_DIR/plan.md"
+}
+
+@test "plan.md contains integration test specs" {
+    grep -qi "Integration Tests\|integration test" "$PROMPTS_DIR/plan.md"
+}
+
+# Implement: TDD + validation levels
+@test "implement.md contains TDD methodology" {
+    grep -qi "TDD\|Write Test First\|RED.*GREEN\|test first" "$PROMPTS_DIR/implement.md"
+}
+
+@test "implement.md contains integration tests validation level" {
+    grep -qi "Integration Tests" "$PROMPTS_DIR/implement.md"
+}
+
+@test "implement.md contains security checks" {
+    grep -qi "Security Checks\|SAST\|hardcoded secrets" "$PROMPTS_DIR/implement.md"
+}
+
+@test "implement.md contains performance regression check" {
+    grep -qi "Performance Regression\|performance.*regression" "$PROMPTS_DIR/implement.md"
+}
+
+@test "implement.md contains API contract validation" {
+    grep -qi "API Contract\|OpenAPI\|GraphQL.*schema" "$PROMPTS_DIR/implement.md"
+}
+
+# PRD: enhanced sections
+@test "prd.md contains Deployment & Rollback section" {
+    grep -qi "Deployment.*Rollback\|Rollback.*Strategy" "$PROMPTS_DIR/prd.md"
+}
+
+@test "prd.md contains Backward Compatibility section" {
+    grep -qi "Backward Compatibility" "$PROMPTS_DIR/prd.md"
+}
+
+@test "prd.md contains Privacy & Compliance section" {
+    grep -qi "Privacy.*Compliance\|GDPR" "$PROMPTS_DIR/prd.md"
+}
+
+@test "prd.md contains Risk Analysis section" {
+    grep -qi "Risk Analysis" "$PROMPTS_DIR/prd.md"
+}
+
+# Commit: pre-commit check
+@test "commit.md contains pre-commit quality check" {
+    grep -qi "PRE-COMMIT\|pre.commit\|Phase 0" "$PROMPTS_DIR/commit.md"
+}

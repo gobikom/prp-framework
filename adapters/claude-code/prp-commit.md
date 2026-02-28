@@ -15,6 +15,56 @@ Stage files matching the target, write a concise commit message, commit.
 
 ---
 
+## Phase 0: PRE-COMMIT QUALITY CHECK (Advisory)
+
+> **Note**: This check is advisory only — warns but does NOT block commit. Skip quick validation (0.4) if invoked from run-all workflow (implement already validated).
+
+### 0.1 Scan staged files
+
+```bash
+git diff --cached --name-only
+```
+
+### 0.2 Debug artifacts scan
+
+Grep staged files for common debug artifacts:
+
+```bash
+# TODO/FIXME comments (warning only)
+git diff --cached | grep -n "TODO\|FIXME"
+
+# Debug statements (warning)
+git diff --cached | grep -n "console\.log\|console\.debug\|debugger\|pdb\.set_trace\|print("
+```
+
+### 0.3 Type safety check (TypeScript projects)
+
+```bash
+# Scan for `any` type usage in staged .ts files (skip test files and .d.ts)
+git diff --cached -- '*.ts' ':!*.test.ts' ':!*.spec.ts' ':!*.d.ts' | grep -n ": any\|as any\|<any>"
+```
+
+### 0.4 Quick validation (skip in run-all context)
+
+```bash
+# Type-check + test (only if not already validated by implement step)
+# Auto-detect: tsc/biome/eslint for type-check, jest/vitest/pytest for tests
+```
+
+### 0.5 Quality report
+
+Summarize findings:
+
+```markdown
+**Pre-commit Quality Check:**
+- Debug artifacts: {count} found (TODO: {n}, console.log: {n})
+- Type safety: {count} `any` usage found
+- Quick validation: {passed/skipped}
+- ⚠️ Advisory: {warnings if any}
+```
+
+---
+
 ## Phase 1: ASSESS
 
 ```bash

@@ -8,6 +8,55 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Conditional Design Doc in Plan** (all adapters):
+  - Phase 5.2: TECHNICAL DESIGN with 5 sub-sections (API Contracts, DB Schema, Sequence Diagrams, NFRs, Migration & Rollback)
+  - COMPLEXITY_TRIGGERS system: LOW skips design, MEDIUM includes if API/DB changes, HIGH includes all
+  - References existing Design Doc at `.prp-output/designs/` if available
+- **TDD Approach in Implement** (all adapters):
+  - Phase 3 restructured: Write Test First (RED) → Implement (GREEN) → Validate
+  - Applies to tasks creating new functions/modules; config/wiring/schema tasks skip test-first
+  - TDD progress tracking: `Task 1: Test ✅ (3 cases) — Impl ✅`
+- **PRD Enhanced Sections** (all adapters):
+  - Deployment & Rollback Strategy (conditional — feature flags, rollback triggers, gradual rollout)
+  - Backward Compatibility (conditional — breaking changes, migration path, deprecation timeline)
+  - Privacy & Compliance (conditional — GDPR, data handling, consent, retention)
+  - Risk Analysis (conditional — technical/business/operational/security risks)
+- **Validation Levels Enhancement in Implement** (all adapters):
+  - Integration Tests (conditional — if plan specifies or project has `test:integration`)
+  - Security Checks (basic SAST — hardcoded secrets, SQL injection, unsafe eval/exec)
+  - Performance Regression (conditional — benchmark comparison, flag >20% regression)
+  - API Contract Validation (conditional — OpenAPI/GraphQL schema validation)
+- **Pre-commit Quality Check in Commit** (all adapters):
+  - Phase 0: Advisory scan for debug artifacts (TODO/FIXME, console.log/debugger)
+  - Type safety check (`any` type usage in TypeScript)
+  - Quick validation (skip in run-all context)
+  - Warns but does NOT block commit
+- **Expanded Testing Strategy in Plan** (all adapters):
+  - Integration Tests (conditional — MEDIUM+ with multi-component interactions)
+  - Test Data Requirements (category, data needed, source)
+  - Performance Benchmarks (conditional — HIGH or performance-sensitive)
+- **19 new structural tests** (structure.bats + parity.bats):
+  - 14 structure tests for plan, implement, prd, commit quality enhancements
+  - 5 cross-adapter parity tests for Technical Design, TDD, security checks, Backward Compatibility, pre-commit
+
+### Added
+- **`--no-interact` flag** (all adapters):
+  - Enables fully unattended workflow execution — no user prompts
+  - Plan step uses best judgment instead of asking for clarification (documents assumptions)
+  - Stale state file auto-cleaned instead of waiting for user decision
+  - All 6 adapters updated (Claude Code, Codex, OpenCode, Gemini, Antigravity, generic)
+
+### Fixed
+- **Commit→PR transition** in run-all workflow:
+  - `prp-commit` output "Next: git push or /prp-pr" caused orchestrator to stop
+  - Added explicit transition instruction and orchestrator note to all adapters
+
+### Changed
+- **Renamed** `prp-core-run-all.md` → `prp-run-all.md` for consistent naming
+  - Old: `/prp-core:prp-core-run-all` (redundant "prp-core" twice)
+  - New: `/prp-core:prp-run-all` (consistent with all other commands)
+
+### Previous
 - **Ralph enhancements** (Claude Code only):
   - `install.sh` now auto-registers ralph stop hook in `.claude/settings.local.json` via `jq` merge — no manual setup required
   - `install.sh` now auto-`chmod +x` the ralph stop hook on installation

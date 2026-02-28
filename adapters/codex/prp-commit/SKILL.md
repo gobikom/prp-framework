@@ -11,6 +11,14 @@ metadata:
 
 Target description: `$ARGUMENTS`
 
+## Phase 0: PRE-COMMIT QUALITY CHECK (Advisory)
+
+Scan staged files before committing (warns but does NOT block):
+- **Debug artifacts**: grep for TODO/FIXME, console.log/debugger/pdb.set_trace
+- **Type safety**: grep for `any` type usage in .ts files (skip test/d.ts files)
+- **Quick validation**: type-check + tests (skip in run-all context since implement already validated)
+- **Report**: summary of findings (advisory only)
+
 ## Phase 1: ASSESS
 
 ```bash

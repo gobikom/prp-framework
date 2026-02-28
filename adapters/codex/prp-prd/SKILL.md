@@ -129,6 +129,10 @@ PRD must include ALL sections:
 12. **Phase Details** — goal, scope, success signal per phase
 13. **Decisions Log** — choice, alternatives, rationale
 14. **Research Summary** — market and technical context
+15. **Deployment & Rollback Strategy** (conditional) — feature flags, rollback triggers, gradual rollout. Skip if no deployment impact.
+16. **Backward Compatibility** (conditional) — breaking changes, migration path, deprecation timeline. Skip if net-new feature.
+17. **Privacy & Compliance** (conditional) — GDPR, data handling, consent, retention. Skip if no user data.
+18. **Risk Analysis** (conditional) — technical, business, operational, security risks with likelihood/impact/mitigation. Skip if LOW complexity.
 
 ## Phase 8: OUTPUT - Summary
 

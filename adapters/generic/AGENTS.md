@@ -139,7 +139,7 @@ Read project conventions file (CLAUDE.md, AGENTS.md, .cursorrules, etc.). Run di
 3. **Explore Codebase**: Find similar implementations with file:line references, naming conventions, error/logging/test patterns, integration points, dependencies with versions. Use ACTUAL code snippets from the codebase. Document in table format.
 4. **Research**: ONLY after exploration. Official docs matching project versions, gotchas, security. Format with URL + KEY_INSIGHT + APPLIES_TO + GOTCHA.
 5. **Design**: Before/After ASCII diagrams showing UX and data flow changes. Interaction changes table.
-6. **Architect**: Analyze architecture fit, execution order, failure modes, performance, security, maintainability. Document chosen approach, rationale, rejected alternatives, and explicit scope limits.
+6. **Architect**: Analyze architecture fit, execution order, failure modes, performance, security, maintainability. Document chosen approach, rationale, rejected alternatives, and explicit scope limits. **Technical Design (conditional)**: If complexity=HIGH or API/DB changes → include API Contracts, Database Schema (with migration + rollback), Sequence Diagrams (Mermaid), NFRs (p95/p99, caching, security), Migration & Rollback plan. Reference existing Design Doc if available.
 7. **Generate Plan**: Save to `.prp-output/plans/{feature}.plan.md` containing ALL sections:
    - Summary, User Story, Problem/Solution Statements, Metadata
    - UX Design (before/after ASCII diagrams + interaction changes table)
@@ -148,7 +148,8 @@ Read project conventions file (CLAUDE.md, AGENTS.md, .cursorrules, etc.). Run di
    - Files to Change (CREATE/UPDATE list with justifications)
    - NOT Building (explicit scope limits)
    - Step-by-Step Tasks (each with ACTION/IMPLEMENT/MIRROR/IMPORTS/GOTCHA/VALIDATE)
-   - Testing Strategy (unit tests to write + edge cases checklist)
+   - Testing Strategy (unit tests + **integration tests** (conditional) + **test data requirements** + **performance benchmarks** (conditional) + edge cases)
+   - **Technical Design** (conditional, HIGH or API/DB changes) — API contracts, DB schema, sequence diagrams, NFRs, migration & rollback
    - Validation Commands (6 levels: Static Analysis, Unit Tests, Full Suite, Database, Browser, Manual)
    - Acceptance Criteria, Completion Checklist, Risks and Mitigations
 
@@ -168,18 +169,18 @@ Read project conventions file (CLAUDE.md, AGENTS.md, .cursorrules, etc.). Run di
 1. **Detect Environment**: Identify package manager from lock files (bun/pnpm/yarn/npm/uv/cargo/go). Find validation scripts. Use plan's "Validation Commands" section.
 2. **Load Plan**: Read plan file, extract tasks, validation commands, acceptance criteria. If not found: STOP.
 3. **Prepare Git**: Check branch + worktree state. In worktree → use it. On main clean → create branch. On main dirty → STOP. On feature branch → use it. Sync with remote.
-4. **Execute Tasks**: For each task in order:
-   - Read the MIRROR file reference
-   - Implement the change following the pattern
-   - **Validate immediately** (run type-check after EVERY file change)
-   - Track progress, document deviations (WHAT and WHY)
+4. **Execute Tasks (TDD Approach)**: For each task — read MIRROR reference and Testing Strategy. **Write test first (RED)** for new functions/modules (skip test-first for config/wiring/schema tasks). **Implement (GREEN)** — follow MIRROR pattern, run tests until passing. **Validate immediately** (type-check after EVERY change). Track progress with TDD status: `Task 1: Test ✅ (3 cases) — Impl ✅`. Document deviations (WHAT and WHY).
 5. **Full Validation**:
    - Static: type-check + lint (zero errors). If lint errors → auto-fix then manual.
    - Tests: MUST write/update tests. If fail → determine root cause → fix → re-run.
    - Coverage: 90% on new/changed code. Auto-detect tool (jest/vitest `--coverage`, pytest `--cov`, go test `-cover`). If no tool → skip with warning.
    - Build: must succeed.
    - Integration (if applicable): start server → test endpoints → stop server.
+   - Integration Tests (conditional): if plan specifies or project has `test:integration` → run them.
    - Edge cases from plan.
+   - Security Checks (conditional — basic SAST): scan changed files for hardcoded secrets, SQL injection, unsafe eval/exec. Fix if found.
+   - Performance Regression (conditional): if plan has benchmarks + project has tooling → run and flag regressions > 20%.
+   - API Contract Validation (conditional): if OpenAPI/GraphQL schema exists + API surface changed → validate schema.
 6. **Report**: Save to `.prp-output/reports/{name}-report-other.md` with: assessment vs reality, tasks completed, validation results, files changed, deviations, issues, tests written.
    > **Note**: Uses `-other` suffix to identify generic/Kimi implementation reports and prevent overwriting reports from other tools (each tool uses its own suffix for parallel implementation capability).
 7. **PRD Update** (if applicable): Change phase status from `in-progress` to `complete`.
@@ -316,6 +317,7 @@ Report: fixed/skipped per severity, validation status, next steps.
 
 ### Steps
 
+0. **Pre-commit quality check (advisory)**: scan staged files for debug artifacts (TODO/FIXME, console.log/debugger), `any` type usage in .ts files, quick validation (skip in run-all). Warns but does NOT block commit.
 1. `git status --short` — if nothing, stop
 2. Stage matching files based on target description:
    - blank = all, `staged` = current, patterns = matching files
@@ -432,6 +434,12 @@ Not all features are available in all AI coding tools. The 9 core commands work 
 | **Quality** | | | | | | |
 | Coverage enforcement (90%) | Yes | Yes | Yes | Yes | Yes | Yes |
 | Review context handoff | Yes | Yes | Yes | Yes | Yes | - |
+| TDD approach (test-first) | Yes | Yes | Yes | Yes | Yes | Yes |
+| Conditional Technical Design | Yes | Yes | Yes | Yes | Yes | Yes |
+| PRD enhanced sections | Yes | Yes | Yes | Yes | Yes | Yes |
+| Validation levels (security/perf/API) | Yes | Yes | Yes | Yes | Yes | Yes |
+| Pre-commit quality check | Yes | Yes | Yes | Yes | Yes | Yes |
+| Expanded testing strategy | Yes | Yes | Yes | Yes | Yes | Yes |
 
 **Note**: `-` means the feature is not available in that tool. Kimi/Generic uses natural language triggers and cannot enforce flag-based workflows.
 

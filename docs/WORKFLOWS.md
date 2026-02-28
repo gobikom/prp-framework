@@ -110,6 +110,16 @@ Design UX → Architect → Generate Plan
 - **Actual Code Snippets:** MIRROR patterns with file:line references
 - **6-Level Validation:** Static → Unit → Full → Database → Browser → Manual
 - **PRD Integration:** Can parse PRD phases and track status
+- **Conditional Technical Design:** API Contracts, DB Schema, Sequence Diagrams, NFRs, Migration & Rollback (triggered by complexity assessment)
+- **Expanded Testing Strategy:** Unit tests, Integration tests (conditional), Test data requirements, Performance benchmarks (conditional), Edge cases
+
+### Complexity Triggers
+
+| Complexity | Technical Design | Testing Strategy |
+|------------|-----------------|------------------|
+| LOW | Skip | Unit tests + edge cases only |
+| MEDIUM | Include if API/DB changes | + Integration tests |
+| HIGH | Include all sub-sections | + Performance benchmarks |
 
 ### Output
 
@@ -121,6 +131,8 @@ Contains:
 - Mandatory reading list (P0/P1/P2 files)
 - Patterns to mirror (with actual code)
 - Step-by-step tasks
+- Technical Design (conditional — API contracts, DB schema, sequence diagrams, NFRs, migration)
+- Testing Strategy (unit, integration, test data, performance benchmarks, edge cases)
 - Validation commands
 - Acceptance criteria
 
@@ -143,10 +155,19 @@ Contains:
 ### Process
 
 ```
-Detect Environment → Load Plan → Prepare Git → Execute Tasks →
-Full Validation (+ Coverage Check) → Report → Generate Review Context →
-PRD Update → Archive Plan
+Detect Environment → Load Plan → Prepare Git → Execute Tasks (TDD) →
+Full Validation (+ Coverage + Security + Performance) → Report →
+Generate Review Context → PRD Update → Archive Plan
 ```
+
+### TDD Approach (Phase 3)
+
+For each task in the plan:
+1. **Read Context** — MIRROR reference, imports, Testing Strategy
+2. **Write Test First (RED)** — create tests for new functions/modules (skip for config/wiring/schema tasks)
+3. **Implement (GREEN)** — follow MIRROR pattern, run tests until passing
+4. **Validate Immediately** — type-check after every file change
+5. **Track Progress** — `Task 1: Test ✅ (3 cases) — Impl ✅`
 
 ### Validation Levels
 
@@ -154,8 +175,12 @@ PRD Update → Archive Plan
 2. **Unit Tests:** Write/update tests, must pass
 3. **Coverage Check:** 90% on new/changed code (auto-detect tool, graceful skip if unavailable)
 4. **Build:** Must succeed
-5. **Integration:** Server/endpoint testing (if applicable)
-6. **Edge Cases:** From plan specification
+5. **Integration Tests (conditional):** If plan specifies or project has `test:integration`
+6. **Integration:** Server/endpoint testing (if applicable)
+7. **Edge Cases:** From plan specification
+8. **Security Checks (conditional — basic SAST):** Hardcoded secrets, SQL injection, unsafe eval/exec
+9. **Performance Regression (conditional):** If plan has benchmarks + project has tooling, flag >20% regression
+10. **API Contract Validation (conditional):** If OpenAPI/GraphQL schema exists + API surface changed
 
 ### Coverage Check (Phase 4.2.1)
 
@@ -313,8 +338,17 @@ $prp-review-fix 42
 ### Process
 
 ```
-Check Status → Stage Files → Generate Message → Commit → Report
+Pre-commit Quality Check (advisory) → Check Status → Stage Files →
+Generate Message → Commit → Report
 ```
+
+### Pre-commit Quality Check (Phase 0)
+
+Advisory scan that warns but does NOT block commit:
+- **Debug artifacts:** TODO/FIXME, console.log/debugger/pdb.set_trace
+- **Type safety:** `any` type usage in TypeScript files (skip test/d.ts)
+- **Quick validation:** Type-check + tests (skip in run-all context)
+- **Quality report:** Summary of findings
 
 ### Natural Language Targeting
 

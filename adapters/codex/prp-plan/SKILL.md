@@ -90,6 +90,8 @@ Create Before/After ASCII diagrams showing:
 Analyze: ARCHITECTURE_FIT, EXECUTION_ORDER, FAILURE_MODES, PERFORMANCE, SECURITY, MAINTAINABILITY.
 Document: APPROACH_CHOSEN + RATIONALE, ALTERNATIVES_REJECTED, NOT_BUILDING (scope limits).
 
+**Technical Design (conditional)**: If complexity=HIGH or API/DB changes → include: API Contracts (request/response schemas, error codes), Database Schema (tables, indexes, migration + rollback), Sequence Diagrams (Mermaid), NFRs (p95/p99 targets, caching, security), Migration & Rollback plan. Reference existing Design Doc if available at `.prp-output/designs/`.
+
 ## Phase 6: Generate — Plan File
 
 Save to: `.prp-output/plans/{kebab-case-feature-name}.plan.md`
@@ -105,11 +107,12 @@ Plan must include ALL of these sections:
 8. **Files to Change** — CREATE/UPDATE list with justifications
 9. **NOT Building** — explicit scope limits
 10. **Step-by-Step Tasks** — ordered, atomic, each with ACTION/IMPLEMENT/MIRROR/IMPORTS/GOTCHA/VALIDATE
-11. **Testing Strategy** — unit tests to write + edge cases checklist
+11. **Testing Strategy** — unit tests + **integration tests** (conditional, MEDIUM+) + **test data requirements** + **performance benchmarks** (conditional, HIGH) + edge cases checklist
 12. **Validation Commands** — 6 levels: Static Analysis, Unit Tests, Full Suite, Database, Browser, Manual
 13. **Acceptance Criteria** — definition of done
 14. **Completion Checklist** — all 6 validation levels
 15. **Risks and Mitigations** — likelihood, impact, strategy
+16. **Technical Design** (conditional, HIGH or API/DB changes) — API contracts, DB schema, sequence diagrams, NFRs, migration & rollback
 
 ## Output
 

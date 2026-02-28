@@ -137,3 +137,51 @@ FRAMEWORK_DIR="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)"
     grep -qi "pr-context\|review.context\|review context" "$FRAMEWORK_DIR/adapters/antigravity/prp-implement.md"
     grep -qi "pr-context\|review.context\|review context" "$FRAMEWORK_DIR/prompts/implement.md"
 }
+
+# ─────────────────────────────────────────────
+# 4. Quality enhancement parity
+# ─────────────────────────────────────────────
+@test "all plan files mention Technical Design" {
+    grep -qi "Technical Design" "$FRAMEWORK_DIR/adapters/claude-code/prp-plan.md"
+    grep -qi "Technical Design" "$FRAMEWORK_DIR/adapters/codex/prp-plan/SKILL.md"
+    grep -qi "Technical Design" "$FRAMEWORK_DIR/adapters/opencode/plan.md"
+    grep -qi "Technical Design" "$FRAMEWORK_DIR/adapters/gemini/plan.toml"
+    grep -qi "Technical Design" "$FRAMEWORK_DIR/adapters/antigravity/prp-plan.md"
+    grep -qi "Technical Design" "$FRAMEWORK_DIR/prompts/plan.md"
+}
+
+@test "all implement files mention TDD" {
+    grep -qi "TDD\|test first\|Write Test First\|RED.*GREEN" "$FRAMEWORK_DIR/adapters/claude-code/prp-implement.md"
+    grep -qi "TDD\|test first\|Write Test First\|RED.*GREEN" "$FRAMEWORK_DIR/adapters/codex/prp-implement/SKILL.md"
+    grep -qi "TDD\|test first\|Write test first\|RED.*GREEN" "$FRAMEWORK_DIR/adapters/opencode/implement.md"
+    grep -qi "TDD\|test first\|Write test first\|RED.*GREEN" "$FRAMEWORK_DIR/adapters/gemini/implement.toml"
+    grep -qi "TDD\|test first\|Write test first\|RED.*GREEN" "$FRAMEWORK_DIR/adapters/antigravity/prp-implement.md"
+    grep -qi "TDD\|test first\|Write Test First\|RED.*GREEN" "$FRAMEWORK_DIR/prompts/implement.md"
+}
+
+@test "all implement files mention security checks" {
+    grep -qi "security check\|SAST\|hardcoded secret" "$FRAMEWORK_DIR/adapters/claude-code/prp-implement.md"
+    grep -qi "security check\|SAST\|hardcoded secret" "$FRAMEWORK_DIR/adapters/codex/prp-implement/SKILL.md"
+    grep -qi "security check\|SAST\|hardcoded secret" "$FRAMEWORK_DIR/adapters/opencode/implement.md"
+    grep -qi "security check\|SAST\|hardcoded secret" "$FRAMEWORK_DIR/adapters/gemini/implement.toml"
+    grep -qi "security check\|SAST\|hardcoded secret" "$FRAMEWORK_DIR/adapters/antigravity/prp-implement.md"
+    grep -qi "security check\|SAST\|hardcoded secret" "$FRAMEWORK_DIR/prompts/implement.md"
+}
+
+@test "all prd files mention Backward Compatibility" {
+    grep -qi "Backward Compatibility" "$FRAMEWORK_DIR/adapters/claude-code/prp-prd.md"
+    grep -qi "Backward Compatibility" "$FRAMEWORK_DIR/adapters/codex/prp-prd/SKILL.md"
+    grep -qi "Backward Compatibility" "$FRAMEWORK_DIR/adapters/opencode/prd.md"
+    grep -qi "Backward Compatibility" "$FRAMEWORK_DIR/adapters/gemini/prd.toml"
+    grep -qi "Backward Compatibility" "$FRAMEWORK_DIR/adapters/antigravity/prp-prd.md"
+    grep -qi "Backward Compatibility" "$FRAMEWORK_DIR/prompts/prd.md"
+}
+
+@test "all commit files mention pre-commit check" {
+    grep -qi "pre-commit\|PRE-COMMIT\|Phase 0\|quality check" "$FRAMEWORK_DIR/adapters/claude-code/prp-commit.md"
+    grep -qi "pre-commit\|PRE-COMMIT\|Phase 0\|quality check" "$FRAMEWORK_DIR/adapters/codex/prp-commit/SKILL.md"
+    grep -qi "pre-commit\|PRE-COMMIT\|Phase 0\|quality check" "$FRAMEWORK_DIR/adapters/opencode/commit.md"
+    grep -qi "pre-commit\|PRE-COMMIT\|Phase 0\|quality check" "$FRAMEWORK_DIR/adapters/gemini/commit.toml"
+    grep -qi "pre-commit\|PRE-COMMIT\|Phase 0\|quality check" "$FRAMEWORK_DIR/adapters/antigravity/prp-commit.md"
+    grep -qi "pre-commit\|PRE-COMMIT\|Phase 0\|quality check" "$FRAMEWORK_DIR/prompts/commit.md"
+}

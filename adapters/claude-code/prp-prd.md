@@ -289,6 +289,81 @@ When {situation}, I want to {motivation}, so I can {outcome}.
 
 ---
 
+## Deployment & Rollback Strategy
+
+> **Include if**: Feature involves deployment changes, infrastructure, or phased rollout.
+> **Skip if**: Simple code changes with no deployment impact.
+
+**Deployment Approach**: {rolling | blue-green | canary | feature flag}
+
+**Feature Flags**:
+
+| Flag Name | Purpose | Default | Rollout Plan |
+|-----------|---------|---------|--------------|
+| {flag} | {purpose} | OFF | {gradual rollout %} |
+
+**Rollback Triggers**:
+- {Metric 1} exceeds {threshold} → rollback
+- {Error rate} > {%} → rollback
+- {Manual trigger criteria}
+
+**Rollback Steps**:
+1. {Step 1}
+2. {Step 2}
+
+---
+
+## Backward Compatibility
+
+> **Include if**: Feature modifies existing APIs, data formats, or public interfaces.
+> **Skip if**: Net-new feature with no existing consumers.
+
+**Breaking Changes**:
+
+| Change | Impact | Migration Path | Deprecation Timeline |
+|--------|--------|----------------|---------------------|
+| {API/schema change} | {who affected} | {how to migrate} | {when removed} |
+
+**Data Migration**: {migration needed or "No schema changes"}
+
+**Deprecation Strategy**: {what deprecated, timeline, communication plan}
+
+---
+
+## Privacy & Compliance
+
+> **Include if**: Feature handles user data, PII, or operates in regulated domains.
+> **Skip if**: Infrastructure/tooling changes with no user data involvement.
+
+**Data Handling**:
+
+| Data Type | Classification | Storage | Retention | Consent Required |
+|-----------|---------------|---------|-----------|-----------------|
+| {data} | {PII/sensitive/public} | {where} | {how long} | {yes/no} |
+
+**GDPR/Privacy Considerations**:
+- Right to deletion: {how handled}
+- Data portability: {approach}
+- Consent management: {mechanism}
+
+**Compliance Requirements**: {GDPR/CCPA/HIPAA/SOC2 or "None applicable"}
+
+---
+
+## Risk Analysis
+
+> **Include if**: Complexity is MEDIUM or HIGH.
+> **Skip if**: LOW complexity with well-understood patterns.
+
+| Category | Risk | Likelihood | Impact | Mitigation |
+|----------|------|------------|--------|------------|
+| Technical | {risk} | H/M/L | H/M/L | {strategy} |
+| Business | {risk} | H/M/L | H/M/L | {strategy} |
+| Operational | {risk} | H/M/L | H/M/L | {strategy} |
+| Security | {risk} | H/M/L | H/M/L | {strategy} |
+
+---
+
 ## Implementation Phases
 
 <!--

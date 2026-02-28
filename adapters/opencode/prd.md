@@ -47,6 +47,10 @@ Each question set builds on previous answers. Grounding phases validate assumpti
    - Phase Details (goal, scope, success signal per phase)
    - Parallelism Notes
    - Decisions Log, Research Summary
+   - **Deployment & Rollback Strategy** (conditional) — feature flags, rollback triggers, rollout plan. Skip if no deployment impact.
+   - **Backward Compatibility** (conditional) — breaking changes, migration path, deprecation. Skip if net-new feature.
+   - **Privacy & Compliance** (conditional) — GDPR, data handling, consent. Skip if no user data.
+   - **Risk Analysis** (conditional) — technical, business, operational, security risks. Skip if LOW complexity.
 
 8. **OUTPUT**: Report file path (draft), problem/solution summary, key metric, validation status, open questions, recommended next step, phases table.
 

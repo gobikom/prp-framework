@@ -114,7 +114,7 @@ git pull --rebase origin main 2>/dev/null || true
 
 ---
 
-## Phase 3: EXECUTE — Implement Tasks
+## Phase 3: EXECUTE — Implement Tasks (TDD Approach)
 
 **For each task in the plan's Step-by-Step Tasks section:**
 
@@ -123,14 +123,28 @@ git pull --rebase origin main 2>/dev/null || true
 1. Read the **MIRROR** file reference from the task
 2. Understand the pattern to follow
 3. Read any **IMPORTS** specified
+4. Read the **Testing Strategy** section from the plan for relevant test specs
 
-### 3.2 Implement
+### 3.2 Write Test First (RED)
 
-1. Make the change exactly as specified
+> **Test-first applies to tasks that CREATE new functions/modules.**
+> For tasks that UPDATE configuration, schema, or wiring — skip to 3.3.
+
+1. Create the test file for this task (or add test cases to existing test file)
+2. Write test cases based on the plan's Testing Strategy section:
+   - Happy path tests
+   - Error/edge case tests from the plan's Edge Cases Checklist
+3. Run tests — they SHOULD FAIL (RED) because implementation doesn't exist yet
+4. If tests pass without implementation → tests are not testing the right thing, rewrite
+
+### 3.3 Implement (GREEN)
+
+1. Make the change exactly as specified in the task
 2. Follow the pattern from MIRROR reference
 3. Handle any **GOTCHA** warnings
+4. Run tests — they should now PASS (GREEN)
 
-### 3.3 Validate Immediately
+### 3.4 Validate Immediately
 
 **After EVERY file change, run the type-check command from the plan's Validation Commands section.**
 
@@ -147,14 +161,14 @@ Common patterns:
 3. Re-run type-check
 4. Only proceed when passing
 
-### 3.4 Track Progress
+### 3.5 Track Progress
 
-Log each task as you complete it:
+Log each task as you complete it (include TDD status):
 
 ```
-Task 1: CREATE src/features/x/models.ts ✅
-Task 2: CREATE src/features/x/service.ts ✅
-Task 3: UPDATE src/routes/index.ts ✅
+Task 1: CREATE src/features/x/models.ts — Test: ✅ (3 cases) — Impl: ✅
+Task 2: CREATE src/features/x/service.ts — Test: ✅ (5 cases) — Impl: ✅
+Task 3: UPDATE src/routes/index.ts — Impl: ✅ (no test-first for wiring)
 ```
 
 **Deviation Handling:**
@@ -167,6 +181,7 @@ If you must deviate from the plan:
 **PHASE_3_CHECKPOINT:**
 
 - [ ] All tasks executed in order
+- [ ] Tests written BEFORE implementation for new functions/modules
 - [ ] Each task passed type-check
 - [ ] Deviations documented
 
@@ -249,6 +264,18 @@ CHANGED_FILES=$(git diff --name-only origin/main...HEAD | grep -E '\.(ts|tsx|js|
 
 **Coverage target: 90% on new/changed code** (not overall project coverage).
 
+### 4.2.5 Integration Tests (conditional)
+
+> **Run if**: Plan's Testing Strategy includes integration test specifications, OR project has `test:integration` or `test:e2e` script.
+> **Skip if**: No integration test specs in plan and no integration test script exists.
+
+1. Check for integration test command in plan or package.json/config
+2. Run integration tests:
+   ```bash
+   {runner} run test:integration  # or equivalent from plan
+   ```
+3. **If fail**: Read error → fix → re-run → only proceed when passing
+
 ### 4.3 Build Check
 
 **Run the build command from the plan's Validation Commands section.**
@@ -283,14 +310,55 @@ kill $SERVER_PID
 
 Run any edge case tests specified in the plan.
 
+### 4.6 Security Checks (conditional — basic SAST)
+
+> **Run if**: Feature involves user input handling, authentication, or data storage.
+> **Skip if**: Internal tooling, tests-only changes, or documentation.
+
+**Check for common security issues in changed files:**
+
+```bash
+CHANGED_FILES=$(git diff --name-only origin/main...HEAD | grep -E '\.(ts|tsx|js|jsx|py|rs|go)$')
+```
+
+1. **Hardcoded secrets**: Search for API keys, tokens, passwords in source
+2. **SQL injection patterns**: Search for string concatenation in queries
+3. **Unsafe eval/exec**: Search for `eval()`, `exec()`, `Function()` in changed files
+
+**If issues found**: Fix immediately. If false positive, add inline comment explaining.
+
+### 4.7 Performance Regression (conditional)
+
+> **Run if**: Plan's Testing Strategy includes performance benchmarks AND project has benchmark tooling.
+> **Skip if**: No performance benchmarks in plan or no benchmark tool available.
+
+1. Check for benchmark command: `test:bench`, `bench`, or plan-specified command
+2. If available, run benchmark and compare against plan's baseline targets
+3. Flag any regression > 20% from baseline
+4. **If regression detected**: Investigate, optimize, or document as known trade-off
+
+### 4.8 API Contract Validation (conditional)
+
+> **Run if**: Project has OpenAPI spec, GraphQL schema, or tRPC router, AND feature modifies API surface.
+> **Skip if**: No API schema files, or feature doesn't touch API endpoints.
+
+1. Detect API schema: `openapi.yaml`, `openapi.json`, `schema.graphql`, tRPC routers
+2. If OpenAPI: validate spec is still valid
+3. If GraphQL: run schema validation
+4. If tRPC: type-check covers this (already done in 4.1)
+5. **If validation fails**: Fix schema or implementation to match
+
 **PHASE_4_CHECKPOINT:**
 
 - [ ] Type-check passes (command from plan)
 - [ ] Lint passes (0 errors)
 - [ ] Tests pass (all green)
 - [ ] Coverage >= 90% on new/changed code (or skipped if no coverage tool)
-- [ ] Build succeeds
 - [ ] Integration tests pass (if applicable)
+- [ ] Build succeeds
+- [ ] Security checks pass (if applicable)
+- [ ] Performance regression check (if applicable)
+- [ ] API contract validation (if applicable)
 
 ---
 

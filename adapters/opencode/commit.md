@@ -7,6 +7,7 @@ agent: build
 
 Target: $ARGUMENTS
 
+0. **Pre-commit quality check (advisory)**: scan staged files for debug artifacts (TODO/FIXME, console.log/debugger), `any` type usage in .ts files, quick validation (skip in run-all). Warns but does NOT block commit.
 1. `git status --short` — if nothing, stop
 2. Stage matching files:
    - blank = all (`git add -A`)

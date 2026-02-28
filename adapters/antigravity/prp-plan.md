@@ -22,7 +22,7 @@ Transform the input into a battle-tested implementation plan. PLAN ONLY — no c
 3. **Explore Codebase**: Find similar implementations, naming conventions, error/logging/test patterns, integration points, dependencies with versions. Use ACTUAL code snippets with file:line references. Document in table format.
 4. **Research**: ONLY AFTER exploration. Official docs (match versions), gotchas, security. Format: URL + KEY_INSIGHT + APPLIES_TO + GOTCHA.
 5. **Design UX**: Before/After ASCII diagrams with data flows. Interaction changes table.
-6. **Architect**: Analyze architecture fit, execution order, failure modes, performance, security, maintainability. Document approach chosen, rationale, alternatives rejected, scope limits.
+6. **Architect**: Analyze architecture fit, execution order, failure modes, performance, security, maintainability. Document approach chosen, rationale, alternatives rejected, scope limits. **Technical Design (conditional)**: If complexity=HIGH or API/DB changes → include API Contracts, Database Schema (with migration + rollback), Sequence Diagrams (Mermaid), NFRs (p95/p99, caching, security), Migration & Rollback plan. Reference existing Design Doc if available.
 7. **Generate Plan**: Save to `.prp-output/plans/{feature}.plan.md` with ALL sections:
    - Summary, User Story, Problem/Solution Statements, Metadata
    - UX Design (before/after ASCII diagrams + interaction changes)
@@ -31,7 +31,8 @@ Transform the input into a battle-tested implementation plan. PLAN ONLY — no c
    - Files to Change (CREATE/UPDATE with justifications)
    - NOT Building (scope limits)
    - Step-by-Step Tasks (each with ACTION/IMPLEMENT/MIRROR/IMPORTS/GOTCHA/VALIDATE)
-   - Testing Strategy (unit tests + edge cases checklist)
+   - Testing Strategy (unit tests + **integration tests** (conditional) + **test data requirements** + **performance benchmarks** (conditional) + edge cases)
+   - **Technical Design** (conditional, HIGH or API/DB changes) — API contracts, DB schema, sequence diagrams, NFRs, migration & rollback
    - Validation Commands (6 levels: Static, Unit, Full Suite, Database, Browser, Manual)
    - Acceptance Criteria, Completion Checklist, Risks and Mitigations
 

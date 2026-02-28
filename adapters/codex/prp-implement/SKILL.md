@@ -60,12 +60,13 @@ Sync: `git fetch origin && git pull --rebase origin main 2>/dev/null || true`
 
 ## Phase 3: Execute Tasks
 
-For each task in the plan:
+For each task in the plan (TDD approach):
 
-1. **Read Context**: Read MIRROR file reference, understand pattern, read IMPORTS
-2. **Implement**: Make change exactly as specified, follow MIRROR pattern, handle GOTCHA warnings
-3. **Validate Immediately**: Run type-check after EVERY file change. If fails → read error → fix → re-run → only proceed when passing
-4. **Track Progress**: Log each task completion. If deviating, document WHAT and WHY.
+1. **Read Context**: Read MIRROR file reference, understand pattern, read IMPORTS, read Testing Strategy
+2. **Write Test First (RED)**: For tasks that CREATE new functions/modules — write test cases first, run tests (should FAIL). Skip test-first for config/wiring/schema tasks.
+3. **Implement (GREEN)**: Make change exactly as specified, follow MIRROR pattern, handle GOTCHA warnings. Run tests — should now PASS.
+4. **Validate Immediately**: Run type-check after EVERY file change. If fails → read error → fix → re-run → only proceed when passing
+5. **Track Progress**: Log each task with TDD status: `Task 1: Test ✅ (3 cases) — Impl ✅`. If deviating, document WHAT and WHY.
 
 ## Phase 4: Full Validation
 
@@ -96,8 +97,20 @@ After tests pass, verify coverage on new/changed code (target: **90%**).
 - Focus on new/changed files only: `git diff --name-only origin/main...HEAD`
 - If >= 90% → proceed. If < 90% → write more tests. If no coverage tool → skip with warning.
 
+### 4.2.5 Integration Tests (conditional)
+If plan specifies integration tests or project has `test:integration` → run them. Skip if not applicable.
+
 ### 4.5 Edge Case Testing
 Run any edge case tests specified in the plan.
+
+### 4.6 Security Checks (conditional — basic SAST)
+If feature involves user input/auth/data storage: scan changed files for hardcoded secrets, SQL injection patterns, unsafe eval/exec. Fix immediately if found.
+
+### 4.7 Performance Regression (conditional)
+If plan has performance benchmarks and project has benchmark tooling: run benchmarks, flag regressions > 20%.
+
+### 4.8 API Contract Validation (conditional)
+If project has OpenAPI/GraphQL schema and feature modifies API surface: validate schema is still valid.
 
 ## Phase 5: Report
 

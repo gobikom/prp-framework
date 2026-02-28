@@ -31,6 +31,8 @@ QUESTION SET 1 → GROUNDING → QUESTION SET 2 → RESEARCH → QUESTION SET 3 
 
 Note: Uses `-gemini` suffix to identify Gemini PRD drafts. Multiple tools can create draft PRDs in `drafts/` subdirectory for comparison. User manually merges best sections to final version at `.prp-output/prds/{name}-prd.md` (no suffix, root level) which Plan command will reference.
 
+Also include these CONDITIONAL sections: (1) Deployment & Rollback Strategy — feature flags, rollback triggers, rollout plan (skip if no deployment impact), (2) Backward Compatibility — breaking changes, migration path, deprecation (skip if net-new), (3) Privacy & Compliance — GDPR, data handling, consent (skip if no user data), (4) Risk Analysis — technical/business/operational/security risks with mitigation (skip if LOW complexity).
+
 8. **OUTPUT**: Report file path (draft), problem/solution summary, key metric, validation status, open questions, recommended next step, phases table.
 
 To start implementation: (1) Manually compare draft PRDs from different tools in `drafts/` subdirectory, (2) Merge best sections to final PRD at `.prp-output/prds/{name}-prd.md` (no suffix), (3) Run Plan workflow with final PRD path. Plan command references final merged PRD only (not drafts).

@@ -72,7 +72,7 @@ cp -r prp-framework/* my-project/
 | **Review Fix** | Auto-fix all review issues to PR branch | After review, fix critical/high/medium/suggestions |
 | **Commit** | Smart staging + conventional commit | Code ready to commit |
 | **PR** | Create pull request | Ready to push |
-| **Run All** | Full workflow end-to-end (supports `--ralph`, `--resume`, `--fix-severity`) | Complete automation |
+| **Run All** | Full workflow end-to-end (supports `--ralph`, `--resume`, `--fix-severity`, `--no-interact`) | Complete automation |
 
 ## Tool Support
 
@@ -89,6 +89,7 @@ cp -r prp-framework/* my-project/
 /prp-core:run-all Add JWT auth --ralph                     # Full workflow using ralph loop
 /prp-core:run-all Add JWT auth --resume                    # Resume from last failed step
 /prp-core:run-all Add JWT auth --fix-severity critical     # Override review-fix severity
+/prp-core:run-all Add JWT auth --no-interact               # Fully unattended (no questions asked)
 /prp-core:review-agents 25                                 # Multi-agent PR review
 /prp-core:review-fix 25                                    # Fix all review issues
 /prp-core:commit                                           # Smart commit
