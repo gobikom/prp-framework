@@ -1,6 +1,6 @@
 ---
 description: Create a PR from current branch with unpushed commits
-argument-hint: [base-branch] (default: main)
+argument-hint: [base-branch] [--no-interact] (default: main)
 ---
 
 # Create Pull Request
@@ -297,7 +297,9 @@ git push --force-with-lease
 ls .github/PULL_REQUEST_TEMPLATE/
 ```
 
-- If multiple templates, use the default or ask user which to use
+- If multiple templates:
+  - **Default**: Ask user which template to use
+  - **If `--no-interact` flag is set**: Auto-select the default template (first one alphabetically, or `default.md` if it exists). Do NOT ask.
 
 ### Draft PR requested
 

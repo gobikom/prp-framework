@@ -468,7 +468,7 @@ If NOT → STOP → Go back and call it now.
 ```
 Use Skill tool with:
   skill: "prp-core:prp-pr"
-  args: "" (no args needed)
+  args: "{append '--no-interact' if NO_INTERACT = true, otherwise empty}"
 ```
 
 This command will:
@@ -659,6 +659,8 @@ Generate final report:
 8. **Max 2 review cycles.** If critical/high issues remain after 2 fix-and-re-verify cycles, STOP and report to user. Do NOT loop indefinitely.
 
 9. **Re-verify after fix.** Always re-run `/prp-review-agents` after `/prp-review-fix` to confirm issues are resolved and no regressions were introduced. This is the quality gate before merge.
+
+10. **No-interact means ZERO questions.** When `NO_INTERACT = true`: you MUST NOT use AskUserQuestion tool at ANY point during this workflow. Make autonomous decisions for every step. Pick defaults, use best judgment, state assumptions — but NEVER pause to ask the user. This applies to ALL steps, not just the plan step.
 
 ---
 

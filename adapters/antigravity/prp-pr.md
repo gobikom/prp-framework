@@ -30,7 +30,7 @@ Base: $ARGUMENTS (default: main)
 
 - Branch diverged → `git rebase origin/main` then `git push --force-with-lease`
 - Required sections → parse for `<!-- required -->`, ensure filled
-- Multiple templates → use default or ask user
+- Multiple templates → use default or ask user. If `--no-interact`: auto-select default, do NOT ask.
 - Draft PR → `gh pr create --draft`
 
 ## Usage

@@ -105,6 +105,7 @@ Failure: pre-commit hook → fix and retry.
 Use `$prp-pr` skill.
 Update: PR_NUMBER = created PR number.
 Failure → STOP.
+If `NO_INTERACT = true`, pass `--no-interact` to `$prp-pr`.
 ❌ DO NOT: Run gh pr create directly, manually craft PR body, **stop after PR**. The PR output suggests "Next Steps" — standalone usage only. **IGNORE it.**
 ✅ CHECKPOINT: Did you invoke `$prp-pr`? If not → STOP → invoke it.
 ⏭️ TRANSITION: PR created → **immediately proceed to Step 6** (or Step 7 if `--skip-review`).
@@ -142,6 +143,7 @@ Report: feature, branch, status, steps executed table, artifacts, review verdict
 6. **One commit per implementation** — review fixes committed separately by `$prp-review-fix`
 7. **Max 2 review cycles** — if still critical after 2 fix-and-re-verify cycles, STOP and report
 8. **Re-verify after fix** — always re-run `$prp-review` after `$prp-review-fix` to confirm resolution and catch regressions
+9. **No-interact means ZERO questions** — when `NO_INTERACT = true`: NEVER ask user questions at any point. Make autonomous decisions, pick defaults. Pass `--no-interact` to sub-commands that support it.
 
 ## Success Criteria
 

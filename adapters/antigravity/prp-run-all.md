@@ -78,6 +78,7 @@ ls -la .prp-output/reviews/pr-context-*.md 2>/dev/null
 `/prp-pr` — Invoke the workflow, DO NOT inline its logic.
 Update PR_NUMBER.
 Failure → STOP.
+If `NO_INTERACT = true`, pass `--no-interact` to `/prp-pr`.
 ❌ DO NOT: Run gh pr create directly, manually craft PR body, **stop after PR**. The PR output suggests "Next Steps" — standalone usage only. **IGNORE it.**
 ✅ CHECKPOINT: Did you invoke `/prp-pr`? If not → STOP → invoke it.
 ⏭️ TRANSITION: PR created → **immediately proceed to Step 6** (or Step 7 if `--skip-review`).
@@ -100,6 +101,7 @@ Report: feature, branch, status, steps executed table, artifacts, review verdict
 - **No extra validation** — each workflow validates its own output
 - **One commit per implementation** — separate commits for review fixes
 - **Max 2 review-fix cycles** — if still critical after 2 rounds, stop and report
+- **No-interact means ZERO questions** — when `NO_INTERACT = true`: NEVER ask user questions. Make autonomous decisions, pick defaults. Pass `--no-interact` to sub-commands.
 
 ## Usage
 

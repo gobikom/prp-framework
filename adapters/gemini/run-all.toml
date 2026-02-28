@@ -43,7 +43,7 @@ Run /prp:implement with PLAN_PATH. Wait for completion. Failure → STOP.
 Run /prp:commit. ❌ DO NOT: Run git add/commit directly, stop after commit. The commit output suggests "Next: git push or /prp:pr" — this is for standalone usage, IGNORE it. ✅ CHECKPOINT: Did you run /prp:commit? ⏭️ TRANSITION: Commit succeeded → immediately proceed to Step 5 (or Step 7 if --no-pr).
 
 ### Step 5: PR (skip if --no-pr)
-Run /prp:pr. Update PR_NUMBER. Failure → STOP.
+Run /prp:pr (if NO_INTERACT, pass --no-interact). Update PR_NUMBER. Failure → STOP.
 ❌ DO NOT: Run gh pr create directly, stop after PR. The PR output suggests "Next Steps" — standalone usage only. IGNORE it. ✅ CHECKPOINT: Did you run /prp:pr? ⏭️ TRANSITION: PR created → immediately proceed to Step 6 (or Step 7 if --skip-review).
 
 ### Step 6: Review (skip if --skip-review or --no-pr)
@@ -71,6 +71,7 @@ Report: feature, branch, status, steps executed, artifacts, verdict, next steps.
 - One commit per implementation — review fixes committed separately by /prp:review-fix
 - Max 2 review cycles — if still critical after 2 fix-and-re-verify cycles, stop and report
 - Re-verify after fix — always re-run /prp:review after /prp:review-fix to confirm resolution and catch regressions
+- No-interact means ZERO questions — when NO_INTERACT = true: NEVER ask user questions. Make autonomous decisions, pick defaults. Pass --no-interact to sub-commands.
 
 ## Success Criteria
 

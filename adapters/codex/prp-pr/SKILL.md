@@ -121,7 +121,7 @@ Report: PR number, URL, title, base←branch, summary, changes count, files list
 
 - **Branch diverged**: `git rebase origin/main` then `git push --force-with-lease`
 - **Required template sections**: Parse for `<!-- required -->`, ensure filled
-- **Multiple templates**: Use default or ask user
+- **Multiple templates**: Use default or ask user. If `--no-interact`: auto-select default template, do NOT ask.
 - **Draft PR**: `gh pr create --draft --title "{title}" --body "{body}"`
 
 ## Success Criteria

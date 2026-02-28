@@ -16,6 +16,6 @@ Base: {{args}} (default: main)
 
 - Branch diverged → rebase then force-with-lease
 - Required sections → parse for <!-- required -->, ensure filled
-- Multiple templates → use default or ask
+- Multiple templates → use default or ask. If --no-interact: auto-select default, do NOT ask.
 - Draft PR → `gh pr create --draft`
 """

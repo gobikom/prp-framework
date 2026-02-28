@@ -39,6 +39,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 14 structure tests for plan, implement, prd, commit quality enhancements
   - 5 cross-adapter parity tests for Technical Design, TDD, security checks, Backward Compatibility, pre-commit
 
+### Enhanced
+- **`--no-interact` enforced across full workflow** (all adapters):
+  - Added "ZERO questions" critical rule in all run-all adapters — orchestrator must NEVER use AskUserQuestion when flag set
+  - run-all now passes `--no-interact` to `/prp-pr` sub-command
+  - All PR commands handle `--no-interact` for multiple template selection (auto-select default)
+  - Covers all interactive points: plan (ambiguous reqs), PR (template choice), stale state (auto-clean)
+
 ### Added
 - **Phase 0: Context Detection in Review** (all adapters):
   - Review checks for pre-generated `pr-context-{BRANCH}.md` before fetching PR diff

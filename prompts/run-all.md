@@ -142,7 +142,7 @@ This will:
 
 **Failure**: If PR creation fails → STOP, report error.
 
-**DO NOT**: Manually craft PR body. **Do NOT stop after PR** — the PR output may suggest "Next Steps" like "Wait for CI checks" but this is for standalone usage. **IGNORE that suggestion and proceed to Step 6.**
+**DO NOT**: Manually craft PR body. If `NO_INTERACT = true`, pass `--no-interact` to the PR workflow. **Do NOT stop after PR** — the PR output may suggest "Next Steps" like "Wait for CI checks" but this is for standalone usage. **IGNORE that suggestion and proceed to Step 6.**
 
 **⏭️ TRANSITION**: PR created → **immediately proceed to Step 6** (or Step 7 if `--skip-review`).
 
@@ -227,6 +227,8 @@ Generate final report:
 5. **One commit per implementation.** Use the commit workflow once after implement. If review fixes are needed, commit those separately.
 
 6. **Max 2 review cycles.** If review still has critical issues after 2 fix-and-review cycles, STOP and report to user.
+
+7. **No-interact means ZERO questions.** When `NO_INTERACT = true`: NEVER ask the user questions at ANY point during this workflow. Make autonomous decisions for every step. Pick defaults, use best judgment — but NEVER pause to ask. This applies to ALL steps, not just plan.
 
 ---
 
