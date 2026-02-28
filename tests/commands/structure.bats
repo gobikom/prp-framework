@@ -180,3 +180,184 @@ PROMPTS_DIR="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)/prompts"
 @test "commit.md contains pre-commit quality check" {
     grep -qi "PRE-COMMIT\|pre.commit\|Phase 0" "$PROMPTS_DIR/commit.md"
 }
+
+# ─────────────────────────────────────────────
+# 11. --no-interact flag tests (P1)
+# ─────────────────────────────────────────────
+
+@test "run-all.md contains --no-interact flag" {
+    grep -q "\-\-no-interact" "$PROMPTS_DIR/run-all.md"
+}
+
+@test "plan.md contains --no-interact handling" {
+    grep -qi "no-interact" "$PROMPTS_DIR/plan.md"
+}
+
+# ─────────────────────────────────────────────
+# 12. Expanded design.md structure (P3)
+# ─────────────────────────────────────────────
+
+@test "design.md contains Phase sections" {
+    grep -q "## Phase" "$PROMPTS_DIR/design.md"
+}
+
+@test "design.md contains API Contracts section" {
+    grep -qi "API Contracts" "$PROMPTS_DIR/design.md"
+}
+
+@test "design.md contains Database Schema section" {
+    grep -qi "Database Schema" "$PROMPTS_DIR/design.md"
+}
+
+@test "design.md contains Sequence Diagrams section" {
+    grep -qi "Sequence Diagram" "$PROMPTS_DIR/design.md"
+}
+
+@test "design.md contains Migration Strategy section" {
+    grep -qi "Migration Strategy\|Migration" "$PROMPTS_DIR/design.md"
+}
+
+@test "design.md contains Success Criteria" {
+    grep -qi "Success Criteria" "$PROMPTS_DIR/design.md"
+}
+
+# ─────────────────────────────────────────────
+# 13. Expanded review.md structure (P3)
+# ─────────────────────────────────────────────
+
+@test "review.md contains Review Aspects table" {
+    grep -qi "Review Aspects\|Aspect.*Focus" "$PROMPTS_DIR/review.md"
+}
+
+@test "review.md contains severity categories" {
+    grep -qi "Critical" "$PROMPTS_DIR/review.md"
+    grep -qi "Important\|High" "$PROMPTS_DIR/review.md"
+}
+
+@test "review.md contains multi-pass review" {
+    grep -qi "Pass 1\|multi.pass\|Review Passes" "$PROMPTS_DIR/review.md"
+}
+
+@test "review.md contains pr-context detection" {
+    grep -qi "pr-context\|context.*detect\|Phase 0.*Context" "$PROMPTS_DIR/review.md"
+}
+
+@test "review.md contains Success Criteria" {
+    grep -qi "Success Criteria" "$PROMPTS_DIR/review.md"
+}
+
+# ─────────────────────────────────────────────
+# 14. Expanded pr.md structure (P3)
+# ─────────────────────────────────────────────
+
+@test "pr.md contains Phase sections" {
+    grep -q "## Phase" "$PROMPTS_DIR/pr.md"
+}
+
+@test "pr.md contains PR template check" {
+    grep -qi "PULL_REQUEST_TEMPLATE\|PR template\|template" "$PROMPTS_DIR/pr.md"
+}
+
+@test "pr.md contains conventional commit prefixes" {
+    grep -qi "feat:\|fix:\|refactor:" "$PROMPTS_DIR/pr.md"
+}
+
+@test "pr.md contains Success Criteria" {
+    grep -qi "Success Criteria" "$PROMPTS_DIR/pr.md"
+}
+
+# ─────────────────────────────────────────────
+# 15. Expanded review-fix.md structure (P3)
+# ─────────────────────────────────────────────
+
+@test "review-fix.md contains severity mapping" {
+    grep -qi "Critical\|High\|Medium\|Suggestion" "$PROMPTS_DIR/review-fix.md"
+}
+
+@test "review-fix.md contains validation step" {
+    grep -qi "VALIDATE\|validation" "$PROMPTS_DIR/review-fix.md"
+}
+
+@test "review-fix.md contains edge cases" {
+    grep -qi "Edge Case" "$PROMPTS_DIR/review-fix.md"
+}
+
+# ─────────────────────────────────────────────
+# 16. Negative tests — deprecated patterns (P5)
+# ─────────────────────────────────────────────
+
+@test "prompts/ do not reference deprecated .ai-workflows/ path" {
+    ! grep -rq "\.ai-workflows/" "$PROMPTS_DIR/"
+}
+
+@test "prompts/ do not reference deprecated .claude/PRPs/ path" {
+    ! grep -rq "\.claude/PRPs/" "$PROMPTS_DIR/"
+}
+
+@test "plan.md does not reference old 80% coverage target" {
+    ! grep -q "80%" "$PROMPTS_DIR/plan.md"
+}
+
+@test "implement.md does not reference old 80% coverage target" {
+    ! grep -q "80%" "$PROMPTS_DIR/implement.md"
+}
+
+# ─────────────────────────────────────────────
+# 17. Cross-reference integrity (AI-user gaps)
+# ─────────────────────────────────────────────
+
+@test "review.md report glob matches tool-suffixed reports" {
+    grep -q "\*-report\*" "$PROMPTS_DIR/review.md"
+}
+
+@test "run-all.md passes --context to review step" {
+    grep -qi "context.*CONTEXT_FILE\|--context" "$PROMPTS_DIR/run-all.md"
+}
+
+@test "run-all.md contains edge cases" {
+    grep -qi "Edge Case" "$PROMPTS_DIR/run-all.md"
+}
+
+# ─────────────────────────────────────────────
+# 18. Success Criteria completeness
+# ─────────────────────────────────────────────
+
+@test "all 9 core prompts have Success Criteria" {
+    grep -qi "Success Criteria" "$PROMPTS_DIR/prd.md"
+    grep -qi "Success Criteria" "$PROMPTS_DIR/design.md"
+    grep -qi "Success Criteria" "$PROMPTS_DIR/plan.md"
+    grep -qi "Success Criteria" "$PROMPTS_DIR/implement.md"
+    grep -qi "Success Criteria" "$PROMPTS_DIR/commit.md"
+    grep -qi "Success Criteria" "$PROMPTS_DIR/pr.md"
+    grep -qi "Success Criteria" "$PROMPTS_DIR/review.md"
+    grep -qi "Success Criteria" "$PROMPTS_DIR/review-fix.md"
+    grep -qi "Success Criteria" "$PROMPTS_DIR/run-all.md"
+}
+
+# ─────────────────────────────────────────────
+# 19. Edge Cases completeness
+# ─────────────────────────────────────────────
+
+@test "all 9 core prompts have Edge Cases" {
+    grep -qi "Edge Case" "$PROMPTS_DIR/prd.md"
+    grep -qi "Edge Case" "$PROMPTS_DIR/design.md"
+    grep -qi "Edge Case" "$PROMPTS_DIR/plan.md"
+    grep -qi "Edge Case\|Handling Failure" "$PROMPTS_DIR/implement.md"
+    grep -qi "Edge Case" "$PROMPTS_DIR/commit.md"
+    grep -qi "Edge Case" "$PROMPTS_DIR/pr.md"
+    grep -qi "Edge Case" "$PROMPTS_DIR/review.md"
+    grep -qi "Edge Case" "$PROMPTS_DIR/review-fix.md"
+    grep -qi "Edge Case" "$PROMPTS_DIR/run-all.md"
+}
+
+# ─────────────────────────────────────────────
+# 20. Artifact variable naming consistency
+# ─────────────────────────────────────────────
+
+@test "prompts use consistent {name} variable for artifacts" {
+    # All output paths should use {name} not {feature} or {kebab-case-name} or {plan-name}
+    ! grep -q '{kebab-case-name}' "$PROMPTS_DIR/prd.md"
+    ! grep -q '{feature}-design' "$PROMPTS_DIR/design.md"
+    ! grep -q '{kebab-case-feature-name}' "$PROMPTS_DIR/plan.md"
+    ! grep -q '{plan-name}' "$PROMPTS_DIR/implement.md"
+}

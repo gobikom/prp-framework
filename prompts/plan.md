@@ -285,7 +285,7 @@ NOT_BUILDING (explicit scope limits):
 > **Include if**: Complexity is HIGH, OR feature involves new API endpoints, database schema changes, or multi-service integration.
 > **Skip if**: Complexity is LOW, or feature is a simple enhancement/bug fix within existing patterns.
 >
-> **If a Design Doc exists** at `.prp-output/designs/{feature}-design-*.md`: Reference it and incorporate relevant sections rather than re-creating.
+> **If a Design Doc exists** at `.prp-output/designs/{name}-design-*.md`: Reference it and incorporate relevant sections rather than re-creating.
 
 #### 5.2.1 API Contracts (if new/modified endpoints)
 
@@ -333,7 +333,9 @@ Define request/response schemas using project conventions:
 
 ## Phase 6: GENERATE — Implementation Plan File
 
-**OUTPUT_PATH**: `.prp-output/plans/{kebab-case-feature-name}.plan.md`
+**OUTPUT_PATH**: `.prp-output/plans/{name}.plan.md`
+
+> `{name}` = kebab-case feature name (e.g., `user-auth`, `payment-flow`)
 
 Create directory if needed: `mkdir -p .prp-output/plans`
 
@@ -723,7 +725,7 @@ Verify using browser/UI testing:
 
 ## Output
 
-**OUTPUT_FILE**: `.prp-output/plans/{kebab-case-feature-name}.plan.md`
+**OUTPUT_FILE**: `.prp-output/plans/{name}.plan.md`
 
 **If input was from PRD file**, also update the PRD:
 
@@ -738,7 +740,7 @@ Verify using browser/UI testing:
 ```markdown
 ## Plan Created
 
-**File**: `.prp-output/plans/{feature-name}.plan.md`
+**File**: `.prp-output/plans/{name}.plan.md`
 
 {If from PRD:}
 **Source PRD**: `{prd-file-path}`

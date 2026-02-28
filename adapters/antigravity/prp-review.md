@@ -12,11 +12,15 @@ Format: `<pr-number> [aspects: comments|tests|errors|types|code|docs|simplify|al
 
 Multi-pass review of PR. Each pass focuses on one quality dimension. Report only high-confidence issues (80%+).
 
+## Context Detection (Token Optimization)
+
+Check for pre-generated pr-context: `.prp-output/reviews/pr-context-{BRANCH}.md`. If found, use it to skip PR diff fetch. If `--context <path>` provided, use that path directly.
+
 ## Setup
 
 1. Get PR: `gh pr view` (with PR number if provided)
 2. Check state: rebase needed? conflicts?
-3. Changed files: `gh pr diff --name-only`
+3. Changed files (skip if pr-context found): `gh pr diff --name-only`
 4. Classify: production, test, config, types, docs
 
 ## Aspect Selection
@@ -56,7 +60,7 @@ Save aggregated review to `.prp-output/reviews/pr-{NUMBER}-review-antigravity.md
 `gh pr comment <number> --body-file .prp-output/reviews/pr-{NUMBER}-review-antigravity.md`
 
 ### Update Implementation Report
-After posting, find implementation report (`ls .prp-output/reports/*-report.md`). If exists, append "Review Outcome" section with: review date, PR number, verdict, link to review file, issue counts by category. If no report found, skip silently.
+After posting, find implementation report (`ls -t .prp-output/reports/*-report*.md | head -1`). If exists, append "Review Outcome" section with: review date, PR number, verdict, link to review file, issue counts by category. If no report found, skip silently.
 
 ## Usage
 

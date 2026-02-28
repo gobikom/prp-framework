@@ -372,7 +372,9 @@ mkdir -p .prp-output/reports
 
 ### 5.2 Generate Report
 
-**Path**: `.prp-output/reports/{plan-name}-report-other.md`
+**Path**: `.prp-output/reports/{name}-report-other.md`
+
+> `{name}` = derived from plan filename (e.g., plan `user-auth.plan.md` → report `user-auth-report-other.md`)
 
 > **Note**: Uses `-other` suffix to identify generic/Kimi implementation reports and prevent overwriting reports from other tools (each tool uses its own suffix for parallel implementation capability).
 

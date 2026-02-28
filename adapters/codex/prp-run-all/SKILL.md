@@ -113,7 +113,7 @@ Failure → STOP.
 
 Set `REVIEW_CYCLE = 1`, `MAX_CYCLES = 2`.
 
-**6.1 Run review**: Use `$prp-review` skill with PR_NUMBER.
+**6.1 Run review**: Use `$prp-review` skill with PR_NUMBER. If `.prp-output/reviews/pr-context-{BRANCH}.md` exists, pass `--context` flag for token optimization.
 ❌ DO NOT: Read code and review it yourself, skip the skill.
 ✅ CHECKPOINT: Did you invoke `$prp-review`? If not → STOP → invoke it.
 

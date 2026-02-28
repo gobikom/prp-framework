@@ -150,11 +150,17 @@ This will:
 
 ## Step 6: REVIEW (skip if --skip-review or --no-pr)
 
-Execute the **review** workflow with: `{PR_NUMBER}`
+**Check for pr-context** (token optimization):
+```bash
+CONTEXT_FILE=".prp-output/reviews/pr-context-${BRANCH}.md"
+```
+
+Execute the **review** workflow with: `{PR_NUMBER}` + if CONTEXT_FILE exists, add `--context {CONTEXT_FILE}`
 
 This will:
 - Run applicable review passes (code, docs, tests, errors, types)
 - Post review summary to PR
+- Use pr-context to skip PR diff fetch (saves ~60K tokens)
 
 **Variable update**: `REVIEW_ARTIFACT = {review artifact path}`
 
@@ -236,6 +242,23 @@ This workflow is designed for minimal token usage:
 | PR | Low | Small command |
 | Review | Moderate | Multi-pass analysis |
 | **Total** | Optimized | Each step handles its own scope |
+
+---
+
+## Edge Cases
+
+| Situation | Action |
+|-----------|--------|
+| Already on feature branch (not main) | Skip Step 1, use current branch |
+| Dirty working directory on main | STOP — ask user to stash or commit |
+| `--plan-path` file not found | STOP — show available plans in `.prp-output/plans/` |
+| Implementation fails after retries | STOP — report which task failed and why |
+| Commit fails (pre-commit hook) | Let commit workflow retry, then continue |
+| PR already exists for branch | Use existing PR, skip creation |
+| Review still has critical issues after 2 cycles | STOP — report remaining issues to user |
+| `--resume` with no state file | WARN — start fresh |
+| Conflicting flags (`--no-pr` + `--skip-review`) | `--no-pr` implies `--skip-review`, proceed |
+| Lock file exists (concurrent run) | STOP — "Another run-all is in progress." |
 
 ---
 

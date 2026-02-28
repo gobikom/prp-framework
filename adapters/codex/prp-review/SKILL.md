@@ -17,11 +17,15 @@ Format: `<pr-number> [aspects: comments|tests|errors|types|code|docs|simplify|al
 
 Perform a comprehensive multi-pass code review. Each pass focuses on a specific quality dimension. Report only high-confidence issues (80%+ certain).
 
+## Context Detection (Token Optimization)
+
+Check for pre-generated pr-context: `.prp-output/reviews/pr-context-{BRANCH}.md`. If found, use it to skip PR diff fetch. If `--context <path>` provided, use that path directly.
+
 ## Pre-Review Setup
 
 1. **Identify PR**: `gh pr view <number>` (or current branch if no number)
 2. **Check PR State**: Rebase needed? Conflicts? Never push to main without approval.
-3. **Get Changed Files**: `gh pr diff <number> --name-only`
+3. **Get Changed Files** (skip if pr-context found): `gh pr diff <number> --name-only`
 4. **Classify Files**: production, test, config, types, docs
 
 ## Aspect Selection Logic
@@ -100,7 +104,7 @@ Save aggregated review to `.prp-output/reviews/pr-{NUMBER}-review-codex.md` befo
 Summary includes: Critical/Important/Suggestions/Strengths tables, Documentation Updates, Verdict (READY TO MERGE / NEEDS FIXES / CRITICAL ISSUES), Recommended Actions.
 
 ### Update Implementation Report
-After posting, find implementation report (`ls .prp-output/reports/*-report.md`). If exists, append "Review Outcome" section with: review date, PR number, verdict, link to review file, issue counts by category (Critical/Important/Suggestions). If no report found, skip silently.
+After posting, find implementation report (`ls -t .prp-output/reports/*-report*.md | head -1`). If exists, append "Review Outcome" section with: review date, PR number, verdict, link to review file, issue counts by category (Critical/Important/Suggestions). If no report found, skip silently.
 
 ## Usage Examples
 

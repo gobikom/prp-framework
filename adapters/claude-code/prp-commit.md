@@ -126,6 +126,19 @@ Next: `git push` or `/prp-core:prp-pr`
 
 ---
 
+## Edge Cases
+
+| Situation | Action |
+|-----------|--------|
+| Nothing to commit | STOP — "Working directory clean, nothing to commit." |
+| Only untracked files | `git add` the relevant ones, commit |
+| Merge conflict markers in staged files | STOP — "Resolve conflicts before committing." |
+| Pre-commit hook fails | Show error, suggest fix, retry |
+| Staged binary files (images, PDFs) | Include in commit, note in message |
+| Mixed staged/unstaged changes | Only commit what matches target description |
+
+---
+
 ## Examples
 
 ```
@@ -135,3 +148,13 @@ Next: `git push` or `/prp-core:prp-pr`
 /prp-commit only the new files       # Untracked only
 /prp-commit staged                   # Already-staged only
 ```
+
+---
+
+## Success Criteria
+
+- **FILES_STAGED**: Correct files staged per target description
+- **QUALITY_CHECKED**: Pre-commit advisory scan completed
+- **MESSAGE_CLEAR**: Commit message follows conventional format and is descriptive
+- **COMMITTED**: Git commit succeeded
+- **OUTPUT_SHOWN**: User sees commit hash, message, and file count

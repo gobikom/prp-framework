@@ -50,7 +50,7 @@ Run /prp:pr. Update PR_NUMBER. Failure → STOP.
 
 Set REVIEW_CYCLE = 1, MAX_CYCLES = 2.
 
-6.1 Run `/prp:review {PR_NUMBER}`. ❌ DO NOT: Review code yourself. ✅ CHECKPOINT: Did you run /prp:review?
+6.1 Run `/prp:review {PR_NUMBER}` — if `.prp-output/reviews/pr-context-{BRANCH}.md` exists, pass `--context` flag. ❌ DO NOT: Review code yourself. ✅ CHECKPOINT: Did you run /prp:review?
 
 6.2 Evaluate: No critical/high → Step 7 ✓. Found + cycle ≤ 2 → Step 6.3. Found + cycle > 2 → report remaining → Step 7 (NEEDS MANUAL FIXES).
 

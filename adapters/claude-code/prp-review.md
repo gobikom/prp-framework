@@ -23,6 +23,22 @@ Perform a thorough, senior-engineer-level code review:
 
 ---
 
+## Phase 0: Context Detection (Token Optimization)
+
+**If `--context <path>` argument provided**, use that path directly. Otherwise auto-detect:
+
+```bash
+BRANCH=$(git branch --show-current)
+CONTEXT_FILE=".prp-output/reviews/pr-context-${BRANCH}.md"
+```
+
+| Context File | Action |
+|-------------|--------|
+| FOUND | Read the context file. Use file list, implementation summary, and validation status. Skip fetching PR diff in Phase 1.2 (already in context). Display: "Using pre-generated pr-context — skipping PR diff fetch." |
+| NOT FOUND | Proceed normally with full PR diff fetch in Phase 1. |
+
+---
+
 ## Phase 1: FETCH - Get PR Context
 
 ### 1.1 Parse Input

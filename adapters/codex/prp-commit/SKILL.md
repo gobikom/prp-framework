@@ -74,3 +74,19 @@ $prp-commit except package-lock      # Exclude specific
 $prp-commit only the new files       # Untracked only
 $prp-commit staged                   # Already-staged only
 ```
+
+## Edge Cases
+
+| Situation | Action |
+|-----------|--------|
+| Nothing to commit | STOP |
+| Merge conflict markers | STOP — resolve first |
+| Pre-commit hook fails | Show error, suggest fix, retry |
+| Mixed staged/unstaged | Only commit what matches target |
+
+## Success Criteria
+
+- FILES_STAGED: Correct files staged per target
+- QUALITY_CHECKED: Advisory scan completed
+- MESSAGE_CLEAR: Conventional commit format
+- COMMITTED: Git commit succeeded

@@ -40,6 +40,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 5 cross-adapter parity tests for Technical Design, TDD, security checks, Backward Compatibility, pre-commit
 
 ### Added
+- **Phase 0: Context Detection in Review** (all adapters):
+  - Review checks for pre-generated `pr-context-{BRANCH}.md` before fetching PR diff
+  - Supports `--context` flag from run-all for explicit context passing
+  - Saves ~60K tokens when context file available
+- **Success Criteria in all 9 core prompts** — ensures every workflow has clear pass/fail conditions
+- **Edge Cases in all 9 core prompts** — documents error handling and boundary scenarios for AI consumers
+- **38 new structural/parity/negative tests** (structure.bats + parity.bats):
+  - `--no-interact` structure + parity tests
+  - `--severity` parity test
+  - Expanded design.md, review.md, pr.md, review-fix.md structure tests
+  - Cross-reference integrity tests (report glob, implement→review artifact naming)
+  - Deprecated pattern negative tests
+  - Success Criteria + Edge Cases completeness tests
+  - Artifact variable naming consistency tests
+
+### Fixed
+- **Report glob mismatch** (all review/review-agents files):
+  - `*-report.md` didn't match tool-suffixed reports like `*-report-agents.md`
+  - Fixed to `*-report*.md` across all review adapters
+- **run-all `--context` passing** (all adapters):
+  - Step 6 now checks for `pr-context-{BRANCH}.md` and passes `--context` flag to review
+- **Artifact variable naming** standardized across all source prompts:
+  - `{kebab-case-name}` (prd.md), `{feature}` (design.md), `{kebab-case-feature-name}` / `{feature-name}` (plan.md), `{plan-name}` (implement.md) → all unified to `{name}`
+
+### Added
 - **`--no-interact` flag** (all adapters):
   - Enables fully unattended workflow execution — no user prompts
   - Plan step uses best judgment instead of asking for clarification (documents assumptions)

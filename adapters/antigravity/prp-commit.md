@@ -29,3 +29,11 @@ Target: $ARGUMENTS
 /prp-commit only the new files       # Untracked only
 /prp-commit staged                   # Already-staged only
 ```
+
+## Edge Cases
+
+Nothing to commit → STOP. Merge conflicts → STOP. Pre-commit hook fails → fix and retry. Mixed staged/unstaged → only commit matching target.
+
+## Success Criteria
+
+FILES_STAGED, QUALITY_CHECKED, MESSAGE_CLEAR, COMMITTED

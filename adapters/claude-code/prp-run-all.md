@@ -351,7 +351,7 @@ If NOT → STOP → Go back and call it now.
 BRANCH=$(git branch --show-current)
 
 # Check for report (find the most recent one)
-ls -la .prp-output/reports/*-report.md 2>/dev/null
+ls -la .prp-output/reports/*-report*.md 2>/dev/null
 
 # Check for review context
 ls -la .prp-output/reviews/pr-context-*.md 2>/dev/null

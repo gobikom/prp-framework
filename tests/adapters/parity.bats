@@ -185,3 +185,90 @@ FRAMEWORK_DIR="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)"
     grep -qi "pre-commit\|PRE-COMMIT\|Phase 0\|quality check" "$FRAMEWORK_DIR/adapters/antigravity/prp-commit.md"
     grep -qi "pre-commit\|PRE-COMMIT\|Phase 0\|quality check" "$FRAMEWORK_DIR/prompts/commit.md"
 }
+
+# ─────────────────────────────────────────────
+# 5. --no-interact parity (P1)
+# ─────────────────────────────────────────────
+@test "all run-all files mention --no-interact" {
+    grep -q "\-\-no-interact" "$FRAMEWORK_DIR/adapters/claude-code/prp-run-all.md"
+    grep -q "\-\-no-interact" "$FRAMEWORK_DIR/adapters/codex/prp-run-all/SKILL.md"
+    grep -q "\-\-no-interact" "$FRAMEWORK_DIR/adapters/opencode/run-all.md"
+    grep -q "\-\-no-interact" "$FRAMEWORK_DIR/adapters/gemini/run-all.toml"
+    grep -q "\-\-no-interact" "$FRAMEWORK_DIR/adapters/antigravity/prp-run-all.md"
+    grep -q "\-\-no-interact" "$FRAMEWORK_DIR/prompts/run-all.md"
+}
+
+# ─────────────────────────────────────────────
+# 6. review-fix --severity parity (P2)
+# ─────────────────────────────────────────────
+@test "all review-fix files mention --severity" {
+    grep -q "\-\-severity" "$FRAMEWORK_DIR/adapters/claude-code/prp-review-fix.md"
+    grep -q "\-\-severity" "$FRAMEWORK_DIR/adapters/codex/prp-review-fix/SKILL.md"
+    grep -q "\-\-severity" "$FRAMEWORK_DIR/adapters/opencode/review-fix.md"
+    grep -q "\-\-severity" "$FRAMEWORK_DIR/adapters/gemini/review-fix.toml"
+    grep -q "\-\-severity" "$FRAMEWORK_DIR/adapters/antigravity/prp-review-fix.md"
+    grep -q "\-\-severity" "$FRAMEWORK_DIR/prompts/review-fix.md"
+}
+
+# ─────────────────────────────────────────────
+# 7. review pr-context parity (P4)
+# ─────────────────────────────────────────────
+@test "all review files mention pr-context" {
+    grep -qi "pr-context\|context.*detect" "$FRAMEWORK_DIR/adapters/claude-code/prp-review.md"
+    grep -qi "pr-context\|context.*detect" "$FRAMEWORK_DIR/adapters/codex/prp-review/SKILL.md"
+    grep -qi "pr-context\|context.*detect" "$FRAMEWORK_DIR/adapters/opencode/review.md"
+    grep -qi "pr-context\|context.*detect" "$FRAMEWORK_DIR/adapters/gemini/review.toml"
+    grep -qi "pr-context\|context.*detect" "$FRAMEWORK_DIR/adapters/antigravity/prp-review.md"
+    grep -qi "pr-context\|context.*detect" "$FRAMEWORK_DIR/prompts/review.md"
+}
+
+# ─────────────────────────────────────────────
+# 8. Negative parity — deprecated paths (P5)
+# ─────────────────────────────────────────────
+@test "no adapter files reference deprecated .ai-workflows/ path" {
+    ! grep -rq "\.ai-workflows/" "$FRAMEWORK_DIR/adapters/claude-code/" || false
+    ! grep -rq "\.ai-workflows/" "$FRAMEWORK_DIR/adapters/codex/" || false
+    ! grep -rq "\.ai-workflows/" "$FRAMEWORK_DIR/adapters/opencode/" || false
+    ! grep -rq "\.ai-workflows/" "$FRAMEWORK_DIR/adapters/gemini/" || false
+    ! grep -rq "\.ai-workflows/" "$FRAMEWORK_DIR/adapters/antigravity/" || false
+}
+
+# ─────────────────────────────────────────────
+# 9. Cross-reference integrity parity
+# ─────────────────────────────────────────────
+@test "all review files use wildcard glob for report discovery" {
+    grep -q "\*-report\*" "$FRAMEWORK_DIR/prompts/review.md"
+    grep -qi "report\*\|report.*md" "$FRAMEWORK_DIR/adapters/codex/prp-review/SKILL.md"
+    grep -qi "report\*\|report.*md" "$FRAMEWORK_DIR/adapters/opencode/review.md"
+    grep -qi "report\*\|report.*md" "$FRAMEWORK_DIR/adapters/gemini/review.toml"
+    grep -qi "report\*\|report.*md" "$FRAMEWORK_DIR/adapters/antigravity/prp-review.md"
+}
+
+@test "all run-all files pass --context to review" {
+    grep -qi "context" "$FRAMEWORK_DIR/adapters/codex/prp-run-all/SKILL.md"
+    grep -qi "context" "$FRAMEWORK_DIR/adapters/opencode/run-all.md"
+    grep -qi "context" "$FRAMEWORK_DIR/adapters/gemini/run-all.toml"
+    grep -qi "context" "$FRAMEWORK_DIR/adapters/antigravity/prp-run-all.md"
+    grep -qi "context" "$FRAMEWORK_DIR/prompts/run-all.md"
+}
+
+# ─────────────────────────────────────────────
+# 10. Commit Success Criteria + Edge Cases parity
+# ─────────────────────────────────────────────
+@test "all commit files have Success Criteria" {
+    grep -qi "Success Criteria" "$FRAMEWORK_DIR/adapters/claude-code/prp-commit.md"
+    grep -qi "Success Criteria" "$FRAMEWORK_DIR/adapters/codex/prp-commit/SKILL.md"
+    grep -qi "Success Criteria" "$FRAMEWORK_DIR/adapters/opencode/commit.md"
+    grep -qi "Success Criteria" "$FRAMEWORK_DIR/adapters/gemini/commit.toml"
+    grep -qi "Success Criteria" "$FRAMEWORK_DIR/adapters/antigravity/prp-commit.md"
+    grep -qi "Success Criteria" "$FRAMEWORK_DIR/prompts/commit.md"
+}
+
+@test "all commit files have Edge Cases" {
+    grep -qi "Edge Case" "$FRAMEWORK_DIR/adapters/claude-code/prp-commit.md"
+    grep -qi "Edge Case" "$FRAMEWORK_DIR/adapters/codex/prp-commit/SKILL.md"
+    grep -qi "Edge Case" "$FRAMEWORK_DIR/adapters/opencode/commit.md"
+    grep -qi "Edge Case" "$FRAMEWORK_DIR/adapters/gemini/commit.toml"
+    grep -qi "Edge Case" "$FRAMEWORK_DIR/adapters/antigravity/prp-commit.md"
+    grep -qi "Edge Case" "$FRAMEWORK_DIR/prompts/commit.md"
+}

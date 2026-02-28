@@ -83,7 +83,7 @@ Failure → STOP.
 ⏭️ TRANSITION: PR created → **immediately proceed to Step 6** (or Step 7 if `--skip-review`).
 
 ### Step 6: Review (skip if --skip-review or --no-pr)
-`/prp-review {PR_NUMBER}` — Invoke the workflow, DO NOT inline its logic.
+`/prp-review {PR_NUMBER}` — if `.prp-output/reviews/pr-context-{BRANCH}.md` exists, pass `--context` flag. DO NOT inline its logic.
 Critical issues → `/prp-review-fix {REVIEW_ARTIFACT} --severity {FIX_SEVERITY}` → commit, push, re-review (max 2 cycles).
 ❌ DO NOT: Read code and review it yourself, skip the workflow.
 ✅ CHECKPOINT: Did you invoke `/prp-review`? If not → STOP → invoke it.

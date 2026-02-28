@@ -166,7 +166,9 @@ Ask final clarifying questions:
 
 ## Phase 7: GENERATE - Write PRD
 
-**Output path**: `.prp-output/prds/drafts/{kebab-case-name}-prd-other.md`
+**Output path**: `.prp-output/prds/drafts/{name}-prd-other.md`
+
+> `{name}` = kebab-case feature name derived from user input (e.g., `user-auth`, `payment-flow`)
 
 Create directory if needed: `mkdir -p .prp-output/prds/drafts`
 
@@ -485,6 +487,19 @@ Plan command references final merged PRD only (not drafts).
 │  GENERATE: Write PRD to drafts/ (tool-specific suffix)  │
 └─────────────────────────────────────────────────────────┘
 ```
+
+---
+
+## Edge Cases
+
+| Situation | Action |
+|-----------|--------|
+| Vague feature description | Ask clarifying questions before proceeding |
+| No existing codebase (greenfield) | Skip codebase exploration, focus on problem/user definition |
+| Feature overlaps existing functionality | Note overlap, recommend extending vs. replacing |
+| Multiple conflicting stakeholders | Document conflicting requirements, propose prioritization |
+| Compliance-sensitive domain (healthcare, finance) | Always include Privacy & Compliance section |
+| User provides full PRD text | Review and restructure to template, don't start from scratch |
 
 ---
 

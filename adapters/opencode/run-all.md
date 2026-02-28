@@ -88,7 +88,7 @@ Failure → STOP.
 
 Set `REVIEW_CYCLE = 1`, `MAX_CYCLES = 2`.
 
-**6.1** `/prp:review {PR_NUMBER}` — DO NOT inline its logic.
+**6.1** `/prp:review {PR_NUMBER}` — if `.prp-output/reviews/pr-context-{BRANCH}.md` exists, pass `--context` flag. DO NOT inline its logic.
 ❌ DO NOT: Read code and review it yourself. ✅ CHECKPOINT: Did you invoke `/prp:review`?
 
 **6.2 Evaluate**:

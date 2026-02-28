@@ -14,6 +14,22 @@ Perform a comprehensive multi-pass code review on the pull request. Each pass fo
 
 ---
 
+## Phase 0: Context Detection (Token Optimization)
+
+**If `--context <path>` argument provided**, use that path directly. Otherwise auto-detect:
+
+```bash
+BRANCH=$(git branch --show-current)
+CONTEXT_FILE=".prp-output/reviews/pr-context-${BRANCH}.md"
+```
+
+| Context File | Action |
+|-------------|--------|
+| FOUND | Read the context file. Use file list, implementation summary, and validation status. Skip "Get Changed Files" below (already in context). Display: "Using pre-generated pr-context — skipping PR diff fetch." |
+| NOT FOUND | Proceed normally with full PR diff fetch. |
+
+---
+
 ## Pre-Review Setup
 
 1. **Identify the PR**
@@ -26,7 +42,7 @@ Perform a comprehensive multi-pass code review on the pull request. Each pass fo
    - Are there conflicts? Resolve intelligently if needed
    - Never push to main without explicit user approval
 
-3. **Get Changed Files**
+3. **Get Changed Files** (skip if pr-context was found in Phase 0)
    ```bash
    gh pr diff <number> --name-only
    ```
@@ -252,7 +268,7 @@ After posting to GitHub, update the implementation report to close the feedback 
 ### Find Implementation Report
 
 ```bash
-ls .prp-output/reports/*-report.md 2>/dev/null
+ls -t .prp-output/reports/*-report*.md 2>/dev/null | head -1
 ```
 
 ### Append Review Outcome
@@ -322,6 +338,20 @@ review 42 simplify
 1. Run specific aspects: `review <pr-number> tests code`
 2. Verify issues resolved
 3. Push updates
+
+---
+
+## Edge Cases
+
+| Situation | Action |
+|-----------|--------|
+| PR is merged | STOP — "PR already merged. Nothing to review." |
+| PR is closed | WARN — review anyway for historical analysis |
+| PR is draft | NOTE — focus on direction, not polish |
+| No PR number and no PR for current branch | STOP — "No PR found. Create a PR first." |
+| Very large PR (>50 files) | Focus on production code, skip generated/vendor files |
+| PR has only config/CI changes | Run only `code` pass, skip `tests`/`types`/`errors` |
+| Review artifact already exists for this PR | Overwrite with new review (timestamp in artifact) |
 
 ---
 

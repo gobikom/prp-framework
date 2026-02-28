@@ -214,7 +214,9 @@ Document key decisions with rationale:
 
 ## Phase 8: Generate Design Doc
 
-**Output path**: `.prp-output/designs/{feature}-design-other.md`
+**Output path**: `.prp-output/designs/{name}-design-other.md`
+
+> `{name}` = kebab-case feature name derived from PRD filename (e.g., `user-auth`, `payment-flow`)
 
 Create directory: `mkdir -p .prp-output/designs`
 
@@ -224,7 +226,7 @@ Create directory: `mkdir -p .prp-output/designs`
 
 ```markdown
 ---
-source-prd: .prp-output/prds/{feature}-prd.md
+source-prd: .prp-output/prds/{name}-prd.md
 created: {timestamp}
 status: reference
 tool: other
@@ -497,6 +499,19 @@ This is a **reference document**. Workflow continues as:
 
 **Design Doc does NOT block workflow** - implementer can reference it for architecture guidance.
 ```
+
+---
+
+## Edge Cases
+
+| Situation | Action |
+|-----------|--------|
+| PRD is still a draft (not finalized) | STOP — "PRD must be finalized before creating design doc." |
+| PRD file not found at given path | STOP — show available PRDs in `.prp-output/prds/` |
+| Simple feature (no API/DB changes) | Create lightweight design — skip API Contracts, Database Schema sections |
+| No frontend changes | Skip Component Hierarchy section |
+| Greenfield project (no existing patterns) | Focus on industry best practices instead of codebase patterns |
+| Design doc already exists for this feature | Warn, ask if should overwrite or create new version |
 
 ---
 

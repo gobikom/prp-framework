@@ -211,7 +211,7 @@ After posting to GitHub, update the implementation report to close the feedback 
 ```bash
 # Find report matching the PR branch
 BRANCH=$(gh pr view <PR_NUMBER> --json headRefName -q '.headRefName')
-ls .prp-output/reports/*-report.md 2>/dev/null
+ls -t .prp-output/reports/*-report*.md 2>/dev/null | head -1
 ```
 
 ### Append Review Outcome

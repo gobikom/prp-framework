@@ -5,11 +5,15 @@ Target: {{args}}
 
 Format: <pr-number> [aspects: comments|tests|errors|types|code|docs|simplify|all]
 
+## Context Detection (Token Optimization)
+
+Check for pre-generated pr-context: `.prp-output/reviews/pr-context-{BRANCH}.md`. If found, skip PR diff fetch. Accepts `--context <path>` flag.
+
 ## Setup
 
 1. Get PR: `gh pr view` (with PR number if provided)
 2. Check state: rebase needed? conflicts?
-3. Changed files: `gh pr diff --name-only`
+3. Changed files (skip if pr-context found): `gh pr diff --name-only`
 4. Classify: production, test, config, types, docs
 
 ## Aspect Selection
@@ -35,7 +39,7 @@ Save review locally to `.prp-output/reviews/pr-{NUMBER}-review-gemini.md` before
 Note: Uses `-gemini` suffix to identify Gemini reviews and prevent overwriting reviews from other tools (each tool uses its own suffix for parallel review capability).
 
 Post to GitHub: `gh pr comment <number> --body-file .prp-output/reviews/pr-{NUMBER}-review-gemini.md`
-After posting, find implementation report (`.prp-output/reports/*-report.md`). If exists, append Review Outcome section with verdict and issue counts. If not found, skip.
+After posting, find implementation report (`ls -t .prp-output/reports/*-report*.md | head -1`). If exists, append Review Outcome section with verdict and issue counts. If not found, skip.
 
 ## Usage
 
