@@ -34,7 +34,7 @@ PRP (Plan-Review-PR) Framework เป็น cross-tool AI coding workflow framew
 - `issue-fix` - Fix from investigation
 - `ralph` - Autonomous implementation loop (loops until all validations pass)
 - `ralph-cancel` - Cancel loop
-- `run-all` - Full workflow (supports `--ralph` / `--ralph-max-iter N` / `--resume` / `--fix-severity` flags)
+- `run-all` - Full workflow (supports `--ralph` / `--ralph-max-iter N` / `--resume` / `--fix-severity` / `--no-interact` flags)
 
 ### Marketing Commands (`/prp-mkt:`)
 - `landing` - Landing page analysis & optimization
