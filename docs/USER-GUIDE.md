@@ -147,10 +147,11 @@ PRD → Design → Plan → Implement → Commit → PR → Review
 **Output**: `.prp-output/plans/{name}-{TIMESTAMP}.plan.md`
 
 **Plan ประกอบด้วย**:
-- Tasks breakdown
-- Validation steps
-- Affected files
-- Risk assessment
+- Tasks breakdown with MIRROR patterns
+- Testing Strategy (unit + integration + test data + performance benchmarks + edge cases)
+- Technical Design (conditional — API contracts, DB schema, sequence diagrams, NFRs, migration) — เปิดใช้เมื่อ complexity=HIGH หรือมี API/DB changes
+- Validation commands (6 levels)
+- Acceptance criteria + Risk assessment
 
 ---
 
@@ -163,13 +164,15 @@ PRD → Design → Plan → Implement → Commit → PR → Review
 /prp-core:implement .prp-output/plans/logout-button-20260210-1430.plan.md
 ```
 
-**กระบวนการ**:
-1. อ่าน plan
-2. Execute แต่ละ task (type-check หลังทุก file change)
-3. Validate (typecheck, lint, test, build)
-4. Coverage check — enforce 90% on new/changed code
-5. Auto-fix ถ้า fail
-6. สร้าง implementation report + review context file
+**กระบวนการ (TDD Approach)**:
+1. อ่าน plan + Testing Strategy
+2. **เขียน test ก่อน (RED)** — สำหรับ functions/modules ใหม่ (skip สำหรับ config/wiring/schema tasks)
+3. **Implement (GREEN)** — ตาม MIRROR pattern, รัน test จน pass
+4. Validate ทันที (type-check หลังทุก file change)
+5. Coverage check — enforce 90% on new/changed code
+6. Full validation: lint, build, integration tests, security checks (SAST), performance regression, API contract
+7. Auto-fix ถ้า fail
+8. สร้าง implementation report + review context file
 
 **Output**: `.prp-output/reports/{plan-name}-report-{TIMESTAMP}.md`
 
@@ -191,6 +194,7 @@ PRD → Design → Plan → Implement → Commit → PR → Review
 ```
 
 **Features**:
+- **Pre-commit quality check (advisory)** — scan debug artifacts (TODO/FIXME, console.log), `any` types, quick validation
 - Smart file staging
 - Conventional commit message
 - Co-Authored-By header

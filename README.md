@@ -13,6 +13,7 @@ PRP (Plan-Review-PR) Framework is a portable, tool-agnostic workflow system for 
 ✅ **Tool-Specific Naming** - Parallel artifact creation for comparison
 ✅ **Complete Workflows** - PRD → Design → Plan → Implement → Review → Commit → PR
 ✅ **Resilient Automation** - State management with `--resume`, review-fix loops, coverage enforcement (90%)
+✅ **Quality Built-in** - TDD approach, conditional design docs, pre-commit checks, security/performance validation
 ✅ **100% Feature Parity** - All tools implement the same logic
 ✅ **Claude Code Advanced** - 30 specialized agents, skills, hooks for enhanced workflows
 ✅ **Domain Extensions** - Marketing automation and AI Bot development command packs
