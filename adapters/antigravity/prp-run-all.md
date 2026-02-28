@@ -13,7 +13,7 @@ Input: $ARGUMENTS
 | `--plan-path <path>` | Extract path. Set PLAN_PATH. Skip Step 2. |
 | `--skip-review` | Skip Step 6. |
 | `--no-pr` | Skip Steps 5 and 6. |
-| `--fix-severity <levels>` | Override review-fix severity (default: `critical,high`) |
+| `--fix-severity <levels>` | Override review-fix severity (default: `critical,high,medium,suggestion`) |
 | `--resume` | Resume from last failed step |
 | `--no-interact` | Never ask user questions — use best judgment, pick defaults |
 | Remaining text | Set FEATURE = remaining text |
@@ -29,7 +29,7 @@ PR_NUMBER = "{TBD — set in Step 5}"
 REVIEW_ARTIFACT = "{TBD — set in Step 6.1}"
 SKIP_REVIEW = {true if --skip-review or --no-pr}
 NO_PR = {true if --no-pr}
-FIX_SEVERITY = "{from --fix-severity, default 'critical,high'}"
+FIX_SEVERITY = "{from --fix-severity, default 'critical,high,medium,suggestion'}"
 NO_INTERACT = {true if --no-interact}
 ```
 
@@ -78,8 +78,9 @@ ls -la .prp-output/reviews/pr-context-*.md 2>/dev/null
 `/prp-pr` — Invoke the workflow, DO NOT inline its logic.
 Update PR_NUMBER.
 Failure → STOP.
-❌ DO NOT: Run gh pr create directly, manually craft PR body.
+❌ DO NOT: Run gh pr create directly, manually craft PR body, **stop after PR**. The PR output suggests "Next Steps" — standalone usage only. **IGNORE it.**
 ✅ CHECKPOINT: Did you invoke `/prp-pr`? If not → STOP → invoke it.
+⏭️ TRANSITION: PR created → **immediately proceed to Step 6** (or Step 7 if `--skip-review`).
 
 ### Step 6: Review (skip if --skip-review or --no-pr)
 `/prp-review {PR_NUMBER}` — Invoke the workflow, DO NOT inline its logic.

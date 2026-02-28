@@ -47,11 +47,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - All 6 adapters updated (Claude Code, Codex, OpenCode, Gemini, Antigravity, generic)
 
 ### Fixed
+- **PR→Review transition** in run-all workflow:
+  - `prp-pr` output "Next Steps" (wait for CI, request review) caused orchestrator to stop after PR creation
+  - Added explicit transition instruction after Step 5 and orchestrator note to `prp-pr` output (all adapters)
 - **Commit→PR transition** in run-all workflow:
   - `prp-commit` output "Next: git push or /prp-pr" caused orchestrator to stop
   - Added explicit transition instruction and orchestrator note to all adapters
 
 ### Changed
+- **FIX_SEVERITY default** changed from `critical,high` to `critical,high,medium,suggestion` in all run-all adapters
+  - Review-fix now fixes all severity levels by default for comprehensive code quality
+  - Use `--fix-severity critical,high` to fix only blocking issues
 - **Renamed** `prp-core-run-all.md` → `prp-run-all.md` for consistent naming
   - Old: `/prp-core:prp-core-run-all` (redundant "prp-core" twice)
   - New: `/prp-core:prp-run-all` (consistent with all other commands)
@@ -67,7 +73,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Run-all workflow improvements** (all adapters):
   - State file management (`.claude/prp-run-all.state.md`) for crash recovery
   - `--resume` flag to continue from last failed step
-  - `--fix-severity <levels>` flag to override review-fix severity (default: `critical,high`)
+  - `--fix-severity <levels>` flag to override review-fix severity (default: `critical,high,medium,suggestion`)
   - `--prp-path` validation — checks file exists before skipping plan step
   - Lock file (`.claude/prp-run-all.lock`) prevents concurrent execution (2-hour stale timeout)
   - Unified `RUN_TIMESTAMP` for artifact correlation across workflow steps

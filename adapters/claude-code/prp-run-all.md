@@ -31,7 +31,7 @@ Execute the complete PRP workflow end-to-end autonomously. Each step delegates t
 | `--ralph-max-iter N` | Set max ralph iterations (default: 10, max recommended: 20) |
 | `--skip-review` | Skip Step 6 (review) |
 | `--no-pr` | Skip Steps 5 and 6 (PR and review) |
-| `--fix-severity <levels>` | Override review-fix severity (default: `critical,high`). Example: `--fix-severity critical,high,medium` |
+| `--fix-severity <levels>` | Override review-fix severity (default: `critical,high,medium,suggestion`). Example: `--fix-severity critical,high` |
 | `--resume` | Resume from last failed step using saved state (`.claude/prp-run-all.state.md`) |
 | `--no-interact` | Never ask user questions — use best judgment for ambiguous requirements, pick defaults for choices. Pre-condition errors still STOP with error (not wait). |
 
@@ -64,7 +64,7 @@ PR_NUMBER = "{TBD — set in Step 5}"
 REVIEW_ARTIFACT = "{TBD — set in Step 6.1}"
 USE_RALPH = {true | false}
 RALPH_MAX_ITER = {N, default 10}
-FIX_SEVERITY = "{from --fix-severity, default 'critical,high'}"
+FIX_SEVERITY = "{from --fix-severity, default 'critical,high,medium,suggestion'}"
 NO_INTERACT = {true | false}
 ```
 
@@ -488,6 +488,8 @@ This command will:
 **✅ CHECKPOINT**: Did you call the Skill tool with `skill: "prp-core:prp-pr"`?
 If NOT → STOP → Go back and call it now.
 
+**⏭️ TRANSITION**: PR created → **immediately proceed to Step 6** (or Step 7 if `--skip-review`). Do NOT stop here. The `/prp-pr` output will suggest "Next Steps" like "Wait for CI checks" or "Request review" — these are for standalone usage only. **IGNORE those suggestions and proceed to the next step.**
+
 ---
 
 ## Step 6: REVIEW (skip if --skip-review or --no-pr OR RESUME_FROM > 6)
@@ -555,8 +557,8 @@ This command will:
 - Commit and push fixes to the PR branch
 - Post fix summary comment on PR
 
-**Default severity**: `critical,high` — override with `--fix-severity critical,high,medium,suggestion` to fix all issues.
-Medium and Suggestion issues don't block merge by default. They will be visible in the summary for manual follow-up.
+**Default severity**: `critical,high,medium,suggestion` — fixes all issues. Override with `--fix-severity critical,high` to fix only blocking issues.
+All severity levels are fixed by default for comprehensive code quality. Use `--fix-severity` to narrow scope if needed.
 
 **❌ DO NOT**:
 - Manually read and fix issues yourself

@@ -25,7 +25,7 @@ Execute the complete PRP workflow end-to-end autonomously. Each step delegates t
 | `--plan-path <path>` | Extract path. Set PLAN_PATH = path. Skip Step 2 (plan). |
 | `--skip-review` | Set SKIP_REVIEW = true. Skip Step 6 (review). |
 | `--no-pr` | Set NO_PR = true. Skip Steps 5 (PR) and 6 (review). |
-| `--fix-severity <levels>` | Override review-fix severity (default: `critical,high`) |
+| `--fix-severity <levels>` | Override review-fix severity (default: `critical,high,medium,suggestion`) |
 | `--resume` | Resume from last failed step using saved state |
 | `--no-interact` | Never ask user questions — use best judgment for ambiguous requirements, pick defaults for choices |
 | Remaining text (after removing flags) | Set FEATURE = text |
@@ -42,7 +42,7 @@ PR_NUMBER = "{TBD — set in Step 5}"
 REVIEW_ARTIFACT = "{TBD — set in Step 6.1}"
 SKIP_REVIEW = {true if --skip-review or --no-pr, false otherwise}
 NO_PR = {true if --no-pr, false otherwise}
-FIX_SEVERITY = "{from --fix-severity, default 'critical,high'}"
+FIX_SEVERITY = "{from --fix-severity, default 'critical,high,medium,suggestion'}"
 NO_INTERACT = {true if --no-interact, false otherwise}
 ```
 
@@ -142,7 +142,9 @@ This will:
 
 **Failure**: If PR creation fails → STOP, report error.
 
-**DO NOT**: Manually craft PR body.
+**DO NOT**: Manually craft PR body. **Do NOT stop after PR** — the PR output may suggest "Next Steps" like "Wait for CI checks" but this is for standalone usage. **IGNORE that suggestion and proceed to Step 6.**
+
+**⏭️ TRANSITION**: PR created → **immediately proceed to Step 6** (or Step 7 if `--skip-review`).
 
 ---
 

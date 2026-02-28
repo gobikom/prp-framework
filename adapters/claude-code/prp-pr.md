@@ -268,6 +268,8 @@ gh pr checks
 - View PR: `gh pr view --web`
 ```
 
+> **Note for orchestrators**: The "Next Steps" above are for standalone usage only. If this command was invoked as part of `/prp-core:prp-run-all`, the orchestrator should ignore these suggestions and proceed to its next step.
+
 ---
 
 ## Handling Edge Cases

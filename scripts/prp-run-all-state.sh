@@ -54,7 +54,7 @@ case "$1" in
         local_feature="${2:-unnamed}"
         local_use_ralph="${3:-false}"
         local_ralph_max_iter="${4:-10}"
-        local_fix_severity="${5:-critical,high}"
+        local_fix_severity="${5:-critical,high,medium,suggestion}"
         local_skip_review="${6:-false}"
         local_no_pr="${7:-false}"
         local_timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")

@@ -14,7 +14,7 @@ Input: $ARGUMENTS
 | `--plan-path <path>` | Extract path. Set PLAN_PATH. Skip Step 2. |
 | `--skip-review` | Skip Step 6. |
 | `--no-pr` | Skip Steps 5 and 6. |
-| `--fix-severity <levels>` | Override review-fix severity (default: `critical,high`) |
+| `--fix-severity <levels>` | Override review-fix severity (default: `critical,high,medium,suggestion`) |
 | `--resume` | Resume from last failed step using saved state |
 | `--no-interact` | Never ask user questions — use best judgment, pick defaults |
 | Remaining text | Set FEATURE = remaining text |
@@ -30,7 +30,7 @@ PR_NUMBER = "{TBD — set in Step 5}"
 REVIEW_ARTIFACT = "{TBD — set in Step 6.1}"
 SKIP_REVIEW = {true if --skip-review or --no-pr}
 NO_PR = {true if --no-pr}
-FIX_SEVERITY = "{from --fix-severity, default 'critical,high'}"
+FIX_SEVERITY = "{from --fix-severity, default 'critical,high,medium,suggestion'}"
 NO_INTERACT = {true if --no-interact}
 ```
 
@@ -82,6 +82,7 @@ Update PR_NUMBER.
 Failure → STOP.
 ❌ DO NOT: Run gh pr create directly, manually craft PR body.
 ✅ CHECKPOINT: Did you invoke `/prp:pr`? If not → STOP → invoke it.
+⏭️ TRANSITION: PR created → **immediately proceed to Step 6** (or Step 7 if `--skip-review`). The PR output suggests "Next Steps" — this is for standalone usage only. **IGNORE it.**
 
 ### Step 6: Review (skip if --skip-review or --no-pr)
 
@@ -96,7 +97,7 @@ Set `REVIEW_CYCLE = 1`, `MAX_CYCLES = 2`.
 - Critical/high found + `REVIEW_CYCLE > MAX_CYCLES` → report remaining → Step 7 (NEEDS MANUAL FIXES)
 
 **6.3 Fix**: `/prp:review-fix {REVIEW_ARTIFACT} --severity {FIX_SEVERITY}` — DO NOT fix manually.
-Default severity: `critical,high` — override with `--fix-severity`.
+Default severity: `critical,high,medium,suggestion` — override with `--fix-severity critical,high` to fix only blocking issues.
 ❌ DO NOT: Fix issues yourself, run validation separately. ✅ CHECKPOINT: Did you invoke `/prp:review-fix`?
 
 **6.4 Re-verify**: Increment `REVIEW_CYCLE`. `/prp:review {PR_NUMBER}` to confirm issues resolved and no regressions introduced. → Return to Step 6.2.

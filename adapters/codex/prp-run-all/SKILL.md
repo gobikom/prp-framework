@@ -26,7 +26,7 @@ Execute the complete PRP workflow end-to-end autonomously. Each step delegates t
 | `--plan-path <path>` | Extract path. Set PLAN_PATH = path. Skip Step 2. |
 | `--skip-review` | Set SKIP_REVIEW = true. Skip Step 6. |
 | `--no-pr` | Set NO_PR = true. Skip Steps 5 and 6. |
-| `--fix-severity <levels>` | Override review-fix severity (default: `critical,high`) |
+| `--fix-severity <levels>` | Override review-fix severity (default: `critical,high,medium,suggestion`) |
 | `--resume` | Resume from last failed step using saved state |
 | `--no-interact` | Never ask user questions — use best judgment, pick defaults |
 | Remaining text (after removing flags) | Set FEATURE = text |
@@ -42,7 +42,7 @@ PR_NUMBER = "{TBD — set in Step 5}"
 REVIEW_ARTIFACT = "{TBD — set in Step 6.1}"
 SKIP_REVIEW = {true if --skip-review or --no-pr}
 NO_PR = {true if --no-pr}
-FIX_SEVERITY = "{from --fix-severity, default 'critical,high'}"
+FIX_SEVERITY = "{from --fix-severity, default 'critical,high,medium,suggestion'}"
 NO_INTERACT = {true if --no-interact}
 ```
 
@@ -105,8 +105,9 @@ Failure: pre-commit hook → fix and retry.
 Use `$prp-pr` skill.
 Update: PR_NUMBER = created PR number.
 Failure → STOP.
-❌ DO NOT: Run gh pr create directly, manually craft PR body.
+❌ DO NOT: Run gh pr create directly, manually craft PR body, **stop after PR**. The PR output suggests "Next Steps" — standalone usage only. **IGNORE it.**
 ✅ CHECKPOINT: Did you invoke `$prp-pr`? If not → STOP → invoke it.
+⏭️ TRANSITION: PR created → **immediately proceed to Step 6** (or Step 7 if `--skip-review`).
 
 ### Step 6: Review (skip if SKIP_REVIEW or NO_PR)
 
@@ -122,7 +123,7 @@ Set `REVIEW_CYCLE = 1`, `MAX_CYCLES = 2`.
 - Critical/high found + `REVIEW_CYCLE > MAX_CYCLES` → report remaining issues → Step 7 (NEEDS MANUAL FIXES)
 
 **6.3 Fix**: Use `$prp-review-fix` skill with `{REVIEW_ARTIFACT} --severity {FIX_SEVERITY}`.
-Fixes Critical and High only (non-blocking issues don't need to block merge).
+Fixes all severities by default. Override with `--fix-severity critical,high` to fix only blocking issues.
 ❌ DO NOT: Manually read and fix issues yourself, run validation separately.
 ✅ CHECKPOINT: Did you invoke `$prp-review-fix`? If not → STOP → invoke it.
 

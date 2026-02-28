@@ -296,8 +296,8 @@ PRD → Design → Plan → Implement → Commit → PR → Review
 # Resume from last failed step (requires state file)
 /prp-core:run-all --resume
 
-# Override review-fix severity (default: critical,high)
-/prp-core:run-all "Add dark mode" --fix-severity critical,high,medium
+# Override review-fix severity (default: critical,high,medium,suggestion)
+/prp-core:run-all "Add dark mode" --fix-severity critical,high
 
 # Fully unattended (no user questions, uses best judgment)
 /prp-core:run-all "Add dark mode" --no-interact
@@ -321,7 +321,7 @@ Create Branch → Plan → Implement → Commit → PR → Review/Fix Loop → S
 | `--resume` | Resume from last failed step using saved state |
 | `--skip-review` | Skip review step |
 | `--no-pr` | Skip PR and review steps |
-| `--fix-severity <levels>` | Override review-fix severity (default: `critical,high`) |
+| `--fix-severity <levels>` | Override review-fix severity (default: `critical,high,medium,suggestion`) |
 | `--no-interact` | ไม่ถามคำถาม — ใช้ best judgment สำหรับ requirements ที่คลุมเครือ, เลือก defaults อัตโนมัติ |
 
 **State Management**:

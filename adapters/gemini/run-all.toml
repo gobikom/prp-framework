@@ -10,14 +10,14 @@ Input: {{args}}
 | `--plan-path <path>` | Set PLAN_PATH. Skip Step 2. |
 | `--skip-review` | Skip Step 6. |
 | `--no-pr` | Skip Steps 5 and 6. |
-| `--fix-severity <levels>` | Override review-fix severity (default: `critical,high`) |
+| `--fix-severity <levels>` | Override review-fix severity (default: `critical,high,medium,suggestion`) |
 | `--resume` | Resume from last failed step |
 | `--no-interact` | Never ask user questions — use best judgment, pick defaults |
 | Remaining text | Set FEATURE |
 
 If `--plan-path` provided, validate file exists — STOP if not found.
 
-Variables: FEATURE, PLAN_PATH (TBD), BRANCH (TBD), PR_NUMBER (TBD), REVIEW_ARTIFACT (TBD), SKIP_REVIEW, NO_PR, NO_INTERACT, FIX_SEVERITY (default: critical,high)
+Variables: FEATURE, PLAN_PATH (TBD), BRANCH (TBD), PR_NUMBER (TBD), REVIEW_ARTIFACT (TBD), SKIP_REVIEW, NO_PR, NO_INTERACT, FIX_SEVERITY (default: critical,high,medium,suggestion)
 
 State: `.claude/prp-run-all.state.md` — create on start, update per step, delete on completion. `--resume` restores from saved state.
 
@@ -44,7 +44,7 @@ Run /prp:commit. ❌ DO NOT: Run git add/commit directly, stop after commit. The
 
 ### Step 5: PR (skip if --no-pr)
 Run /prp:pr. Update PR_NUMBER. Failure → STOP.
-❌ DO NOT: Run gh pr create directly. ✅ CHECKPOINT: Did you run /prp:pr?
+❌ DO NOT: Run gh pr create directly, stop after PR. The PR output suggests "Next Steps" — standalone usage only. IGNORE it. ✅ CHECKPOINT: Did you run /prp:pr? ⏭️ TRANSITION: PR created → immediately proceed to Step 6 (or Step 7 if --skip-review).
 
 ### Step 6: Review (skip if --skip-review or --no-pr)
 
@@ -54,7 +54,7 @@ Set REVIEW_CYCLE = 1, MAX_CYCLES = 2.
 
 6.2 Evaluate: No critical/high → Step 7 ✓. Found + cycle ≤ 2 → Step 6.3. Found + cycle > 2 → report remaining → Step 7 (NEEDS MANUAL FIXES).
 
-6.3 Fix: Run `/prp:review-fix {REVIEW_ARTIFACT} --severity {FIX_SEVERITY}`. Default: critical,high — override with `--fix-severity`. ❌ DO NOT: Fix manually. ✅ CHECKPOINT: Did you run /prp:review-fix?
+6.3 Fix: Run `/prp:review-fix {REVIEW_ARTIFACT} --severity {FIX_SEVERITY}`. Default: critical,high,medium,suggestion — override with `--fix-severity critical,high` to fix only blocking issues. ❌ DO NOT: Fix manually. ✅ CHECKPOINT: Did you run /prp:review-fix?
 
 6.4 Re-verify: REVIEW_CYCLE++. Run `/prp:review {PR_NUMBER}` again to confirm fixes resolved issues and no regressions introduced. → Return to Step 6.2.
 

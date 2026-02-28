@@ -504,8 +504,8 @@ Commit → PR → Review/Fix Loop → Summary
 # No PR (just implement + commit)
 /prp-run-all Add JWT auth --no-pr
 
-# Override review-fix severity (default: critical,high)
-/prp-run-all Add JWT auth --fix-severity critical,high,medium
+# Override review-fix severity (default: critical,high,medium,suggestion)
+/prp-run-all Add JWT auth --fix-severity critical,high
 ```
 
 ### Supported Flags
@@ -518,7 +518,7 @@ Commit → PR → Review/Fix Loop → Summary
 | `--resume` | Resume from last failed step using saved state |
 | `--skip-review` | Skip review step |
 | `--no-pr` | Skip PR and review steps |
-| `--fix-severity <levels>` | Override review-fix severity (default: `critical,high`) |
+| `--fix-severity <levels>` | Override review-fix severity (default: `critical,high,medium,suggestion`) |
 | `--no-interact` | Never ask user questions — use best judgment for ambiguous requirements, pick defaults |
 
 ### State Management
