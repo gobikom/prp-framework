@@ -1,6 +1,6 @@
 ---
 name: prp-run-all
-description: Execute the complete PRP workflow end-to-end — plan, implement, commit, PR, and review. Delegates to individual PRP skills in sequence. Supports --plan-path, --skip-review, --no-pr options.
+description: Execute the complete PRP workflow end-to-end — plan, implement, commit, PR, and review. Delegates to individual PRP skills in sequence. Supports --prp-path, --skip-review, --no-pr options.
 metadata:
   short-description: Full PRP workflow
 ---
@@ -23,7 +23,7 @@ Execute the complete PRP workflow end-to-end autonomously. Each step delegates t
 
 | Argument Found | Action |
 |---------------|--------|
-| `--plan-path <path>` | Extract path. Set PLAN_PATH = path. Skip Step 2. |
+| `--prp-path <path>` | Extract path. Set PLAN_PATH = path. Skip Step 2. |
 | `--skip-review` | Set SKIP_REVIEW = true. Skip Step 6. |
 | `--no-pr` | Set NO_PR = true. Skip Steps 5 and 6. |
 | `--fix-severity <levels>` | Override review-fix severity (default: `critical,high,medium,suggestion`) |
@@ -31,12 +31,12 @@ Execute the complete PRP workflow end-to-end autonomously. Each step delegates t
 | `--no-interact` | Never ask user questions — use best judgment, pick defaults |
 | Remaining text (after removing flags) | Set FEATURE = text |
 
-**If `--plan-path` provided, validate file exists** — STOP if not found, show available plans.
+**If `--prp-path` provided, validate file exists** — STOP if not found, show available plans.
 
 **Set workflow variables:**
 ```
 FEATURE = "{remaining text after flags, or title from plan file}"
-PLAN_PATH = "{from --plan-path, or TBD — set in Step 2}"
+PLAN_PATH = "{from --prp-path, or TBD — set in Step 2}"
 BRANCH = "{TBD — set in Step 1}"
 PR_NUMBER = "{TBD — set in Step 5}"
 REVIEW_ARTIFACT = "{TBD — set in Step 6.1}"
@@ -58,9 +58,9 @@ NO_INTERACT = {true if --no-interact}
 
 **Examples:**
 - `Add JWT auth` → full workflow
-- `--plan-path plans/jwt.plan.md` → skip plan creation
+- `--prp-path plans/jwt.plan.md` → skip plan creation
 - `Add JWT auth --skip-review` → skip review step
-- `--plan-path plans/jwt.plan.md --no-pr` → implement + commit only
+- `--prp-path plans/jwt.plan.md --no-pr` → implement + commit only
 
 ## Workflow
 
@@ -73,7 +73,7 @@ git checkout -b feature/{slug-from-FEATURE}
 ```
 Failure: dirty working dir on main → STOP, ask to stash/commit.
 
-### Step 2: Plan (skip if --plan-path)
+### Step 2: Plan (skip if --prp-path)
 Use `$prp-plan` skill with FEATURE.
 Update: PLAN_PATH = generated plan path.
 Failure → STOP.

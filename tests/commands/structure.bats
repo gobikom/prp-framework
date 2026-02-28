@@ -361,3 +361,79 @@ PROMPTS_DIR="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)/prompts"
     ! grep -q '{kebab-case-feature-name}' "$PROMPTS_DIR/plan.md"
     ! grep -q '{plan-name}' "$PROMPTS_DIR/implement.md"
 }
+
+# ─────────────────────────────────────────────
+# 21. Flag name consistency (GAP 1)
+# ─────────────────────────────────────────────
+
+@test "run-all.md uses --prp-path not --plan-path" {
+    ! grep -q "\-\-plan-path" "$PROMPTS_DIR/run-all.md"
+    grep -q "\-\-prp-path" "$PROMPTS_DIR/run-all.md"
+}
+
+# ─────────────────────────────────────────────
+# 22. Plan template ↔ implement cross-reference (GAP 2)
+# ─────────────────────────────────────────────
+
+@test "plan.md template contains all sections implement.md expects" {
+    # implement.md Phase 1.2 expects: Summary, Patterns to Mirror, Files to Change,
+    # Step-by-Step Tasks, Validation Commands, Acceptance Criteria
+    TEMPLATE=$(sed -n '/^````markdown/,/^````$/p' "$PROMPTS_DIR/plan.md")
+    echo "$TEMPLATE" | grep -qi "Summary"
+    echo "$TEMPLATE" | grep -qi "Patterns to Mirror"
+    echo "$TEMPLATE" | grep -qi "Files to Change"
+    echo "$TEMPLATE" | grep -qi "Step-by-Step Tasks"
+    echo "$TEMPLATE" | grep -qi "Validation Commands"
+    echo "$TEMPLATE" | grep -qi "Acceptance Criteria"
+    echo "$TEMPLATE" | grep -qi "Testing Strategy"
+}
+
+# ─────────────────────────────────────────────
+# 23. Run-all TRANSITION markers (GAP 4)
+# ─────────────────────────────────────────────
+
+@test "run-all.md has TRANSITION markers for Steps 3, 4, and 5" {
+    # Step 3 → Step 4 (implement → commit)
+    grep -qi "TRANSITION.*Step 4\|TRANSITION.*COMMIT" "$PROMPTS_DIR/run-all.md"
+    # Step 4 → Step 5 (commit → PR)
+    grep -qi "TRANSITION.*Step 5\|TRANSITION.*proceed" "$PROMPTS_DIR/run-all.md"
+    # Step 5 → Step 6 (PR → review)
+    grep -qi "TRANSITION.*Step 6\|TRANSITION.*proceed" "$PROMPTS_DIR/run-all.md"
+}
+
+# ─────────────────────────────────────────────
+# 24. State file + lock file documentation (GAP 5)
+# ─────────────────────────────────────────────
+
+@test "run-all.md documents state file path" {
+    grep -q "prp-run-all.state.md" "$PROMPTS_DIR/run-all.md"
+}
+
+@test "run-all.md documents lock file mechanism" {
+    grep -qi "lock\|Lock file\|concurrent" "$PROMPTS_DIR/run-all.md"
+}
+
+# ─────────────────────────────────────────────
+# 25. Review severity mapping (GAP 6)
+# ─────────────────────────────────────────────
+
+@test "review-fix.md maps Important to High severity" {
+    # review.md uses "Important" as category, review-fix needs to map it
+    grep -qi "Important.*High\|High.*Important" "$PROMPTS_DIR/review-fix.md"
+}
+
+# ─────────────────────────────────────────────
+# 26. Conditional section guards (GAP 7)
+# ─────────────────────────────────────────────
+
+@test "plan.md template conditional sections have guards" {
+    # All conditional sections should have "conditional" or "include if" or "skip if"
+    TEMPLATE=$(sed -n '/^````markdown/,/^````$/p' "$PROMPTS_DIR/plan.md")
+    echo "$TEMPLATE" | grep -qi "conditional"
+    echo "$TEMPLATE" | grep -qi "Technical Design"
+}
+
+@test "run-all.md report artifact uses wildcard glob" {
+    # Summary template should use wildcard to match tool-suffixed reports
+    grep -q "report\*" "$PROMPTS_DIR/run-all.md"
+}

@@ -360,7 +360,7 @@ First, parse the user's input for options:
 
 | If User Says | Action |
 |-------------|--------|
-| "use this plan: path/to/plan.md" or includes `--plan-path` | Set PLAN_PATH. Skip Step 2. |
+| "use this plan: path/to/plan.md" or includes `--prp-path` | Set PLAN_PATH. Skip Step 2. |
 | "skip review" or includes `--skip-review` | Skip Step 6. |
 | "no PR" or "don't create PR" or includes `--no-pr` | Skip Steps 5 and 6. |
 | "resume" or includes `--resume` | Resume from last failed step using saved state. |

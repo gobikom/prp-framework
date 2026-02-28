@@ -1,4 +1,4 @@
-description = "Full PRP workflow — plan, implement, commit, PR, review. Supports --plan-path, --skip-review, --no-pr"
+description = "Full PRP workflow — plan, implement, commit, PR, review. Supports --prp-path, --skip-review, --no-pr"
 prompt = """# PRP Run All — Full Workflow
 
 Input: {{args}}
@@ -7,7 +7,7 @@ Input: {{args}}
 
 | Argument | Action |
 |----------|--------|
-| `--plan-path <path>` | Set PLAN_PATH. Skip Step 2. |
+| `--prp-path <path>` | Set PLAN_PATH. Skip Step 2. |
 | `--skip-review` | Skip Step 6. |
 | `--no-pr` | Skip Steps 5 and 6. |
 | `--fix-severity <levels>` | Override review-fix severity (default: `critical,high,medium,suggestion`) |
@@ -15,20 +15,20 @@ Input: {{args}}
 | `--no-interact` | Never ask user questions — use best judgment, pick defaults |
 | Remaining text | Set FEATURE |
 
-If `--plan-path` provided, validate file exists — STOP if not found.
+If `--prp-path` provided, validate file exists — STOP if not found.
 
 Variables: FEATURE, PLAN_PATH (TBD), BRANCH (TBD), PR_NUMBER (TBD), REVIEW_ARTIFACT (TBD), SKIP_REVIEW, NO_PR, NO_INTERACT, FIX_SEVERITY (default: critical,high,medium,suggestion)
 
 State: `.claude/prp-run-all.state.md` — create on start, update per step, delete on completion. `--resume` restores from saved state.
 
-Examples: `Add JWT auth` → full, `--plan-path plans/jwt.plan.md` → skip plan, `Add JWT auth --skip-review` → skip review, `--plan-path plans/jwt.plan.md --no-pr` → implement + commit only
+Examples: `Add JWT auth` → full, `--prp-path plans/jwt.plan.md` → skip plan, `Add JWT auth --skip-review` → skip review, `--prp-path plans/jwt.plan.md --no-pr` → implement + commit only
 
 ## Workflow (sequential, stop on failure)
 
 ### Step 1: Branch
 `git checkout -b feature/{slug}` (skip if already on feature branch). Dirty on main → STOP.
 
-### Step 2: Plan (skip if --plan-path)
+### Step 2: Plan (skip if --prp-path)
 Run /prp:plan with FEATURE. Update PLAN_PATH. Failure → STOP.
 ❌ DO NOT: Inline plan logic, analyze codebase yourself. ✅ CHECKPOINT: Did you run /prp:plan?
 

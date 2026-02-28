@@ -272,3 +272,28 @@ FRAMEWORK_DIR="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)"
     grep -qi "Edge Case" "$FRAMEWORK_DIR/adapters/antigravity/prp-commit.md"
     grep -qi "Edge Case" "$FRAMEWORK_DIR/prompts/commit.md"
 }
+
+# ─────────────────────────────────────────────
+# 11. Flag name consistency parity (GAP 1)
+# ─────────────────────────────────────────────
+@test "all run-all files use --prp-path not --plan-path" {
+    ! grep -q "\-\-plan-path" "$FRAMEWORK_DIR/prompts/run-all.md"
+    ! grep -q "\-\-plan-path" "$FRAMEWORK_DIR/adapters/claude-code/prp-run-all.md"
+    ! grep -q "\-\-plan-path" "$FRAMEWORK_DIR/adapters/codex/prp-run-all/SKILL.md"
+    ! grep -q "\-\-plan-path" "$FRAMEWORK_DIR/adapters/opencode/run-all.md"
+    ! grep -q "\-\-plan-path" "$FRAMEWORK_DIR/adapters/gemini/run-all.toml"
+    ! grep -q "\-\-plan-path" "$FRAMEWORK_DIR/adapters/antigravity/prp-run-all.md"
+}
+
+# ─────────────────────────────────────────────
+# 12. TRANSITION marker parity (GAP 4)
+# ─────────────────────────────────────────────
+@test "all run-all files have transition instructions after commit step" {
+    # Each adapter should tell AI to proceed after commit (not stop)
+    grep -qi "TRANSITION\|proceed.*Step 5\|immediately proceed\|IGNORE.*suggestion" "$FRAMEWORK_DIR/adapters/claude-code/prp-run-all.md"
+    grep -qi "TRANSITION\|proceed.*Step 5\|immediately proceed\|IGNORE.*suggestion" "$FRAMEWORK_DIR/adapters/codex/prp-run-all/SKILL.md"
+    grep -qi "TRANSITION\|proceed.*Step 5\|immediately proceed\|IGNORE.*suggestion" "$FRAMEWORK_DIR/adapters/opencode/run-all.md"
+    grep -qi "TRANSITION\|proceed.*Step 5\|immediately proceed\|IGNORE.*suggestion" "$FRAMEWORK_DIR/adapters/gemini/run-all.toml"
+    grep -qi "TRANSITION\|proceed.*Step 5\|immediately proceed\|IGNORE.*suggestion" "$FRAMEWORK_DIR/adapters/antigravity/prp-run-all.md"
+    grep -qi "TRANSITION\|proceed.*Step 5\|immediately proceed" "$FRAMEWORK_DIR/prompts/run-all.md"
+}

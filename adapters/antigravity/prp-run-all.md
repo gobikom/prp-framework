@@ -1,5 +1,5 @@
 ---
-description: Full PRP workflow — plan, implement, commit, PR, review. Supports --plan-path, --skip-review, --no-pr
+description: Full PRP workflow — plan, implement, commit, PR, review. Supports --prp-path, --skip-review, --no-pr
 ---
 
 # PRP Run All — Full Workflow
@@ -10,7 +10,7 @@ Input: $ARGUMENTS
 
 | Argument Found | Action |
 |---------------|--------|
-| `--plan-path <path>` | Extract path. Set PLAN_PATH. Skip Step 2. |
+| `--prp-path <path>` | Extract path. Set PLAN_PATH. Skip Step 2. |
 | `--skip-review` | Skip Step 6. |
 | `--no-pr` | Skip Steps 5 and 6. |
 | `--fix-severity <levels>` | Override review-fix severity (default: `critical,high,medium,suggestion`) |
@@ -18,12 +18,12 @@ Input: $ARGUMENTS
 | `--no-interact` | Never ask user questions — use best judgment, pick defaults |
 | Remaining text | Set FEATURE = remaining text |
 
-**If `--plan-path` provided, validate file exists** — STOP if not found.
+**If `--prp-path` provided, validate file exists** — STOP if not found.
 
 **Set variables:**
 ```
 FEATURE = "{text after removing flags}"
-PLAN_PATH = "{from --plan-path, or TBD}"
+PLAN_PATH = "{from --prp-path, or TBD}"
 BRANCH = "{TBD — set in Step 1}"
 PR_NUMBER = "{TBD — set in Step 5}"
 REVIEW_ARTIFACT = "{TBD — set in Step 6.1}"
@@ -37,9 +37,9 @@ NO_INTERACT = {true if --no-interact}
 
 **Examples:**
 - `Add JWT auth` → full workflow
-- `--plan-path .prp-output/plans/jwt.plan.md` → skip plan
+- `--prp-path .prp-output/plans/jwt.plan.md` → skip plan
 - `Add JWT auth --skip-review` → skip review
-- `--plan-path plans/jwt.plan.md --no-pr` → implement + commit only
+- `--prp-path plans/jwt.plan.md --no-pr` → implement + commit only
 
 ## Workflow (sequential, stop on failure)
 
@@ -47,7 +47,7 @@ NO_INTERACT = {true if --no-interact}
 `git checkout -b feature/{slug}` (skip if already on feature branch)
 Failure: dirty on main → STOP.
 
-### Step 2: Plan (skip if --plan-path)
+### Step 2: Plan (skip if --prp-path)
 `/prp-plan {FEATURE}` — Invoke the workflow, DO NOT inline its logic.
 Update PLAN_PATH with generated path.
 Failure → STOP.
@@ -107,9 +107,9 @@ Report: feature, branch, status, steps executed table, artifacts, review verdict
 
 ```
 /prp-run-all Add JWT authentication
-/prp-run-all --plan-path .prp-output/plans/jwt.plan.md
+/prp-run-all --prp-path .prp-output/plans/jwt.plan.md
 /prp-run-all Add JWT auth --skip-review
-/prp-run-all --plan-path plans/jwt.plan.md --no-pr
+/prp-run-all --prp-path plans/jwt.plan.md --no-pr
 ```
 
 ## Success Criteria

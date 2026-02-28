@@ -22,7 +22,7 @@ Execute the complete PRP workflow end-to-end autonomously. Each step delegates t
 
 | Argument Found | Action |
 |---------------|--------|
-| `--plan-path <path>` | Extract path. Set PLAN_PATH = path. Skip Step 2 (plan). |
+| `--prp-path <path>` | Extract path. Set PLAN_PATH = path. Skip Step 2 (plan). |
 | `--skip-review` | Set SKIP_REVIEW = true. Skip Step 6 (review). |
 | `--no-pr` | Set NO_PR = true. Skip Steps 5 (PR) and 6 (review). |
 | `--fix-severity <levels>` | Override review-fix severity (default: `critical,high,medium,suggestion`) |
@@ -30,13 +30,13 @@ Execute the complete PRP workflow end-to-end autonomously. Each step delegates t
 | `--no-interact` | Never ask user questions — use best judgment for ambiguous requirements, pick defaults for choices |
 | Remaining text (after removing flags) | Set FEATURE = text |
 
-**If `--plan-path` provided, validate file exists** — STOP if not found, show available plans.
+**If `--prp-path` provided, validate file exists** — STOP if not found, show available plans.
 
 **Set workflow variables:**
 
 ```
 FEATURE = "{remaining text after flags, or title from plan file}"
-PLAN_PATH = "{from --plan-path, or TBD — set in Step 2}"
+PLAN_PATH = "{from --prp-path, or TBD — set in Step 2}"
 BRANCH = "{TBD — set in Step 1}"
 PR_NUMBER = "{TBD — set in Step 5}"
 REVIEW_ARTIFACT = "{TBD — set in Step 6.1}"
@@ -50,9 +50,9 @@ NO_INTERACT = {true if --no-interact, false otherwise}
 
 **Examples:**
 - `Add JWT auth` → full workflow (all steps)
-- `--plan-path plans/jwt.plan.md` → skip plan creation, start at implement
+- `--prp-path plans/jwt.plan.md` → skip plan creation, start at implement
 - `Add JWT auth --skip-review` → plan + implement + commit + PR, no review
-- `--plan-path plans/jwt.plan.md --no-pr` → implement + commit only
+- `--prp-path plans/jwt.plan.md --no-pr` → implement + commit only
 
 ---
 
@@ -72,7 +72,7 @@ git checkout -b feature/{slug-from-feature-description}
 
 ---
 
-## Step 2: CREATE PLAN (skip if --plan-path provided)
+## Step 2: CREATE PLAN (skip if --prp-path provided)
 
 Execute the **plan** workflow with: `{FEATURE}`
 
@@ -109,6 +109,8 @@ This will:
 **Context passed forward**:
 - Implementation report at `.prp-output/reports/`
 - Validated code on feature branch
+
+**⏭️ TRANSITION**: Implementation succeeded → **immediately proceed to Step 4** (COMMIT).
 
 ---
 
@@ -199,7 +201,7 @@ Generate final report:
 ### Artifacts
 
 - Plan: `{PLAN_PATH}` (archived)
-- Report: `.prp-output/reports/{name}-report.md`
+- Report: `.prp-output/reports/{name}-report*.md`
 - PR: {URL}
 
 ### Review Verdict
@@ -253,7 +255,7 @@ This workflow is designed for minimal token usage:
 |-----------|--------|
 | Already on feature branch (not main) | Skip Step 1, use current branch |
 | Dirty working directory on main | STOP — ask user to stash or commit |
-| `--plan-path` file not found | STOP — show available plans in `.prp-output/plans/` |
+| `--prp-path` file not found | STOP — show available plans in `.prp-output/plans/` |
 | Implementation fails after retries | STOP — report which task failed and why |
 | Commit fails (pre-commit hook) | Let commit workflow retry, then continue |
 | PR already exists for branch | Use existing PR, skip creation |

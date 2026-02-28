@@ -39,6 +39,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 14 structure tests for plan, implement, prd, commit quality enhancements
   - 5 cross-adapter parity tests for Technical Design, TDD, security checks, Backward Compatibility, pre-commit
 
+### Added
+- **10 new AI-user structural tests** (structure.bats + parity.bats):
+  - Plan template ↔ implement cross-reference integrity (sections plan generates vs implement expects)
+  - TRANSITION marker completeness for all run-all workflow steps
+  - State file + lock file documentation tests
+  - Review severity mapping test (Important → High)
+  - Conditional guard format tests (plan template)
+  - Report artifact wildcard glob in summary template
+  - `--prp-path` flag name consistency parity across all 6 adapters
+
+### Fixed
+- **`--plan-path` → `--prp-path`** flag name standardized (all adapters):
+  - Generic source and 4 condensed adapters used `--plan-path` while Claude Code adapter and all docs used `--prp-path`
+  - Unified to `--prp-path` across all 6 adapters + generic AGENTS.md
+- **Missing TRANSITION marker** after Step 3 (implement) in generic run-all:
+  - Steps 4 and 5 had explicit "proceed to next step" but Step 3 did not
+  - AI could stop after implement instead of continuing to commit
+- **Report path in run-all summary** used exact `{name}-report.md` which misses tool-suffixed reports
+  - Fixed to `{name}-report*.md` (wildcard glob)
+
 ### Enhanced
 - **`--no-interact` enforced across full workflow** (all adapters):
   - Added "ZERO questions" critical rule in all run-all adapters — orchestrator must NEVER use AskUserQuestion when flag set
