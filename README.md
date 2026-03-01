@@ -243,14 +243,14 @@ All tools produce artifacts in `.prp-output/`:
 ### With Submodule (Symlinks)
 
 ```bash
-cd .prp && git pull origin main && cd ..
+cd .prp && git pull --rebase origin main && cd ..
 # Command content updates automatically via symlinks!
 ```
 
 **After major version updates** (re-run install to update directory structure, .gitignore, and migrate agent/hook symlinks):
 
 ```bash
-cd .prp && git pull origin main && ./scripts/install.sh && cd ..
+cd .prp && git pull --rebase origin main && ./scripts/install.sh && cd ..
 ```
 
 > If agent files appear as changes in `.prp/adapters/claude-code-agents/` after updating, re-run `install.sh` — it will automatically migrate the old whole-directory symlink for `.claude/agents/` to per-file symlinks.
@@ -258,13 +258,13 @@ cd .prp && git pull origin main && ./scripts/install.sh && cd ..
 ### With Local Clone
 
 ```bash
-cd .prp && git pull origin main && cd ..
+cd .prp && git pull --rebase origin main && cd ..
 ```
 
 ### With Submodule (Hard Copy)
 
 ```bash
-cd .prp && git pull origin main && ./scripts/sync.sh && cd ..
+cd .prp && git pull --rebase origin main && ./scripts/sync.sh && cd ..
 ```
 
 ### With Template
@@ -277,6 +277,20 @@ If something is broken, force a clean re-install:
 
 ```bash
 cd .prp && ./scripts/install.sh && cd ..
+```
+
+### Troubleshooting: "divergent branches" error
+
+If you see `fatal: Need to specify how to reconcile divergent branches`, your `.prp` directory has local commits. Since `.prp` is a read-only framework, reset to remote:
+
+```bash
+cd .prp && git fetch origin && git reset --hard origin/main && cd ..
+```
+
+To prevent this in future pulls:
+
+```bash
+cd .prp && git config pull.rebase true && cd ..
 ```
 
 ## Documentation

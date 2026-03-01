@@ -695,6 +695,7 @@ To restore: /prp-core:prp-rollback --restore
 | State file corrupt | `--resume` fails | Delete `.claude/prp-run-all.state.md`, start fresh |
 | No coverage tool | Coverage check skips | Expected — install jest/vitest/pytest for enforcement |
 | PR already exists | PR step fails | Use existing PR URL, skip to review |
+| `.prp` divergent branches | `git pull` fails with "Need to specify how to reconcile" | `cd .prp && git fetch origin && git reset --hard origin/main && cd ..` — then run `git config pull.rebase true` inside `.prp` to prevent recurrence |
 
 ---
 
