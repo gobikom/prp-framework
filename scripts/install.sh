@@ -21,6 +21,17 @@ echo "Framework directory: $FRAMEWORK_DIR"
 echo "Project directory: $PROJECT_DIR"
 echo ""
 
+# Auto-recover: restore agent/hook files if a previous buggy install converted
+# them from blobs to self-referencing symlinks (bash || && precedence bug).
+# Safe to run always — no-op if files are clean.
+for _dir in "adapters/claude-code-agents" "adapters/claude-code-hooks"; do
+    if git -C "$FRAMEWORK_DIR" status --short "$_dir" 2>/dev/null | grep -q " T "; then
+        echo -e "${YELLOW}⚠️  Restoring damaged files in $_dir (typechange detected)...${NC}"
+        git -C "$FRAMEWORK_DIR" checkout -- "$_dir"
+        echo -e "${GREEN}  ✅ Restored${NC}"
+    fi
+done
+
 # Function: Try symlink, fallback to copy
 # Safe: skips if already correct symlink, removes only PRP-owned symlinks/dirs
 install_directory() {

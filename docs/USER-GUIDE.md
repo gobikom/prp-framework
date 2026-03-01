@@ -998,22 +998,23 @@ claude --dangerously-skip-permissions "/prp-core:run-all Add feature X --no-inte
    cd .prp && ./scripts/install.sh
    ```
 
-### Agent files แสดงเป็น changes ใน `.prp/adapters/claude-code-agents/`
+### Agent files แสดงเป็น `T` (typechange) ใน `.prp/adapters/claude-code-agents/`
 
-เกิดจาก install เวอร์ชันเก่าสร้าง `.claude/agents` เป็น **whole-directory symlink** ไปยัง `.prp/adapters/claude-code-agents/` ทำให้การ install ใหม่ resolve path ผิดพลาด
+เกิดจาก install.sh เวอร์ชันเก่ามี bug ด้าน bash `||`/`&&` operator precedence ทำให้ `rm` ถูกเรียกบน regular files แล้วสร้าง self-referencing symlinks แทนที่ใน `.prp/adapters/claude-code-agents/`
 
-**แก้ไข**: รัน install ใหม่ — script จะ detect และ migrate อัตโนมัติ:
+**แก้ไข** (3 ขั้นตอน):
 ```bash
+# 1. Restore damaged files จาก git
+git -C .prp checkout -- adapters/claude-code-agents/
+
+# 2. Pull install.sh ที่ fix แล้ว
+git -C .prp pull origin main
+
+# 3. Re-install (auto-recover + migrate directory symlink)
 cd .prp && ./scripts/install.sh && cd ..
 ```
 
-Script จะแสดง:
-```
-⚠️  Migrating from directory symlink to per-file symlinks: Claude Code Agents
-✅ Symlinked files: Claude Code Agents
-```
-
-หลังจากนั้น `.claude/agents/` จะเป็น real directory ที่มี per-file symlinks และ agent files จะไม่แสดงเป็น changes อีกต่อไป
+`install.sh` เวอร์ชันใหม่จะ auto-detect และ restore typechanged files ทุกครั้งที่รัน รวมถึง migrate `.claude/agents` จาก directory symlink → real directory + per-file symlinks
 
 ---
 

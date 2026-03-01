@@ -299,22 +299,22 @@ cd .prp
 
 ### Agent Files Appearing as Changes in `.prp/adapters/claude-code-agents/`
 
-After updating the framework, you may see all agent `.md` files as modified/type-changed in your source control under `.prp/adapters/claude-code-agents/`.
+After updating the framework, you may see all agent `.md` files as type-changed (`T`) in source control under `.prp/adapters/claude-code-agents/`.
 
-**Cause**: The previous install created `.claude/agents` as a whole-directory symlink pointing to `.prp/adapters/claude-code-agents/`. Path resolution through this symlink caused the new per-file install to fail silently.
+**Root cause**: A buggy `install.sh` (operator precedence in `rm` guard) deleted the original files from `.prp/adapters/claude-code-agents/` and replaced them with self-referencing symlinks. This happened when `.claude/agents` was a whole-directory symlink — path resolution caused `target_file` to resolve into `.prp/` instead of `.claude/agents/`.
 
-**Fix**: Re-run `install.sh` — it will automatically detect and migrate the old directory symlink:
+**Fix**: Pull the latest framework (which has the fixed `install.sh`) and re-run — it auto-recovers:
 ```bash
-cd .prp && ./scripts/install.sh && cd ..
+git -C .prp checkout -- adapters/claude-code-agents/   # restore damaged files
+git -C .prp pull origin main                           # get fixed install.sh
+cd .prp && ./scripts/install.sh && cd ..               # re-install (auto-migrates)
 ```
 
-You should see:
-```
-⚠️  Migrating from directory symlink to per-file symlinks: Claude Code Agents
-✅ Symlinked files: Claude Code Agents
-```
+The fixed `install.sh` will:
+1. Detect and restore any typechanged files automatically on every run
+2. Migrate `.claude/agents` from directory symlink → real directory with per-file symlinks
 
-After this, `.claude/agents/` becomes a real directory with individual symlinks, and the agent files will no longer appear as changes in `.prp/`.
+After this, agent files will no longer appear as changes in `.prp/`.
 
 ### Git Edge Cases
 
