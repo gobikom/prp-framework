@@ -297,6 +297,25 @@ cd .prp
 ./scripts/install.sh
 ```
 
+### Agent Files Appearing as Changes in `.prp/adapters/claude-code-agents/`
+
+After updating the framework, you may see all agent `.md` files as modified/type-changed in your source control under `.prp/adapters/claude-code-agents/`.
+
+**Cause**: The previous install created `.claude/agents` as a whole-directory symlink pointing to `.prp/adapters/claude-code-agents/`. Path resolution through this symlink caused the new per-file install to fail silently.
+
+**Fix**: Re-run `install.sh` — it will automatically detect and migrate the old directory symlink:
+```bash
+cd .prp && ./scripts/install.sh && cd ..
+```
+
+You should see:
+```
+⚠️  Migrating from directory symlink to per-file symlinks: Claude Code Agents
+✅ Symlinked files: Claude Code Agents
+```
+
+After this, `.claude/agents/` becomes a real directory with individual symlinks, and the agent files will no longer appear as changes in `.prp/`.
+
 ### Git Edge Cases
 
 **Detached HEAD State:**

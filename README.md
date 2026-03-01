@@ -247,11 +247,13 @@ cd .prp && git pull origin main && cd ..
 # Command content updates automatically via symlinks!
 ```
 
-**After major version updates** (re-run install to update directory structure and .gitignore):
+**After major version updates** (re-run install to update directory structure, .gitignore, and migrate agent/hook symlinks):
 
 ```bash
 cd .prp && git pull origin main && ./scripts/install.sh && cd ..
 ```
+
+> If agent files appear as changes in `.prp/adapters/claude-code-agents/` after updating, re-run `install.sh` — it will automatically migrate the old whole-directory symlink for `.claude/agents/` to per-file symlinks.
 
 ### With Local Clone
 

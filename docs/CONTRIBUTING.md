@@ -33,12 +33,41 @@ cd .prp && ./scripts/install.sh
 
 ## Running Tests
 
+### All Tests
+
+```bash
+# Run every test suite (199 unit + 24 e2e = 223 tests)
+bats tests/install/install.bats tests/run-all/state-file.bats tests/ralph/ralph-stop.bats \
+     tests/scripts/scripts.bats tests/commands/structure.bats tests/adapters/parity.bats \
+     tests/e2e/install-sandbox.bats tests/e2e/state-lifecycle.bats tests/e2e/scripts-sandbox.bats
+```
+
+### Unit Tests by Suite
+
+```bash
+bats tests/install/install.bats    # install script integrity (32 tests)
+bats tests/run-all/state-file.bats # state management helper (20 tests)
+bats tests/ralph/ralph-stop.bats   # ralph stop hook (23 tests)
+bats tests/scripts/scripts.bats    # helper scripts (8 tests)
+bats tests/commands/structure.bats # command markdown structure (89 tests)
+bats tests/adapters/parity.bats    # cross-adapter parity (28 tests)
+```
+
+### E2E Infrastructure Tests
+
+```bash
+bats tests/e2e/install-sandbox.bats  # install.sh in real temp sandbox (11 tests)
+bats tests/e2e/state-lifecycle.bats  # full state machine lifecycle (8 tests)
+bats tests/e2e/scripts-sandbox.bats  # cleanup-artifacts.sh with real files (5 tests)
+```
+
+E2E tests cover the **shell/infrastructure layer** only (~40% of workflow). AI prompt logic requires Claude running and is not testable in CI.
+
+See `tests/e2e/README.md` for details on the sandbox strategy.
+
 ### Ralph Stop Hook Tests
 
 ```bash
-# Run all ralph tests
-bats tests/ralph/ralph-stop.bats
-
 # Verbose output
 bats --verbose-run tests/ralph/ralph-stop.bats
 
@@ -155,6 +184,9 @@ Then run `install.sh` to create symlinks.
 | `adapters/claude-code-hooks/prp-ralph-stop.sh` | Stop hook — core mechanism for ralph loop |
 | `adapters/claude-code-hooks/README.md` | Hook setup documentation |
 | `tests/ralph/ralph-stop.bats` | bats tests for stop hook (23 test cases) |
+| `tests/e2e/install-sandbox.bats` | E2E install tests in real sandbox (11 test cases) |
+| `tests/e2e/state-lifecycle.bats` | E2E state machine lifecycle tests (8 test cases) |
+| `tests/e2e/scripts-sandbox.bats` | E2E cleanup-artifacts.sh tests (5 test cases) |
 | `adapters/claude-code/prp-feature-review.md` | Feature review with token optimization |
 | `adapters/claude-code/prp-feature-review-agents.md` | Multi-agent feature review |
 

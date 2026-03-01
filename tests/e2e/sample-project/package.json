@@ -1,0 +1,6 @@
+{
+  "name": "prp-sample-project",
+  "version": "1.0.0",
+  "description": "Minimal sample project for PRP Framework e2e tests",
+  "private": true
+}

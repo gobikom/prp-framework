@@ -13,7 +13,7 @@ PRP (Plan-Review-PR) Framework เป็น cross-tool AI coding workflow framew
 
 | Namespace | หมวดหมู่ | จำนวน |
 |-----------|----------|-------|
-| `/prp-core:` | Development, Debug, Review, Automation | 17 |
+| `/prp-core:` | Development, Debug, Review, Automation | 18 |
 | `/prp-mkt:` | Marketing & Sales | 4 |
 | `/prp-bot:` | AI Call Center / Chatbot | 5 |
 

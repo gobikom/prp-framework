@@ -60,14 +60,14 @@ cd .prp && ./scripts/install.sh && cd ..
 
 ## Commands Overview
 
-### หมวดหมู่ Commands (26 commands)
+### หมวดหมู่ Commands (27 commands)
 
 | Namespace | หมวด | Commands | จำนวน |
 |-----------|------|----------|-------|
 | `/prp-core:` | Development | prd, design, plan, implement, commit, pr, review, review-fix, run-all | 9 |
 | `/prp-core:` | Debug/Issue | debug, issue-investigate, issue-fix | 3 |
 | `/prp-core:` | Review | feature-review, feature-review-agents, review-agents | 3 |
-| `/prp-core:` | Automation | ralph, ralph-cancel | 2 |
+| `/prp-core:` | Automation | ralph, ralph-cancel, rollback | 3 |
 | `/prp-mkt:` | Marketing | landing, demo, pitch, competitor | 4 |
 | `/prp-bot:` | AI Bot | intent, flow, prompt-eng, voice-ux, integration | 5 |
 
@@ -997,6 +997,23 @@ claude --dangerously-skip-permissions "/prp-core:run-all Add feature X --no-inte
    ```bash
    cd .prp && ./scripts/install.sh
    ```
+
+### Agent files แสดงเป็น changes ใน `.prp/adapters/claude-code-agents/`
+
+เกิดจาก install เวอร์ชันเก่าสร้าง `.claude/agents` เป็น **whole-directory symlink** ไปยัง `.prp/adapters/claude-code-agents/` ทำให้การ install ใหม่ resolve path ผิดพลาด
+
+**แก้ไข**: รัน install ใหม่ — script จะ detect และ migrate อัตโนมัติ:
+```bash
+cd .prp && ./scripts/install.sh && cd ..
+```
+
+Script จะแสดง:
+```
+⚠️  Migrating from directory symlink to per-file symlinks: Claude Code Agents
+✅ Symlinked files: Claude Code Agents
+```
+
+หลังจากนั้น `.claude/agents/` จะเป็น real directory ที่มี per-file symlinks และ agent files จะไม่แสดงเป็น changes อีกต่อไป
 
 ---
 

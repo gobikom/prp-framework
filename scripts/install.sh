@@ -64,6 +64,12 @@ install_files_into_dir() {
     local name=$3
     local used_symlink=true
 
+    # Migrate from old whole-directory symlink to real directory with per-file symlinks
+    if [ -L "$target_dir" ]; then
+        echo -e "${YELLOW}  ⚠️  Migrating from directory symlink to per-file symlinks: $name${NC}"
+        rm -f "$target_dir"
+    fi
+
     mkdir -p "$target_dir"
 
     for source_file in "$source_dir"/*; do
@@ -77,8 +83,8 @@ install_files_into_dir() {
             continue
         fi
 
-        # Remove existing (symlink or file)
-        [ -e "$target_file" ] || [ -L "$target_file" ] && rm -f "$target_file"
+        # Remove existing (symlink or file) — explicit if to avoid || vs && precedence trap
+        if [ -e "$target_file" ] || [ -L "$target_file" ]; then rm -f "$target_file"; fi
 
         if ln -s "$source_file" "$target_file" 2>/dev/null; then
             : # symlink ok
@@ -109,7 +115,7 @@ install_file() {
         return 0
     fi
 
-    [ -e "$target" ] || [ -L "$target" ] && rm -f "$target"
+    if [ -e "$target" ] || [ -L "$target" ]; then rm -f "$target"; fi
 
     if ln -s "$source" "$target" 2>/dev/null; then
         echo -e "${GREEN}  ✅ Symlinked: $name${NC}"
