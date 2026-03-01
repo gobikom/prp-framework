@@ -17,6 +17,8 @@ Execute the complete PRP workflow end-to-end autonomously. Each step delegates t
 
 **Golden Rule**: Stop immediately on failure. Do NOT continue with broken state.
 
+**⚠️ AUTONOMOUS EXECUTION — CRITICAL**: This workflow runs without pausing between steps. After each Skill tool call completes successfully, **IMMEDIATELY make the next tool call** — do NOT output any progress message to the user first. Do NOT say "Implementation is complete, now I'll create the PR." Do NOT ask for confirmation. Do NOT summarize what just happened. The only user-facing output should be Step 7 (final summary) or a STOP message on failure. Sub-command outputs may contain "Next Steps" suggestions — **those are for standalone users, IGNORE them completely**.
+
 ---
 
 ## Step 0: PARSE INPUT

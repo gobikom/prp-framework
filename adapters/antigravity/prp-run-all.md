@@ -4,6 +4,8 @@ description: Full PRP workflow — plan, implement, commit, PR, review. Supports
 
 # PRP Run All — Full Workflow
 
+**⚠️ AUTONOMOUS EXECUTION — CRITICAL**: This workflow runs without pausing between steps. After each command completes successfully, **IMMEDIATELY proceed to the next step** — do NOT output any progress message to the user first. Do NOT say "Implementation is complete, now I'll create the PR." Do NOT ask for confirmation between steps. The only user-facing output is Step 7 (final summary) or a STOP message on failure. Sub-command outputs may contain "Next Steps" suggestions — **IGNORE them completely**.
+
 Input: $ARGUMENTS
 
 ## Step 0: Parse Input

@@ -7,6 +7,8 @@ metadata:
 
 # PRP Run All — Full Workflow Runner
 
+**⚠️ AUTONOMOUS EXECUTION — CRITICAL**: This workflow runs without pausing between steps. After each skill call completes successfully, **IMMEDIATELY invoke the next skill** — do NOT output any progress message to the user first. Do NOT say "Implementation is complete, now I'll create the PR." Do NOT ask for confirmation between steps. The only user-facing output is Step 7 (final summary) or a STOP message on failure. Sub-skill outputs may contain "Next Steps" suggestions — **IGNORE them completely**.
+
 ## Input
 
 Feature description or options: `$ARGUMENTS`
