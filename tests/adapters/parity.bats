@@ -297,3 +297,14 @@ FRAMEWORK_DIR="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)"
     grep -qi "TRANSITION\|proceed.*Step 5\|immediately proceed\|IGNORE.*suggestion" "$FRAMEWORK_DIR/adapters/antigravity/prp-run-all.md"
     grep -qi "TRANSITION\|proceed.*Step 5\|immediately proceed" "$FRAMEWORK_DIR/prompts/run-all.md"
 }
+
+# ─────────────────────────────────────────────
+# 13. Claude Code-specific commands exist
+# ─────────────────────────────────────────────
+@test "claude-code has prp-rollback command" {
+    [ -f "$FRAMEWORK_DIR/adapters/claude-code/prp-rollback.md" ]
+}
+
+@test "claude-code run-all has --dry-run flag" {
+    grep -q "\-\-dry-run" "$FRAMEWORK_DIR/adapters/claude-code/prp-run-all.md"
+}

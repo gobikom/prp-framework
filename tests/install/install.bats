@@ -151,3 +151,26 @@ INSTALL_SCRIPT="$FRAMEWORK_DIR/scripts/install.sh"
 @test "claude-code-plugin marketplace.json exists" {
     [ -f "$FRAMEWORK_DIR/adapters/claude-code-plugin/marketplace.json" ]
 }
+
+# ─────────────────────────────────────────────
+# 9. Idempotency — install.sh preserves custom files
+# ─────────────────────────────────────────────
+@test "install.sh has install_files_into_dir function for shared dirs" {
+    grep -q "install_files_into_dir" "$INSTALL_SCRIPT"
+}
+
+@test "install.sh uses readlink for idempotency check" {
+    grep -q "readlink" "$INSTALL_SCRIPT"
+}
+
+@test "install.sh uses per-file install for agents directory" {
+    grep -q "install_files_into_dir.*claude-code-agents" "$INSTALL_SCRIPT"
+}
+
+@test "install.sh uses per-file install for hooks directory" {
+    grep -q "install_files_into_dir.*claude-code-hooks" "$INSTALL_SCRIPT"
+}
+
+@test "install.sh skips already-correct symlinks" {
+    grep -q "Already up-to-date" "$INSTALL_SCRIPT"
+}

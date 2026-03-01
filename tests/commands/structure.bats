@@ -437,3 +437,36 @@ PROMPTS_DIR="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)/prompts"
     # Summary template should use wildcard to match tool-suffixed reports
     grep -q "report\*" "$PROMPTS_DIR/run-all.md"
 }
+
+# ─────────────────────────────────────────────
+# 17. prp-rollback command structure (P3)
+# ─────────────────────────────────────────────
+ROLLBACK_FILE="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)/adapters/claude-code/prp-rollback.md"
+
+@test "prp-rollback.md exists in claude-code adapter" {
+    [ -f "$ROLLBACK_FILE" ]
+}
+
+@test "prp-rollback.md supports --soft mode" {
+    grep -q "\-\-soft" "$ROLLBACK_FILE"
+}
+
+@test "prp-rollback.md supports --hard mode" {
+    grep -q "\-\-hard" "$ROLLBACK_FILE"
+}
+
+@test "prp-rollback.md supports --restore mode" {
+    grep -q "\-\-restore" "$ROLLBACK_FILE"
+}
+
+@test "prp-rollback.md creates stash backup before --hard reset" {
+    grep -qi "stash" "$ROLLBACK_FILE"
+}
+
+@test "prp-rollback.md has Success Criteria" {
+    grep -qi "Success Criteria" "$ROLLBACK_FILE"
+}
+
+@test "prp-rollback.md never deletes branches" {
+    grep -qi "Never delete\|do NOT delete\|Only suggest" "$ROLLBACK_FILE"
+}
