@@ -5,6 +5,32 @@ All notable changes to PRP Framework will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Breaking Change Policy
+
+### What constitutes a breaking change (requires major version bump)
+
+- **Artifact format changes**: changes to frontmatter fields, section names, or required structure in `.prp-output/` files that would make existing artifacts unreadable by newer commands
+- **State file format changes**: changes to `.claude/prp-run-all.state.md` schema that break `--resume` for in-progress runs
+- **Flag removal or rename**: removing or renaming flags that users depend on (e.g. `--ralph`, `--resume`, `--no-interact`)
+- **Install path changes**: moving adapter directories to different locations (breaks existing symlinks)
+- **Hook interface changes**: changing the stop hook output format that `prp-ralph-stop.sh` reads
+
+### What is NOT a breaking change
+
+- Adding new optional flags
+- Adding new phases or sections to prompts (additive)
+- Adding new commands or agents
+- Changing prompt wording or logic that does not affect artifact format
+- Bug fixes that change behavior from wrong to correct
+
+### Migration guide requirement
+
+Every major version release MUST include a `docs/migration/vX.0-to-vY.0.md` file documenting:
+1. What changed and why
+2. Step-by-step migration for existing artifacts
+3. How to update `--resume` state files if format changed
+4. Any adapter-specific differences
+
 ## [Unreleased]
 
 ### Added

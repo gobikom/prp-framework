@@ -1,6 +1,6 @@
 ---
 description: Orchestrate complete PRP workflow - plan, implement, commit, PR, and review in sequence with context passing
-argument-hint: "<feature-description>" or --prp-path <path/to/plan.md> [--ralph] [--ralph-max-iter N] [--skip-review] [--no-pr] [--fix-severity <levels>] [--resume] [--no-interact]
+argument-hint: "<feature-description>" or --prp-path <path/to/plan.md> [--ralph] [--ralph-max-iter N] [--skip-review] [--no-pr] [--fix-severity <levels>] [--resume] [--no-interact] [--dry-run]
 ---
 
 # PRP Full Workflow Runner
@@ -34,6 +34,7 @@ Execute the complete PRP workflow end-to-end autonomously. Each step delegates t
 | `--fix-severity <levels>` | Override review-fix severity (default: `critical,high,medium,suggestion`). Example: `--fix-severity critical,high` |
 | `--resume` | Resume from last failed step using saved state (`.claude/prp-run-all.state.md`) |
 | `--no-interact` | Never ask user questions — use best judgment for ambiguous requirements, pick defaults for choices. Pre-condition errors still STOP with error (not wait). |
+| `--dry-run` | Preview all steps that would be executed without running anything. Shows: steps, estimated token cost, artifacts that would be created. Exits after preview. |
 
 **If `--prp-path` provided, validate the file exists:**
 
@@ -66,7 +67,46 @@ USE_RALPH = {true | false}
 RALPH_MAX_ITER = {N, default 10}
 FIX_SEVERITY = "{from --fix-severity, default 'critical,high,medium,suggestion'}"
 NO_INTERACT = {true | false}
+DRY_RUN = {true | false}
 ```
+
+**If `DRY_RUN = true` — print preview and exit immediately:**
+
+```
+🔍 DRY RUN — No changes will be made
+═══════════════════════════════════════════════════════════
+
+Feature: {FEATURE}
+Mode:    {--ralph if USE_RALPH else "default implement"}
+
+Steps that would run:
+  ┌─ Step 1: Create branch        → feature/{slug}
+  ├─ Step 2: Create plan          → .prp-output/plans/{slug}-{TIMESTAMP}.plan.md
+  ├─ Step 3: Implement            → {"/prp-ralph (loop up to N iter)" if USE_RALPH else "/prp-implement (single pass)"}
+  ├─ Step 4: Commit               → conventional commit on feature branch
+  ├─ Step 5: Create PR            → {"skipped (--no-pr)" if NO_PR else "PR to main"}
+  └─ Step 6: Review & Fix         → {"skipped (--skip-review)" if SKIP_REVIEW else "review-agents + review-fix"}
+
+Estimated token cost:
+  Plan:      ~10-20K tokens    (codebase analysis)
+  Implement: {"~15K × " + RALPH_MAX_ITER + " iterations = ~" + (15*RALPH_MAX_ITER) + "K tokens (ralph mode)" if USE_RALPH else "~15-30K tokens (single pass)"}
+  Commit:    ~2K tokens
+  PR:        ~3K tokens
+  Review:    ~15-30K tokens   (with pre-generated context optimization)
+  ─────────────────────────────────────────────────────────
+  Total:     {"~" + (15*RALPH_MAX_ITER + 50) + "-" + (15*RALPH_MAX_ITER + 85) + "K tokens (ralph)" if USE_RALPH else "~45-85K tokens (default)"}
+
+Artifacts that would be created:
+  .prp-output/plans/        → implementation plan
+  .prp-output/reports/      → implementation report
+  .prp-output/reviews/      → pr-context + review report
+  .claude/prp-run-all.lock  → deleted on completion
+
+To execute: remove --dry-run and re-run the same command.
+═══════════════════════════════════════════════════════════
+```
+
+**Then STOP — do not proceed to Step 0.5 or beyond.**
 
 **If `--ralph` flag detected — verify hook is registered:**
 

@@ -67,7 +67,7 @@ prp-framework/
 
 ## Editing Workflow
 
-**IMPORTANT:** Always maintain 100% feature parity across all tools.
+**IMPORTANT:** Always maintain 100% workflow parity across all tools — every tool must support the same workflow steps (PRD → Plan → Implement → Review → Commit → PR). Claude Code is the full reference implementation; other adapters are optimized lite versions and do not need to replicate every agent or hook.
 
 ### 1. Edit Source Prompt
 
@@ -340,7 +340,7 @@ chore: update dependencies
 - [ ] Documentation updated
 
 ## Checklist
-- [ ] Feature parity across all tools
+- [ ] Workflow parity across all tools (same steps, not necessarily same depth)
 - [ ] All adapters updated
 - [ ] Documentation updated
 - [ ] No breaking changes (or documented)
@@ -350,9 +350,23 @@ chore: update dependencies
 
 We use [Semantic Versioning](https://semver.org/):
 
-- **Major (X.0.0):** Breaking changes
-- **Minor (0.X.0):** New features, backward compatible
-- **Patch (0.0.X):** Bug fixes
+- **Major (X.0.0):** Breaking changes — artifact format, state schema, flag removal, install path changes
+- **Minor (0.X.0):** New features, backward compatible — new commands, agents, optional flags, additive prompt changes
+- **Patch (0.0.X):** Bug fixes — prompt logic corrections, wording improvements, doc fixes
+
+### Breaking Change Definition
+
+See `CHANGELOG.md` → Breaking Change Policy for the full list of what constitutes a breaking change.
+
+**Key rule**: If an existing `.prp-output/` artifact or `.claude/prp-run-all.state.md` would stop working correctly after the update, it is a breaking change.
+
+### Migration Guide Requirement
+
+Every **major** version MUST ship with `docs/migration/vX.0-to-vY.0.md` covering:
+1. What changed and why
+2. Step-by-step artifact migration
+3. State file format changes (affects `--resume`)
+4. Adapter-specific differences
 
 ## Release Process
 

@@ -525,6 +525,9 @@ Commit → PR → Review/Fix Loop → Summary
 
 # Override review-fix severity (default: critical,high,medium,suggestion)
 /prp-run-all Add JWT auth --fix-severity critical,high
+
+# Preview all steps and token estimate without executing
+/prp-run-all Add JWT auth --dry-run
 ```
 
 ### Supported Flags
@@ -539,6 +542,7 @@ Commit → PR → Review/Fix Loop → Summary
 | `--no-pr` | Skip PR and review steps |
 | `--fix-severity <levels>` | Override review-fix severity (default: `critical,high,medium,suggestion`) |
 | `--no-interact` | Never ask user questions — use best judgment for ambiguous requirements, pick defaults |
+| `--dry-run` | Preview all steps and estimated token cost without executing anything |
 
 ### State Management
 
@@ -625,6 +629,55 @@ ls -t .prp-output/plans/*.plan.md | head -1
 ```bash
 # ลบ artifacts เก่ากว่า 30 วัน
 ./scripts/cleanup-artifacts.sh 30
+```
+
+---
+
+## Workflow: Rollback
+
+**Purpose:** Safely undo implementation changes on the current branch, with a stash backup so nothing is permanently lost.
+
+### Options
+
+```bash
+# Interactive — shows changes and asks which mode
+/prp-core:rollback
+
+# Unstage only (keep files in working directory, no data loss)
+/prp-core:rollback --soft
+
+# Full revert to origin/main (creates stash backup first)
+/prp-core:rollback --hard
+
+# Restore from the most recent rollback stash
+/prp-core:rollback --restore
+```
+
+### Modes
+
+| Mode | What it does | Data loss? |
+|------|-------------|-----------|
+| `--soft` | Unstages commits back to origin/main (files stay in working dir) | None |
+| `--hard` | Resets branch to origin/main HEAD | None — stash backup created first |
+| `--restore` | Pops the most recent `prp-rollback-*` stash | None |
+
+### Safety Guarantees
+
+- `--hard` always creates a stash backup **before** running `git reset --hard`
+- Stash is labeled `prp-rollback-{YYYYMMDD-HHMM}-{branch}` for easy identification
+- `--restore` recovers from any `--hard` rollback within the same session
+- Never deletes branches — only suggests cleanup
+
+### Output
+
+```
+✅ Rollback complete
+
+Branch: feature/jwt-auth
+Reset to: origin/main (abc1234)
+
+Stash backup created: prp-rollback-20260301-1430-feature/jwt-auth
+To restore: /prp-core:prp-rollback --restore
 ```
 
 ---

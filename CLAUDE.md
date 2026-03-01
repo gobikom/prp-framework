@@ -34,7 +34,8 @@ PRP (Plan-Review-PR) Framework เป็น cross-tool AI coding workflow framew
 - `issue-fix` - Fix from investigation
 - `ralph` - Autonomous implementation loop (loops until all validations pass)
 - `ralph-cancel` - Cancel loop
-- `run-all` - Full workflow (supports `--ralph` / `--ralph-max-iter N` / `--resume` / `--fix-severity` / `--no-interact` flags)
+- `rollback` - Safely undo implementation changes (--soft / --hard with stash backup / --restore)
+- `run-all` - Full workflow (supports `--ralph` / `--ralph-max-iter N` / `--resume` / `--fix-severity` / `--no-interact` / `--dry-run` flags)
 
 ### Marketing Commands (`/prp-mkt:`)
 - `landing` - Landing page analysis & optimization
@@ -101,14 +102,18 @@ Script ยัง auto-register Ralph stop hook ใน `.claude/settings.local.js
   "permissions": {
     "allow": [
       "Bash(git *)", "Bash(gh *)", "Bash(ls *)", "Bash(mkdir *)",
-      "Bash(mv *)", "Bash(cp *)", "Bash(rm *)", "Bash(cat *)",
+      "Bash(mv *)", "Bash(cp *)", "Bash(cat *)",
       "Bash(test *)", "Bash(find *)", "Bash(date *)", "Bash(head *)",
-      "Bash(echo *)", "Bash(grep *)", "Bash(sed *)", "Bash(jq *)",
-      "Bash(npm *)", "Bash(npx *)", "Bash(bun *)"
+      "Bash(echo *)", "Bash(grep *)", "Bash(jq *)",
+      "Bash(npm *)", "Bash(npx *)", "Bash(bun *)",
+      "Bash(rm -f .claude/prp-*)", "Bash(rm -rf .prp-output/*)",
+      "Bash(sed -i* .prp-output/*)"
     ]
   }
 }
 ```
+
+> **หมายเหตุ**: `Bash(rm *)` และ `Bash(sed *)` แบบ wildcard เต็มให้ AI ลบหรือแก้ไขไฟล์ใดก็ได้ — ใช้ scoped version ข้างต้นแทน ดู config ฉบับเต็มพร้อม tiered options ที่ `docs/USER-GUIDE.md` → Permissions & Unattended Mode
 
 ดู config ฉบับเต็ม + tech stack เพิ่มเติมที่ `docs/USER-GUIDE.md` → Permissions & Unattended Mode
 

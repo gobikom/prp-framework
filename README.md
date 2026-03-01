@@ -14,7 +14,7 @@ PRP (Plan-Review-PR) Framework is a portable, tool-agnostic workflow system for 
 ✅ **Complete Workflows** - PRD → Design → Plan → Implement → Review → Commit → PR
 ✅ **Resilient Automation** - State management with `--resume`, review-fix loops, coverage enforcement (90%)
 ✅ **Quality Built-in** - TDD approach, conditional design docs, pre-commit checks, security/performance validation
-✅ **100% Feature Parity** - All tools implement the same logic
+✅ **100% Workflow Parity** - All tools follow the same workflow steps (Claude Code is the full implementation with 17 commands, 30 agents, hooks, and skills; other adapters are optimized lite versions)
 ✅ **Claude Code Advanced** - 30 specialized agents, skills, hooks for enhanced workflows
 ✅ **Domain Extensions** - Marketing automation and AI Bot development command packs
 
@@ -44,16 +44,18 @@ cd .prp && ./scripts/install.sh && cd ..
   "permissions": {
     "allow": [
       "Bash(git *)", "Bash(gh *)", "Bash(ls *)", "Bash(mkdir *)",
-      "Bash(mv *)", "Bash(cp *)", "Bash(rm *)", "Bash(cat *)",
+      "Bash(mv *)", "Bash(cp *)", "Bash(cat *)",
       "Bash(test *)", "Bash(find *)", "Bash(date *)", "Bash(head *)",
-      "Bash(echo *)", "Bash(grep *)", "Bash(sed *)", "Bash(jq *)",
-      "Bash(npm *)", "Bash(npx *)", "Bash(bun *)"
+      "Bash(echo *)", "Bash(grep *)", "Bash(jq *)",
+      "Bash(npm *)", "Bash(npx *)", "Bash(bun *)",
+      "Bash(rm -f .claude/prp-*)", "Bash(rm -rf .prp-output/*)",
+      "Bash(sed -i* .prp-output/*)"
     ]
   }
 }
 ```
 
-> Full config + unattended mode guide: [USER-GUIDE.md — Permissions](docs/USER-GUIDE.md#permissions--unattended-mode-claude-code)
+> `Bash(rm *)` และ `Bash(sed *)` แบบ wildcard เต็มให้ AI ลบ/แก้ไขไฟล์ใดก็ได้ — ใช้ scoped version ข้างต้นสำหรับ team และดู full config + tiered options ที่ [USER-GUIDE.md — Permissions](docs/USER-GUIDE.md#permissions--unattended-mode-claude-code)
 
 ### Installation via Local Clone (Recommended for Deploy)
 
@@ -93,7 +95,8 @@ cp -r prp-framework/* my-project/
 | **Review Fix** | Auto-fix all review issues to PR branch | After review, fix critical/high/medium/suggestions |
 | **Commit** | Smart staging + conventional commit | Code ready to commit |
 | **PR** | Create pull request | Ready to push |
-| **Run All** | Full workflow end-to-end (supports `--ralph`, `--resume`, `--fix-severity`, `--no-interact`) | Complete automation |
+| **Rollback** | Safely undo implementation changes (--soft / --hard with stash backup / --restore) | Implementation went wrong |
+| **Run All** | Full workflow end-to-end (supports `--ralph`, `--resume`, `--fix-severity`, `--no-interact`, `--dry-run`) | Complete automation |
 
 ## Tool Support
 
@@ -106,11 +109,15 @@ cp -r prp-framework/* my-project/
 /prp-core:ralph plan.md                                    # Execute plan (autonomous loop until pass)
 /prp-core:ralph plan.md --max-iterations 10                # Ralph with custom iterations
 /prp-core:ralph-cancel                                     # Cancel active ralph loop
+/prp-core:rollback                                         # Undo changes (interactive)
+/prp-core:rollback --hard                                  # Revert to origin/main (stash backup first)
+/prp-core:rollback --restore                               # Restore from rollback stash
 /prp-core:run-all Add JWT auth                             # Full workflow (plan→implement→commit→PR→review)
 /prp-core:run-all Add JWT auth --ralph                     # Full workflow using ralph loop
 /prp-core:run-all Add JWT auth --resume                    # Resume from last failed step
 /prp-core:run-all Add JWT auth --fix-severity critical     # Override review-fix severity
 /prp-core:run-all Add JWT auth --no-interact               # Fully unattended (no questions asked)
+/prp-core:run-all Add JWT auth --dry-run                   # Preview steps + token estimate (no execution)
 /prp-core:review-agents 25                                 # Multi-agent PR review
 /prp-core:review-fix 25                                    # Fix all review issues
 /prp-core:commit                                           # Smart commit
@@ -191,7 +198,7 @@ prp-framework/
 │   ├── pr.md
 │   └── run-all.md
 ├── adapters/                   # Tool-specific adapters
-│   ├── claude-code/            # Claude Code core commands (17 commands)
+│   ├── claude-code/            # Claude Code core commands (18 commands)
 │   ├── claude-code-marketing/  # Marketing commands (4 commands)
 │   ├── claude-code-bot/        # AI Bot commands (5 commands)
 │   ├── claude-code-agents/     # Claude Code agents (30 agents)

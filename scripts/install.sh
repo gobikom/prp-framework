@@ -22,14 +22,24 @@ echo "Project directory: $PROJECT_DIR"
 echo ""
 
 # Function: Try symlink, fallback to copy
+# Safe: skips if already correct symlink, removes only PRP-owned symlinks/dirs
 install_directory() {
     local source=$1
     local target=$2
     local name=$3
 
-    # Remove target if exists
-    if [ -e "$target" ] || [ -L "$target" ]; then
-        echo -e "${YELLOW}  ⚠️  Removing existing: $target${NC}"
+    # Skip if already a correct symlink (idempotent fast path)
+    if [ -L "$target" ] && [ "$(readlink "$target")" = "$source" ]; then
+        echo -e "${GREEN}  ✅ Already up-to-date: $name${NC}"
+        return 0
+    fi
+
+    if [ -L "$target" ]; then
+        # It's a symlink pointing elsewhere — safe to replace
+        rm -f "$target"
+    elif [ -e "$target" ]; then
+        # It's a real directory — warn before removing
+        echo -e "${YELLOW}  ⚠️  Removing existing directory: $target${NC}"
         rm -rf "$target"
     fi
 
@@ -46,16 +56,60 @@ install_directory() {
     fi
 }
 
+# Function: Install individual files into a shared directory (preserves non-PRP files)
+# Use for shared dirs like .claude/agents/ and .claude/hooks/ that may contain custom files
+install_files_into_dir() {
+    local source_dir=$1
+    local target_dir=$2
+    local name=$3
+    local used_symlink=true
+
+    mkdir -p "$target_dir"
+
+    for source_file in "$source_dir"/*; do
+        [ -e "$source_file" ] || continue
+        local filename
+        filename=$(basename "$source_file")
+        local target_file="$target_dir/$filename"
+
+        # Skip if already a correct symlink
+        if [ -L "$target_file" ] && [ "$(readlink "$target_file")" = "$source_file" ]; then
+            continue
+        fi
+
+        # Remove existing (symlink or file)
+        [ -e "$target_file" ] || [ -L "$target_file" ] && rm -f "$target_file"
+
+        if ln -s "$source_file" "$target_file" 2>/dev/null; then
+            : # symlink ok
+        else
+            cp "$source_file" "$target_file"
+            used_symlink=false
+        fi
+    done
+
+    if $used_symlink; then
+        echo -e "${GREEN}  ✅ Symlinked files: $name${NC}"
+        return 0
+    else
+        echo -e "${GREEN}  ✅ Copied files: $name${NC}"
+        return 1
+    fi
+}
+
 # Function: Install file symlink
 install_file() {
     local source=$1
     local target=$2
     local name=$3
 
-    # Remove target if exists
-    if [ -e "$target" ] || [ -L "$target" ]; then
-        rm -f "$target"
+    # Skip if already a correct symlink
+    if [ -L "$target" ] && [ "$(readlink "$target")" = "$source" ]; then
+        echo -e "${GREEN}  ✅ Already up-to-date: $name${NC}"
+        return 0
     fi
+
+    [ -e "$target" ] || [ -L "$target" ] && rm -f "$target"
 
     if ln -s "$source" "$target" 2>/dev/null; then
         echo -e "${GREEN}  ✅ Symlinked: $name${NC}"
@@ -99,10 +153,10 @@ else
     USED_COPY=true
 fi
 
-# Install Claude Code Agents
+# Install Claude Code Agents (per-file install to preserve custom agents)
 echo "→ Claude Code Agents (.claude/agents/)"
-mkdir -p "$PROJECT_DIR/.claude"
-if install_directory "$FRAMEWORK_DIR/adapters/claude-code-agents" "$PROJECT_DIR/.claude/agents" "Claude Code Agents"; then
+mkdir -p "$PROJECT_DIR/.claude/agents"
+if install_files_into_dir "$FRAMEWORK_DIR/adapters/claude-code-agents" "$PROJECT_DIR/.claude/agents" "Claude Code Agents"; then
     USED_SYMLINKS=true
 else
     USED_COPY=true
@@ -122,10 +176,10 @@ for skill_dir in "$FRAMEWORK_DIR/adapters/claude-code-skills"/*; do
     fi
 done
 
-# Install Claude Code Hooks
+# Install Claude Code Hooks (per-file install to preserve custom hooks)
 echo "→ Claude Code Hooks (.claude/hooks/)"
-mkdir -p "$PROJECT_DIR/.claude"
-if install_directory "$FRAMEWORK_DIR/adapters/claude-code-hooks" "$PROJECT_DIR/.claude/hooks" "Claude Code Hooks"; then
+mkdir -p "$PROJECT_DIR/.claude/hooks"
+if install_files_into_dir "$FRAMEWORK_DIR/adapters/claude-code-hooks" "$PROJECT_DIR/.claude/hooks" "Claude Code Hooks"; then
     USED_SYMLINKS=true
 else
     USED_COPY=true
