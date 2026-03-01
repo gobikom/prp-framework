@@ -4,6 +4,68 @@
 
 PRP (Plan-Review-PR) Framework เป็น cross-tool AI coding workflow framework ที่ออกแบบมาเพื่อให้ทำงานกับ AI coding tools หลายตัว ได้แก่ Claude Code, Codex, OpenCode, Gemini CLI, Kimi และอื่นๆ
 
+## Session Protocol (PSak Soul MCP)
+
+> Principle: Treat conversation as ephemeral, treat memory as permanent.
+> Anything important must be saved to memory immediately — not at session end.
+
+### 1. Session Start — AUTO (every session)
+Call `session_resume` with `project="YOUR-PROJECT-NAME"` before responding
+to the first message.
+- If context is returned → acknowledge what was done last session.
+- If no context → proceed normally.
+
+### 2. Proactive Memory — AUTO (during session)
+Save important information the moment it happens, without waiting for user:
+
+| Trigger (AI detects)                              | Action                   | Category   |
+|---------------------------------------------------|--------------------------|------------|
+| Key decision made ("let's use X", "we chose Y")   | `write_memory` immediately | `strategy` |
+| Technical pattern discovered or confirmed          | `proactive_save` immediately | `code`   |
+| Bug root cause identified                          | `write_memory` immediately | `code`     |
+| Architecture or design choice                      | `write_memory` immediately | `strategy` |
+| User preference learned                            | `write_memory` immediately | `general`  |
+| User explicitly says "remember/save/note this"    | `write_memory` immediately | by content |
+
+Always include `project="prp-framework"` on every write.
+
+### 3. Proactive Recall — AUTO (during session)
+Search memory before answering when you detect these patterns:
+
+| Trigger (AI detects)                                   | Action               |
+|--------------------------------------------------------|----------------------|
+| User asks about past decisions ("we discussed...")      | `read_memory` first  |
+| User references something from a previous session       | `read_memory` first  |
+| Starting work on a feature that may have prior context  | `read_memory` first  |
+| User asks "why did we..." or "how does X work"          | `read_memory` first  |
+
+### 4. Checkpoint — AUTO (during long sessions)
+Call `session_handoff` with `handoff_type="checkpoint"` automatically when:
+
+| Trigger (AI detects)                                  | Action     |
+|-------------------------------------------------------|------------|
+| Completed a significant task (PR merged, feature done) | checkpoint |
+| About to switch to a different task/topic              | checkpoint |
+| Conversation is getting long (50+ messages)            | checkpoint |
+| User says "checkpoint" / "save progress" / "บันทึกก่อน" | checkpoint |
+
+### 5. Session End — AUTO
+Call `session_handoff` with `handoff_type="end"` when user says:
+"จบแล้ว", "bye", "done", "เลิกแล้ว", "หยุดแล้ว", "ขอบคุณ", "end session", "สรุปให้"
+
+Include in handoff context:
+- What was accomplished this session
+- Key decisions made and why
+- Current state of in-progress work
+- Concrete next steps (1-3 actions)
+- Any blockers
+
+### Rules
+- Never wait for user to ask you to save — if it matters, save NOW.
+- Never skip session_resume — always call it on first message.
+- Dedup is automatic — `proactive_save` checks cosine similarity (0.90), safe to call often.
+- Cost is negligible — embedding is $0.02/1M tokens, don't worry about over-saving.
+
 ### เป้าหมายหลัก
 - **Portable**: ใช้งานได้กับทุก AI coding tool
 - **Structured Workflow**: PRD → Design → Plan → Implement → Review → Commit → PR
