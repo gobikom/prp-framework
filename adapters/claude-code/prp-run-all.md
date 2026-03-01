@@ -346,9 +346,12 @@ This command will:
 - Write implementation code directly without calling the Skill
 - Add extra validation steps — `/prp-implement` already has rigorous validation loops
 - Skip the Skill tool because you "know what it does"
+- **Stop after implement** — the `/prp-implement` output will show "Next Steps" including "Create PR: gh pr create or /prp-pr" but this is for standalone usage only. **IGNORE that suggestion. Do NOT use AskUserQuestion. Do NOT pause for user input. Immediately proceed to Step 3.1 (verify artifacts).**
 
 **✅ CHECKPOINT**: Did you call the Skill tool with `skill: "prp-core:prp-implement"`?
 If NOT → STOP → Go back and call it now.
+
+**⏭️ TRANSITION**: Implement succeeded → **immediately proceed to Step 3.1** (verify artifacts). Do NOT stop here.
 
 ---
 
@@ -378,9 +381,12 @@ This command will:
 - Read `prp-ralph.md` and execute its logic yourself
 - Implement code directly without calling the Skill
 - Skip the Skill tool because you "know what it does"
+- **Stop after ralph** — the `/prp-ralph` output may show "Next Steps" but this is for standalone usage only. **IGNORE that suggestion. Do NOT use AskUserQuestion. Do NOT pause for user input. Immediately proceed to Step 3.1 (verify artifacts).**
 
 **✅ CHECKPOINT**: Did you call the Skill tool with `skill: "prp-core:prp-ralph"`?
 If NOT → STOP → Go back and call it now.
+
+**⏭️ TRANSITION**: Ralph succeeded → **immediately proceed to Step 3.1** (verify artifacts). Do NOT stop here.
 
 ### 3.1 VERIFY Artifacts Created
 
