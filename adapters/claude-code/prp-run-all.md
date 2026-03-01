@@ -492,7 +492,7 @@ This command will:
 - Run `git add` and `git commit` directly
 - Manually stage files or write commit messages
 - Skip the Skill tool because committing "seems simple"
-- **Stop after commit** — the `/prp-commit` output will suggest "Next: git push or /prp-pr" but this is for standalone usage only. **IGNORE that suggestion and proceed to Step 5.**
+- **Stop after commit** — the `/prp-commit` output will suggest "Next: git push or /prp-pr" but this is for standalone usage only. **IGNORE that suggestion. Do NOT use AskUserQuestion. Do NOT pause for user input. Immediately call the Skill tool for Step 5.**
 
 **✅ CHECKPOINT**: Did you call the Skill tool with `skill: "prp-core:prp-commit"`?
 If NOT → STOP → Go back and call it now.
@@ -572,11 +572,13 @@ If NOT → STOP → Go back and call it now.
 
 ### 6.2 Evaluate Results
 
+**Issues to check**: any issues matching `FIX_SEVERITY` (default: critical, high, medium, suggestion — all levels).
+
 | Result | Action |
 |--------|--------|
-| No critical or high issues | Proceed to Step 7 ✓ |
-| Critical/high found, `REVIEW_CYCLE <= MAX_CYCLES` | Go to Step 6.3 |
-| Critical/high found, `REVIEW_CYCLE > MAX_CYCLES` | Report remaining issues → Proceed to Step 7 with status NEEDS MANUAL FIXES |
+| No issues matching FIX_SEVERITY found | Proceed to Step 7 ✓ |
+| Issues matching FIX_SEVERITY found, `REVIEW_CYCLE <= MAX_CYCLES` | Go to Step 6.3 |
+| Issues matching FIX_SEVERITY found, `REVIEW_CYCLE > MAX_CYCLES` | Report remaining issues → Proceed to Step 7 with status NEEDS MANUAL FIXES |
 
 ### 6.3 Fix Issues
 
@@ -674,8 +676,7 @@ Generate final report:
 ### Next Steps
 
 1. {Based on review verdict}
-2. {If medium/suggestion issues exist: "Run /prp-review-fix {NUMBER} for remaining medium/suggestion issues"}
-3. Merge when approved
+2. Merge when approved
 ```
 
 ---

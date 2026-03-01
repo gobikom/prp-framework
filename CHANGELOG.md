@@ -33,6 +33,21 @@ Every major version release MUST include a `docs/migration/vX.0-to-vY.0.md` file
 
 ## [Unreleased]
 
+### Fixed
+- **`prp-run-all` Step 6.2 review-fix trigger condition** (Claude Code):
+  - Bug: loop only triggered `prp-review-fix` when critical/high issues found — medium and suggestion were silently skipped
+  - Fixed: trigger condition now checks "any issues matching `FIX_SEVERITY`" (default: critical, high, medium, suggestion — all levels)
+  - Removed misleading Step 7 note suggesting manual `prp-review-fix` for medium/suggestion (now handled automatically)
+- **`prp-run-all` Step 4→5 transition pause** (Claude Code):
+  - Bug: AI occasionally paused after commit step waiting for user input before creating PR
+  - Fixed: strengthened transition instruction — explicitly prohibits `AskUserQuestion` and instructs immediate Skill tool call
+- **`prp-review-fix` Phase 1.1: PR number not extracted when artifact path provided** (Claude Code):
+  - Bug: when called with artifact path (e.g. from run-all), `{NUMBER}` was undefined for checkout and PR comment phases
+  - Fixed: added explicit bash snippet to extract PR number from filename pattern `pr-{NUMBER}-*.md`, with `gh pr view` fallback
+- **`prp-review-fix` Phase 1.2: discovery glob missed `prp-review-agents` artifacts** (Claude Code):
+  - Bug: glob `pr-{NUMBER}-review*.md` did not match `pr-{NUMBER}-agents-review.md` (agents artifacts)
+  - Fixed: updated glob to `pr-{NUMBER}-*review*.md` — matches both `pr-123-review.md` and `pr-123-agents-review.md`
+
 ### Added
 - **`prp-rollback` command** (Claude Code only):
   - `/prp-core:prp-rollback [--soft | --hard | --restore]`

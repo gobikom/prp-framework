@@ -32,7 +32,7 @@ Apply fixes for all issues found by `/prp-review`:
 
 | Input Format | Action |
 |--------------|--------|
-| Path to artifact | Use path directly — skip discovery |
+| Path to artifact | Use path directly — skip discovery. Extract PR number from filename. |
 | Number (`123`, `#123`) | Discover artifacts for this PR number |
 | No input | Get current branch's PR number, then discover |
 
@@ -41,6 +41,21 @@ Apply fixes for all issues found by `/prp-review`:
 gh pr view --json number -q '.number'
 ```
 
+**When path is provided — extract PR number from filename:**
+
+```bash
+# Artifact name format: pr-{NUMBER}-*.md (e.g. pr-123-agents-review.md, pr-123-review.md)
+ARTIFACT_PATH="{provided path}"
+NUMBER=$(basename "$ARTIFACT_PATH" | grep -oE 'pr-([0-9]+)-' | grep -oE '[0-9]+')
+
+# Fallback: get from current branch if filename doesn't match pattern
+if [ -z "$NUMBER" ]; then
+  NUMBER=$(gh pr view --json number -q '.number' 2>/dev/null)
+fi
+```
+
+**Set**: `NUMBER = {extracted or fetched PR number}` — used for checkout, comment, and push in later phases.
+
 ### 1.2 Discover Artifacts
 
 **If input is a path**: use it directly, skip to 1.4.
@@ -48,12 +63,13 @@ gh pr view --json number -q '.number'
 **If input is a PR number**: find all review artifacts for this PR:
 
 ```bash
-ls -t .prp-output/reviews/pr-{NUMBER}-review*.md 2>/dev/null
+ls -t .prp-output/reviews/pr-{NUMBER}-*review*.md 2>/dev/null
 ```
 
 This may return multiple files, e.g.:
 ```
-.prp-output/reviews/pr-123-review.md          ← claude-code (no suffix)
+.prp-output/reviews/pr-123-agents-review.md   ← prp-review-agents (multi-agent)
+.prp-output/reviews/pr-123-review.md          ← prp-review (claude-code)
 .prp-output/reviews/pr-123-review-codex.md    ← codex
 .prp-output/reviews/pr-123-review-gemini.md   ← gemini
 ```

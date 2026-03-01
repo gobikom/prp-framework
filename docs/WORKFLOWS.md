@@ -281,14 +281,15 @@ When multiple tools have reviewed the same PR, the command lists all artifacts a
 
 ```
 Multiple reviews found for PR #123:
-  [1] pr-123-review.md          (claude-code)   2026-02-27 14:30  ← most recent
-  [2] pr-123-review-codex.md    (codex)         2026-02-27 10:15
-  [3] pr-123-review-gemini.md   (gemini)        2026-02-26 09:00
+  [1] pr-123-agents-review.md   (prp-review-agents)  2026-02-27 14:30  ← most recent
+  [2] pr-123-review.md          (claude-code)         2026-02-27 10:15
+  [3] pr-123-review-codex.md    (codex)               2026-02-27 08:00
+  [4] pr-123-review-gemini.md   (gemini)              2026-02-26 09:00
 
 Which review to fix? (Enter for [1]):
 ```
 
-To skip the prompt: pass the artifact path directly as input.
+To skip the prompt: pass the artifact path directly as input. PR number is extracted automatically from the filename (`pr-{NUMBER}-*.md`).
 
 ### Fix Order
 
@@ -556,10 +557,10 @@ run-all creates a state file at `.claude/prp-run-all.state.md` to track progress
 ### Review-Fix Loop (Step 6)
 
 After PR creation, the review step runs a fix loop:
-1. Run `/prp:review` on the PR
-2. If critical/high issues found and cycle <= 2: run `/prp:review-fix` with `--severity` filter
-3. Re-verify with another `/prp:review` to confirm fixes and catch regressions
-4. Max 2 cycles — if still critical after 2 rounds, report remaining issues for manual fix
+1. Run `/prp:review-agents` on the PR
+2. If any issues matching `FIX_SEVERITY` found (default: critical, high, medium, suggestion) and cycle <= 2: run `/prp:review-fix` with `--severity {FIX_SEVERITY}`
+3. Re-verify with another `/prp:review-agents` to confirm fixes and catch regressions
+4. Max 2 cycles — if issues remain after 2 rounds, report remaining issues for manual fix
 
 ### Context Handoff
 
