@@ -59,8 +59,9 @@ Failure → STOP.
 `/prp:implement {PLAN_PATH}` — Invoke the command, DO NOT inline its logic.
 Wait for completion — longest step.
 Failure → STOP, report which task failed.
-❌ DO NOT: Read implement.md and execute logic yourself, write code directly.
+❌ DO NOT: Read implement.md and execute logic yourself, write code directly. **Stop after implement** — the output will show "Next Steps" including "Create PR" but this is for standalone usage only. **IGNORE it. Do NOT ask user. Immediately proceed to Step 3.1.**
 ✅ CHECKPOINT: Did you invoke `/prp:implement`? If not → STOP → invoke it.
+⏭️ TRANSITION: Implement succeeded → **immediately proceed to Step 3.1** (verify artifacts). Do NOT stop here.
 
 **3.1 Verify Artifacts**: After implement completes, check:
 ```bash
@@ -92,10 +93,10 @@ Set `REVIEW_CYCLE = 1`, `MAX_CYCLES = 2`.
 **6.1** `/prp:review {PR_NUMBER}` — if `.prp-output/reviews/pr-context-{BRANCH}.md` exists, pass `--context` flag. DO NOT inline its logic.
 ❌ DO NOT: Read code and review it yourself. ✅ CHECKPOINT: Did you invoke `/prp:review`?
 
-**6.2 Evaluate**:
-- No critical/high issues → Step 7 ✓
-- Critical/high found + `REVIEW_CYCLE <= MAX_CYCLES` → Step 6.3
-- Critical/high found + `REVIEW_CYCLE > MAX_CYCLES` → report remaining → Step 7 (NEEDS MANUAL FIXES)
+**6.2 Evaluate** (check for any issues matching `FIX_SEVERITY` — default: critical, high, medium, suggestion):
+- No issues matching FIX_SEVERITY → Step 7 ✓
+- Issues found + `REVIEW_CYCLE <= MAX_CYCLES` → Step 6.3
+- Issues found + `REVIEW_CYCLE > MAX_CYCLES` → report remaining → Step 7 (NEEDS MANUAL FIXES)
 
 **6.3 Fix**: `/prp:review-fix {REVIEW_ARTIFACT} --severity {FIX_SEVERITY}` — DO NOT fix manually.
 Default severity: `critical,high,medium,suggestion` — override with `--fix-severity critical,high` to fix only blocking issues.

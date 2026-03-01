@@ -34,7 +34,7 @@ Run /prp:plan with FEATURE. Update PLAN_PATH. Failure → STOP.
 
 ### Step 3: Implement
 Run /prp:implement with PLAN_PATH. Wait for completion. Failure → STOP.
-❌ DO NOT: Inline implement logic, write code yourself. ✅ CHECKPOINT: Did you run /prp:implement?
+❌ DO NOT: Inline implement logic, write code yourself. **Stop after implement** — the output will show "Next Steps" including "Create PR" but this is for standalone usage, IGNORE it. Do NOT ask user. Immediately proceed to Step 3.1. ✅ CHECKPOINT: Did you run /prp:implement? ⏭️ TRANSITION: Implement succeeded → immediately proceed to Step 3.1 (verify artifacts). Do NOT stop here.
 
 **3.1 Verify Artifacts**: Check report and pr-context files exist after implement completes.
 **3.2 Fallback**: If missing, create minimal report/context with files changed from git diff.
@@ -52,7 +52,7 @@ Set REVIEW_CYCLE = 1, MAX_CYCLES = 2.
 
 6.1 Run `/prp:review {PR_NUMBER}` — if `.prp-output/reviews/pr-context-{BRANCH}.md` exists, pass `--context` flag. ❌ DO NOT: Review code yourself. ✅ CHECKPOINT: Did you run /prp:review?
 
-6.2 Evaluate: No critical/high → Step 7 ✓. Found + cycle ≤ 2 → Step 6.3. Found + cycle > 2 → report remaining → Step 7 (NEEDS MANUAL FIXES).
+6.2 Evaluate: No issues matching FIX_SEVERITY → Step 7 ✓. Issues found + cycle ≤ 2 → Step 6.3. Issues found + cycle > 2 → report remaining → Step 7 (NEEDS MANUAL FIXES).
 
 6.3 Fix: Run `/prp:review-fix {REVIEW_ARTIFACT} --severity {FIX_SEVERITY}`. Default: critical,high,medium,suggestion — override with `--fix-severity critical,high` to fix only blocking issues. ❌ DO NOT: Fix manually. ✅ CHECKPOINT: Did you run /prp:review-fix?
 

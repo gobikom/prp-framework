@@ -58,8 +58,9 @@ Failure → STOP.
 `/prp-implement {PLAN_PATH}` — Invoke the workflow, DO NOT inline its logic.
 Wait for completion — longest step.
 Failure → STOP, report which task failed.
-❌ DO NOT: Read prp-implement.md and execute logic yourself, write code directly.
+❌ DO NOT: Read prp-implement.md and execute logic yourself, write code directly. **Stop after implement** — the output will show "Next Steps" including "Create PR" but this is for standalone usage only. **IGNORE it. Do NOT ask user. Immediately proceed to Step 3.1.**
 ✅ CHECKPOINT: Did you invoke `/prp-implement`? If not → STOP → invoke it.
+⏭️ TRANSITION: Implement succeeded → **immediately proceed to Step 3.1** (verify artifacts). Do NOT stop here.
 
 **3.1 Verify Artifacts**: After implement completes, check:
 ```bash
@@ -71,8 +72,9 @@ ls -la .prp-output/reviews/pr-context-*.md 2>/dev/null
 
 ### Step 4: Commit
 `/prp-commit` — Invoke the workflow, DO NOT inline its logic.
-❌ DO NOT: Run git add/commit directly, manually stage files.
+❌ DO NOT: Run git add/commit directly, manually stage files. **Stop after commit** — the commit output suggests "Next: git push or /prp-pr" but this is for standalone usage only. **IGNORE it. Do NOT use AskUserQuestion. Do NOT pause for user input. Immediately invoke `/prp-pr` for Step 5.**
 ✅ CHECKPOINT: Did you invoke `/prp-commit`? If not → STOP → invoke it.
+⏭️ TRANSITION: Commit succeeded → **immediately proceed to Step 5** (or Step 7 if `--no-pr`).
 
 ### Step 5: PR (skip if --no-pr)
 `/prp-pr` — Invoke the workflow, DO NOT inline its logic.
@@ -85,7 +87,7 @@ If `NO_INTERACT = true`, pass `--no-interact` to `/prp-pr`.
 
 ### Step 6: Review (skip if --skip-review or --no-pr)
 `/prp-review {PR_NUMBER}` — if `.prp-output/reviews/pr-context-{BRANCH}.md` exists, pass `--context` flag. DO NOT inline its logic.
-Critical issues → `/prp-review-fix {REVIEW_ARTIFACT} --severity {FIX_SEVERITY}` → commit, push, re-review (max 2 cycles).
+Issues matching FIX_SEVERITY found → `/prp-review-fix {REVIEW_ARTIFACT} --severity {FIX_SEVERITY}` → commit, push, re-review (max 2 cycles).
 ❌ DO NOT: Read code and review it yourself, skip the workflow.
 ✅ CHECKPOINT: Did you invoke `/prp-review`? If not → STOP → invoke it.
 

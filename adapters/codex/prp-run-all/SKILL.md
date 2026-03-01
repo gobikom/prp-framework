@@ -84,8 +84,9 @@ Failure → STOP.
 Use `$prp-implement` skill with PLAN_PATH.
 Wait for completion — this is the longest step.
 Failure → STOP, report which task failed.
-❌ DO NOT: Read implement skill and execute logic yourself, write code directly.
+❌ DO NOT: Read implement skill and execute logic yourself, write code directly. **Stop after implement** — the output will show "Next Steps" including "Create PR" but this is for standalone usage only. **IGNORE it. Do NOT ask user. Immediately proceed to Step 3.1.**
 ✅ CHECKPOINT: Did you invoke `$prp-implement`? If not → STOP → invoke it.
+⏭️ TRANSITION: Implement succeeded → **immediately proceed to Step 3.1** (verify artifacts). Do NOT stop here.
 
 **3.1 Verify Artifacts**: After implement completes, check:
 ```bash
@@ -98,8 +99,9 @@ ls -la .prp-output/reviews/pr-context-*.md 2>/dev/null
 ### Step 4: Commit
 Use `$prp-commit` skill.
 Failure: pre-commit hook → fix and retry.
-❌ DO NOT: Run git add/commit directly, manually stage files.
+❌ DO NOT: Run git add/commit directly, manually stage files. **Stop after commit** — the commit output suggests "Next: git push or /prp-pr" but this is for standalone usage only. **IGNORE it. Do NOT ask user. Immediately invoke `$prp-pr` for Step 5.**
 ✅ CHECKPOINT: Did you invoke `$prp-commit`? If not → STOP → invoke it.
+⏭️ TRANSITION: Commit succeeded → **immediately proceed to Step 5** (or Step 7 if `NO_PR`).
 
 ### Step 5: PR (skip if NO_PR)
 Use `$prp-pr` skill.
@@ -118,10 +120,10 @@ Set `REVIEW_CYCLE = 1`, `MAX_CYCLES = 2`.
 ❌ DO NOT: Read code and review it yourself, skip the skill.
 ✅ CHECKPOINT: Did you invoke `$prp-review`? If not → STOP → invoke it.
 
-**6.2 Evaluate**:
-- No critical/high issues → Step 7 ✓
-- Critical/high found + `REVIEW_CYCLE <= MAX_CYCLES` → Step 6.3
-- Critical/high found + `REVIEW_CYCLE > MAX_CYCLES` → report remaining issues → Step 7 (NEEDS MANUAL FIXES)
+**6.2 Evaluate** (check for any issues matching `FIX_SEVERITY` — default: critical, high, medium, suggestion):
+- No issues matching FIX_SEVERITY → Step 7 ✓
+- Issues found + `REVIEW_CYCLE <= MAX_CYCLES` → Step 6.3
+- Issues found + `REVIEW_CYCLE > MAX_CYCLES` → report remaining issues → Step 7 (NEEDS MANUAL FIXES)
 
 **6.3 Fix**: Use `$prp-review-fix` skill with `{REVIEW_ARTIFACT} --severity {FIX_SEVERITY}`.
 Fixes all severities by default. Override with `--fix-severity critical,high` to fix only blocking issues.
