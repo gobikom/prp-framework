@@ -34,6 +34,47 @@ Every major version release MUST include a `docs/migration/vX.0-to-vY.0.md` file
 ## [Unreleased]
 
 ### Added
+- **`prp-rollback` command** (Claude Code only):
+  - `/prp-core:prp-rollback [--soft | --hard | --restore]`
+  - `--soft`: unstage changes, keep working directory (safe, no data loss)
+  - `--hard`: reset to `origin/main` with stash backup created first
+  - `--restore`: pop most recent PRP rollback stash to recover changes
+  - Never deletes branches — only suggests cleanup after `--hard`
+- **`--dry-run` flag for run-all** (Claude Code only):
+  - Preview all workflow steps without executing anything
+  - Shows: steps, estimated token cost per phase, artifacts that would be created
+  - All 6 adapters updated
+- **`install.sh` idempotency**:
+  - `install_directory`: skips if target is already the correct symlink (fast path)
+  - `install_file`: skips if already correct symlink
+  - Re-running install.sh is now a safe no-op when nothing changed
+- **`install.sh` per-file install for agents and hooks**:
+  - `.claude/agents/` and `.claude/hooks/` now use per-file symlinks instead of whole-directory symlink
+  - Preserves custom agents/hooks added by user — only PRP-owned files are managed
+- **`install.sh` auto-recovery**:
+  - On startup, detects typechanged files (blob → symlink) in `adapters/claude-code-agents/` and `adapters/claude-code-hooks/`
+  - Automatically restores via `git checkout --` before proceeding — no manual intervention needed
+
+### Fixed
+- **`install.sh` bash `||`/`&&` operator precedence bug** (critical):
+  - `[ -e "$f" ] || [ -L "$f" ] && rm` was parsed as `([ -e ] || [ -L ]) && rm` (left-associative, equal precedence)
+  - When file existed, `rm` was called — deleted regular files and replaced with self-referencing symlinks in `.prp/adapters/claude-code-agents/`
+  - Fixed to explicit `if [ -e ] || [ -L ]; then rm; fi` in both `install_files_into_dir` and `install_file`
+- **`install.sh` directory symlink migration**:
+  - `install_files_into_dir` failed silently when target was an old whole-directory symlink (`.claude/agents → .prp/adapters/claude-code-agents/`)
+  - `mkdir -p` was a no-op, causing `target_file` to resolve into `.prp/` and damage source files
+  - Fixed: detect directory symlink and remove it before `mkdir -p`
+
+### Tests
+- **14 new bats tests** (install.bats + structure.bats + parity.bats):
+  - `install_files_into_dir` function existence and per-file behavior
+  - `readlink` idempotency check (already-correct symlink skipped)
+  - Agents and hooks use per-file install (not whole-dir symlink)
+  - `prp-rollback` command exists and has `--soft`/`--hard`/`--restore` modes
+  - `--dry-run` flag exists in run-all Claude Code adapter
+  - Rollback stash backup, Success Criteria, never-delete-branches rule
+
+### Added
 - **Conditional Design Doc in Plan** (all adapters):
   - Phase 5.2: TECHNICAL DESIGN with 5 sub-sections (API Contracts, DB Schema, Sequence Diagrams, NFRs, Migration & Rollback)
   - COMPLEXITY_TRIGGERS system: LOW skips design, MEDIUM includes if API/DB changes, HIGH includes all
