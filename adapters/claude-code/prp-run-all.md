@@ -486,7 +486,7 @@ Save to: `.prp-output/reviews/pr-context-{BRANCH}.md`
 ```
 Use Skill tool with:
   skill: "prp-core:prp-commit"
-  args: "" (no args needed)
+  args: "--no-interact"
 ```
 
 This command will:
@@ -516,7 +516,7 @@ If NOT → STOP → Go back and call it now.
 ```
 Use Skill tool with:
   skill: "prp-core:prp-pr"
-  args: "{append '--no-interact' if NO_INTERACT = true, otherwise empty}"
+  args: "--no-interact"
 ```
 
 This command will:

@@ -17,6 +17,23 @@ Create a well-formatted pull request from the current branch, using repository P
 
 ---
 
+## Step 0: PARSE FLAGS
+
+**Extract from `$ARGUMENTS`:**
+
+```
+NO_INTERACT = true if "--no-interact" found in $ARGUMENTS, else false
+BASE_BRANCH = first non-flag argument, default "main"
+```
+
+**⚠️ AUTONOMOUS MODE (`--no-interact`)**: When `NO_INTERACT = true`:
+- **NEVER** use `AskUserQuestion` — zero user questions, zero pauses.
+- Auto-resolve every decision point using safe defaults (see each phase below).
+- Output warnings to the user but do NOT wait for acknowledgment.
+- Pre-condition errors (on main, no commits) still STOP with error message.
+
+---
+
 ## Phase 1: VALIDATE - Check Prerequisites
 
 ### 1.1 Verify Git State
@@ -37,7 +54,8 @@ git log origin/main..HEAD --oneline
 | State | Action |
 |-------|--------|
 | On main/master | STOP: "Cannot create PR from main. Create a feature branch first." |
-| Uncommitted changes | WARN: "You have uncommitted changes. Commit or stash before creating PR." |
+| Uncommitted changes + `NO_INTERACT` | WARN only (print message), then PROCEED — do NOT ask or wait. |
+| Uncommitted changes + interactive | WARN: "You have uncommitted changes. Commit or stash before creating PR." |
 | No commits ahead | STOP: "No commits to create PR from. Branch is up to date with main." |
 | Has commits, clean | PROCEED |
 
@@ -47,7 +65,12 @@ git log origin/main..HEAD --oneline
 gh pr list --head $(git branch --show-current) --json number,url
 ```
 
-**If PR exists:**
+**If PR exists + `NO_INTERACT`:**
+- Reuse the existing PR — set `PR_NUMBER` and `PR_URL` from the result.
+- Skip directly to **Phase 5: VERIFY** (push new commits first if needed).
+- Do NOT stop or ask.
+
+**If PR exists + interactive:**
 ```
 PR already exists for this branch: {url}
 Use `gh pr view` to see details or `gh pr edit` to modify.
@@ -57,7 +80,7 @@ Use `gh pr view` to see details or `gh pr edit` to modify.
 - [ ] Not on main/master branch
 - [ ] Working directory is clean (or user acknowledged)
 - [ ] Has commits ahead of base branch
-- [ ] No existing PR for this branch
+- [ ] No existing PR for this branch (or reused existing in `--no-interact` mode)
 
 ---
 
@@ -135,7 +158,11 @@ git diff --name-only origin/main..HEAD
 git push -u origin HEAD
 ```
 
-**If push fails:**
+**If push fails + `NO_INTERACT`:**
+- Automatically try `git push --force-with-lease -u origin HEAD` (safe force push).
+- If that also fails → STOP with error message. Do NOT ask.
+
+**If push fails + interactive:**
 - Check for remote branch conflicts
 - May need `--force-with-lease` if rebased (warn user first)
 
