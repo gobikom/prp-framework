@@ -14,7 +14,7 @@ PRP (Plan-Review-PR) Framework is a portable, tool-agnostic workflow system for 
 ✅ **Complete Workflows** - PRD → Design → Plan → Implement → Review → Commit → PR
 ✅ **Resilient Automation** - State management with `--resume`, review-fix loops, coverage enforcement (90%)
 ✅ **Quality Built-in** - TDD approach, conditional design docs, pre-commit checks, security/performance validation
-✅ **100% Workflow Parity** - All tools follow the same workflow steps (Claude Code is the full implementation with 17 commands, 30 agents, hooks, and skills; other adapters are optimized lite versions)
+✅ **100% Workflow Parity** - All tools follow the same workflow steps (Claude Code is the full implementation with 19 commands, 30 agents, hooks, and skills; other adapters are optimized lite versions)
 ✅ **Claude Code Advanced** - 30 specialized agents, skills, hooks for enhanced workflows
 ✅ **Domain Extensions** - Marketing automation and AI Bot development command packs
 
@@ -96,6 +96,7 @@ cp -r prp-framework/* my-project/
 | **Commit** | Smart staging + conventional commit | Code ready to commit |
 | **PR** | Create pull request | Ready to push |
 | **Rollback** | Safely undo implementation changes (--soft / --hard with stash backup / --restore) | Implementation went wrong |
+| **Cleanup** | Post-merge cleanup (delete local/remote branches, verify PR merged, `--all` / `--dry-run`) | After PR merged |
 | **Run All** | Full workflow end-to-end (supports `--ralph`, `--resume`, `--fix-severity`, `--no-interact`, `--dry-run`) | Complete automation |
 
 ## Tool Support
@@ -112,6 +113,8 @@ cp -r prp-framework/* my-project/
 /prp-core:rollback                                         # Undo changes (interactive)
 /prp-core:rollback --hard                                  # Revert to origin/main (stash backup first)
 /prp-core:rollback --restore                               # Restore from rollback stash
+/prp-core:cleanup                                          # Clean up current branch after merge
+/prp-core:cleanup --all --dry-run                          # Preview batch cleanup of all merged branches
 /prp-core:run-all Add JWT auth                             # Full workflow (plan→implement→commit→PR→review)
 /prp-core:run-all Add JWT auth --ralph                     # Full workflow using ralph loop
 /prp-core:run-all Add JWT auth --resume                    # Resume from last failed step
@@ -196,9 +199,10 @@ prp-framework/
 │   ├── review-fix.md
 │   ├── commit.md
 │   ├── pr.md
+│   ├── cleanup.md
 │   └── run-all.md
 ├── adapters/                   # Tool-specific adapters
-│   ├── claude-code/            # Claude Code core commands (18 commands)
+│   ├── claude-code/            # Claude Code core commands (19 commands)
 │   ├── claude-code-marketing/  # Marketing commands (4 commands)
 │   ├── claude-code-bot/        # AI Bot commands (5 commands)
 │   ├── claude-code-agents/     # Claude Code agents (30 agents)
@@ -296,7 +300,7 @@ cd .prp && git config pull.rebase true && cd ..
 ## Documentation
 
 - [Getting Started Guide](docs/GETTING_STARTED.md) - Step-by-step setup
-- [User Guide](docs/USER-GUIDE.md) - Complete command reference (26 commands)
+- [User Guide](docs/USER-GUIDE.md) - Complete command reference (28 commands)
 - [Agents Guide](docs/AGENTS-GUIDE.md) - How to use 30 specialized agents with strategy workflows
 - [Workflows Documentation](docs/WORKFLOWS.md) - Detailed workflow descriptions
 - [Contributing Guide](docs/CONTRIBUTING.md) - How to contribute

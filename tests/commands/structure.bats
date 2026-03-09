@@ -470,3 +470,48 @@ ROLLBACK_FILE="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)/adapters/cl
 @test "prp-rollback.md never deletes branches" {
     grep -qi "Never delete\|do NOT delete\|Only suggest" "$ROLLBACK_FILE"
 }
+
+# ─────────────────────────────────────────────
+# 27. prp-cleanup command structure
+# ─────────────────────────────────────────────
+CLEANUP_FILE="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)/adapters/claude-code/prp-cleanup.md"
+
+@test "prp-cleanup.md exists in claude-code adapter" {
+    [ -f "$CLEANUP_FILE" ]
+}
+
+@test "prp-cleanup.md supports --all flag" {
+    grep -q "\-\-all" "$CLEANUP_FILE"
+}
+
+@test "prp-cleanup.md supports --dry-run flag" {
+    grep -q "\-\-dry-run" "$CLEANUP_FILE"
+}
+
+@test "prp-cleanup.md verifies PR merge status" {
+    grep -qi "MERGED\|merge status\|PR.*merged" "$CLEANUP_FILE"
+}
+
+@test "prp-cleanup.md deletes local branch" {
+    grep -q "git branch -d\|git branch -D" "$CLEANUP_FILE"
+}
+
+@test "prp-cleanup.md deletes remote branch" {
+    grep -q "git push origin --delete" "$CLEANUP_FILE"
+}
+
+@test "prp-cleanup.md protects main/master branches" {
+    grep -qi "main\|master.*never\|Protected branch\|exclude.*main" "$CLEANUP_FILE"
+}
+
+@test "prp-cleanup.md has Phase sections" {
+    grep -q "## Phase" "$CLEANUP_FILE"
+}
+
+@test "prp-cleanup.md has Edge Cases" {
+    grep -qi "Edge Case" "$CLEANUP_FILE"
+}
+
+@test "prp-cleanup.md has Success Criteria" {
+    grep -qi "Success Criteria" "$CLEANUP_FILE"
+}

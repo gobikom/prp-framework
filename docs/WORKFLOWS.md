@@ -683,6 +683,64 @@ To restore: /prp-core:prp-rollback --restore
 
 ---
 
+## Workflow: Cleanup (Post-Merge Branch Cleanup)
+
+**Purpose:** Clean up local and remote branches after a PR has been merged. Verifies merge status before deleting anything.
+
+### Process
+
+```
+Parse Flags → Determine Target Branches → Verify PR Merged →
+Delete Local Branch → Delete Remote Branch → Prune Refs → Summary
+```
+
+### Options
+
+```bash
+# Clean up current branch (must not be on it)
+/prp-core:cleanup
+
+# Clean up specific branch
+/prp-core:cleanup feat/user-auth
+
+# Clean all merged branches
+/prp-core:cleanup --all
+
+# Preview without deleting
+/prp-core:cleanup --all --dry-run
+```
+
+### Flags
+
+| Flag | Description |
+|------|-------------|
+| `--all` | Find and clean all local branches merged into main |
+| `--dry-run` | Show what would be deleted without executing |
+
+### Safety Guarantees
+
+- Always verifies PR is merged via `gh pr list` before any deletion
+- Never includes main/master in cleanup targets
+- `--dry-run` previews without executing any destructive operations
+- Auto-switches to main if currently on the target branch
+- Handles already-deleted remote branches gracefully
+
+### Output
+
+```
+## Cleanup Summary
+
+| Branch | PR | Status | Local | Remote |
+|--------|-----|--------|-------|--------|
+| feat/auth | #42 | Merged | Deleted | Deleted |
+| fix/typo | #43 | Open | Skipped | Skipped |
+
+Cleaned: 1 branch(es)
+Skipped: 1 branch(es)
+```
+
+---
+
 ## Common Issues & Recovery
 
 | Scenario | Symptom | Fix |

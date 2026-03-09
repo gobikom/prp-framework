@@ -75,7 +75,7 @@ Include in handoff context:
 
 | Namespace | หมวดหมู่ | จำนวน |
 |-----------|----------|-------|
-| `/prp-core:` | Development, Debug, Review, Automation | 18 |
+| `/prp-core:` | Development, Debug, Review, Automation | 19 |
 | `/prp-mkt:` | Marketing & Sales | 4 |
 | `/prp-bot:` | AI Call Center / Chatbot | 5 |
 
@@ -97,6 +97,7 @@ Include in handoff context:
 - `ralph` - Autonomous implementation loop (loops until all validations pass)
 - `ralph-cancel` - Cancel loop
 - `rollback` - Safely undo implementation changes (--soft / --hard with stash backup / --restore)
+- `cleanup` - Post-merge cleanup (delete local/remote branches, verify PR merged, `--all` / `--dry-run`)
 - `run-all` - Full workflow (supports `--ralph` / `--ralph-max-iter N` / `--resume` / `--fix-severity` / `--no-interact` / `--dry-run` flags)
 
 ### Marketing Commands (`/prp-mkt:`)
