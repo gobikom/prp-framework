@@ -46,10 +46,53 @@ Check for pre-generated pr-context: `.prp-output/reviews/pr-context-{BRANCH}.md`
 6. **Type Design** (when types changed): encapsulation, invariants, usefulness, enforcement (each rated 1-10).
 7. **Simplification** (last): nested ternaries → if/else, clever → explicit. **Auto-commit** improvements to PR branch.
 
+## Validation Phase (Run After Review Passes)
+
+Run automated checks to catch issues that code review alone may miss.
+
+### Run Validation Suite
+
+```bash
+# Type checking (adapt to project)
+npm run type-check || bun run type-check || npx tsc --noEmit
+
+# Linting
+npm run lint || bun run lint
+
+# Tests
+npm test || bun test
+
+# Build
+npm run build || bun run build
+```
+
+Capture for each: pass/fail status, error count, warning count, specific failures.
+
+### Specific Validation
+
+| Change Type | Additional Validation |
+|-------------|----------------------|
+| New API endpoint | Test with curl/httpie |
+| Database changes | Check migration exists |
+| Config changes | Verify .env.example updated |
+| New dependencies | Check package.json/lock file |
+
+### Regression Check
+
+```bash
+# Full test suite
+npm test || bun test
+
+# Specific tests for changed functionality
+npm test -- {relevant-test-pattern}
+```
+
+Include validation results in the output report.
+
 ## Output
 
 Categorize: Critical (block merge), Important (address), Suggestions, Strengths.
-Include: Documentation Updates, Verdict (READY TO MERGE / NEEDS FIXES / CRITICAL ISSUES), Recommended Actions.
+Include: Validation Results table, Documentation Updates, Verdict (READY TO MERGE / NEEDS FIXES / CRITICAL ISSUES), Recommended Actions.
 
 ### Save Local Review
 Save aggregated review to `.prp-output/reviews/pr-{NUMBER}-review-antigravity.md` before posting.

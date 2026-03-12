@@ -82,6 +82,49 @@ Check for pre-generated pr-context: `.prp-output/reviews/pr-context-{BRANCH}.md`
 - Clever → explicit, unnecessary abstractions → direct
 - **Auto-commit**: If improvements made, commit and push to PR branch.
 
+## Validation Phase (Run After Review Passes)
+
+Run automated checks to catch issues that code review alone may miss.
+
+### Run Validation Suite
+
+```bash
+# Type checking (adapt to project)
+npm run type-check || bun run type-check || npx tsc --noEmit
+
+# Linting
+npm run lint || bun run lint
+
+# Tests
+npm test || bun test
+
+# Build
+npm run build || bun run build
+```
+
+Capture for each: pass/fail status, error count, warning count, specific failures.
+
+### Specific Validation
+
+| Change Type | Additional Validation |
+|-------------|----------------------|
+| New API endpoint | Test with curl/httpie |
+| Database changes | Check migration exists |
+| Config changes | Verify .env.example updated |
+| New dependencies | Check package.json/lock file |
+
+### Regression Check
+
+```bash
+# Full test suite
+npm test || bun test
+
+# Specific tests for changed functionality
+npm test -- {relevant-test-pattern}
+```
+
+Include validation results in the output report's Validation Results table.
+
 ## Result Aggregation
 
 | Category | Description | Action |
@@ -101,7 +144,7 @@ Save aggregated review to `.prp-output/reviews/pr-{NUMBER}-review-codex.md` befo
 ### Post to GitHub
 `gh pr comment <PR_NUMBER> --body-file .prp-output/reviews/pr-{NUMBER}-review-codex.md`
 
-Summary includes: Critical/Important/Suggestions/Strengths tables, Documentation Updates, Verdict (READY TO MERGE / NEEDS FIXES / CRITICAL ISSUES), Recommended Actions.
+Summary includes: Critical/Important/Suggestions/Strengths tables, Validation Results table, Documentation Updates, Verdict (READY TO MERGE / NEEDS FIXES / CRITICAL ISSUES), Recommended Actions.
 
 ### Update Implementation Report
 After posting, find implementation report (`ls -t .prp-output/reports/*-report*.md | head -1`). If exists, append "Review Outcome" section with: review date, PR number, verdict, link to review file, issue counts by category (Critical/Important/Suggestions). If no report found, skip silently.
@@ -120,6 +163,7 @@ $prp-review 42 simplify      # Just simplify
 
 - CONTEXT_GATHERED: PR metadata, diff, artifacts reviewed
 - CODE_REVIEWED: All changed files analyzed
+- VALIDATION_RUN: Type check, lint, tests, build executed
 - ISSUES_CATEGORIZED: Findings organized by severity
 - PR_UPDATED: Comment posted to GitHub
 - RECOMMENDATION_CLEAR: Verdict with rationale
