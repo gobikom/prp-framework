@@ -10,7 +10,7 @@ PRP (Plan-Review-PR) Framework เป็น cross-tool AI coding workflow framew
 > Anything important must be saved to memory immediately — not at session end.
 
 ### 1. Session Start — AUTO (every session)
-Call `session_resume` with `project="YOUR-PROJECT-NAME"` before responding
+Call `session_resume` with `project="prp-framework"` before responding
 to the first message.
 - If context is returned → acknowledge what was done last session.
 - If no context → proceed normally.
@@ -50,8 +50,12 @@ Call `session_handoff` with `handoff_type="checkpoint"` automatically when:
 | User says "checkpoint" / "save progress" / "บันทึกก่อน" | checkpoint |
 
 ### 5. Session End — AUTO
-Call `session_handoff` with `handoff_type="end"` when user says:
+Call `reflect` THEN `session_handoff` with `handoff_type="end"` when user says:
 "จบแล้ว", "bye", "done", "เลิกแล้ว", "หยุดแล้ว", "ขอบคุณ", "end session", "สรุปให้"
+
+Before `session_handoff`, call:
+1. `reflect(diary=<AI-written reflection>, lessons=[...], mood=<state>, project=<project>)`
+2. `session_handoff(context=<summary>, handoff_type="end")`
 
 Include in handoff context:
 - What was accomplished this session
