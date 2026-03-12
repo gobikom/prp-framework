@@ -7,6 +7,17 @@ agent: build
 
 Base: $ARGUMENTS (default: main)
 
+## Step 0: PARSE FLAGS
+
+Extract `--no-interact` flag and base branch from arguments.
+
+**Autonomous mode (`--no-interact`)**: NEVER ask user questions. Auto-resolve decisions:
+- Uncommitted changes → WARN only, PROCEED (don't stop)
+- Existing PR found → reuse it (set PR_NUMBER/URL, skip to verify/push)
+- Push fails → auto `git push --force-with-lease`
+- Multiple templates → auto-select default
+- Pre-condition errors (on main, no commits) still STOP.
+
 ## Steps
 
 1. **Validate**:
@@ -26,6 +37,8 @@ Base: $ARGUMENTS (default: main)
    - If no template: default format with Summary, Changes, Files Changed (`<details>` collapsible), Testing checklist, Related Issues
 5. **Verify**: `gh pr view --json number,url,title,state` and `gh pr checks`
 6. **Output**: PR number, URL, title, base←branch, changes count, files, CI status, next steps
+
+> **Note for orchestrators**: The "Next Steps" in output are for standalone usage only. If invoked as part of run-all, the orchestrator should ignore them and proceed to its next step.
 
 ## Edge Cases
 

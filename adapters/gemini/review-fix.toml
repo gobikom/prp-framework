@@ -45,9 +45,21 @@ If no changes: skip commit.
 ## Edge Cases
 
 - No artifact → STOP, instruct to run review first
+- PR branch has conflicts → warn user to resolve: `git rebase origin/{base-branch}`
 - Drift detected → warn, attempt if context clear, else skip
 - Already fixed → skip silently
 - All skipped → no commit, report all skips
+- Suggestion-only issues → included by default. To skip: `--severity critical,high,medium`
+
+## Success Criteria
+
+- ARTIFACT_LOADED: Review artifact found and parsed
+- BRANCH_CHECKED_OUT: On correct PR branch
+- FIXES_APPLIED: All non-skipped issues addressed
+- VALIDATION_PASSES: All automated checks green
+- CHANGES_PUSHED: Commit pushed to PR branch
+- PR_COMMENTED: Summary posted to GitHub
+- ARTIFACT_UPDATED: Fix outcome appended to review file
 
 ## Usage
 

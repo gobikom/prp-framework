@@ -65,6 +65,8 @@ Files: {count} files (+{add}/-{del})
 Next: git push or create PR
 ```
 
+> **Note for orchestrators**: The "Next" suggestion is for standalone usage only. If invoked as part of run-all, the orchestrator should ignore it and proceed to its next step.
+
 ## Examples
 
 ```

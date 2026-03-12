@@ -1,0 +1,35 @@
+description = "Clean up branches and verify PR status after merge"
+prompt = """# Post-Merge Cleanup
+
+Input: {{args}}
+
+Format: [branch-name] [--all] [--dry-run]
+
+## Mission
+
+Clean up local and remote branches after PR merge. Verify PR is actually merged before deleting. Safety first — never delete unmerged branches.
+
+## Steps
+
+1. **Parse Flags**: Extract `--dry-run`, `--all`, and branch name.
+2. **Determine Targets**: Branch provided → use it. No name + not on main → current branch. No name + on main → STOP. `--all` → `git fetch --prune origin && git branch --merged main | grep -v -E '^\*?\s*(main|master)$'`. If on target → switch to main first.
+3. **Verify PR** (each branch): `gh pr list --head {branch} --state all --json number,title,state,mergedAt,url --limit 1`. MERGED → proceed. OPEN → skip. CLOSED → skip. No PR → warn, ask or auto-skip in batch. `--dry-run` → record only.
+4. **Archive Artifacts** (on main, each verified branch): Switch to main, pull. Find related artifacts: `.prp-output/reviews/pr-{NUMBER}-*.md`, `pr-context-{BRANCH}.md`, reports, completed plans. Stage and commit: `git commit -m "chore: archive artifacts for PR #{NUMBER}"`. `--dry-run` → list only. No artifacts → skip.
+5. **Cleanup** (each verified): Preview branch/PR/date/artifacts. `--dry-run` → preview only. Delete local: `git branch -d {branch}` (force -D if PR merged). Delete remote: `git push origin --delete {branch}`. Prune: `git remote prune origin`.
+6. **Output**: Summary table (Branch | PR | Status | Artifacts | Local | Remote), cleaned/skipped counts. `--dry-run` → preview what would happen.
+
+## Edge Cases
+
+On target branch → switch to main. Not fully merged → force if PR merged. Remote gone → skip. No PR → ask/auto-skip. No merged branches → exit. Protected branches → never. Network error → report, continue.
+
+## Usage
+
+/prp:cleanup                        # Current branch
+/prp:cleanup feat/auth              # Specific branch
+/prp:cleanup --all                  # All merged
+/prp:cleanup --all --dry-run        # Preview
+
+## Success Criteria
+
+PR_VERIFIED, ARTIFACTS_ARCHIVED, LOCAL_DELETED, REMOTE_DELETED, REFS_PRUNED, DRY_RUN_SAFE, PROTECTED_BRANCHES
+"""

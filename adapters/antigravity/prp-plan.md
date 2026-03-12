@@ -23,7 +23,7 @@ Transform the input into a battle-tested implementation plan. PLAN ONLY — no c
 4. **Research**: ONLY AFTER exploration. Official docs (match versions), gotchas, security. Format: URL + KEY_INSIGHT + APPLIES_TO + GOTCHA.
 5. **Design UX**: Before/After ASCII diagrams with data flows. Interaction changes table.
 6. **Architect**: Analyze architecture fit, execution order, failure modes, performance, security, maintainability. Document approach chosen, rationale, alternatives rejected, scope limits. **Technical Design (conditional)**: If complexity=HIGH or API/DB changes → include API Contracts, Database Schema (with migration + rollback), Sequence Diagrams (Mermaid), NFRs (p95/p99, caching, security), Migration & Rollback plan. Reference existing Design Doc if available.
-7. **Generate Plan**: Save to `.prp-output/plans/{feature}.plan.md` with ALL sections:
+7. **Generate Plan**: Generate timestamp: `TIMESTAMP=$(date +%Y%m%d-%H%M)`. Save to `.prp-output/plans/{feature}-{TIMESTAMP}.plan.md` with ALL sections:
    - Summary, User Story, Problem/Solution Statements, Metadata
    - UX Design (before/after ASCII diagrams + interaction changes)
    - Mandatory Reading (P0/P1/P2 priority files)
@@ -43,6 +43,8 @@ If from PRD: Update status to `in-progress`, link plan file.
 Report: file path, summary, complexity, scope, key patterns, external research, UX transformation, risks, **confidence score (1-10)/10**, next step.
 
 **Gate**: If ambiguous → STOP and ask for clarification.
+- **If `--no-interact` flag is set**: Do NOT ask. Use best judgment, state assumptions in an "## Assumptions" section, and proceed.
+
 **Test**: Could an unfamiliar agent implement using ONLY this plan?
 
 ## Usage

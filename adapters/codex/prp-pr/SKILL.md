@@ -17,6 +17,19 @@ Create a well-formatted pull request from the current branch, using repository P
 
 **Golden Rule**: PRs should tell reviewers what changed and why.
 
+## Step 0: PARSE FLAGS
+
+Extract from `$ARGUMENTS`:
+- `NO_INTERACT` = true if `--no-interact` found
+- `BASE_BRANCH` = first non-flag argument, default "main"
+
+**Autonomous mode (`--no-interact`)**: NEVER ask user questions. Auto-resolve decisions:
+- Uncommitted changes → WARN only, PROCEED (don't stop)
+- Existing PR found → reuse it (set PR_NUMBER/URL, skip to verify)
+- Push fails → auto `git push --force-with-lease`
+- Multiple templates → auto-select default
+- Pre-condition errors (on main, no commits) still STOP.
+
 ## Phase 1: VALIDATE — Check Prerequisites
 
 ```bash
@@ -116,6 +129,8 @@ gh pr checks
 ## Phase 6: OUTPUT
 
 Report: PR number, URL, title, base←branch, summary, changes count, files list, CI checks status, next steps.
+
+> **Note for orchestrators**: The "Next Steps" in output are for standalone usage only. If invoked as part of run-all, the orchestrator should ignore them and proceed to its next step.
 
 ## Edge Cases
 

@@ -21,6 +21,8 @@ Target: $ARGUMENTS
 4. Commit: `{type}: {description}` (types: feat/fix/refactor/docs/test/chore)
 5. Output: hash, message, file count
 
+> **Note for orchestrators**: The "Next" suggestion in output is for standalone usage only. If invoked as part of run-all, the orchestrator should ignore it and proceed to its next step.
+
 ## Examples
 
 ```

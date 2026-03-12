@@ -39,6 +39,7 @@ Execute the plan end-to-end autonomously. Validate after every change. Fix befor
 8. **PRD Update** (if applicable): Change phase status from `in-progress` to `complete`.
 9. **Archive**: `mv $ARGUMENTS .prp-output/plans/completed/`
 10. **Output**: Status, validation summary, files changed, deviations, artifacts (including review context), PRD progress (if applicable), next steps.
+    > **Note for orchestrators**: The "Next Steps" above are for standalone usage only. If this command was invoked as part of run-all, the orchestrator should ignore these suggestions and proceed to its next step.
 
 ## Success Criteria
 
@@ -47,7 +48,9 @@ Execute the plan end-to-end autonomously. Validate after every change. Fix befor
 - Implementation report created at `.prp-output/reports/`
 - Review context file created at `.prp-output/reviews/pr-context-{BRANCH}.md`
 - PRD updated (if applicable)
+- PRD updated (if applicable) — phase status is `complete`
 - Plan archived to completed folder
+- Plan removed from original location (prevents re-run)
 
 ## Failure Handling
 

@@ -21,5 +21,7 @@ Examples: /prp:commit (all), /prp:commit typescript files, /prp:commit except pa
 
 Edge Cases: Nothing to commit → STOP. Merge conflicts → STOP. Pre-commit hook fails → fix and retry. Mixed staged/unstaged → only commit matching target.
 
+> **Note for orchestrators**: The "Next" suggestion in output is for standalone usage only. If invoked as part of run-all, the orchestrator should ignore it and proceed to its next step.
+
 Success Criteria: FILES_STAGED, QUALITY_CHECKED, MESSAGE_CLEAR, COMMITTED
 """

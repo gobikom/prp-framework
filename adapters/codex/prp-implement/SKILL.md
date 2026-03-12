@@ -150,6 +150,8 @@ If from PRD: show PRD progress (updated phases table), next phase, parallel oppo
 
 Next steps: review, create PR, merge.
 
+> **Note for orchestrators**: The "Next Steps" above are for standalone usage only. If this command was invoked as part of run-all, the orchestrator should ignore these suggestions and proceed to its next step.
+
 ## Failure Handling
 
 | Failure | Action |
@@ -169,4 +171,6 @@ Next steps: review, create PR, merge.
 - BUILD_PASS: Build succeeds
 - REPORT_CREATED: Implementation report exists at `.prp-output/reports/`
 - PR_CONTEXT_CREATED: Review context exists at `.prp-output/reviews/pr-context-{BRANCH}.md`
+- PRD_UPDATED: If plan came from PRD, phase status is `complete`
 - PLAN_ARCHIVED: Original plan moved to completed
+- PLAN_REMOVED: Original plan no longer in `.prp-output/plans/` (prevents re-run)

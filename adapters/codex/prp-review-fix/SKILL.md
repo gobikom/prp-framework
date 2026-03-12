@@ -63,7 +63,17 @@ git pull --rebase origin $(git branch --show-current) 2>/dev/null || true
 | MERGED / CLOSED | STOP |
 | OPEN / DRAFT | PROCEED |
 
-## Phase 3: FIX — Apply Issues by Severity
+## Phase 3: TRIAGE — Print Fix Plan
+
+Before making any changes, print the fix plan:
+- Show issue counts per severity
+- List each issue with file and description
+- Group by file for efficiency
+- Show which issues will be skipped (out of severity filter)
+
+This gives visibility into what will be changed before any edits happen.
+
+## Phase 4: FIX — Apply Issues by Severity
 
 Process order: **Critical → High → Medium → Suggestion**
 
@@ -81,7 +91,7 @@ npm run lint || bun run lint
 
 If validation fails after a batch: identify the failing fix, revert it, add to skip log, re-validate.
 
-## Phase 4: VALIDATE — Full Suite
+## Phase 5: VALIDATE — Full Suite
 
 ```bash
 npm run type-check || bun run type-check || npx tsc --noEmit
@@ -92,7 +102,7 @@ npm run build || bun run build
 
 All checks must pass before committing. If a fix causes failures: revert and skip.
 
-## Phase 5: COMMIT & PUSH
+## Phase 6: COMMIT & PUSH
 
 ```bash
 git add -A
@@ -106,7 +116,7 @@ git push origin $(git branch --show-current)
 
 If nothing to commit: report "No changes needed."
 
-## Phase 6: COMMENT — Post Summary
+## Phase 7: COMMENT — Post Summary
 
 ```bash
 gh pr comment {NUMBER} --body "$(cat <<'EOF'
@@ -150,9 +160,11 @@ Report: PR number, fixed/skipped counts per severity, validation results, commit
 
 - **No artifact**: STOP, tell user to run `prp-review` first
 - **PR merged/closed**: STOP
+- **PR branch has conflicts**: Warn user to resolve conflicts first: `git rebase origin/{base-branch}`
 - **Drift detected**: Warn, attempt fix if context clear, otherwise skip
 - **Already fixed**: Skip silently (mark "already fixed")
 - **All skipped**: Report all skips, no commit
+- **Suggestion-only issues**: By default included. To skip: `--severity critical,high,medium`
 
 ## Usage Examples
 
@@ -166,6 +178,7 @@ $prp-review-fix .prp-output/reviews/pr-42-review-codex.md  # By artifact path
 ## Success Criteria
 
 - ARTIFACT_LOADED: Review artifact found and parsed
+- BRANCH_CHECKED_OUT: On correct PR branch
 - FIXES_APPLIED: All non-skipped issues addressed
 - VALIDATION_PASSES: All automated checks green
 - CHANGES_PUSHED: Commit pushed to PR branch

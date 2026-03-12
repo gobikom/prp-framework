@@ -65,7 +65,17 @@ git pull --rebase origin $(git branch --show-current) 2>/dev/null || true
 | MERGED / CLOSED | STOP: "Cannot apply fixes to closed PR" |
 | OPEN / DRAFT | PROCEED |
 
-## Phase 3: FIX — Apply Issues by Severity
+## Phase 3: TRIAGE — Print Fix Plan
+
+Before making any changes, print the fix plan:
+- Show issue counts per severity
+- List each issue with file and description
+- Group by file for efficiency
+- Show which issues will be skipped (out of severity filter)
+
+This gives visibility into what will be changed before any edits happen.
+
+## Phase 4: FIX — Apply Issues by Severity
 
 Process in order: **Critical → High → Medium → Suggestion**
 
@@ -83,7 +93,7 @@ npm run lint || bun run lint
 
 If validation fails: identify the failing fix → revert it → add to skip log → re-validate.
 
-## Phase 4: VALIDATE — Full Suite
+## Phase 5: VALIDATE — Full Suite
 
 All must pass:
 ```bash
@@ -95,7 +105,7 @@ npm run build || bun run build
 
 If a fix causes test failure: revert and skip that fix.
 
-## Phase 5: COMMIT & PUSH
+## Phase 6: COMMIT & PUSH
 
 ```bash
 git add -A
@@ -109,7 +119,7 @@ git push origin $(git branch --show-current)
 
 If nothing to commit: skip and report "No changes needed."
 
-## Phase 6: COMMENT — Post Summary to PR
+## Phase 7: COMMENT — Post Summary to PR
 
 ```bash
 gh pr comment {NUMBER} --body-file .prp-output/reviews/pr-{NUMBER}-fix-summary.md
@@ -140,9 +150,11 @@ Report to user:
 ## Edge Cases
 
 - **No artifact**: STOP, instruct to run review first
+- **PR branch has conflicts**: Warn user to resolve conflicts first: `git rebase origin/{base-branch}`
 - **Drift detected**: Warn user, attempt fix if context clear, else skip
 - **Already fixed**: Skip silently ("already addressed")
 - **All skipped**: No commit, report all skip reasons
+- **Suggestion-only issues**: By default included. To skip: `--severity critical,high,medium`
 
 ## Usage
 
@@ -156,6 +168,7 @@ Report to user:
 ## Success Criteria
 
 - ARTIFACT_LOADED: Review artifact found and parsed
+- BRANCH_CHECKED_OUT: On correct PR branch
 - FIXES_APPLIED: All non-skipped issues addressed
 - VALIDATION_PASSES: All automated checks green
 - CHANGES_PUSHED: Commit pushed to PR branch

@@ -45,6 +45,7 @@ Run these to understand project structure:
 5. Report selection to user (include parallel opportunity if applicable)
 
 **GATE**: If ambiguous → STOP and ASK for clarification.
+- **If `--no-interact` flag is set**: Do NOT ask. Use best judgment, state assumptions in an "## Assumptions" section, and proceed.
 
 ## Phase 1: Parse — Feature Understanding
 
@@ -94,7 +95,9 @@ Document: APPROACH_CHOSEN + RATIONALE, ALTERNATIVES_REJECTED, NOT_BUILDING (scop
 
 ## Phase 6: Generate — Plan File
 
-Save to: `.prp-output/plans/{kebab-case-feature-name}.plan.md`
+**Generate timestamp**: `TIMESTAMP=$(date +%Y%m%d-%H%M)`
+
+Save to: `.prp-output/plans/{kebab-case-feature-name}-{TIMESTAMP}.plan.md`
 
 Plan must include ALL of these sections:
 1. **Summary** — what we're building
