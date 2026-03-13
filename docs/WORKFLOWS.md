@@ -123,7 +123,7 @@ Design UX → Architect → Generate Plan
 
 ### Output
 
-Plan file: `.prp-output/plans/feature-name.plan.md`
+Plan file: `.prp-output/plans/feature-name-{TIMESTAMP}.plan.md`
 
 Contains:
 - User story and problem statement
@@ -236,6 +236,19 @@ Before gathering PR files, review checks for pre-generated context:
 
 When run via `run-all`, review receives a pre-generated context file via `--context` flag. This skips redundant file gathering and saves ~60K tokens. If context file is not available, review proceeds normally.
 
+### Validation Phase
+
+Before forming a recommendation, review runs automated validation:
+
+| Check | Command |
+|-------|---------|
+| Type check | `npm run type-check` / `bun run type-check` / `npx tsc --noEmit` |
+| Lint | `npm run lint` / `bun run lint` |
+| Tests | `npm test` / `bun test` |
+| Build | `npm run build` / `bun run build` |
+
+Results (pass/fail, error/warning counts) are included in the review report and factor into the APPROVE/REQUEST_CHANGES decision.
+
 ### Methodology
 
 **Claude Code:** 7 specialized agents (parallel/sequential)
@@ -290,6 +303,16 @@ Which review to fix? (Enter for [1]):
 ```
 
 To skip the prompt: pass the artifact path directly as input. PR number is extracted automatically from the filename (`pr-{NUMBER}-*.md`).
+
+### Triage Phase
+
+Before making any changes, a fix plan is printed:
+- Issue counts per severity (Critical: N, High: N, Medium: N, Suggestion: N)
+- Each issue with file path and description
+- Grouped by file for efficient fixing
+- Issues that will be skipped (filtered out by `--severity`)
+
+This gives visibility into what will change before any edits happen.
 
 ### Fix Order
 
@@ -691,7 +714,8 @@ To restore: /prp-core:prp-rollback --restore
 
 ```
 Parse Flags → Determine Target Branches → Verify PR Merged →
-Delete Local Branch → Delete Remote Branch → Prune Refs → Summary
+Archive Artifacts → Delete Local Branch → Delete Remote Branch →
+Prune Refs → Summary
 ```
 
 ### Options
@@ -717,6 +741,15 @@ Delete Local Branch → Delete Remote Branch → Prune Refs → Summary
 | `--all` | Find and clean all local branches merged into main |
 | `--dry-run` | Show what would be deleted without executing |
 
+### Artifact Archiving
+
+Before deleting branches, cleanup commits PR-related artifacts to main:
+
+1. Switch to main and pull latest
+2. Find artifacts: `pr-{NUMBER}-*.md`, `pr-context-{BRANCH}.md`, reports, completed plans
+3. Stage and commit: `git commit -m "chore: archive artifacts for PR #{NUMBER} ({BRANCH})"`
+4. `--dry-run`: lists artifacts that would be committed without committing
+
 ### Safety Guarantees
 
 - Always verifies PR is merged via `gh pr list` before any deletion
@@ -730,10 +763,10 @@ Delete Local Branch → Delete Remote Branch → Prune Refs → Summary
 ```
 ## Cleanup Summary
 
-| Branch | PR | Status | Local | Remote |
-|--------|-----|--------|-------|--------|
-| feat/auth | #42 | Merged | Deleted | Deleted |
-| fix/typo | #43 | Open | Skipped | Skipped |
+| Branch | PR | Status | Artifacts | Local | Remote |
+|--------|-----|--------|-----------|-------|--------|
+| feat/auth | #42 | Merged | Committed | Deleted | Deleted |
+| fix/typo | #43 | Open | Skipped | Skipped | Skipped |
 
 Cleaned: 1 branch(es)
 Skipped: 1 branch(es)

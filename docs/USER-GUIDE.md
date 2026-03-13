@@ -255,10 +255,12 @@ PRD → Design → Plan → Implement → Commit → PR → Review
 **กระบวนการ**:
 1. Load review artifact จาก `.prp-output/reviews/pr-{NUMBER}-*review*.md` (รองรับทั้ง `prp-review-agents` และ `prp-review`)
 2. ถ้ามีหลาย artifact (หลาย tool review) — แสดง list ให้เลือก, PR number extract อัตโนมัติจากชื่อไฟล์
-3. Fix issues เรียง Critical → High → Medium → Suggestion
-4. Validate หลังแต่ละ severity batch (type-check + lint)
-5. Commit และ push ไปที่ PR branch
-6. Comment สรุป fixed/skipped บน PR
+3. Checkout PR branch
+4. **TRIAGE** — แสดง fix plan ก่อนแก้: จำนวน issue ต่อ severity, list ทุก issue พร้อม file/description, group by file, แสดง issues ที่จะ skip (severity filter)
+5. Fix issues เรียง Critical → High → Medium → Suggestion
+6. Validate หลังแต่ละ severity batch (type-check + lint)
+7. Commit และ push ไปที่ PR branch
+8. Comment สรุป fixed/skipped บน PR
 
 **`--severity` options**:
 
