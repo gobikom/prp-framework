@@ -65,6 +65,29 @@ When additions + deletions > 500 lines:
 - Tier 3 (Support: utils, config) + Tier 4 (Low: tests, docs) → core passes only
 - Include coverage map. If >1000 lines: suggest splitting.
 
+## Per-File Review Checklist
+
+For EVERY changed file, check against these 7 categories:
+
+- **Correctness**: Logic errors, edge cases, error handling
+- **Type Safety**: No implicit `any`, return types declared, type guards
+- **Pattern Compliance**: Codebase patterns, naming conventions, imports
+- **Security**: Input validation, secrets exposure, injection vulnerabilities
+- **Performance**: N+1 queries, unnecessary async, memory leaks
+- **Completeness**: Tests for new code, docs updated, TODOs addressed
+- **Maintainability**: Readability, over/under-engineering, magic numbers
+
+## Issue Severity Levels
+
+| Level | Icon | Criteria | Examples |
+|-------|------|----------|----------|
+| Critical | `RED` | Blocking — must fix | Security vulnerabilities, data loss, crashes |
+| High | `ORANGE` | Should fix before merge | Type safety violations, logic errors |
+| Medium | `YELLOW` | Should consider | Pattern inconsistencies, missing edge cases |
+| Low | `BLUE` | Suggestions | Style preferences, minor optimizations |
+
+**Implementation report check**: Documented deviations are intentional — only flag **undocumented** deviations.
+
 ## Review Passes
 
 ### Pass 1: Code Quality & Guidelines (Always)
@@ -202,6 +225,15 @@ After posting, append JSONL to `.prp-output/reviews/review-metrics.jsonl` (times
 ### Update Implementation Report
 After posting, find implementation report (`ls -t .prp-output/reports/*-report*.md | head -1`). If exists, append "Review Outcome" section with: review date, PR number, verdict, link to review file, issue counts by category (Critical/Important/Suggestions). If no report found, skip silently.
 
+### Update PRD (if applicable)
+If implementation report references a Source PRD:
+
+| Verdict | PRD Update |
+|---------|------------|
+| READY TO MERGE | Change phase status to `reviewed` |
+| NEEDS FIXES | Add note: "Review: {N} issues to address" |
+| CRITICAL ISSUES | Add note: "Blocked: {brief reason}" |
+
 ## Usage Examples
 
 ```
@@ -214,6 +246,18 @@ $prp-review 42 simplify      # Just simplify
 $prp-review 163 --since-last-review  # Incremental re-review
 $prp-review --metrics                # View review metrics
 ```
+
+## Critical Reminders
+
+1. **Understand before judging.** Read full context, not just the diff.
+2. **Be specific.** Include file:line references and concrete fix suggestions.
+3. **Prioritize.** Use severity levels honestly — not everything is critical.
+4. **Be constructive.** Offer solutions, not just problems.
+5. **Acknowledge good work.** If something is done well, say so.
+6. **Run validation.** Don't skip automated checks.
+7. **Check patterns.** Read existing similar code to understand expectations.
+8. **Think about edge cases.** What happens with null, empty, very large, concurrent?
+9. **Check implementation report.** Documented deviations are intentional, not issues.
 
 ## Success Criteria
 
@@ -228,3 +272,5 @@ $prp-review --metrics                # View review metrics
 - PR_UPDATED: Formal review posted to GitHub (approve/request-changes)
 - METRICS_COLLECTED: Review metrics appended to JSONL
 - RECOMMENDATION_CLEAR: Verdict with rationale
+- CHECKLIST_APPLIED: Per-file review checklist used for every changed file
+- PRD_UPDATED: If PRD exists, phase status updated based on verdict

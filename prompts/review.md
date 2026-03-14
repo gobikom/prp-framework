@@ -166,6 +166,67 @@ When PR size (additions + deletions) exceeds 500 lines:
 
 ---
 
+## Per-File Review Checklist
+
+**For EVERY changed file, check against these 7 categories:**
+
+#### Correctness
+- [ ] Does the code do what the PR claims?
+- [ ] Are there logic errors?
+- [ ] Are edge cases handled?
+- [ ] Is error handling appropriate?
+
+#### Type Safety
+- [ ] Are all types explicit (no implicit `any`)?
+- [ ] Are return types declared?
+- [ ] Are interfaces used appropriately?
+- [ ] Are type guards used where needed?
+
+#### Pattern Compliance
+- [ ] Does it follow existing patterns in the codebase?
+- [ ] Is naming consistent with project conventions?
+- [ ] Is file organization correct?
+- [ ] Are imports from the right places?
+
+#### Security
+- [ ] Any user input without validation?
+- [ ] Any secrets that could be exposed?
+- [ ] Any injection vulnerabilities (SQL, command, etc.)?
+- [ ] Any unsafe operations?
+
+#### Performance
+- [ ] Any obvious N+1 queries or loops?
+- [ ] Any unnecessary async/await?
+- [ ] Any memory leaks (unclosed resources, growing arrays)?
+- [ ] Any blocking operations in hot paths?
+
+#### Completeness
+- [ ] Are there tests for new code?
+- [ ] Is documentation updated if needed?
+- [ ] Are all TODOs addressed?
+- [ ] Is error handling complete?
+
+#### Maintainability
+- [ ] Is the code readable?
+- [ ] Is it over-engineered?
+- [ ] Is it under-engineered (missing necessary abstractions)?
+- [ ] Are there magic numbers/strings that should be constants?
+
+---
+
+## Issue Severity Levels
+
+| Level | Icon | Criteria | Examples |
+|-------|------|----------|----------|
+| Critical | `RED` | Blocking — must fix | Security vulnerabilities, data loss potential, crashes |
+| High | `ORANGE` | Should fix before merge | Type safety violations, missing error handling, logic errors |
+| Medium | `YELLOW` | Should consider | Pattern inconsistencies, missing edge cases, undocumented deviations |
+| Low | `BLUE` | Suggestions | Style preferences, minor optimizations, documentation |
+
+**Implementation report check**: If a deviation from expected patterns is documented in the implementation report with a valid reason, it is NOT an issue — it's an intentional decision. Only flag **undocumented** deviations.
+
+---
+
 ## Review Passes
 
 ### Pass 1: Code Quality & Guidelines (Always)
@@ -379,6 +440,20 @@ After deduplication, categorize all findings:
 
 **Note**: If validation fails, verdict is at least NEEDS FIXES regardless of pass findings.
 
+### Report Frontmatter
+
+Include this frontmatter at the top of the review file:
+
+```yaml
+---
+pr: {NUMBER}
+title: "{TITLE}"
+author: "{AUTHOR}"
+reviewed: {ISO_TIMESTAMP}
+verdict: {READY TO MERGE / NEEDS FIXES / CRITICAL ISSUES}
+---
+```
+
 ### Summary Format
 
 ```markdown
@@ -512,6 +587,16 @@ ls -t .prp-output/reports/*-report*.md 2>/dev/null | head -1
 
 **If no implementation report found**: Skip this step silently (PR may not have been created via PRP workflow).
 
+### Update PRD (if applicable)
+
+**If implementation report references a Source PRD:**
+
+| Verdict | PRD Update |
+|---------|------------|
+| READY TO MERGE | Change phase status from `complete` to `reviewed` |
+| NEEDS FIXES | Add note: "Review: {N} issues to address" to phase row |
+| CRITICAL ISSUES | Add note: "Blocked: {brief reason}" to phase row |
+
 ---
 
 ## Usage Examples
@@ -595,6 +680,20 @@ review --metrics
 
 ---
 
+## Critical Reminders
+
+1. **Understand before judging.** Read full context, not just the diff.
+2. **Be specific.** "This could be better" is useless. "Use `execFile` instead of `exec` to prevent command injection at line 45" is helpful.
+3. **Prioritize.** Not everything is critical. Use severity levels honestly.
+4. **Be constructive.** Offer solutions, not just problems.
+5. **Acknowledge good work.** If something is done well, say so.
+6. **Run validation.** Don't skip automated checks.
+7. **Check patterns.** Read existing similar code to understand expectations.
+8. **Think about edge cases.** What happens with null, empty, very large, concurrent?
+9. **Check implementation report.** Documented deviations are intentional, not issues.
+
+---
+
 ## Success Criteria
 
 - **CONTEXT_GATHERED**: PR metadata, diff, and artifacts reviewed
@@ -609,3 +708,5 @@ review --metrics
 - **PR_UPDATED**: Formal review posted to GitHub (approve/request-changes)
 - **METRICS_COLLECTED**: Review metrics appended to JSONL
 - **RECOMMENDATION_CLEAR**: Verdict with rationale
+- **CHECKLIST_APPLIED**: Per-file review checklist used for every changed file
+- **PRD_UPDATED**: If PRD exists, phase status updated based on verdict

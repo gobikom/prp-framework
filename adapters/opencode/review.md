@@ -59,6 +59,21 @@ When additions + deletions > 500 lines:
 - Tier 3 (Support: utils, config) + Tier 4 (Low: tests, docs) → core passes only
 - Include coverage map. If >1000 lines: suggest splitting.
 
+## Per-File Review Checklist
+
+For EVERY changed file, check: **Correctness** (logic errors, edge cases, error handling), **Type Safety** (no implicit any, return types, type guards), **Pattern Compliance** (codebase patterns, naming, imports), **Security** (input validation, secrets, injection), **Performance** (N+1, async, memory leaks), **Completeness** (tests, docs, TODOs), **Maintainability** (readability, over/under-engineering).
+
+## Issue Severity
+
+| Level | Icon | Criteria |
+|-------|------|----------|
+| Critical | `RED` | Blocking — security, data loss, crashes |
+| High | `ORANGE` | Should fix — type safety, logic errors |
+| Medium | `YELLOW` | Consider — pattern inconsistencies, missing edge cases |
+| Low | `BLUE` | Suggestions — style, minor optimizations |
+
+**Implementation report check**: Documented deviations are intentional — only flag undocumented ones.
+
 ## Passes
 
 1. **Code Quality** (always): guidelines, bugs, naming, dead code. High-confidence only (80%+).
@@ -147,6 +162,13 @@ After posting, append JSONL to `.prp-output/reviews/review-metrics.jsonl` (times
 
 ### Update Implementation Report
 After posting, find implementation report (`ls -t .prp-output/reports/*-report*.md | head -1`). If exists, append "Review Outcome" section with: review date, PR number, verdict, link to review file, issue counts by category. If no report found, skip silently.
+
+### Update PRD (if applicable)
+If implementation report references a Source PRD: READY TO MERGE → change phase status to `reviewed`. NEEDS FIXES → add note "Review: {N} issues". CRITICAL ISSUES → add note "Blocked: {reason}".
+
+## Critical Reminders
+
+1. Understand before judging — read full context, not just diff. 2. Be specific with file:line references. 3. Prioritize — use severity honestly. 4. Be constructive — offer solutions. 5. Acknowledge good work. 6. Run validation — don't skip. 7. Check patterns — read similar code. 8. Think about edge cases (null, empty, large, concurrent). 9. Check implementation report — documented deviations are intentional.
 
 ## Usage
 
