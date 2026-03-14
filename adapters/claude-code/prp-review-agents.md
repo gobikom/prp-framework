@@ -1,6 +1,6 @@
 ---
-description: Comprehensive PR review using specialized agents - comments, tests, errors, types, code quality, docs, and simplification
-argument-hint: "<pr-number> [aspects: comments|tests|errors|types|code|docs|simplify|all]"
+description: Comprehensive PR review using specialized agents - security, dependencies, code quality, tests, errors, types, docs, and simplification
+argument-hint: "<pr-number> [aspects: comments|tests|errors|types|code|security|deps|docs|perf|a11y|simplify|all] [--since-last-review] [--metrics]"
 ---
 
 # Comprehensive PR Review with Specialized Agents
@@ -23,56 +23,252 @@ test -f "$CONTEXT_FILE" && echo "FOUND" || echo "NOT_FOUND"
 
 | Result | Action |
 |--------|--------|
-| FOUND | Read the context file. Use file list, implementation summary, and validation status from it. Skip "Get Changed Files" in Pre-Review Setup below (already available in context). Display: "Token optimization: Using pre-generated context from pr-context-{BRANCH}.md — skipping PR diff fetch." |
-| NOT_FOUND | Proceed normally with Pre-Review Setup below (gather from PR diff). |
+| FOUND | Read the context file. Use file list, implementation summary, and validation status from it. Skip Phase 1 context extraction (already available). If `--since-last-review` flag present, still proceed through Phase 0.5. Display: "Token optimization: Using pre-generated context from pr-context-{BRANCH}.md — skipping context extraction." |
+| NOT_FOUND | Proceed to Phase 0.5 (if `--since-last-review`) then Phase 1 to extract context. |
 
 **When context file is found, extract from it:**
 - **Files Changed** — use directly instead of `gh pr diff --name-only`
 - **Implementation Summary** — provide to each agent as background
-- **Validation Status** — skip re-running validation
+- **Validation Status** — skip re-running validation if results are present
 - **Review Focus Areas** — prioritize these in agent prompts
 
 ---
 
-## Pre-Review Setup
+## Phase 0.5: Incremental Review Detection
 
-Before running reviews:
+**Only when `--since-last-review` flag is provided.** Skip this phase otherwise.
 
-1. **Identify the PR**
-   - If PR number provided: `gh pr view <number>`
-   - If no number: `gh pr view` (current branch's PR)
-   - Get PR branch name and changed files
+### Detect Previous Review
 
-2. **Check PR State**
-   - Is rebase needed? Check if behind base branch
-   - Are there conflicts? Resolve intelligently if needed
-   - Never push to main without explicit user approval
+```bash
+# Find previous review artifact for this PR
+REVIEW_FILE=$(ls -t .prp-output/reviews/pr-{NUMBER}-agents-review.md 2>/dev/null | head -1)
+```
 
-3. **Get Changed Files** (skip if context file was found in Phase 0)
-   ```bash
-   gh pr diff <number> --name-only
-   ```
+| Result | Action |
+|--------|--------|
+| Review file found | Extract timestamp from file (look for `**Reviewed**:` line or file modification time) |
+| No review file | WARN: "No previous review found for PR #{NUMBER}. Running full review instead." Proceed to Phase 1. |
+
+### Get Changed Files Since Last Review
+
+```bash
+# Get files changed since last review timestamp
+# Note: --since uses commit date. If commits were rebased, results may be incomplete.
+# In that case, fall back to full review.
+git log --since="{TIMESTAMP}" --name-only --pretty=format:"" | sort -u
+```
+
+| Result | Action |
+|--------|--------|
+| No changes since timestamp | "No new changes since last review at {TIMESTAMP}. Nothing to re-review." EXIT. |
+| Changes found | Display: "Incremental review: {N} files changed since {TIMESTAMP}" |
+
+### Incremental Context
+
+When in incremental mode:
+1. Create context with ONLY changed files' diff: `git diff {BASE}...HEAD -- {changed-files}`
+2. Include unchanged files that import/use changed code (for cross-file context)
+3. Load previous review findings for merge later
+
+### Finding Merge (After Agents Complete)
+
+After incremental review completes, merge with previous review:
+1. **Resolved**: Previous issues where file:line region no longer matches in current diff → mark as "Resolved"
+2. **Remaining**: Previous issues still present in current code → keep
+3. **New**: Issues from current review not in previous → add as "New"
+
+Display delta summary:
+```
+Incremental Review Delta:
+- New issues: {N}
+- Resolved: {M}
+- Remaining from previous: {K}
+```
+
+**CHECKPOINT**: Incremental mode active. Reviewing {N} changed files only.
+
+---
+
+## Phase 1: Context Extraction (Token Optimization)
+
+**Purpose**: Extract PR context ONCE, share with all agents. Saves 60-70% tokens vs each agent reading diff independently.
+
+**Skip this phase if** Phase 0 found an existing context file.
+
+### 1.1 Identify the PR
+
+- If PR number provided: `gh pr view <number>`
+- If no number: `gh pr view` (current branch's PR)
+- Get PR branch name and changed files
+
+### 1.2 Check PR State
+
+| State | Action |
+|-------|--------|
+| `MERGED` | STOP: "PR already merged. Nothing to review." |
+| `CLOSED` | WARN: "PR is closed. Review anyway? (historical analysis)" |
+| `DRAFT` | NOTE: "Draft PR — focusing on direction, not polish" |
+| `OPEN` | PROCEED with review |
+
+- Is rebase needed? Check if behind base branch
+- Are there conflicts? Resolve intelligently if needed
+- Never push to main without explicit user approval
+
+### 1.3 Gather Context
+
+Extract all context in ONE pass:
+
+```bash
+# PR metadata
+gh pr view {NUMBER} --json number,title,body,author,headRefName,baseRefName,state,additions,deletions,changedFiles
+
+# PR diff
+gh pr diff {NUMBER}
+
+# Changed files list
+gh pr diff {NUMBER} --name-only
+```
+
+Also read:
+- `CLAUDE.md` — project rules and conventions
+- Implementation report (if exists): `ls -t .prp-output/reports/*-report*.md 2>/dev/null | head -1`
+- Related plan (if referenced in implementation report)
+
+### 1.4 Create Context File
+
+```bash
+mkdir -p .prp-output/reviews
+```
+
+**Context File Path**: `.prp-output/reviews/pr-context-{BRANCH}.md`
+
+```markdown
+---
+pr: {NUMBER}
+branch: "{BRANCH}"
+extracted: {ISO_TIMESTAMP}
+files_changed: {N}
+---
+
+# PR Review Context: #{NUMBER} — {TITLE}
+
+## PR Metadata
+- **Author**: {author}
+- **Branch**: {head} → {base}
+- **State**: {state}
+- **Size**: +{additions}/-{deletions} across {changedFiles} files
+
+## Project Guidelines (from CLAUDE.md)
+{relevant sections from CLAUDE.md}
+
+## Changed Files
+{list from gh pr diff --name-only}
+
+## PR Diff
+{full diff output}
+
+## Implementation Context
+{implementation report summary, if found — otherwise "No implementation report found"}
+```
+
+**CHECKPOINT**: Context file created. All agents will read from this file.
+
+---
+
+## Phase 1.5: Large PR Detection
+
+**Check PR size after context extraction.**
+
+### Size Check
+
+Calculate total changes from PR metadata: `additions + deletions`.
+
+| Size | Action |
+|------|--------|
+| ≤500 lines | Proceed normally — standard review |
+| 501-1000 lines | Large PR strategy — phased review by risk tier |
+| >1000 lines | Large PR strategy + recommend splitting |
+
+### File Risk Categorization
+
+When large PR detected, categorize each changed file:
+
+| Tier | Category | Examples | Review Depth |
+|------|----------|----------|-------------|
+| **Tier 1 (Critical)** | Security, auth, payment, encryption, permissions | `auth/`, `middleware/`, `crypto`, `*.key` | Full depth — all applicable agents |
+| **Tier 2 (Business Logic)** | API endpoints, services, business rules, data processing | `services/`, `controllers/`, `api/`, `routes/` | Full depth — all applicable agents |
+| **Tier 3 (Support)** | Utils, helpers, shared components, configuration | `utils/`, `helpers/`, `components/shared/`, `config/` | Core agents only (code-reviewer, security-reviewer) |
+| **Tier 4 (Low Risk)** | Tests, documentation, config files, generated code | `test/`, `docs/`, `*.config.*`, `*.generated.*` | Core agents only (code-reviewer) |
+
+### Phased Review Strategy
+
+```
+Phase A: Review Tier 1-2 files (critical + business logic)
+├── All applicable agents dispatched
+├── Full depth analysis
+└── Priority findings reported first
+
+Phase B: Review Tier 3-4 files (support + low risk)
+├── Core agents only
+├── Quick scan for obvious issues
+└── Lower priority findings
+```
+
+### Coverage Map
+
+Include in review summary:
+
+```markdown
+### File Coverage Map
+| File | Tier | Agents Run |
+|------|------|------------|
+| `src/auth/login.ts` | 1 (Critical) | code, security, deps, perf |
+| `src/api/users.ts` | 2 (Business) | code, security, deps, tests |
+| `src/utils/format.ts` | 3 (Support) | code, security |
+| `tests/auth.test.ts` | 4 (Low Risk) | code |
+```
+
+### Split Recommendation
+
+If PR >1000 lines, display:
+```
+⚠️ Large PR detected ({N} lines). Consider splitting into smaller PRs for better review quality.
+Suggested splits based on file categories:
+- PR 1: {Tier 1-2 files} ({N} lines)
+- PR 2: {Tier 3-4 files} ({M} lines)
+```
+
+**CHECKPOINT**: Large PR strategy applied. Files categorized by risk tier.
+
+---
 
 ## Review Aspects
 
 | Aspect | Agent | When to Run |
 |--------|-------|-------------|
-| `code` | code-reviewer | Always - general quality and guidelines |
-| `docs` | docs-impact-agent | Almost always - updates stale docs |
+| `code` | code-reviewer | Always — general quality and guidelines |
+| `security` | security-reviewer | Always — OWASP Top 10, vulnerabilities |
+| `deps` | dependency-analyzer | Always — CVEs, outdated packages, licenses |
+| `docs` | docs-impact-agent | Almost always — updates stale docs |
 | `tests` | pr-test-analyzer | When test files or tested code changed |
 | `comments` | comment-analyzer | When comments/docstrings added |
 | `errors` | silent-failure-hunter | When error handling changed |
 | `types` | type-design-analyzer | When types added/modified |
-| `simplify` | code-simplifier | After passing review - polish |
+| `perf` | performance-analyzer | When performance-sensitive patterns detected |
+| `a11y` | accessibility-reviewer | When UI/frontend files changed |
+| `simplify` | code-simplifier | After passing review — polish |
 | `all` | All applicable | Default if no aspects specified |
 
 ## Aspect Selection Logic
 
 **Always run**:
-- `code-reviewer` - Core quality check
+- `code-reviewer` — Core quality check
+- `security-reviewer` — Security vulnerabilities (OWASP Top 10)
+- `dependency-analyzer` — CVEs, outdated packages, licenses
 
 **Almost always run** (skip only for trivial PRs):
-- `docs-impact-agent` - Updates project docs
+- `docs-impact-agent` — Updates project docs
 
 **Skip docs-impact-agent only when**:
 - Typo-only fixes (comments, strings)
@@ -86,8 +282,50 @@ Before running reviews:
 - Try-catch or error handling → `silent-failure-hunter`
 - New types or type modifications → `type-design-analyzer`
 
+**Run when explicitly requested** (overrides auto-detection):
+- User passes `perf` → always run `performance-analyzer` regardless of file types
+- User passes `a11y` → always run `accessibility-reviewer` regardless of file types
+
 **Run last**:
-- `code-simplifier` - After other reviews pass
+- `code-simplifier` — After other reviews pass
+
+## Conditional Agent Dispatch
+
+**Auto-detect file types from PR diff and dispatch specialist agents automatically.**
+
+### File-Type → Agent Mapping
+
+| File Pattern | Agent | Trigger |
+|-------------|-------|---------|
+| `.tsx`, `.jsx`, `.vue`, `.svelte`, `.css`, `.scss`, `.html` | `accessibility-reviewer` | UI/frontend files changed |
+| `.sql`, imports from `prisma`, `drizzle`, `knex`, `sequelize`, `typeorm` | `performance-analyzer` | Database patterns detected |
+| `router`, `endpoint`, `controller`, `handler`, `api/` path | `performance-analyzer` | API endpoint patterns detected |
+| `for.*await`, `Promise.all`, `.map(`, `setInterval`, `setTimeout` | `performance-analyzer` | Async/loop patterns detected |
+
+### Detection Logic
+
+```
+Scan changed files from PR diff:
+
+If UI files detected (.tsx/.jsx/.vue/.svelte/.css/.scss/.html):
+└── Auto-add: accessibility-reviewer
+
+If performance-sensitive patterns detected:
+├── DB imports (prisma, drizzle, knex, sequelize, typeorm, .sql files)
+├── API patterns (router, endpoint, controller, handler, api/ path)
+└── Async/loop patterns (for.*await, Promise.all, .map(, setInterval)
+└── Auto-add: performance-analyzer
+```
+
+### Auto-dispatch Display
+
+When agents are auto-dispatched, display to user:
+```
+Auto-dispatching: accessibility-reviewer (3 .tsx files detected)
+Auto-dispatching: performance-analyzer (DB query patterns in 2 files)
+```
+
+**Note**: Conditional dispatch adds to existing agents — it does NOT replace the always-run agents (code-reviewer, security-reviewer, dependency-analyzer).
 
 ## Execution
 
@@ -95,10 +333,14 @@ Before running reviews:
 
 Run agents one at a time for clear, actionable feedback:
 
-1. `code-reviewer` - Guidelines and bugs
-2. `docs-impact-agent` - Fix stale docs (commits to PR branch)
-3. Applicable specialist agents based on changes
-4. `code-simplifier` - Final polish (if requested or all reviews pass)
+1. `code-reviewer` — Guidelines and bugs
+2. `security-reviewer` — OWASP Top 10, vulnerabilities
+3. `dependency-analyzer` — CVEs, outdated, licenses
+4. `docs-impact-agent` — Fix stale docs (commits to PR branch)
+5. Applicable specialist agents based on changes (pr-test-analyzer, comment-analyzer, silent-failure-hunter, type-design-analyzer)
+6. `performance-analyzer` — If auto-dispatched (performance-sensitive patterns)
+7. `accessibility-reviewer` — If auto-dispatched (UI/frontend files)
+8. `code-simplifier` — Final polish (if requested or all reviews pass)
 
 ### Parallel (When Requested)
 
@@ -106,32 +348,120 @@ If user specifies "parallel", launch all applicable agents simultaneously using 
 
 ## Agent Instructions
 
-When launching each agent via Task tool:
+When launching each agent via Task tool, always include: "Read PR context from `.prp-output/reviews/pr-context-{BRANCH}.md` for diff, metadata, and project rules."
 
 **code-reviewer**:
-> Review PR #<number> for project guideline compliance, bugs, and quality issues. Focus on the diff. Report only high-confidence issues (80+).
+> Review PR #<number> for project guideline compliance, bugs, and quality issues. Read PR context from `.prp-output/reviews/pr-context-{BRANCH}.md`. Focus on the diff. Report only high-confidence issues (80+).
+
+**security-reviewer**:
+> Review PR #<number> for security vulnerabilities. Read PR context from `.prp-output/reviews/pr-context-{BRANCH}.md`. Focus on OWASP Top 10: injection, broken auth, data exposure, SSRF. Report only vulnerabilities with clear attack vectors, not theoretical issues. Include severity and remediation for each finding.
+
+**dependency-analyzer**:
+> Analyze dependencies in PR #<number> for security and health. Read PR context from `.prp-output/reviews/pr-context-{BRANCH}.md`. Check for known CVEs, outdated packages with security patches, abandoned dependencies, license issues. Include exact remediation commands (npm audit fix, version bumps).
 
 **docs-impact-agent**:
-> Review PR #<number> and update any documentation that's affected by these changes. Fix stale docs in CLAUDE.md, README.md, and docs/. If you make updates, commit and push them to the PR branch `<branch-name>`.
+> Review PR #<number> and update any documentation that's affected by these changes. Read PR context from `.prp-output/reviews/pr-context-{BRANCH}.md`. Fix stale docs in CLAUDE.md, README.md, and docs/. If you make updates, commit and push them to the PR branch `<branch-name>`.
 
 **pr-test-analyzer**:
-> Analyze test coverage for PR #<number>. Focus on behavioral coverage, identify critical gaps, rate recommendations by criticality.
+> Analyze test coverage for PR #<number>. Read PR context from `.prp-output/reviews/pr-context-{BRANCH}.md`. Focus on behavioral coverage, identify critical gaps, rate recommendations by criticality.
 
 **comment-analyzer**:
-> Analyze code comments in PR #<number> for accuracy, completeness, and long-term value. Verify comments match actual code behavior.
+> Analyze code comments in PR #<number> for accuracy, completeness, and long-term value. Read PR context from `.prp-output/reviews/pr-context-{BRANCH}.md`. Verify comments match actual code behavior.
 
 **silent-failure-hunter**:
-> Hunt for silent failures in PR #<number>. Check all error handling for proper logging, user feedback, and specific catch blocks.
+> Hunt for silent failures in PR #<number>. Read PR context from `.prp-output/reviews/pr-context-{BRANCH}.md`. Check all error handling for proper logging, user feedback, and specific catch blocks.
 
 **type-design-analyzer**:
-> Analyze type design in PR #<number>. Rate encapsulation, invariant expression, usefulness, and enforcement. Focus on new or modified types.
+> Analyze type design in PR #<number>. Read PR context from `.prp-output/reviews/pr-context-{BRANCH}.md`. Rate encapsulation, invariant expression, usefulness, and enforcement. Focus on new or modified types.
+
+**performance-analyzer** (conditional — when performance-sensitive patterns detected):
+> Analyze PR #<number> for performance issues. Read PR context from `.prp-output/reviews/pr-context-{BRANCH}.md`. Focus on N+1 queries, sequential awaits, memory leaks, unbounded operations, missing pagination, and unnecessary re-renders. Report only issues with measurable impact. Include quantified impact estimate and fix for each finding. Confidence threshold 80%+.
+
+**accessibility-reviewer** (conditional — when UI/frontend files changed):
+> Review UI code in PR #<number> for WCAG 2.1 compliance. Read PR context from `.prp-output/reviews/pr-context-{BRANCH}.md`. Check keyboard navigation, screen reader support, color contrast (4.5:1 text, 3:1 large), ARIA usage, form labels, and focus management. Focus on changed files only. Report issues with affected user groups.
 
 **code-simplifier**:
-> Simplify code in PR #<number> for clarity while preserving functionality. No nested ternaries, prefer explicit over clever. Commit and push improvements to PR branch `<branch-name>`.
+> Simplify code in PR #<number> for clarity while preserving functionality. Read PR context from `.prp-output/reviews/pr-context-{BRANCH}.md`. No nested ternaries, prefer explicit over clever. Commit and push improvements to PR branch `<branch-name>`.
+
+---
+
+## Validation Phase
+
+**Run AFTER all agents complete, BEFORE result aggregation.**
+
+**Skip if** Phase 0 context file already contains validation results (from `/prp-implement`).
+
+### Automated Validation Suite
+
+```bash
+# Type checking (adapt to project)
+npm run type-check || bun run type-check || npx tsc --noEmit
+
+# Linting
+npm run lint || bun run lint
+
+# Tests
+npm test || bun test
+
+# Build
+npm run build || bun run build
+```
+
+**Capture for each**: Pass/fail status, error count, warning count, specific failures.
+
+### Change-Type Specific Validation
+
+| Change Type | Additional Validation |
+|-------------|----------------------|
+| New API endpoint | Test with curl/httpie |
+| Database changes | Check migration exists |
+| Config changes | Verify .env.example updated |
+| New dependencies | Check package.json/lock file consistency |
+
+---
+
+## Result Deduplication
+
+**Before categorizing, deduplicate findings across agents.**
+
+### Dedup Rules
+
+Two findings are considered duplicates when BOTH conditions are met:
+1. **Same file region**: Same file AND within ±5 lines of each other
+2. **Same category**: Both about the same concern (e.g., both about error handling, both about security)
+
+**NOT duplicates** (do not merge):
+- Different files, even if description is similar
+- Same file region but different categories (e.g., security issue + code quality issue at same line)
+
+### Merge Strategy
+
+When duplicates found:
+- **Keep the most detailed description** (longest/most specific)
+- **Use the highest severity** from any contributing agent
+- **List all contributing agents** in the "Agent" column: e.g., `code-reviewer, silent-failure-hunter`
+- **Combine remediation suggestions** if they differ
+
+### Example
+
+BEFORE dedup:
+
+| Agent | Issue | Location |
+|-------|-------|----------|
+| code-reviewer | Empty catch block swallows error | `api.ts:45` |
+| silent-failure-hunter | Catch block has no logging or re-throw | `api.ts:47` |
+
+AFTER dedup:
+
+| Agent | Issue | Location |
+|-------|-------|----------|
+| code-reviewer, silent-failure-hunter | Empty catch block swallows error — no logging or re-throw | `api.ts:45-47` |
+
+---
 
 ## Result Aggregation
 
-After all agents complete, aggregate findings:
+After deduplication, categorize all findings:
 
 ### Categories
 
@@ -141,6 +471,16 @@ After all agents complete, aggregate findings:
 | **Important** | Should fix | Address before merge |
 | **Suggestions** | Nice to have | Consider |
 | **Strengths** | What's good | Acknowledge |
+
+### Verdict Decision Logic
+
+| Condition | Verdict |
+|-----------|---------|
+| No critical/important issues AND all validation passes | READY TO MERGE |
+| Important issues OR validation warnings (fixable) | NEEDS FIXES |
+| Critical issues OR validation failures | CRITICAL ISSUES |
+
+**Note**: If validation fails, verdict is at least NEEDS FIXES regardless of agent findings.
 
 ### Summary Format
 
@@ -155,7 +495,7 @@ After all agents complete, aggregate findings:
 ### Important Issues (X found)
 | Agent | Issue | Location |
 |-------|-------|----------|
-| silent-failure-hunter | Description | `file.ts:line` |
+| security-reviewer | Description | `file.ts:line` |
 
 ### Suggestions (X found)
 | Agent | Suggestion | Location |
@@ -165,6 +505,14 @@ After all agents complete, aggregate findings:
 ### Strengths
 - Well-structured error handling
 - Good test coverage for critical paths
+
+### Validation Results
+| Check | Status | Details |
+|-------|--------|---------|
+| Type Check | {PASS/FAIL} | {notes} |
+| Lint | {PASS/WARN} | {count} warnings |
+| Tests | {PASS/FAIL} | {count} passed |
+| Build | {PASS/FAIL} | {notes} |
 
 ### Documentation Updates
 - `CLAUDE.md` - Added new command reference
@@ -179,6 +527,8 @@ After all agents complete, aggregate findings:
 3. Consider suggestions
 4. Re-run review after fixes
 ```
+
+Note: Agent column may list multiple agents for deduplicated findings (e.g., `code-reviewer, silent-failure-hunter`).
 
 ## Save Local Review
 
@@ -196,11 +546,34 @@ Save the full summary markdown (same content that will be posted to GitHub) to t
 
 ## Post to GitHub
 
-**Always post the summary to the PR when a PR number is provided**:
+### Determine Review Action
+
+Based on findings and validation results:
+
+| Condition | Action |
+|-----------|--------|
+| Verdict is READY TO MERGE (no critical/important AND validation passes) | `gh pr review {NUMBER} --approve --body-file .prp-output/reviews/pr-{NUMBER}-agents-review.md` |
+| Verdict is NEEDS FIXES or CRITICAL ISSUES | `gh pr review {NUMBER} --request-changes --body-file .prp-output/reviews/pr-{NUMBER}-agents-review.md` |
+| Draft PR | `gh pr comment {NUMBER} --body-file .prp-output/reviews/pr-{NUMBER}-agents-review.md` (comment only, no formal review) |
+| Fallback (review command fails, e.g., permission issue) | `gh pr comment {NUMBER} --body-file .prp-output/reviews/pr-{NUMBER}-agents-review.md` |
 
 ```bash
-gh pr comment <PR_NUMBER> --body-file .prp-output/reviews/pr-{NUMBER}-agents-review.md
+# Try formal review first
+gh pr review {NUMBER} --approve --body-file .prp-output/reviews/pr-{NUMBER}-agents-review.md
+# OR
+gh pr review {NUMBER} --request-changes --body-file .prp-output/reviews/pr-{NUMBER}-agents-review.md
+
+# Fallback if gh pr review fails (e.g., permission issue)
+gh pr comment {NUMBER} --body-file .prp-output/reviews/pr-{NUMBER}-agents-review.md
 ```
+
+### Verdict to Action Mapping
+
+| Verdict | GitHub Action |
+|---------|-------------|
+| READY TO MERGE | `--approve` |
+| NEEDS FIXES | `--request-changes` |
+| CRITICAL ISSUES | `--request-changes` |
 
 ## Update Implementation Report
 
@@ -242,6 +615,79 @@ ls -t .prp-output/reports/*-report*.md 2>/dev/null | head -1
 
 ---
 
+## Review Metrics Collection
+
+### Append Metrics After Every Review
+
+After publishing to GitHub, append one JSONL line to `.prp-output/reviews/review-metrics.jsonl`:
+
+```json
+{"timestamp":"2026-03-14T10:30:00Z","pr_number":163,"branch":"feature/auth","verdict":"NEEDS_FIXES","total_issues":5,"critical":1,"important":2,"suggestions":2,"agents_run":["code-reviewer","security-reviewer","dependency-analyzer","docs-impact-agent"],"conditional_agents":["accessibility-reviewer"],"incremental":false,"large_pr":false,"lines_changed":342,"files_changed":8}
+```
+
+**Fields**:
+- `timestamp` — ISO 8601 review completion time
+- `pr_number` — PR number reviewed
+- `branch` — Branch name
+- `verdict` — READY_TO_MERGE / NEEDS_FIXES / CRITICAL_ISSUES
+- `total_issues` — Total findings count
+- `critical`, `important`, `suggestions` — Counts by severity
+- `agents_run` — List of all agents that ran
+- `conditional_agents` — List of agents added by conditional dispatch
+- `incremental` — Whether `--since-last-review` was used
+- `large_pr` — Whether large PR strategy was applied
+- `lines_changed`, `files_changed` — PR size metrics
+
+```bash
+# Append (creates file if not exists)
+echo '{...}' >> .prp-output/reviews/review-metrics.jsonl
+```
+
+### `--metrics` Flag: Aggregate Summary
+
+When `--metrics` flag provided (without PR number), display aggregate summary and EXIT:
+
+```bash
+# Read metrics
+cat .prp-output/reviews/review-metrics.jsonl
+```
+
+Display:
+```markdown
+## Review Metrics Summary
+
+**Total Reviews**: {N}
+**Period**: {earliest timestamp} — {latest timestamp}
+
+### Verdicts
+| Verdict | Count | % |
+|---------|-------|---|
+| READY TO MERGE | {N} | {%} |
+| NEEDS FIXES | {N} | {%} |
+| CRITICAL ISSUES | {N} | {%} |
+
+### Issues by Severity
+| Severity | Total | Avg per Review |
+|----------|-------|---------------|
+| Critical | {N} | {avg} |
+| Important | {N} | {avg} |
+| Suggestions | {N} | {avg} |
+
+### Agent Contribution
+| Agent | Times Run | Avg Issues Found |
+|-------|-----------|-----------------|
+| {agent} | {N} | {avg} |
+
+### Incremental Review Savings
+- Incremental reviews: {N} ({%} of total)
+- Large PR reviews: {N}
+- Conditional dispatches: {N} (accessibility: {N}, performance: {N})
+```
+
+If no metrics file exists: "No review metrics found. Metrics will be collected after your first review."
+
+---
+
 ## Usage Examples
 
 ```bash
@@ -254,6 +700,9 @@ ls -t .prp-output/reports/*-report*.md 2>/dev/null | head -1
 # Review current branch's PR
 /prp-review-agents
 
+# Only security and dependency review
+/prp-review-agents 42 security deps
+
 # Only code and docs review
 /prp-review-agents 42 code docs
 
@@ -262,6 +711,15 @@ ls -t .prp-output/reports/*-report*.md 2>/dev/null | head -1
 
 # Just simplify after passing review
 /prp-review-agents 42 simplify
+
+# Incremental re-review (only changes since last review)
+/prp-review-agents 163 --since-last-review
+
+# View review metrics summary
+/prp-review-agents --metrics
+
+# Performance and accessibility focus
+/prp-review-agents 42 perf a11y
 ```
 
 ## Workflow Integration
@@ -274,7 +732,7 @@ ls -t .prp-output/reports/*-report*.md 2>/dev/null | head -1
 
 **During PR review**:
 1. Run `/prp-review-agents <pr-number>`
-2. Review posts summary to GitHub
+2. Review posts summary to GitHub with formal approve/request-changes
 3. Address feedback
 4. Re-run targeted aspects
 
@@ -285,8 +743,14 @@ ls -t .prp-output/reports/*-report*.md 2>/dev/null | head -1
 
 ## Notes
 
-- Agents analyze git diff by default (changed files only)
-- Each agent returns detailed report with file:line references
+- All agents read from shared context file (`.prp-output/reviews/pr-context-{BRANCH}.md`) instead of fetching PR diff independently
+- security-reviewer and dependency-analyzer always run on every PR
+- performance-analyzer and accessibility-reviewer are auto-dispatched based on file types (conditional)
+- Validation phase runs after agents, before aggregation
+- Findings are deduplicated across agents before categorizing (fuzzy match: ±5 lines + same category)
+- Formal GitHub review action (approve/request-changes) replaces plain comment, with comment as fallback
+- `--since-last-review` enables incremental review — only changes since last review timestamp, merges findings
+- Large PRs (>500 lines) are reviewed by risk tier — critical files first, full depth; support files with core agents only
+- Review metrics appended to `.prp-output/reviews/review-metrics.jsonl` after every review
 - docs-impact-agent commits and pushes doc updates to PR branch
 - code-simplifier commits and pushes improvements to PR branch
-- Summary always posted as PR comment when PR number provided
