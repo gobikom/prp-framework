@@ -37,6 +37,8 @@ Check for these files to determine the project's toolchain:
 
 **Store the detected runner** - use it for all subsequent commands.
 
+> **Plan-provided commands take precedence**: If the plan contains a Metadata table with Runner/Type Check/Lint/Test/Build commands, use those directly instead of auto-detecting. Plan commands were verified during planning and are more reliable.
+
 ### 0.2 Identify Validation Scripts
 
 Check `package.json` (or equivalent) for available scripts:
@@ -61,11 +63,15 @@ cat $ARGUMENTS
 
 Locate and understand:
 
+- **Plan Metadata** (frontmatter) - Runner, commands, mode, status. **Update status from `pending` to `in-progress`.**
+- **Metadata table** - Runner and pre-filled validation commands (Type Check, Lint, Test, Build). **If present, use these instead of auto-detecting in Phase 0.**
 - **Summary** - What we're building
 - **Patterns to Mirror** - Code to copy from
-- **Files to Change** - CREATE/UPDATE list
+- **Files to Change** - CREATE/UPDATE list with **Insert At** hints (line numbers are hints — verify before editing)
+- **Integration Points** - Where new code hooks into existing code (caller, hook location, wiring details)
 - **Step-by-Step Tasks** - Implementation order
 - **Validation Commands** - How to verify (USE THESE, not hardcoded commands)
+- **Confidence Score** - Plan quality indicator (for reporting)
 - **Acceptance Criteria** - Definition of done
 
 ### 1.3 Validate Plan Exists
@@ -528,6 +534,8 @@ mv "$ARGUMENTS" ".prp-output/plans/completed/$(basename $ARGUMENTS .md)-$(date +
 ### 5.5 Generate Review Context File (for run-all workflow)
 
 **Purpose**: Pre-generate context for `/prp-review-agents` to save ~60K tokens when running via `/prp-run-all`.
+
+**CRITICAL**: Generate this file even if implementation fails early. Include note: "Implementation incomplete at task {N}/{total}. Partial context for review." List completed tasks with validation status and remaining tasks. This enables review-agents to provide partial feedback, which is better than no feedback.
 
 **Path**: `.prp-output/reviews/pr-context-{BRANCH}.md`
 
