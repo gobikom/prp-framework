@@ -135,7 +135,7 @@ Save aggregated review to `.prp-output/reviews/pr-{NUMBER}-review-opencode.md` b
 > **Note**: Uses `-opencode` suffix to identify OpenCode reviews and prevent overwriting reviews from other tools (each tool uses its own suffix for parallel review capability).
 
 ### Review Metrics
-After posting, append JSONL to `.prp-output/reviews/review-metrics.jsonl` (timestamp, pr_number, verdict, issues by severity, incremental/large_pr flags). `--metrics` flag shows aggregate summary.
+After posting, append JSONL to `.prp-output/reviews/review-metrics.jsonl` (timestamp, pr_number, verdict, issues by severity, incremental/large_pr flags). `--metrics` flag (without PR number) shows aggregate summary and EXIT — do not run review.
 
 ### Post to GitHub
 

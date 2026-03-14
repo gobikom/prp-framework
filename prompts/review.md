@@ -138,7 +138,7 @@ Categorize each file: production code, test, config, types, docs, etc.
 
 When `--since-last-review` flag provided:
 
-1. Find previous review artifact: `ls -t .prp-output/reviews/pr-{NUMBER}-review*.md 2>/dev/null | head -1`
+1. Find previous review artifact for THIS tool: `ls -t .prp-output/reviews/pr-{NUMBER}-review-{TOOL_SUFFIX}.md 2>/dev/null | head -1` (each adapter uses its own suffix: `-other`, `-antigravity`, `-opencode`, `-gemini`, `-codex`, `-agents`)
 2. Extract review timestamp from artifact
 3. Get changed files since: `git log --since="{TIMESTAMP}" --name-only --pretty=format:"" | sort -u`
 4. If no changes: "No new changes since last review." EXIT.

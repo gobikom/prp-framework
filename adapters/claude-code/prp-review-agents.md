@@ -23,8 +23,8 @@ test -f "$CONTEXT_FILE" && echo "FOUND" || echo "NOT_FOUND"
 
 | Result | Action |
 |--------|--------|
-| FOUND | Read the context file. Use file list, implementation summary, and validation status from it. Skip Phase 1 context extraction (already available). Display: "Token optimization: Using pre-generated context from pr-context-{BRANCH}.md — skipping context extraction." |
-| NOT_FOUND | Proceed to Phase 1 to extract context. |
+| FOUND | Read the context file. Use file list, implementation summary, and validation status from it. Skip Phase 1 context extraction (already available). If `--since-last-review` flag present, still proceed through Phase 0.5. Display: "Token optimization: Using pre-generated context from pr-context-{BRANCH}.md — skipping context extraction." |
+| NOT_FOUND | Proceed to Phase 0.5 (if `--since-last-review`) then Phase 1 to extract context. |
 
 **When context file is found, extract from it:**
 - **Files Changed** — use directly instead of `gh pr diff --name-only`
@@ -54,6 +54,8 @@ REVIEW_FILE=$(ls -t .prp-output/reviews/pr-{NUMBER}-agents-review.md 2>/dev/null
 
 ```bash
 # Get files changed since last review timestamp
+# Note: --since uses commit date. If commits were rebased, results may be incomplete.
+# In that case, fall back to full review.
 git log --since="{TIMESTAMP}" --name-only --pretty=format:"" | sort -u
 ```
 
@@ -279,6 +281,10 @@ Suggested splits based on file categories:
 - Comments/docstrings added → `comment-analyzer`
 - Try-catch or error handling → `silent-failure-hunter`
 - New types or type modifications → `type-design-analyzer`
+
+**Run when explicitly requested** (overrides auto-detection):
+- User passes `perf` → always run `performance-analyzer` regardless of file types
+- User passes `a11y` → always run `accessibility-reviewer` regardless of file types
 
 **Run last**:
 - `code-simplifier` — After other reviews pass

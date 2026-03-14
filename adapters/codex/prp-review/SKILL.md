@@ -197,7 +197,7 @@ Save aggregated review to `.prp-output/reviews/pr-{NUMBER}-review-codex.md` befo
 Summary includes: Critical/Important/Suggestions/Strengths tables, Validation Results table, Documentation Updates, Verdict (READY TO MERGE / NEEDS FIXES / CRITICAL ISSUES), Recommended Actions.
 
 ### Review Metrics
-After posting, append JSONL to `.prp-output/reviews/review-metrics.jsonl` (timestamp, pr_number, verdict, issues by severity, incremental/large_pr flags). `--metrics` flag shows aggregate summary.
+After posting, append JSONL to `.prp-output/reviews/review-metrics.jsonl` (timestamp, pr_number, verdict, issues by severity, incremental/large_pr flags). `--metrics` flag (without PR number) shows aggregate summary and EXIT — do not run review.
 
 ### Update Implementation Report
 After posting, find implementation report (`ls -t .prp-output/reports/*-report*.md | head -1`). If exists, append "Review Outcome" section with: review date, PR number, verdict, link to review file, issue counts by category (Critical/Important/Suggestions). If no report found, skip silently.
@@ -223,6 +223,8 @@ $prp-review --metrics                # View review metrics
 - DEPS_ANALYZED: CVEs, outdated packages, licenses checked
 - VALIDATION_RUN: Type check, lint, tests, build executed
 - ISSUES_DEDUPLICATED: Duplicate findings merged across passes
+- CONDITIONAL_DISPATCHED: Specialist passes triggered by file types (accessibility, performance)
 - ISSUES_CATEGORIZED: Findings organized by severity
 - PR_UPDATED: Formal review posted to GitHub (approve/request-changes)
+- METRICS_COLLECTED: Review metrics appended to JSONL
 - RECOMMENDATION_CLEAR: Verdict with rationale

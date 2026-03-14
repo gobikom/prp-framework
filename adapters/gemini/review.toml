@@ -119,7 +119,7 @@ READY TO MERGE: `gh pr review <number> --approve --body-file .prp-output/reviews
 NEEDS FIXES or CRITICAL ISSUES: `gh pr review <number> --request-changes --body-file .prp-output/reviews/pr-{NUMBER}-review-gemini.md`
 Draft PR or permission fallback: `gh pr comment <number> --body-file .prp-output/reviews/pr-{NUMBER}-review-gemini.md`
 
-After posting, find implementation report (`ls -t .prp-output/reports/*-report*.md | head -1`). If exists, append Review Outcome section with verdict and issue counts. If not found, skip.
+After posting, find implementation report (`ls -t .prp-output/reports/*-report*.md | head -1`). If exists, append Review Outcome section with: review date, PR number, verdict, link to review file (`.prp-output/reviews/pr-{NUMBER}-review-gemini.md`), issue counts by category. If not found, skip.
 
 ## Review Metrics
 After posting, append JSONL to `.prp-output/reviews/review-metrics.jsonl` (timestamp, pr_number, verdict, issues by severity, incremental/large_pr flags). `--metrics` flag shows aggregate summary.
