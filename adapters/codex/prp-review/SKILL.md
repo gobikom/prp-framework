@@ -204,6 +204,20 @@ If validation fails, verdict is at least NEEDS FIXES.
 
 ## Output
 
+### Report Frontmatter
+
+Include this frontmatter at the top of the review file:
+
+```yaml
+---
+pr: {NUMBER}
+title: "{TITLE}"
+author: "{AUTHOR}"
+reviewed: {ISO_TIMESTAMP}
+verdict: {READY TO MERGE / NEEDS FIXES / CRITICAL ISSUES}
+---
+```
+
 ### Save Local Review
 Save aggregated review to `.prp-output/reviews/pr-{NUMBER}-review-codex.md` before posting to GitHub.
 
@@ -230,7 +244,7 @@ If implementation report references a Source PRD:
 
 | Verdict | PRD Update |
 |---------|------------|
-| READY TO MERGE | Change phase status to `reviewed` |
+| READY TO MERGE | Change phase status from `complete` to `reviewed` |
 | NEEDS FIXES | Add note: "Review: {N} issues to address" |
 | CRITICAL ISSUES | Add note: "Blocked: {brief reason}" |
 

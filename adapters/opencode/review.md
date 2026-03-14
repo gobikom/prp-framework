@@ -144,6 +144,9 @@ Categorize: Critical (block merge), Important (address), Suggestions, Strengths.
 Include: Validation Results table, Documentation Updates, Verdict (READY TO MERGE / NEEDS FIXES / CRITICAL ISSUES), Recommended Actions.
 If validation fails, verdict is at least NEEDS FIXES.
 
+### Report Frontmatter
+Include at top of review file: `pr`, `title`, `author`, `reviewed` (ISO timestamp), `verdict` (READY TO MERGE / NEEDS FIXES / CRITICAL ISSUES).
+
 ### Save Local Review
 Save aggregated review to `.prp-output/reviews/pr-{NUMBER}-review-opencode.md` before posting.
 
@@ -164,7 +167,7 @@ After posting, append JSONL to `.prp-output/reviews/review-metrics.jsonl` (times
 After posting, find implementation report (`ls -t .prp-output/reports/*-report*.md | head -1`). If exists, append "Review Outcome" section with: review date, PR number, verdict, link to review file, issue counts by category. If no report found, skip silently.
 
 ### Update PRD (if applicable)
-If implementation report references a Source PRD: READY TO MERGE → change phase status to `reviewed`. NEEDS FIXES → add note "Review: {N} issues". CRITICAL ISSUES → add note "Blocked: {reason}".
+If implementation report references a Source PRD: READY TO MERGE → change phase status from `complete` to `reviewed`. NEEDS FIXES → add note "Review: {N} issues to address". CRITICAL ISSUES → add note "Blocked: {reason}".
 
 ## Critical Reminders
 
