@@ -86,7 +86,7 @@ Include in handoff context:
 ### Core Commands (`/prp-core:`)
 - `prd` - สร้าง Product Requirements Document
 - `design` - สร้าง Design Document
-- `plan` - สร้าง Implementation Plan
+- `plan` - สร้าง Implementation Plan (supports `--fast` for fast-track mode)
 - `implement` - Execute plan
 - `commit` - Smart commit
 - `pr` - Create PR
