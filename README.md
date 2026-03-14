@@ -105,7 +105,8 @@ cp -r prp-framework/* my-project/
 ```bash
 # Core Workflows (/prp-core:*)
 /prp-core:prd                                              # Interactive PRD generation
-/prp-core:plan Add JWT authentication                      # Create plan
+/prp-core:plan Add JWT authentication                      # Create plan (full)
+/prp-core:plan "simple bug fix" --fast                     # Create plan (fast-track)
 /prp-core:implement plan.md                                # Execute plan (one-shot)
 /prp-core:ralph plan.md                                    # Execute plan (autonomous loop until pass)
 /prp-core:ralph plan.md --max-iterations 10                # Ralph with custom iterations

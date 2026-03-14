@@ -84,6 +84,62 @@ Proceed directly to Phase 1 with the input as feature description.
 
 ---
 
+## Phase 0.5: DETECT — Project Toolchain
+
+**Identify the project's package manager and validation commands** before any planning begins.
+
+### 0.5.1 Identify Package Manager
+
+Check for these files in the project root:
+
+| File Found | Package Manager | Runner |
+|------------|-----------------|--------|
+| `bun.lockb` | bun | `bun` / `bun run` |
+| `pnpm-lock.yaml` | pnpm | `pnpm` / `pnpm run` |
+| `yarn.lock` | yarn | `yarn` / `yarn run` |
+| `package-lock.json` | npm | `npm run` |
+| `pyproject.toml` | uv/pip | `uv run` / `python` |
+| `Cargo.toml` | cargo | `cargo` |
+| `go.mod` | go | `go` |
+
+**Priority**: If multiple lock files exist, use first match in order above (bun > pnpm > yarn > npm).
+
+**Fallback**: If no lock file found, use placeholder with WARNING:
+```
+Runner: UNKNOWN — WARNING: No lock file detected. Validation commands use placeholders.
+```
+
+### 0.5.2 Identify Validation Scripts
+
+Read `package.json` (or equivalent config) to find exact script names:
+
+| Category | Common Names | Example Command |
+|----------|-------------|-----------------|
+| Type checking | `type-check`, `typecheck`, `tsc` | `bun run type-check` |
+| Linting | `lint`, `lint:fix` | `bun run lint` |
+| Testing | `test`, `test:unit`, `test:integration` | `bun test` |
+| Building | `build`, `compile` | `bun run build` |
+
+### 0.5.3 Store as Plan Metadata
+
+Record detected toolchain for use in Validation Commands section:
+
+```
+Runner: {detected runner}
+Type Check: {runner} run {script-name}
+Lint: {runner} run {script-name}
+Test: {runner} {test-command}
+Build: {runner} run {script-name}
+```
+
+**PHASE_0_5_CHECKPOINT:**
+
+- [ ] Package manager detected from lock file
+- [ ] Validation script names read from package.json (or equivalent)
+- [ ] Runner and commands stored for plan generation
+
+---
+
 ## Phase 1: PARSE — Feature Understanding
 
 **EXTRACT from input:**
@@ -114,6 +170,31 @@ So that <benefit/value>
 - [ ] Complexity assessment has rationale
 - [ ] Affected systems identified
 
+### Testing Decision Gates
+
+Set explicit flags based on feature characteristics:
+
+| Flag | Condition | Effect on Testing Strategy |
+|------|-----------|---------------------------|
+| `NEEDS_INTEGRATION_TESTS` | Complexity ≥ MEDIUM AND crosses service/component boundary | Include Integration Tests section |
+| `NEEDS_PERF_BENCH` | Involves DB queries, API endpoints, or data processing loops | Include Performance Benchmarks section |
+| `SECURITY_SENSITIVE` | Handles user input, authentication, data storage, or external APIs | Include security edge cases in testing |
+
+Document flag values in plan Metadata table.
+
+### Fast-track Mode (`--fast`)
+
+When `--fast` flag is provided:
+- **Skip**: Phase 3 (RESEARCH), Phase 4.2 (TECHNICAL DESIGN), Phase 5 (DESIGN)
+- **Compact plan**: Summary, Metadata (with runner), Files to Change (with Insert At), Integration Points, Tasks (max 5), Validation Commands (pre-filled), Confidence Score
+- **No**: UX diagrams, Mandatory Reading, Patterns to Mirror, expanded Testing Strategy, Risks table
+- Add plan metadata: `Mode: fast-track`
+
+**Warning** (complexity mismatch): If Explore reveals complexity > LOW (≥4 files changed, API/DB changes, multi-service interaction):
+> WARNING: Feature appears too complex for fast-track. Detected: {reason}.
+> Consider running without `--fast` for full planning.
+> Proceeding with fast-track anyway...
+
 **GATE**: If requirements are AMBIGUOUS:
 - **Default**: STOP and ASK user for clarification before proceeding.
 - **If `--no-interact` flag is set**: Do NOT ask. Use best judgment, state your assumptions in the plan under an "## Assumptions" section, and proceed.
@@ -136,6 +217,8 @@ Search the codebase to find patterns, conventions, and integration points releva
 6. **Test patterns** — test file structure, assertion styles
 7. **Integration points** — where new code connects to existing
 8. **Dependencies** — relevant libraries already in use
+9. **Integration wiring** — where do similar features get called from? What imports/registers them?
+10. **Insertion positions** — for files that need UPDATE, where should new code be inserted? (line number, after which section/function)
 
 Return ACTUAL code snippets from codebase, not generic examples.
 
@@ -156,6 +239,23 @@ Return ACTUAL code snippets from codebase, not generic examples.
 - [ ] Code snippets are ACTUAL (copy-pasted from codebase, not invented)
 - [ ] Integration points mapped with specific file paths
 - [ ] Dependencies cataloged with versions from package.json/config
+- [ ] If <3 codebase patterns: fallback sources documented
+
+### Explore Fallback (when <3 codebase patterns found)
+
+If exploration returns fewer than 3 relevant patterns, expand search in this order:
+
+1. **Analogous patterns**: Search for similar concepts in different domains within codebase
+2. **Official library examples**: Search for official docs of libraries in package.json/config
+3. **Framework conventions**: Search for framework-standard patterns
+
+Tag each pattern source:
+- `SOURCE: codebase (file:line)` — primary, highest trust
+- `SOURCE: analogous (file:line)` — similar concept, different domain
+- `SOURCE: external ({library} v{version} docs)` — official documentation
+- `SOURCE: convention ({framework} standard)` — framework convention
+
+**Token Budget**: Max 20K tokens for exploration phase. If reaching limit, document "Exploration incomplete — {N} patterns found, may need additional discovery during implementation."
 
 ---
 
@@ -188,7 +288,105 @@ Return ACTUAL code snippets from codebase, not generic examples.
 
 ---
 
-## Phase 4: DESIGN — UX Transformation
+## Phase 4: ARCHITECT — Strategic Design
+
+**ANALYZE deeply:**
+
+- ARCHITECTURE_FIT: How does this integrate with the existing architecture?
+- EXECUTION_ORDER: What must happen first → second → third?
+- FAILURE_MODES: Edge cases, race conditions, error scenarios?
+- PERFORMANCE: Will this scale? Database queries optimized?
+- SECURITY: Attack vectors? Data exposure risks? Auth/authz?
+- MAINTAINABILITY: Will future devs understand this code?
+
+**DECIDE and document:**
+
+```markdown
+APPROACH_CHOSEN: [description]
+RATIONALE: [why this over alternatives - reference codebase patterns]
+
+ALTERNATIVES_REJECTED:
+
+- [Alternative 1]: Rejected because [specific reason]
+- [Alternative 2]: Rejected because [specific reason]
+
+NOT_BUILDING (explicit scope limits):
+
+- [Item 1 - explicitly out of scope and why]
+- [Item 2 - explicitly out of scope and why]
+```
+
+**PHASE_4_CHECKPOINT:**
+
+- [ ] Approach aligns with existing architecture and patterns
+- [ ] Dependencies ordered correctly (types → repository → service → routes)
+- [ ] Edge cases identified with specific mitigation strategies
+- [ ] Scope boundaries are explicit and justified
+
+### Design Doc Integration
+
+Check for existing design document:
+```bash
+ls .prp-output/designs/{feature}-design-*.md 2>/dev/null
+```
+If found: Read and incorporate API contracts, DB schema, NFRs into the plan.
+Add note in plan: "Incorporated from design doc: `{path}`"
+If design doc conflicts with Explore findings: Design doc takes precedence (it was human-reviewed).
+
+### Phase 4.2: TECHNICAL DESIGN (Conditional)
+
+> **Include if**: Complexity is HIGH, OR feature involves new API endpoints, database schema changes, or multi-service integration.
+> **Skip if**: Complexity is LOW, or feature is a simple enhancement/bug fix within existing patterns.
+>
+> **If a Design Doc exists**: See "Design Doc Integration" above — incorporate rather than re-creating.
+
+#### 4.2.1 API Contracts (if new/modified endpoints)
+
+Define request/response schemas using project conventions:
+- Endpoint path, method, authentication requirement
+- Request schema with types and validation rules
+- Response schema with success and error shapes
+- Error codes table (status, code, description)
+
+#### 4.2.2 Database Schema (if schema changes)
+
+- New/modified table definitions (SQL or ORM format matching project conventions)
+- Index strategy for query performance
+- Migration approach (forward steps)
+- Rollback plan (reverse migration steps)
+
+#### 4.2.3 Sequence Diagrams (if complex multi-component flow)
+
+- Critical path flow using Mermaid syntax
+- Error/failure path flow
+- Show all components involved and their interactions
+
+#### 4.2.4 Non-Functional Requirements (if complexity is HIGH)
+
+- Performance targets: p50, p95, p99 latency
+- Caching strategy (what, TTL, invalidation)
+- Security considerations specific to this feature
+- Monitoring: key metrics, alerts, logging
+
+#### 4.2.5 Migration & Rollback Plan (if modifying existing behavior)
+
+- Data migration steps (if schema changes)
+- Feature flag approach (flag name, default, rollout plan)
+- Rollback trigger conditions
+- Rollback execution steps
+
+**PHASE_4B_CHECKPOINT:**
+
+- [ ] API contracts defined with request/response schemas (if applicable)
+- [ ] Database schema includes migration AND rollback (if applicable)
+- [ ] Sequence diagrams cover happy path and error path (if applicable)
+- [ ] NFR targets are specific and measurable (if applicable)
+
+---
+
+## Phase 5: DESIGN — UX Transformation
+
+> **Note**: Architecture constraints from Phase 4 should inform UX design decisions. If architecture reveals a capability is infeasible, adjust UX accordingly.
 
 **CREATE ASCII diagrams showing user experience before and after:**
 
@@ -236,98 +434,12 @@ Return ACTUAL code snippets from codebase, not generic examples.
 | `/route` | State A | State B | Click X | Can now Y |
 | `Component.tsx` | Missing feature | Has feature | Input Z | Gets result W |
 
-**PHASE_4_CHECKPOINT:**
+**PHASE_5_CHECKPOINT:**
 
 - [ ] Before state accurately reflects current system behavior
 - [ ] After state shows ALL new capabilities
 - [ ] Data flows are traceable from input to output
 - [ ] User value is explicit and measurable
-
----
-
-## Phase 5: ARCHITECT — Strategic Design
-
-**ANALYZE deeply:**
-
-- ARCHITECTURE_FIT: How does this integrate with the existing architecture?
-- EXECUTION_ORDER: What must happen first → second → third?
-- FAILURE_MODES: Edge cases, race conditions, error scenarios?
-- PERFORMANCE: Will this scale? Database queries optimized?
-- SECURITY: Attack vectors? Data exposure risks? Auth/authz?
-- MAINTAINABILITY: Will future devs understand this code?
-
-**DECIDE and document:**
-
-```markdown
-APPROACH_CHOSEN: [description]
-RATIONALE: [why this over alternatives - reference codebase patterns]
-
-ALTERNATIVES_REJECTED:
-
-- [Alternative 1]: Rejected because [specific reason]
-- [Alternative 2]: Rejected because [specific reason]
-
-NOT_BUILDING (explicit scope limits):
-
-- [Item 1 - explicitly out of scope and why]
-- [Item 2 - explicitly out of scope and why]
-```
-
-**PHASE_5_CHECKPOINT:**
-
-- [ ] Approach aligns with existing architecture and patterns
-- [ ] Dependencies ordered correctly (types → repository → service → routes)
-- [ ] Edge cases identified with specific mitigation strategies
-- [ ] Scope boundaries are explicit and justified
-
-### Phase 5.2: TECHNICAL DESIGN (Conditional)
-
-> **Include if**: Complexity is HIGH, OR feature involves new API endpoints, database schema changes, or multi-service integration.
-> **Skip if**: Complexity is LOW, or feature is a simple enhancement/bug fix within existing patterns.
->
-> **If a Design Doc exists** at `.prp-output/designs/{name}-design-*.md`: Reference it and incorporate relevant sections rather than re-creating.
-
-#### 5.2.1 API Contracts (if new/modified endpoints)
-
-Define request/response schemas using project conventions:
-- Endpoint path, method, authentication requirement
-- Request schema with types and validation rules
-- Response schema with success and error shapes
-- Error codes table (status, code, description)
-
-#### 5.2.2 Database Schema (if schema changes)
-
-- New/modified table definitions (SQL or ORM format matching project conventions)
-- Index strategy for query performance
-- Migration approach (forward steps)
-- Rollback plan (reverse migration steps)
-
-#### 5.2.3 Sequence Diagrams (if complex multi-component flow)
-
-- Critical path flow using Mermaid syntax
-- Error/failure path flow
-- Show all components involved and their interactions
-
-#### 5.2.4 Non-Functional Requirements (if complexity is HIGH)
-
-- Performance targets: p50, p95, p99 latency
-- Caching strategy (what, TTL, invalidation)
-- Security considerations specific to this feature
-- Monitoring: key metrics, alerts, logging
-
-#### 5.2.5 Migration & Rollback Plan (if modifying existing behavior)
-
-- Data migration steps (if schema changes)
-- Feature flag approach (flag name, default, rollout plan)
-- Rollback trigger conditions
-- Rollback execution steps
-
-**PHASE_5B_CHECKPOINT:**
-
-- [ ] API contracts defined with request/response schemas (if applicable)
-- [ ] Database schema includes migration AND rollback (if applicable)
-- [ ] Sequence diagrams cover happy path and error path (if applicable)
-- [ ] NFR targets are specific and measurable (if applicable)
 
 ---
 
@@ -339,9 +451,28 @@ Define request/response schemas using project conventions:
 
 Create directory if needed: `mkdir -p .prp-output/plans`
 
+### Complexity Validation (Pre-save check)
+
+Before saving plan, validate declared complexity matches scope:
+
+| Declared | Expected Scope | If Mismatch |
+|----------|---------------|-------------|
+| LOW | ≤3 tasks, no API/DB changes | WARN: "Declared LOW but has {N} tasks / API changes. Consider MEDIUM." |
+| MEDIUM | 4-10 tasks, OR API/DB changes | WARN if >10 tasks: "Consider HIGH complexity." |
+| HIGH | >10 tasks, OR multi-service, OR complex technical design | OK |
+
+If mismatch: include WARNING in plan Notes section. Do NOT auto-correct — let user decide.
+
 **PLAN_STRUCTURE** (the template to fill and save):
 
 ````markdown
+---
+status: pending
+created: {TIMESTAMP}
+runner: {detected runner from Phase 0.5}
+mode: {full | fast-track}
+---
+
 # Feature: {Feature Name}
 
 ## Summary
@@ -371,6 +502,11 @@ So that {benefit}
 | Systems Affected | {comma-separated list} |
 | Dependencies | {external libs/services with versions} |
 | Estimated Tasks | {count} |
+| Runner | {detected package manager, e.g., bun, npm, cargo} |
+| Type Check | {e.g., bun run type-check} |
+| Lint | {e.g., bun run lint} |
+| Test | {e.g., bun test} |
+| Build | {e.g., bun run build} |
 
 ---
 
@@ -468,15 +604,27 @@ So that {benefit}
 
 ## Files to Change
 
-| File | Action | Justification |
-|------|--------|---------------|
-| `src/features/new/models.ts` | CREATE | Type definitions - re-export from schema |
-| `src/features/new/schemas.ts` | CREATE | Zod validation schemas |
-| `src/features/new/errors.ts` | CREATE | Feature-specific errors |
-| `src/features/new/repository.ts` | CREATE | Database operations |
-| `src/features/new/service.ts` | CREATE | Business logic |
-| `src/features/new/index.ts` | CREATE | Public API exports |
-| `src/core/database/schema.ts` | UPDATE | Add table definition |
+> **Note**: Line numbers in "Insert At" are hints — verify before editing as codebase may have changed since plan generation.
+
+| File | Action | Insert At | Justification |
+|------|--------|-----------|---------------|
+| `src/features/new/models.ts` | CREATE | N/A | Type definitions - re-export from schema |
+| `src/features/new/schemas.ts` | CREATE | N/A | Zod validation schemas |
+| `src/features/new/errors.ts` | CREATE | N/A | Feature-specific errors |
+| `src/features/new/repository.ts` | CREATE | N/A | Database operations |
+| `src/features/new/service.ts` | CREATE | N/A | Business logic |
+| `src/features/new/index.ts` | CREATE | N/A | Public API exports |
+| `src/core/database/schema.ts` | UPDATE | after line {N} (after `{lastTable}`) | Add table definition |
+
+---
+
+## Integration Points
+
+**How new code connects to existing code:**
+
+| New Code | Called By | Hook Location (file:line) | Wiring Details |
+|----------|-----------|---------------------------|----------------|
+| `{new file/function}` | `{existing caller}` | `{file}:{line}` | {import statement, route registration, etc.} |
 
 ---
 
@@ -500,7 +648,7 @@ Execute in order. Each task is atomic and independently verifiable.
 - **MIRROR**: `src/core/database/schema.ts:XX-YY` - follow existing table pattern
 - **IMPORTS**: `import { pgTable, text, timestamp } from "drizzle-orm/pg-core"`
 - **GOTCHA**: {known issue to avoid, e.g., "use uuid for id, not serial"}
-- **VALIDATE**: `npx tsc --noEmit` - types must compile
+- **VALIDATE**: `{Type Check command from Metadata}` - types must compile
 
 ### Task 2: CREATE `src/features/new/models.ts`
 
@@ -510,7 +658,7 @@ Execute in order. Each task is atomic and independently verifiable.
 - **IMPORTS**: `import { things } from "@/core/database/schema"`
 - **TYPES**: `type Thing = typeof things.$inferSelect`
 - **GOTCHA**: Use `$inferSelect` for read types, `$inferInsert` for write
-- **VALIDATE**: `npx tsc --noEmit`
+- **VALIDATE**: `{Type Check command from Metadata}`
 
 ### Task 3: CREATE `src/features/new/schemas.ts`
 
@@ -519,7 +667,7 @@ Execute in order. Each task is atomic and independently verifiable.
 - **MIRROR**: `src/features/projects/schemas.ts:1-30`
 - **IMPORTS**: `import { z } from "zod/v4"` (note: zod/v4 not zod)
 - **GOTCHA**: z.record requires two args in v4
-- **VALIDATE**: `npx tsc --noEmit`
+- **VALIDATE**: `{Type Check command from Metadata}`
 
 ### Task 4: CREATE `src/features/new/errors.ts`
 
@@ -527,7 +675,7 @@ Execute in order. Each task is atomic and independently verifiable.
 - **IMPLEMENT**: ThingNotFoundError, ThingAccessDeniedError
 - **MIRROR**: `src/features/projects/errors.ts:1-40`
 - **PATTERN**: Extend base Error, include code and statusCode
-- **VALIDATE**: `npx tsc --noEmit`
+- **VALIDATE**: `{Type Check command from Metadata}`
 
 ### Task 5: CREATE `src/features/new/repository.ts`
 
@@ -536,7 +684,7 @@ Execute in order. Each task is atomic and independently verifiable.
 - **MIRROR**: `src/features/projects/repository.ts:1-60`
 - **IMPORTS**: `import { db } from "@/core/database/client"`
 - **GOTCHA**: Use `results[0]` pattern, not `.first()` - check noUncheckedIndexedAccess
-- **VALIDATE**: `npx tsc --noEmit`
+- **VALIDATE**: `{Type Check command from Metadata}`
 
 ### Task 6: CREATE `src/features/new/service.ts`
 
@@ -607,13 +755,14 @@ Execute in order. Each task is atomic and independently verifiable.
 
 ## Validation Commands
 
-**IMPORTANT**: Replace these placeholders with actual commands from the project's package.json/config.
+**IMPORTANT**: Pre-fill these commands with actual values detected in Phase 0.5. The saved plan file MUST NOT contain any unfilled `{...}` placeholders in this section.
 
 ### Level 1: STATIC_ANALYSIS
 
 ```bash
-{runner} run lint && {runner} run type-check
-# Examples: npm run lint, pnpm lint, ruff check . && mypy ., cargo clippy
+# Pre-fill from Phase 0.5 detected commands:
+{Lint command from Metadata} && {Type Check command from Metadata}
+# Example: bun run lint && bun run type-check
 ```
 
 **EXPECT**: Exit 0, no errors or warnings
@@ -621,17 +770,19 @@ Execute in order. Each task is atomic and independently verifiable.
 ### Level 2: UNIT_TESTS
 
 ```bash
-{runner} test {path/to/feature/tests}
-# Examples: npm test, pytest tests/, cargo test, go test ./...
+# Pre-fill from Phase 0.5 detected commands:
+{Test command from Metadata} {path/to/feature/tests}
+# Example: bun test src/features/new/tests/
 ```
 
-**EXPECT**: All tests pass, coverage >= 90%
+**EXPECT**: All tests pass, coverage >= 80% (baseline; adjust higher per feature if needed)
 
 ### Level 3: FULL_SUITE
 
 ```bash
-{runner} test && {runner} run build
-# Examples: npm test && npm run build, cargo test && cargo build
+# Pre-fill from Phase 0.5 detected commands:
+{Test command from Metadata} && {Build command from Metadata}
+# Example: bun test && bun run build
 ```
 
 **EXPECT**: All tests pass, build succeeds
@@ -716,6 +867,19 @@ Verify using browser/UI testing:
 
 ---
 
+## Confidence Score (5 dimensions × max 2pts = 10)
+
+| Dimension | Score | Rationale |
+|-----------|-------|-----------|
+| **Patterns** (0-2) | {0-2} | 0=none found, 1=<3 or mostly external, 2=≥3 codebase patterns |
+| **Gotchas** (0-2) | {0-2} | 0=none documented, 1=some identified, 2=comprehensive with mitigations |
+| **Integration** (0-2) | {0-2} | 0=no integration points, 1=partial, 2=all hook locations specified |
+| **Validation** (0-2) | {0-2} | 0=placeholders remain, 1=partial commands, 2=all commands pre-filled and verified |
+| **Testing** (0-2) | {0-2} | 0=no test plan, 1=unit tests only, 2=unit + edge cases + integration (if needed) |
+| **Total** | **{X}/10** | 9-10: one-pass ready, 7-8: high confidence, 5-6: moderate risk, <5: needs more planning |
+
+---
+
 ## Notes
 
 {Additional context, design decisions, trade-offs, future considerations}
@@ -775,8 +939,8 @@ To start: `git worktree add -b phase-{X} ../project-phase-{X} && cd ../project-p
 **Risks**:
 - {Primary risk}: {mitigation}
 
-**Confidence Score**: {1-10}/10 for one-pass implementation success
-- {Rationale for score}
+**Confidence Score**: {X}/10 (Patterns:{P} + Gotchas:{G} + Integration:{I} + Validation:{V} + Testing:{T})
+- 9-10: one-pass ready | 7-8: high confidence | 5-6: moderate | <5: needs more planning
 
 **Next Step**: To execute, run the implement workflow with the plan path.
 ```
@@ -831,6 +995,8 @@ To start: `git worktree add -b phase-{X} ../project-phase-{X} && cd ../project-p
 - **CONTEXT_COMPLETE**: All patterns, gotchas, integration points documented from actual codebase
 - **IMPLEMENTATION_READY**: Tasks executable top-to-bottom without questions, research, or clarification
 - **PATTERN_FAITHFUL**: Every new file mirrors existing codebase style exactly
-- **VALIDATION_DEFINED**: Every task has executable verification command
+- **VALIDATION_DEFINED**: Every task has executable verification command (pre-filled)
+- **TOOLCHAIN_DETECTED**: Runner and commands auto-detected and pre-filled
+- **INTEGRATION_MAPPED**: All hook locations specified with file:line
 - **UX_DOCUMENTED**: Before/After transformation is visually clear with data flows
 - **ONE_PASS_TARGET**: Confidence score 8+ indicates high likelihood of first-attempt success

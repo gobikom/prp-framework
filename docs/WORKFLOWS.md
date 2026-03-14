@@ -100,18 +100,26 @@ $prp-design .prp-output/prds/jwt-prd.md
 ### Process
 
 ```
-Detect Input → Parse Feature → Explore Codebase → Research →
-Design UX → Architect → Generate Plan
+Detect Input → Detect Toolchain (Phase 0.5) → Parse Feature → Explore Codebase →
+Research → Architect → Design UX → Generate Plan
 ```
 
 ### Key Features
 
 - **CODEBASE FIRST:** Discover existing patterns before external research
 - **Actual Code Snippets:** MIRROR patterns with file:line references
-- **6-Level Validation:** Static → Unit → Full → Database → Browser → Manual
+- **Toolchain Detection:** Auto-detects package manager from lock files, pre-fills validation commands with no `{runner}` placeholders
+- **Integration Points:** Maps new code → existing code hook locations with file:line
+- **Insert At Hints:** Files to Change table includes insertion location hints for UPDATE operations
+- **Confidence Score:** 5-dimension quality score (Patterns + Gotchas + Integration + Validation + Testing = max 10)
+- **Plan Lifecycle Frontmatter:** `status: pending | in-progress | complete | failed` tracked through implement
+- **6-Level Validation:** Static → Unit → Full → Database → Browser → Manual (pre-filled with real commands)
 - **PRD Integration:** Can parse PRD phases and track status
+- **Design Doc Integration:** Checks `.prp-output/designs/` and incorporates if found
 - **Conditional Technical Design:** API Contracts, DB Schema, Sequence Diagrams, NFRs, Migration & Rollback (triggered by complexity assessment)
 - **Expanded Testing Strategy:** Unit tests, Integration tests (conditional), Test data requirements, Performance benchmarks (conditional), Edge cases
+- **Fast-track Mode:** `--fast` flag skips Research, Technical Design, and Design UX for simple changes
+- **Complexity Validation:** Pre-save check warns if declared complexity mismatches actual task count
 
 ### Complexity Triggers
 
@@ -126,14 +134,19 @@ Design UX → Architect → Generate Plan
 Plan file: `.prp-output/plans/feature-name-{TIMESTAMP}.plan.md`
 
 Contains:
+- Plan lifecycle frontmatter (`status`, `runner`, `mode`)
 - User story and problem statement
-- UX before/after diagrams
-- Mandatory reading list (P0/P1/P2 files)
-- Patterns to mirror (with actual code)
+- Metadata table with detected runner and validation commands
+- UX before/after diagrams (skipped in fast-track)
+- Mandatory reading list (P0/P1/P2 files) (skipped in fast-track)
+- Patterns to mirror (with actual code) (skipped in fast-track)
+- Files to Change with Insert At hints
+- Integration Points (new code → existing code hook locations)
 - Step-by-step tasks
 - Technical Design (conditional — API contracts, DB schema, sequence diagrams, NFRs, migration)
 - Testing Strategy (unit, integration, test data, performance benchmarks, edge cases)
-- Validation commands
+- Validation commands (pre-filled, no placeholders)
+- Confidence Score (5×2=10)
 - Acceptance criteria
 
 ### Usage
@@ -144,6 +157,9 @@ Contains:
 
 # From PRD
 /prp-plan .prp-output/prds/jwt-prd.md
+
+# Fast-track for simple changes
+/prp-plan "simple bug fix" --fast
 ```
 
 ---
