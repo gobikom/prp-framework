@@ -29,7 +29,7 @@ Report: file path, summary, complexity, scope, key patterns, research, UX transf
 
 **Gate**: If ambiguous → STOP and ask for clarification.
 - **If `--no-interact` flag is set**: Do NOT ask. Use best judgment, state assumptions in an "## Assumptions" section, and proceed.
-- **If `--fast` flag is set**: Skip Research, Technical Design, and Design UX. Compact plan. WARN if complexity > LOW.
+- **If `--fast` flag is set**: Skip Research, Technical Design, and Design UX. Compact plan: Summary, Metadata, Files to Change, Integration Points, Tasks (max 5), Validation Commands, Confidence Score. WARN if complexity > LOW.
 
 **Test**: Could an unfamiliar agent implement using ONLY this plan?
 

@@ -190,7 +190,7 @@ When `--fast` flag is provided:
 - **No**: UX diagrams, Mandatory Reading, Patterns to Mirror, expanded Testing Strategy, Risks table
 - Add plan metadata: `Mode: fast-track`
 
-**Guard**: If Explore reveals complexity > LOW (≥4 files changed, API/DB changes, multi-service interaction):
+**Warning** (complexity mismatch): If Explore reveals complexity > LOW (≥4 files changed, API/DB changes, multi-service interaction):
 > WARNING: Feature appears too complex for fast-track. Detected: {reason}.
 > Consider running without `--fast` for full planning.
 > Proceeding with fast-track anyway...
@@ -648,7 +648,7 @@ Execute in order. Each task is atomic and independently verifiable.
 - **MIRROR**: `src/core/database/schema.ts:XX-YY` - follow existing table pattern
 - **IMPORTS**: `import { pgTable, text, timestamp } from "drizzle-orm/pg-core"`
 - **GOTCHA**: {known issue to avoid, e.g., "use uuid for id, not serial"}
-- **VALIDATE**: `npx tsc --noEmit` - types must compile
+- **VALIDATE**: `{Type Check command from Metadata}` - types must compile
 
 ### Task 2: CREATE `src/features/new/models.ts`
 
@@ -658,7 +658,7 @@ Execute in order. Each task is atomic and independently verifiable.
 - **IMPORTS**: `import { things } from "@/core/database/schema"`
 - **TYPES**: `type Thing = typeof things.$inferSelect`
 - **GOTCHA**: Use `$inferSelect` for read types, `$inferInsert` for write
-- **VALIDATE**: `npx tsc --noEmit`
+- **VALIDATE**: `{Type Check command from Metadata}`
 
 ### Task 3: CREATE `src/features/new/schemas.ts`
 
@@ -667,7 +667,7 @@ Execute in order. Each task is atomic and independently verifiable.
 - **MIRROR**: `src/features/projects/schemas.ts:1-30`
 - **IMPORTS**: `import { z } from "zod/v4"` (note: zod/v4 not zod)
 - **GOTCHA**: z.record requires two args in v4
-- **VALIDATE**: `npx tsc --noEmit`
+- **VALIDATE**: `{Type Check command from Metadata}`
 
 ### Task 4: CREATE `src/features/new/errors.ts`
 
@@ -675,7 +675,7 @@ Execute in order. Each task is atomic and independently verifiable.
 - **IMPLEMENT**: ThingNotFoundError, ThingAccessDeniedError
 - **MIRROR**: `src/features/projects/errors.ts:1-40`
 - **PATTERN**: Extend base Error, include code and statusCode
-- **VALIDATE**: `npx tsc --noEmit`
+- **VALIDATE**: `{Type Check command from Metadata}`
 
 ### Task 5: CREATE `src/features/new/repository.ts`
 
@@ -684,7 +684,7 @@ Execute in order. Each task is atomic and independently verifiable.
 - **MIRROR**: `src/features/projects/repository.ts:1-60`
 - **IMPORTS**: `import { db } from "@/core/database/client"`
 - **GOTCHA**: Use `results[0]` pattern, not `.first()` - check noUncheckedIndexedAccess
-- **VALIDATE**: `npx tsc --noEmit`
+- **VALIDATE**: `{Type Check command from Metadata}`
 
 ### Task 6: CREATE `src/features/new/service.ts`
 
@@ -755,7 +755,7 @@ Execute in order. Each task is atomic and independently verifiable.
 
 ## Validation Commands
 
-**IMPORTANT**: Use the actual commands detected in Phase 0.5. These MUST be pre-filled — no `{runner}` placeholders allowed.
+**IMPORTANT**: Pre-fill these commands with actual values detected in Phase 0.5. The saved plan file MUST NOT contain any unfilled `{...}` placeholders in this section.
 
 ### Level 1: STATIC_ANALYSIS
 
@@ -995,6 +995,8 @@ To start: `git worktree add -b phase-{X} ../project-phase-{X} && cd ../project-p
 - **CONTEXT_COMPLETE**: All patterns, gotchas, integration points documented from actual codebase
 - **IMPLEMENTATION_READY**: Tasks executable top-to-bottom without questions, research, or clarification
 - **PATTERN_FAITHFUL**: Every new file mirrors existing codebase style exactly
-- **VALIDATION_DEFINED**: Every task has executable verification command
+- **VALIDATION_DEFINED**: Every task has executable verification command (pre-filled)
+- **TOOLCHAIN_DETECTED**: Runner and commands auto-detected and pre-filled
+- **INTEGRATION_MAPPED**: All hook locations specified with file:line
 - **UX_DOCUMENTED**: Before/After transformation is visually clear with data flows
 - **ONE_PASS_TARGET**: Confidence score 8+ indicates high likelihood of first-attempt success
