@@ -246,6 +246,12 @@ PRD → Design → Plan → Implement → Commit → PR → Review
 /prp-core:review
 ```
 
+**Output**: `.prp-output/reviews/pr-{NUMBER}-review.md`
+
+After review, the command also:
+- Appends "Review Outcome" to the implementation report (if found)
+- Updates the Source PRD phase status: `reviewed` on merge-ready, or a note on issues/blockers
+
 ---
 
 ### 8. `/prp-core:review-fix` - Fix Review Issues
