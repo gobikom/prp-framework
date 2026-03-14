@@ -90,7 +90,7 @@ Thoroughly explore the codebase to find:
 
 Document in table: Category | File:Lines | Pattern | Code Snippet
 
-**Explore Fallback** (when <3 codebase patterns found): Expand search: adapter patterns → official library docs → framework conventions. Tag sources: `SOURCE: codebase`, `SOURCE: adapter`, `SOURCE: external`, `SOURCE: convention`. Budget: 20K tokens.
+**Explore Fallback** (when <3 codebase patterns found): Expand search: analogous patterns → official library docs → framework conventions. Tag sources: `SOURCE: codebase`, `SOURCE: analogous`, `SOURCE: external`, `SOURCE: convention`. Budget: 20K tokens.
 
 **Checkpoint**: 3+ pattern sources (codebase or fallback), code snippets are ACTUAL (not invented), integration points mapped, dependencies cataloged.
 

@@ -250,7 +250,7 @@ Return ACTUAL code snippets from codebase, not generic examples.
 
 If exploration returns fewer than 3 relevant patterns, expand search in this order:
 
-1. **Adapter patterns**: Search for similar concepts in different domains within codebase
+1. **Analogous patterns**: Search for similar concepts in different domains within codebase
    (e.g., if no webhook handler exists, look at how HTTP handlers or event listeners are structured)
 2. **Official library examples**: WebSearch for official docs of libraries in package.json
    (e.g., Stripe SDK webhook verification example, Drizzle ORM migration guide)
@@ -259,7 +259,7 @@ If exploration returns fewer than 3 relevant patterns, expand search in this ord
 
 Tag each pattern source:
 - `SOURCE: codebase (file:line)` — primary, highest trust
-- `SOURCE: adapter (file:line)` — similar concept, different domain
+- `SOURCE: analogous (file:line)` — similar concept, different domain
 - `SOURCE: external ({library} v{version} docs)` — official documentation
 - `SOURCE: convention ({framework} standard)` — framework convention
 
@@ -346,7 +346,7 @@ If design doc conflicts with Explore findings: Design doc takes precedence (it w
 > **Include if**: Complexity is HIGH, OR feature involves new API endpoints, database schema changes, or multi-service integration.
 > **Skip if**: Complexity is LOW, or feature is a simple enhancement/bug fix within existing patterns.
 >
-> **If a Design Doc exists** at `.prp-output/designs/{feature}-design-*.md`: Reference it and incorporate relevant sections rather than re-creating.
+> **If a Design Doc exists**: See "Design Doc Integration" above — incorporate rather than re-creating.
 
 #### 4.2.1 API Contracts (if new/modified endpoints)
 
@@ -795,7 +795,7 @@ Execute in order. Each task is atomic and independently verifiable.
 # Example: bun test src/features/new/tests/
 ```
 
-**EXPECT**: All tests pass, coverage >= 80%
+**EXPECT**: All tests pass, coverage >= 80% (baseline; adjust higher per feature if needed)
 
 ### Level 3: FULL_SUITE
 
@@ -887,7 +887,7 @@ Use Browser MCP to verify:
 
 ---
 
-## Confidence Score
+## Confidence Score (5 dimensions × max 2pts = 10)
 
 | Dimension | Score | Rationale |
 |-----------|-------|-----------|
