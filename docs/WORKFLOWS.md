@@ -272,8 +272,10 @@ Results (pass/fail, error/warning counts) are included in the review report and 
 
 ### Output
 
-Review report: `.prp-output/reviews/pr-{N}-{tool}-review.md`
-Posted to GitHub as comment
+- Review report: `.prp-output/reviews/pr-{N}-{tool}-review.md` (with YAML frontmatter: pr, title, author, reviewed, verdict)
+- Posted to GitHub as comment
+- Implementation report updated with "Review Outcome" section
+- PRD phase status updated if applicable (READY TO MERGE → `reviewed`, NEEDS FIXES → note added, CRITICAL ISSUES → blocked note)
 
 ### Usage
 

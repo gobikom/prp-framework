@@ -21,6 +21,16 @@ Skip if Phase 0 found existing context.
 
 All review passes read from this shared context file.
 
+## Per-File Review Checklist
+
+For EVERY changed file, check: Correctness (logic, edge cases, errors), Type Safety (no implicit any, return types), Pattern Compliance (codebase patterns, naming, imports), Security (input validation, secrets, injection), Performance (N+1, async, memory leaks), Completeness (tests, docs, TODOs), Maintainability (readability, complexity).
+
+## Issue Severity
+
+Critical (RED) = blocking: security, data loss, crashes. High (ORANGE) = should fix: type safety, logic errors. Medium (YELLOW) = consider: pattern inconsistencies. Low (BLUE) = suggestions: style, optimizations.
+
+Implementation report check: documented deviations are intentional — only flag undocumented ones.
+
 ## Aspect Selection
 
 | Aspect | When |
@@ -109,6 +119,8 @@ Categorize: Critical (block merge), Important (address), Suggestions, Strengths.
 Include: Validation Results table, Documentation Updates, Verdict (READY TO MERGE / NEEDS FIXES / CRITICAL ISSUES).
 If validation fails, verdict is at least NEEDS FIXES.
 
+Include report frontmatter at top of review file: pr, title, author, reviewed (ISO timestamp), verdict.
+
 Save review locally to `.prp-output/reviews/pr-{NUMBER}-review-gemini.md` before posting.
 
 Note: Uses `-gemini` suffix to identify Gemini reviews and prevent overwriting reviews from other tools (each tool uses its own suffix for parallel review capability).
@@ -121,8 +133,14 @@ Draft PR or permission fallback: `gh pr comment <number> --body-file .prp-output
 
 After posting, find implementation report (`ls -t .prp-output/reports/*-report*.md | head -1`). If exists, append Review Outcome section with: review date, PR number, verdict, link to review file (`.prp-output/reviews/pr-{NUMBER}-review-gemini.md`), issue counts by category. If not found, skip.
 
+Update PRD (if applicable): If implementation report references Source PRD — READY TO MERGE → phase status from `complete` to `reviewed`, NEEDS FIXES → add "Review: {N} issues to address", CRITICAL ISSUES → add "Blocked: {reason}".
+
 ## Review Metrics
 After posting, append JSONL to `.prp-output/reviews/review-metrics.jsonl` (timestamp, pr_number, verdict, issues by severity, incremental/large_pr flags). `--metrics` flag shows aggregate summary.
+
+## Critical Reminders
+
+1. Understand before judging — read full context. 2. Be specific with file:line. 3. Prioritize honestly. 4. Offer solutions. 5. Acknowledge good work. 6. Run validation. 7. Check patterns. 8. Think about edge cases. 9. Check implementation report — documented deviations are intentional.
 
 ## Usage
 
