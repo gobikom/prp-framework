@@ -33,13 +33,15 @@ Execute the plan end-to-end with rigorous self-validation. You are autonomous.
 | `Cargo.toml` | cargo | `cargo` |
 | `go.mod` | go | `go` |
 
+> **Plan-provided commands take precedence**: If the plan contains a Metadata table with Runner/Type Check/Lint/Test/Build commands, use those directly instead of auto-detecting. Plan commands were verified during planning and are more reliable.
+
 ### 0.2 Identify Validation Scripts
 
 Check config for: type-check, lint, lint:fix, test, build. Use the plan's "Validation Commands" section.
 
 ## Phase 1: Load Plan
 
-Read plan file. Extract: Summary, Patterns to Mirror, Files to Change, Step-by-Step Tasks, Validation Commands, Acceptance Criteria. If not found: STOP with error.
+Read plan file. Extract: **Plan Metadata** (update status `pending` → `in-progress`), **Metadata table** (pre-filled commands — use instead of auto-detecting), Summary, Patterns to Mirror, Files to Change (with **Insert At** hints — verify line numbers), **Integration Points** (caller, hook location, wiring), Step-by-Step Tasks, Validation Commands, **Confidence Score**, Acceptance Criteria. If not found: STOP with error.
 
 ## Phase 2: Prepare Git State
 
@@ -96,6 +98,7 @@ After tests pass, verify coverage on new/changed code (target: **90%**).
 - Detect coverage tool (jest `--coverage`, vitest `--coverage`, pytest `--cov`, `go test -cover`, `cargo tarpaulin`)
 - Focus on new/changed files only: `git diff --name-only origin/main...HEAD`
 - If >= 90% → proceed. If < 90% → write more tests. If no coverage tool → skip with warning.
+- (Lightweight metric gate — deeper behavioral analysis happens during review.)
 
 ### 4.2.5 Integration Tests (conditional)
 If plan specifies integration tests or project has `test:integration` → run them. Skip if not applicable.
@@ -132,6 +135,7 @@ Save to `.prp-output/reviews/pr-context-{BRANCH}.md` with:
 - Branch name, files changed, implementation summary
 - Validation status, key changes for review, focus areas
 - This saves ~60K tokens when running via run-all workflow
+- **CRITICAL**: Generate even if implementation fails early — include note about incomplete status and list completed/remaining tasks
 
 ### 5.3 Update Source PRD (if applicable)
 If plan was from PRD: read PRD → find phase → change status from `in-progress` to `complete` → save.
@@ -141,6 +145,8 @@ If plan was from PRD: read PRD → find phase → change status from `in-progres
 mkdir -p .prp-output/plans/completed
 mv $ARGUMENTS .prp-output/plans/completed/
 ```
+
+**GATE**: Do NOT proceed to Phase 6 until plan is archived. This prevents re-running the same plan.
 
 ## Phase 6: Output
 
