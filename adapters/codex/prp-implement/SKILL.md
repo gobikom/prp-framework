@@ -167,6 +167,7 @@ Next steps: review, create PR, merge.
 | Lint fails | Run lint fix → manually fix remaining → re-run |
 | Build fails | Check error output → fix → re-run |
 | Integration fails | Check server started → verify endpoint → fix → retry |
+| **Early abort (any phase)** | **Jump to §5.2 (Generate Review Context) before stopping** — generate partial context with completed/remaining tasks, then §5.1 (Report) if possible |
 
 ## Success Criteria
 

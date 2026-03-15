@@ -606,7 +606,7 @@ Save the file to `.prp-output/reviews/pr-context-{BRANCH}.md`
 
 ### Artifacts
 
-- Report: `.prp-output/reports/{name}-report-{TIMESTAMP}.md`
+- Report: `.prp-output/reports/{plan-name}-report-{TIMESTAMP}.md`
 - Review Context: `.prp-output/reviews/pr-context-{BRANCH}.md`
 - Plan archived to: `.prp-output/plans/completed/`
 
