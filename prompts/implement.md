@@ -392,6 +392,8 @@ ls .prp-output/reports/{plan-name}-report*.md 2>/dev/null
 
 Example: `user-auth-report-20260210-1430.md`
 
+> **Note**: Timestamp-based naming prevents file collisions when re-running implementations. Tool-specific adapters may add a tool suffix (e.g., `-codex`, `-gemini`) for multi-tool parallel execution scenarios.
+
 ```markdown
 # Implementation Report
 

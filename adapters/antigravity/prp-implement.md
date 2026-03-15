@@ -36,7 +36,9 @@ Execute the plan end-to-end autonomously. Validate after every change. Fix befor
    > **Note**: Uses `-antigravity` suffix to identify Antigravity implementation reports and prevent overwriting reports from other tools.
 7. **Generate Review Context** (for run-all workflow): Save to `.prp-output/reviews/pr-context-{BRANCH}.md` with: branch, files changed, implementation summary, validation status, key changes for review, focus areas. This saves ~60K tokens when running via run-all. **CRITICAL**: Generate even if implementation fails early — include note about incomplete status and list completed/remaining tasks.
 8. **PRD Update** (if applicable): Change phase status from `in-progress` to `complete`.
-9. **Archive**: `mv $ARGUMENTS .prp-output/plans/completed/` **GATE**: Do NOT proceed to output until plan is archived.
+9. **Archive**: `mv $ARGUMENTS .prp-output/plans/completed/`
+
+   **GATE**: Do NOT proceed to output until plan is archived.
 10. **Output**: Status, validation summary, files changed, deviations, artifacts (including review context), PRD progress (if applicable), next steps.
     > **Note for orchestrators**: The "Next Steps" above are for standalone usage only. If this command was invoked as part of run-all, the orchestrator should ignore these suggestions and proceed to its next step.
 
