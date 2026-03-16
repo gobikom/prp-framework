@@ -122,6 +122,9 @@ BRANCH={branch-name}
 ls .prp-output/reviews/pr-${NUMBER}-*.md 2>/dev/null
 ls .prp-output/reviews/pr-context-${BRANCH}.md 2>/dev/null
 
+# Fix summaries
+ls .prp-output/reviews/pr-${NUMBER}-fix-summary*.md 2>/dev/null
+
 # Implementation reports
 grep -rl "PR.*#${NUMBER}\|Branch.*${BRANCH}" .prp-output/reports/ 2>/dev/null
 
@@ -211,7 +214,7 @@ git remote prune origin
 ## Cleanup Summary
 
 | Branch | PR | Status | Artifacts | Local | Remote |
-|--------|-----|--------|-------|--------|
+|--------|-----|--------|-----------|-------|--------|
 | {branch} | #{number} | Merged | Committed | Deleted | Deleted |
 | {branch2} | #{number} | Open | Skipped | Skipped | Skipped |
 
@@ -283,7 +286,5 @@ Run without --dry-run to execute.
 - **LOCAL_DELETED**: Local branch removed (or confirmed already gone)
 - **REMOTE_DELETED**: Remote branch removed (or confirmed already gone)
 - **REFS_PRUNED**: Stale remote tracking references cleaned
-- **DRY_RUN_SAFE**: `--dry-run` never deletes anything, only previews
-- **PROTECTED_BRANCHES**: main/master never included as cleanup targets
 - **DRY_RUN_SAFE**: `--dry-run` never deletes anything, only previews
 - **PROTECTED_BRANCHES**: main/master never included as cleanup targets
