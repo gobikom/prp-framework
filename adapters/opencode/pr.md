@@ -40,6 +40,14 @@ Extract `--no-interact` flag and base branch from arguments.
 
 > **Note for orchestrators**: The "Next Steps" in output are for standalone usage only. If invoked as part of run-all, the orchestrator should ignore them and proceed to its next step.
 
+## Success Criteria
+
+- BRANCH_PUSHED: Current branch exists on origin
+- PR_CREATED: PR successfully created via gh
+- TEMPLATE_USED: If template exists, it was used
+- ISSUES_LINKED: Any referenced issues are linked
+- URL_RETURNED: User has the PR URL
+
 ## Edge Cases
 
 - Branch diverged → `git rebase origin/main` then `git push --force-with-lease`
