@@ -30,6 +30,7 @@ Execute the complete PRP workflow end-to-end autonomously. Each step delegates t
 | `--fix-severity <levels>` | Override review-fix severity (default: `critical,high,medium,suggestion`) |
 | `--resume` | Resume from last failed step using saved state |
 | `--no-interact` | Never ask user questions — use best judgment for ambiguous requirements, pick defaults for choices |
+| `--dry-run` | Preview all steps without executing. Shows: steps, estimated token cost, artifacts. Exits after preview. (claude-code adapter only) |
 | Remaining text (after removing flags) | Set FEATURE = text |
 
 **If `--skip-plan` provided (without `--prp-path`):**
@@ -55,6 +56,7 @@ NO_PR = {true if --no-pr, false otherwise}
 FIX_SEVERITY = "{from --fix-severity, default 'critical,high,medium,suggestion'}"
 FAST_PLAN = {true | false} (ignored if PLAN_PATH is already set — Step 2 will be skipped)
 NO_INTERACT = {true if --no-interact, false otherwise}
+DRY_RUN = {true | false}
 ```
 
 **State management**: `.claude/prp-run-all.state.md` — create on start, update per step, delete on completion. Supports `--resume` from last failed step.

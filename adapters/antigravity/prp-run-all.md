@@ -93,11 +93,11 @@ If `NO_INTERACT = true`, pass `--no-interact` to `/prp-pr`.
 ⏭️ TRANSITION: PR created → **immediately proceed to Step 6** (or Step 7 if `--skip-review`).
 
 ### Step 6: Review (skip if --skip-review or --no-pr)
-`/prp-review {PR_NUMBER}` — if `.prp-output/reviews/pr-context-{BRANCH}.md` exists, pass `--context` flag. DO NOT inline its logic.
+`/prp-review-agents {PR_NUMBER}` — if `.prp-output/reviews/pr-context-{BRANCH}.md` exists, pass `--context` flag. DO NOT inline its logic.
 Issues matching FIX_SEVERITY found → `/prp-review-fix {REVIEW_ARTIFACT} --severity {FIX_SEVERITY}` (detects toolchain, GATE before push, safe staging, timestamp fix summary) → re-review with `--context` flag (max 2 cycles).
 > **Note**: Override default severity with `--severity critical,high` to fix only blocking issues.
 ❌ DO NOT: Read code and review it yourself, skip the workflow.
-✅ CHECKPOINT: Did you invoke `/prp-review`? If not → STOP → invoke it.
+✅ CHECKPOINT: Did you invoke `/prp-review-agents`? If not → STOP → invoke it.
 
 ### Step 7: Summary
 Report: feature, branch, status, steps executed table, artifacts, review verdict, next steps.
