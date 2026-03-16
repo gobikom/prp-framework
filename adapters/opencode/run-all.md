@@ -1,5 +1,5 @@
 ---
-description: Full PRP workflow — plan, implement, commit, PR, review. Supports --prp-path, --skip-review, --no-pr
+description: Full PRP workflow — plan, implement, commit, PR, review. Supports --prp-path, --skip-plan, --fast, --skip-review, --no-pr
 agent: build
 ---
 
@@ -14,6 +14,8 @@ Input: $ARGUMENTS
 | Argument Found | Action |
 |---------------|--------|
 | `--prp-path <path>` | Extract path. Set PLAN_PATH. Skip Step 2. |
+| `--skip-plan` | Alias for `--prp-path` — prompts to select from available plans. Auto-selects most recent if `--no-interact`. |
+| `--fast` | Fast-track plan mode (lighter codebase analysis). Ignored if PLAN_PATH already set. |
 | `--skip-review` | Skip Step 6. |
 | `--no-pr` | Skip Steps 5 and 6. |
 | `--fix-severity <levels>` | Override review-fix severity (default: `critical,high,medium,suggestion`) |
@@ -33,6 +35,7 @@ REVIEW_ARTIFACT = "{TBD — set in Step 6.1}"
 SKIP_REVIEW = {true if --skip-review or --no-pr}
 NO_PR = {true if --no-pr}
 FIX_SEVERITY = "{from --fix-severity, default 'critical,high,medium,suggestion'}"
+FAST_PLAN = {true if --fast} (ignored if PLAN_PATH already set)
 NO_INTERACT = {true if --no-interact}
 ```
 
@@ -50,8 +53,9 @@ NO_INTERACT = {true if --no-interact}
 `git checkout -b feature/{slug}` (skip if already on feature branch)
 Failure: dirty on main → STOP.
 
-### Step 2: Plan (skip if --prp-path)
-`/prp:plan {FEATURE}` — Invoke the command, DO NOT inline its logic.
+### Step 2: Plan (skip if --prp-path or --skip-plan)
+`/prp:plan {FEATURE}` (append `--fast` if FAST_PLAN, `--no-interact` if NO_INTERACT) — Invoke the command, DO NOT inline its logic.
+This will analyze codebase (lighter if `--fast`), generate plan with validation commands, integration points, confidence score.
 Update PLAN_PATH with generated path.
 Failure → STOP.
 ❌ DO NOT: Read plan.md and execute logic yourself, analyze codebase directly.
@@ -59,6 +63,7 @@ Failure → STOP.
 
 ### Step 3: Implement
 `/prp:implement {PLAN_PATH}` — Invoke the command, DO NOT inline its logic.
+This will detect toolchain (Phase 0 — plan commands take precedence), execute plan, validate, write report (timestamp-based), generate review context (even on early failure), archive plan (GATE).
 Wait for completion — longest step.
 Failure → STOP, report which task failed.
 ❌ DO NOT: Read implement.md and execute logic yourself, write code directly. **Stop after implement** — the output will show "Next Steps" including "Create PR" but this is for standalone usage only. **IGNORE it. Do NOT ask user. Immediately proceed to Step 3.1.**
@@ -100,11 +105,11 @@ Set `REVIEW_CYCLE = 1`, `MAX_CYCLES = 2`.
 - Issues found + `REVIEW_CYCLE <= MAX_CYCLES` → Step 6.3
 - Issues found + `REVIEW_CYCLE > MAX_CYCLES` → report remaining → Step 7 (NEEDS MANUAL FIXES)
 
-**6.3 Fix**: `/prp:review-fix {REVIEW_ARTIFACT} --severity {FIX_SEVERITY}` — DO NOT fix manually.
-Default severity: `critical,high,medium,suggestion` — override with `--fix-severity critical,high` to fix only blocking issues.
+**6.3 Fix**: `/prp:review-fix {REVIEW_ARTIFACT} --severity {FIX_SEVERITY}` (detects toolchain, GATE before push, safe staging, timestamp fix summary) — DO NOT fix manually.
+Default severity: `critical,high,medium,suggestion` — override with `--severity critical,high` to fix only blocking issues.
 ❌ DO NOT: Fix issues yourself, run validation separately. ✅ CHECKPOINT: Did you invoke `/prp:review-fix`?
 
-**6.4 Re-verify**: Increment `REVIEW_CYCLE`. `/prp:review {PR_NUMBER}` to confirm issues resolved and no regressions introduced. → Return to Step 6.2.
+**6.4 Re-verify**: Increment `REVIEW_CYCLE`. `/prp:review {PR_NUMBER}` with `--context` flag to confirm issues resolved and no regressions introduced. → Return to Step 6.2.
 
 ### Step 7: Summary
 Report: feature, branch, status, steps executed table, artifacts, review verdict, next steps.

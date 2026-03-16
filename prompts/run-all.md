@@ -23,12 +23,22 @@ Execute the complete PRP workflow end-to-end autonomously. Each step delegates t
 | Argument Found | Action |
 |---------------|--------|
 | `--prp-path <path>` | Extract path. Set PLAN_PATH = path. Skip Step 2 (plan). |
+| `--skip-plan` | Alias for `--prp-path` — prompts to select from available plans in `.prp-output/plans/` |
+| `--fast` | Use fast-track plan mode (lighter codebase analysis, good for simple features) |
 | `--skip-review` | Set SKIP_REVIEW = true. Skip Step 6 (review). |
 | `--no-pr` | Set NO_PR = true. Skip Steps 5 (PR) and 6 (review). |
 | `--fix-severity <levels>` | Override review-fix severity (default: `critical,high,medium,suggestion`) |
 | `--resume` | Resume from last failed step using saved state |
 | `--no-interact` | Never ask user questions — use best judgment for ambiguous requirements, pick defaults for choices |
 | Remaining text (after removing flags) | Set FEATURE = text |
+
+**If `--skip-plan` provided (without `--prp-path`):**
+
+List available plans and let user select (or auto-select most recent if `NO_INTERACT = true`):
+```bash
+ls -t .prp-output/plans/*.plan.md 2>/dev/null | head -5
+```
+If exactly 1 plan → use it. If multiple → ask user (or pick most recent in no-interact mode). If none → STOP: "No plans found. Run without --skip-plan."
 
 **If `--prp-path` provided, validate file exists** — STOP if not found, show available plans.
 
@@ -43,6 +53,7 @@ REVIEW_ARTIFACT = "{TBD — set in Step 6.1}"
 SKIP_REVIEW = {true if --skip-review or --no-pr, false otherwise}
 NO_PR = {true if --no-pr, false otherwise}
 FIX_SEVERITY = "{from --fix-severity, default 'critical,high,medium,suggestion'}"
+FAST_PLAN = {true | false} (ignored if PLAN_PATH is already set — Step 2 will be skipped)
 NO_INTERACT = {true if --no-interact, false otherwise}
 ```
 
@@ -50,7 +61,9 @@ NO_INTERACT = {true if --no-interact, false otherwise}
 
 **Examples:**
 - `Add JWT auth` → full workflow (all steps)
+- `Add JWT auth --fast` → full workflow with fast-track plan
 - `--prp-path plans/jwt.plan.md` → skip plan creation, start at implement
+- `--skip-plan` → select from available plans, then implement
 - `Add JWT auth --skip-review` → plan + implement + commit + PR, no review
 - `--prp-path plans/jwt.plan.md --no-pr` → implement + commit only
 
@@ -72,13 +85,13 @@ git checkout -b feature/{slug-from-feature-description}
 
 ---
 
-## Step 2: CREATE PLAN (skip if --prp-path provided)
+## Step 2: CREATE PLAN (skip if --prp-path or --skip-plan provided)
 
-Execute the **plan** workflow with: `{FEATURE}`
+Execute the **plan** workflow with: `{FEATURE}` (append `--fast` if FAST_PLAN = true, `--no-interact` if NO_INTERACT = true)
 
 This will:
-- Analyze the codebase
-- Generate a comprehensive plan
+- Analyze the codebase (lighter analysis if `--fast`)
+- Generate a comprehensive plan with validation commands, integration points, confidence score
 - Save to plans directory
 
 **Variable update**: `PLAN_PATH = {generated plan path}`
@@ -94,11 +107,13 @@ This will:
 Execute the **implement** workflow with: `{PLAN_PATH}`
 
 This will:
+- Detect project toolchain (Phase 0 — plan-provided commands take precedence)
 - Read and execute the plan
-- Run validation loops (typecheck, lint, test, build)
+- Run validation loops (typecheck, lint, test, build) using detected commands
 - Auto-fix failures
-- Write implementation report
-- Archive the plan
+- Write implementation report (timestamp-based naming)
+- **Generate review context file** (`pr-context-{branch}.md`) — even on early failure
+- Archive the plan (GATE — blocks output until archived)
 
 **Wait for completion.** This is the longest step.
 
@@ -108,6 +123,7 @@ This will:
 
 **Context passed forward**:
 - Implementation report at `.prp-output/reports/`
+- Review context file at `.prp-output/reviews/pr-context-{BRANCH}.md`
 - Validated code on feature branch
 
 **⏭️ TRANSITION**: Implementation succeeded → **immediately proceed to Step 4** (COMMIT).
@@ -166,12 +182,15 @@ This will:
 
 **Variable update**: `REVIEW_ARTIFACT = {review artifact path}`
 
-**If critical issues found**:
+**If issues matching FIX_SEVERITY found**:
 1. Execute review-fix workflow with `{REVIEW_ARTIFACT} --severity {FIX_SEVERITY}`
-2. Run validation
-3. Commit fixes
-4. Push
-5. Re-run review (max 2 cycles)
+   - Detects toolchain (Phase 0 — branch-matching plan discovery)
+   - Fixes issues with validation GATE before push
+   - Uses safe staging (no `git add -A`)
+   - Saves fix summary with timestamp
+2. Re-run review with `--context` flag to confirm fixes resolved issues and no regressions (max 2 cycles)
+
+> **Note**: Override default severity with `--severity critical,high` to fix only blocking issues.
 
 **If no critical issues**: Proceed to summary.
 
@@ -200,8 +219,11 @@ Generate final report:
 
 ### Artifacts
 
-- Plan: `{PLAN_PATH}` (archived)
-- Report: `.prp-output/reports/{name}-report*.md`
+- Plan: `{PLAN_PATH}` (archived to `.prp-output/plans/completed/`)
+- Report: `.prp-output/reports/{name}-report-{RUN_TIMESTAMP}.md`
+- Review Context: `.prp-output/reviews/pr-context-{BRANCH}.md`
+- Review: `.prp-output/reviews/pr-{PR_NUMBER}-agents-review.md`
+- Fix Summary: `.prp-output/reviews/pr-{PR_NUMBER}-fix-summary-*.md` (if fixes applied — timestamp set by review-fix)
 - PR: {URL}
 
 ### Review Verdict
@@ -240,11 +262,11 @@ This workflow is designed for minimal token usage:
 
 | Step | Token Cost | Why |
 |------|-----------|-----|
-| Plan | Moderate | Codebase analysis needed |
+| Plan | Moderate (Low if --fast) | Codebase analysis needed |
 | Implement | High | Code writing + validation |
 | Commit | Low | Small command |
 | PR | Low | Small command |
-| Review | Moderate | Multi-pass analysis |
+| Review | Moderate (Low with context file) | Multi-pass analysis |
 | **Total** | Optimized | Each step handles its own scope |
 
 ---
@@ -256,6 +278,8 @@ This workflow is designed for minimal token usage:
 | Already on feature branch (not main) | Skip Step 1, use current branch |
 | Dirty working directory on main | STOP — ask user to stash or commit |
 | `--prp-path` file not found | STOP — show available plans in `.prp-output/plans/` |
+| `--skip-plan` with no plans available | STOP — "No plans found. Run without --skip-plan." |
+| `--fast` with `--prp-path`/`--skip-plan` | `--fast` ignored (Step 2 skipped) |
 | Implementation fails after retries | STOP — report which task failed and why |
 | Commit fails (pre-commit hook) | Let commit workflow retry, then continue |
 | PR already exists for branch | Use existing PR, skip creation |

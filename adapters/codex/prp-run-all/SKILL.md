@@ -1,6 +1,6 @@
 ---
 name: prp-run-all
-description: Execute the complete PRP workflow end-to-end — plan, implement, commit, PR, and review. Delegates to individual PRP skills in sequence. Supports --prp-path, --skip-review, --no-pr options.
+description: Execute the complete PRP workflow end-to-end — plan, implement, commit, PR, and review. Delegates to individual PRP skills in sequence. Supports --prp-path, --skip-plan, --fast, --skip-review, --no-pr options.
 metadata:
   short-description: Full PRP workflow
 ---
@@ -26,6 +26,8 @@ Execute the complete PRP workflow end-to-end autonomously. Each step delegates t
 | Argument Found | Action |
 |---------------|--------|
 | `--prp-path <path>` | Extract path. Set PLAN_PATH = path. Skip Step 2. |
+| `--skip-plan` | Alias for `--prp-path` — prompts to select from available plans. Auto-selects most recent if `--no-interact`. |
+| `--fast` | Fast-track plan mode (lighter codebase analysis). Ignored if PLAN_PATH already set. |
 | `--skip-review` | Set SKIP_REVIEW = true. Skip Step 6. |
 | `--no-pr` | Set NO_PR = true. Skip Steps 5 and 6. |
 | `--fix-severity <levels>` | Override review-fix severity (default: `critical,high,medium,suggestion`) |
@@ -45,6 +47,7 @@ REVIEW_ARTIFACT = "{TBD — set in Step 6.1}"
 SKIP_REVIEW = {true if --skip-review or --no-pr}
 NO_PR = {true if --no-pr}
 FIX_SEVERITY = "{from --fix-severity, default 'critical,high,medium,suggestion'}"
+FAST_PLAN = {true if --fast} (ignored if PLAN_PATH already set)
 NO_INTERACT = {true if --no-interact}
 ```
 
@@ -60,7 +63,9 @@ NO_INTERACT = {true if --no-interact}
 
 **Examples:**
 - `Add JWT auth` → full workflow
+- `Add JWT auth --fast` → full workflow with fast-track plan
 - `--prp-path plans/jwt.plan.md` → skip plan creation
+- `--skip-plan` → select from available plans
 - `Add JWT auth --skip-review` → skip review step
 - `--prp-path plans/jwt.plan.md --no-pr` → implement + commit only
 
@@ -75,8 +80,9 @@ git checkout -b feature/{slug-from-FEATURE}
 ```
 Failure: dirty working dir on main → STOP, ask to stash/commit.
 
-### Step 2: Plan (skip if --prp-path)
-Use `$prp-plan` skill with FEATURE.
+### Step 2: Plan (skip if --prp-path or --skip-plan)
+Use `$prp-plan` skill with FEATURE (append `--fast` if FAST_PLAN, `--no-interact` if NO_INTERACT).
+This will analyze codebase (lighter if `--fast`), generate plan with validation commands, integration points, confidence score.
 Update: PLAN_PATH = generated plan path.
 Failure → STOP.
 ❌ DO NOT: Read plan skill and execute logic yourself, analyze codebase directly.
@@ -84,6 +90,7 @@ Failure → STOP.
 
 ### Step 3: Implement
 Use `$prp-implement` skill with PLAN_PATH.
+This will detect toolchain (Phase 0 — plan commands take precedence), execute plan, validate, write report (timestamp-based), generate review context (even on early failure), archive plan (GATE).
 Wait for completion — this is the longest step.
 Failure → STOP, report which task failed.
 ❌ DO NOT: Read implement skill and execute logic yourself, write code directly. **Stop after implement** — the output will show "Next Steps" including "Create PR" but this is for standalone usage only. **IGNORE it. Do NOT ask user. Immediately proceed to Step 3.1.**
@@ -128,11 +135,12 @@ Set `REVIEW_CYCLE = 1`, `MAX_CYCLES = 2`.
 - Issues found + `REVIEW_CYCLE > MAX_CYCLES` → report remaining issues → Step 7 (NEEDS MANUAL FIXES)
 
 **6.3 Fix**: Use `$prp-review-fix` skill with `{REVIEW_ARTIFACT} --severity {FIX_SEVERITY}`.
-Fixes all severities by default. Override with `--fix-severity critical,high` to fix only blocking issues.
+This will detect toolchain (Phase 0), validate with GATE before push, use safe staging, save fix summary with timestamp.
+Fixes all severities by default. Override with `--severity critical,high` to fix only blocking issues.
 ❌ DO NOT: Manually read and fix issues yourself, run validation separately.
 ✅ CHECKPOINT: Did you invoke `$prp-review-fix`? If not → STOP → invoke it.
 
-**6.4 Re-verify**: Increment `REVIEW_CYCLE`. Use `$prp-review` skill again to confirm fixes resolved issues and no regressions introduced. → Return to Step 6.2.
+**6.4 Re-verify**: Increment `REVIEW_CYCLE`. Use `$prp-review` skill again with `--context` flag to confirm fixes resolved issues and no regressions introduced. → Return to Step 6.2.
 
 ### Step 7: Summary
 Report: feature, branch, status, steps executed table, artifacts, review verdict, next steps.
