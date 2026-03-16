@@ -108,6 +108,9 @@ Document state in progress log, end response. Stop hook feeds prompt back for ne
 /prp-ralph .prp-output/plans/user-auth.plan.md
 /prp-ralph .prp-output/plans/user-auth.plan.md --max-iterations 10
 /prp-ralph .prp-output/prds/drafts/my-feature-prd.md
+
+# To cancel an active loop:
+/prp-ralph-cancel
 ```
 
 ## Success Criteria

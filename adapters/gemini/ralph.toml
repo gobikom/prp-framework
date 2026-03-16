@@ -22,6 +22,7 @@ Autonomous feedback loop: implement plan → validate → fix → repeat until A
    - Go: `go vet ./...` / `golangci-lint run` / `go test ./...` / `go build ./...`
 
 3. **Create State File**: Write `.claude/prp-ralph.state.md` with iteration count, plan path, timestamps, Codebase Patterns section, Progress Log. Create `.prp-output/ralph-archives/` dir.
+   Display startup: plan path, iteration 1/{max}. Inform user: monitor via `cat .claude/prp-ralph.state.md`, cancel via `/prp:ralph-cancel`.
 
 4. **Execute Iteration**:
    a. Read state file (patterns, previous progress), plan file, git status.
