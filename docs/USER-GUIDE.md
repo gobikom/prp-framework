@@ -273,14 +273,15 @@ After review, the command also:
 ```
 
 **กระบวนการ**:
-1. Load review artifact จาก `.prp-output/reviews/pr-{NUMBER}-*review*.md` (รองรับทั้ง `prp-review-agents` และ `prp-review`)
-2. ถ้ามีหลาย artifact (หลาย tool review) — แสดง list ให้เลือก, PR number extract อัตโนมัติจากชื่อไฟล์
-3. Checkout PR branch
-4. **TRIAGE** — แสดง fix plan ก่อนแก้: จำนวน issue ต่อ severity, list ทุก issue พร้อม file/description, group by file, แสดง issues ที่จะ skip (severity filter)
-5. Fix issues เรียง Critical → High → Medium → Suggestion
-6. Validate หลังแต่ละ severity batch (type-check + lint)
-7. Commit และ push ไปที่ PR branch
-8. Comment สรุป fixed/skipped บน PR
+1. **Detect toolchain** — อ่าน lock file เพื่อหา package manager, ดึง validation commands จาก completed plan ที่ตรงกับ PR branch (รองรับ JS/TS, Python, Rust, Go)
+2. Load review artifact จาก `.prp-output/reviews/pr-{NUMBER}-*review*.md` (รองรับทั้ง `prp-review-agents` และ `prp-review`)
+3. ถ้ามีหลาย artifact (หลาย tool review) — แสดง list ให้เลือก, PR number extract อัตโนมัติจากชื่อไฟล์
+4. Checkout PR branch
+5. **TRIAGE** — แสดง fix plan ก่อนแก้: จำนวน issue ต่อ severity, list ทุก issue พร้อม file/description, group by file, แสดง issues ที่จะ skip (severity filter)
+6. Fix issues เรียง Critical → High → Medium → Suggestion
+7. Validate หลังแต่ละ severity batch (type-check + lint); **GATE** — full suite ต้องผ่านก่อน commit
+8. Commit ด้วย safe staging (`git diff --name-only` + `git ls-files --others`) และ push ไปที่ PR branch
+9. Comment สรุป fixed/skipped บน PR
 
 **`--severity` options**:
 
