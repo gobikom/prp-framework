@@ -212,7 +212,7 @@ claude
 
 In Claude session:
 ```
-/prp-prd Add user authentication
+/prp-core:prd Add user authentication
 ```
 
 Follow the interactive prompts. The PRD will be saved to:
@@ -225,7 +225,7 @@ Follow the interactive prompts. The PRD will be saved to:
 After finalizing your PRD (find latest with `ls -t .prp-output/prds/*.md | head -1`):
 
 ```
-/prp-plan .prp-output/prds/user-auth-prd.md
+/prp-core:plan .prp-output/prds/user-auth-prd.md
 ```
 
 Plan will be saved to:
@@ -234,7 +234,7 @@ Plan will be saved to:
 ### Implement the Plan
 
 ```
-/prp-implement .prp-output/plans/user-auth-20260210-1445.plan.md
+/prp-core:implement .prp-output/plans/user-auth-20260210-1445.plan.md
 ```
 
 ### Debug Flow
@@ -260,7 +260,7 @@ Plan will be saved to:
 
 ### Full Automation Flow
 
-รัน workflow ทั้งหมดแบบอัตโนมัติ (PRD → Plan → Implement → Review → Commit → PR):
+รัน workflow ทั้งหมดแบบอัตโนมัติ (Plan → Implement → Commit → PR → Review/Fix):
 
 ```
 /prp-core:run-all "Add dark mode toggle" --ralph --no-interact

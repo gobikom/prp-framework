@@ -101,13 +101,34 @@ cd .prp && ./scripts/install.sh && cd ..
 /prp-core:review-fix 25          # Auto-fix all found issues
 ```
 
+## Marketing & Bot Commands (Claude Code Exclusive)
+
+### Marketing (`/prp-mkt:`)
+
+| Command | Description |
+|---------|-------------|
+| `/prp-mkt:landing` | Landing page analysis & optimization |
+| `/prp-mkt:demo` | Demo environment management |
+| `/prp-mkt:pitch` | Pitch materials generation |
+| `/prp-mkt:competitor` | Competitive analysis |
+
+### AI Bot (`/prp-bot:`)
+
+| Command | Description |
+|---------|-------------|
+| `/prp-bot:intent` | Chatbot intent design |
+| `/prp-bot:flow` | Conversation flow design |
+| `/prp-bot:prompt-eng` | Prompt engineering |
+| `/prp-bot:voice-ux` | Voice UX design |
+| `/prp-bot:integration` | Integration planning |
+
 ## Claude Code Exclusive Features
 
 - **30 Specialized Agents** -- `.claude/agents/` directory, ใช้ได้ทั้ง development, business, และ strategy agents
 - **Skills Support** -- `.claude/skills/` for reusable prompt patterns
 - **Hooks** -- Ralph stop hook auto-registered โดย `install.sh` (ต้องมี `jq`)
 - **Multi-Agent Parallel Execution** -- `review-agents` และ `feature-review-agents` รัน agents พร้อมกัน
-- **3 Command Namespaces** -- `/prp-core:`, `/prp-mkt:`, `/prp-bot:`
+- **3 Command Namespaces** -- `/prp-core:` (19), `/prp-mkt:` (4), `/prp-bot:` (5) — total 28 commands
 
 ## Permissions Config
 

@@ -523,16 +523,16 @@ ls -la .claude/hooks/prp-ralph-stop.sh
 
 ```bash
 # Run with a plan file
-/prp-core:prp-ralph .prp-output/plans/jwt-auth.plan.md
+/prp-core:ralph .prp-output/plans/jwt-auth.plan.md
 
 # Set max iterations
-/prp-core:prp-ralph .prp-output/plans/jwt-auth.plan.md --max-iterations 10
+/prp-core:ralph .prp-output/plans/jwt-auth.plan.md --max-iterations 10
 
 # Monitor progress
 cat .claude/prp-ralph.state.md
 
 # Cancel loop
-/prp-core:prp-ralph-cancel
+/prp-core:ralph-cancel
 ```
 
 ---
