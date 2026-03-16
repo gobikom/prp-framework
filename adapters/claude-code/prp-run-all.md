@@ -78,7 +78,7 @@ REVIEW_ARTIFACT = "{TBD — set in Step 6.1}"
 USE_RALPH = {true | false}
 RALPH_MAX_ITER = {N, default 10}
 FIX_SEVERITY = "{from --fix-severity, default 'critical,high,medium,suggestion'}"
-FAST_PLAN = {true | false}
+FAST_PLAN = {true | false} (ignored if PLAN_PATH is already set — Step 2 will be skipped)
 NO_INTERACT = {true | false}
 DRY_RUN = {true | false}
 ```
@@ -94,14 +94,14 @@ Mode:    {--ralph if USE_RALPH else "default implement"}
 
 Steps that would run:
   ┌─ Step 1: Create branch        → feature/{slug}
-  ├─ Step 2: Create plan          → {"skipped (--prp-path)" if PLAN_PATH else ".prp-output/plans/{slug}-{TIMESTAMP}.plan.md" + (" (--fast mode)" if FAST_PLAN else "")}
+  ├─ Step 2: Create plan          → {"skipped (--skip-plan/--prp-path)" if PLAN_PATH else ".prp-output/plans/{slug}-{TIMESTAMP}.plan.md" + (" (--fast mode)" if FAST_PLAN else "")}
   ├─ Step 3: Implement            → {"/prp-ralph (loop up to N iter)" if USE_RALPH else "/prp-implement (single pass)"}
   ├─ Step 4: Commit               → conventional commit on feature branch
   ├─ Step 5: Create PR            → {"skipped (--no-pr)" if NO_PR else "PR to main"}
   └─ Step 6: Review & Fix         → {"skipped (--skip-review)" if SKIP_REVIEW else "review-agents + review-fix"}
 
 Estimated token cost:
-  Plan:      {"~5-10K tokens    (fast-track)" if FAST_PLAN else "~10-20K tokens    (codebase analysis)"}
+  Plan:      {"~0K tokens        (skipped)" if PLAN_PATH else ("~5-10K tokens    (fast-track)" if FAST_PLAN else "~10-20K tokens    (codebase analysis)")}
   Implement: {"~15K × " + RALPH_MAX_ITER + " iterations = ~" + (15*RALPH_MAX_ITER) + "K tokens (ralph mode)" if USE_RALPH else "~15-30K tokens (single pass)"}
   Commit:    ~2K tokens
   PR:        ~3K tokens
@@ -623,7 +623,7 @@ This command will:
 - Commit and push fixes to the PR branch
 - Save fix summary with timestamp, post to PR, update review artifact
 
-**Default severity**: `critical,high,medium,suggestion` — fixes all issues. Override with `--fix-severity critical,high` to fix only blocking issues.
+**Default severity**: `critical,high,medium,suggestion` — fixes all issues. Override with `--severity critical,high` to fix only blocking issues.
 All severity levels are fixed by default for comprehensive code quality. Use `--fix-severity` to narrow scope if needed.
 
 **❌ DO NOT**:
@@ -687,10 +687,10 @@ Generate final report:
 ### Artifacts
 
 - Plan: `{PLAN_PATH}` (archived to `.prp-output/plans/completed/`)
-- Report: `.prp-output/reports/{name}-report-{TIMESTAMP}.md`
+- Report: `.prp-output/reports/{name}-report-{RUN_TIMESTAMP}.md`
 - Review Context: `.prp-output/reviews/pr-context-{BRANCH}.md`
 - Review: `.prp-output/reviews/pr-{PR_NUMBER}-agents-review.md`
-- Fix Summary: `.prp-output/reviews/pr-{PR_NUMBER}-fix-summary-{TIMESTAMP}.md` (if fixes applied)
+- Fix Summary: `.prp-output/reviews/pr-{PR_NUMBER}-fix-summary-*.md` (if fixes applied — timestamp set by prp-review-fix)
 - PR: {URL}
 
 ### Review Verdict
