@@ -7,40 +7,59 @@ Format: <pr-number|review-artifact-path> [--severity critical,high,medium,sugges
 
 ## Steps
 
+0. **Detect Toolchain**:
+   - Package manager from lock files (bun/pnpm/yarn/npm/uv/cargo/go).
+   - **Find matching plan**: `PR_BRANCH=$(gh pr view {NUMBER} --json headRefName -q '.headRefName')`, `PLAN_SLUG=$(echo "$PR_BRANCH" | sed 's|^feature/||')`, `ls -t .prp-output/plans/completed/*${PLAN_SLUG}*.plan.md 2>/dev/null | head -1`
+   - **Plan-provided commands take precedence — but only if the plan matches the PR branch**. If matching plan has Metadata table with validation commands, use those. Otherwise auto-detect:
+   - JS/TS: `{runner} run type-check` / `{runner} run lint` / `{runner} test` / `{runner} run build`
+   - Python: `mypy .` / `ruff check .` / `pytest` / N/A
+   - Rust: `cargo check` / `cargo clippy` / `cargo test` / `cargo build`
+   - Go: `go vet ./...` / `golangci-lint run` / `go test ./...` / `go build ./...`
+   - Store detected commands for all validation steps.
+
 1. **Load Artifact**:
    - If input is a path → use directly.
-   - If PR number (or no input → `gh pr view --json number -q '.number'`): `ls -t .prp-output/reviews/pr-{NUMBER}-review*.md`
+   - If PR number (or no input → `gh pr view --json number -q '.number'`): `ls -t .prp-output/reviews/pr-{NUMBER}-*review*.md`
    - 1 artifact → use it, show which one was selected.
    - Multiple artifacts → list them with tool suffix and modified date, ask user to select (default: most recent). Tip: pass artifact path directly to skip prompt.
    - None found → STOP: "Run `/prp:review {NUMBER}` first."
-   - Parse severity filter (default: all). Map issue sections: Critical / High Priority / Medium Priority / Suggestions (also accepts: Critical / Important / Suggestions).
+   - Parse severity filter (default: all).
+   - Severity mapping: Critical/Critical Issues/Critical (block merge) → Critical. High Priority/Important/Important Issues/Important (address before merge) → High. Medium Priority → Medium. Suggestions/Low/Suggestions (nice to have) → Suggestion. Note: agents-review has no Medium — treat Important as High. Codex/Gemini use parenthetical labels — match keyword before parenthetical.
 
-2. **Checkout PR Branch**: `gh pr view {NUMBER} --json headRefName,state` → if MERGED/CLOSED: STOP. `gh pr checkout {NUMBER}` → `git pull --rebase`.
+2. **Checkout PR Branch**:
+   - `gh pr view {NUMBER} --json headRefName,state` → if MERGED/CLOSED: STOP.
+   - Check if already on correct branch: `CURRENT=$(git branch --show-current)`, `PR_BRANCH=$(gh pr view {NUMBER} --json headRefName -q '.headRefName')` → if same, verify clean with `git status --porcelain` (STOP if dirty). If different: `gh pr checkout {NUMBER}`.
+   - `git pull --rebase`.
 
-3. **Triage**: Print fix plan showing counts per severity before making changes.
+3. **Triage**: Print fix plan showing counts per severity, validation commands (source: plan/auto-detected), grouped by file.
 
 4. **Fix (Critical → High → Medium → Suggestion)**:
    - For each issue: read flagged file, apply recommended fix, don't refactor unrelated code
    - If fix is ambiguous or risky → SKIP with reason logged
-   - After each severity batch: `npm run type-check || bun run type-check || npx tsc --noEmit` + `npm run lint || bun run lint`
+   - After each severity batch: validate using detected commands ({type_check_command} + {lint_command})
    - If batch validation fails: revert failing fix, add to skip log, re-validate
 
-5. **Full Validate**: Type check + lint + tests + build — all must pass. Revert unfixable failures.
+5. **Full Validate**: All detected commands must pass: type check + lint + tests + build. Revert unfixable failures.
+   **GATE**: Do NOT proceed to step 6 until all checks pass (or failing fixes reverted and skipped).
 
-6. **Commit**:
+6. **Commit & Push**:
+   Do NOT use `git add -A`. Stage only modified files:
+   `git diff --name-only | xargs -r git add` + `git ls-files --others --exclude-standard | xargs -r git add`
+   Verify with `git diff --cached --name-only`.
 ```
-git add -A
-git commit -m "fix: apply review fixes for PR #{NUMBER}\n\n{N_critical} critical, {N_high} high, {N_medium} medium, {N_suggestion} suggestions fixed\nSkipped {N_skipped} (see PR comment)"
+git commit -m "fix: apply review fixes for PR #{NUMBER}\\n\\n{N_critical} critical, {N_high} high, {N_medium} medium, {N_suggestion} suggestions fixed\\nSkipped {N_skipped} (see PR comment)"
 git push origin $(git branch --show-current)
 ```
 If no changes: skip commit.
 
-7. **Post PR Comment**:
-`gh pr comment {NUMBER} --body "$(cat review-fix-summary.md)"` with table: Severity | Fixed | Skipped, validation results, skipped issue list (with reasons), commit hash.
+7. **Report — Post Summary and Update Artifacts**:
+   Save summary with timestamp: `TIMESTAMP=$(date +%Y%m%d-%H%M)`, `SUMMARY_FILE=".prp-output/reviews/pr-${NUMBER}-fix-summary-${TIMESTAMP}.md"`.
+   Write summary (fix counts, validation results, skipped issues, commit hash) to `$SUMMARY_FILE`.
+   `gh pr comment ${NUMBER} --body-file "$SUMMARY_FILE"`.
+   Update review artifact: append "Fix Outcome" section with timestamp, commit, counts.
 
-8. **Update Artifact**: Append "Fix Outcome" section to `.prp-output/reviews/pr-{NUMBER}-review-gemini.md` with timestamp, commit, counts.
-
-9. **Output**: Fixed/skipped counts per severity, validation summary, next step ("Re-run `/prp:review`" or "⚠️ Manual attention needed for {N} critical issues").
+8. **Output**: Fixed/skipped counts per severity, validation summary, artifacts (fix summary path, review artifact updated), next step ("Re-run `/prp:review`" or "⚠️ Manual attention needed for {N} critical issues").
+   > **Note for orchestrators**: The "Next Steps" are for standalone usage only. If invoked as part of run-all, the orchestrator should ignore and proceed to its next step.
 
 ## Edge Cases
 
@@ -55,11 +74,13 @@ If no changes: skip commit.
 
 - ARTIFACT_LOADED: Review artifact found and parsed
 - BRANCH_CHECKED_OUT: On correct PR branch
+- TOOLCHAIN_DETECTED: Validation commands identified (plan or auto-detected)
 - FIXES_APPLIED: All non-skipped issues addressed
-- VALIDATION_PASSES: All automated checks green
-- CHANGES_PUSHED: Commit pushed to PR branch
+- VALIDATION_PASSES: All automated checks green (GATE passed)
+- CHANGES_PUSHED: Commit pushed to PR branch (only modified files staged)
 - PR_COMMENTED: Summary posted to GitHub
 - ARTIFACT_UPDATED: Fix outcome appended to review file
+- SUMMARY_SAVED: Fix summary saved with timestamp to `.prp-output/reviews/`
 
 ## Usage
 
