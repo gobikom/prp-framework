@@ -71,6 +71,7 @@ To skip this prompt: pass the artifact path directly as input.
 **Parse severity filter** (default: all severities):
 - `--severity critical` → Critical only
 - `--severity critical,high` → Critical + High
+- `--severity critical,high,medium` → All except suggestions
 - No flag → Critical + High + Medium + Suggestion
 
 **Severity mapping table:**

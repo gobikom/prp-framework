@@ -182,7 +182,7 @@ Write summary to `$SUMMARY_FILE` (fix counts table, validation results, skipped 
 gh pr comment ${NUMBER} --body-file "$SUMMARY_FILE"
 ```
 
-> **Note**: Uses `-fix-summary` suffix to identify fix summaries separately from review files. Uses `-opencode` suffix pattern for tool identification in multi-tool scenarios.
+> **Note**: Uses `-fix-summary` suffix to identify fix summaries separately from review files.
 
 **Update review artifact**: Append "Fix Outcome" section with timestamp, commit hash, and fix counts.
 

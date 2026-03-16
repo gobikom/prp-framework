@@ -65,6 +65,7 @@ Which review to fix? (Enter for [1]):
 To skip prompt: pass artifact path directly as input.
 
 **Severity filter** (default: all):
+**Severity filter** (default: all):
 - `--severity critical` → Critical only
 - `--severity critical,high` → Critical + High
 - `--severity critical,high,medium` → All except suggestions
