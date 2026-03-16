@@ -175,7 +175,7 @@ Create `CLAUDE.md` (or equivalent) with project-specific conventions:
 
 ## AI Workflows
 
-PRP framework installed via: `.prp/` (submodule v1.0.0)
+PRP framework installed via: `.prp/` (submodule v2.0.0)
 
 Available commands (19 core commands):
 - Development: prd, design, plan, implement, commit, pr

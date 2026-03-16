@@ -33,6 +33,14 @@ Every major version release MUST include a `docs/migration/vX.0-to-vY.0.md` file
 
 ## [Unreleased]
 
+_No unreleased changes._
+
+---
+
+## [2.0.0] — 2026-03-16
+
+**Full Cross-Tool Portability Release** — All 17 canonical prompts with 85 adapter files across 5 tools (Claude Code, Codex, OpenCode, Gemini CLI, Antigravity). Breaking change: unified artifact paths to `.prp-output/`.
+
 ### Fixed
 - **`prp-run-all` Step 6.2 review-fix trigger condition** (Claude Code):
   - Bug: loop only triggered `prp-review-fix` when critical/high issues found — medium and suggestion were silently skipped
