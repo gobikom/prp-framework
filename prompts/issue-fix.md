@@ -286,11 +286,14 @@ Execute any manual verification steps from the artifact.
 Use safe staging to avoid accidentally committing unrelated files:
 
 ```bash
-# Stage only tracked files that changed
-git diff --name-only | xargs git add
+# Stage modified tracked files
+git diff --name-only | xargs -r git add
 
-# Stage only new files created by this implementation
-git ls-files --others --exclude-standard .prp-output/ src/ | xargs git add
+# Stage new untracked files created by this implementation
+git ls-files --others --exclude-standard | xargs -r git add
+
+# Verify no unexpected files are staged
+git diff --cached --name-only
 
 # Review what's being committed
 git status

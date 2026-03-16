@@ -428,7 +428,8 @@ describe("{feature}", () => {
 ## Phase 5: COMMIT - Save Artifact
 
 ```bash
-git add .prp-output/issues/
+# Stage only the artifact just created (not the entire directory)
+git add ".prp-output/issues/issue-{number}-${TIMESTAMP}.md"
 git status
 ````
 
