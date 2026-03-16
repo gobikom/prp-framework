@@ -46,6 +46,14 @@ Extract `--no-interact` flag and base branch from arguments.
 - Multiple templates → use default or ask user. If `--no-interact`: auto-select default, do NOT ask.
 - Draft PR → `gh pr create --draft`
 
+## Success Criteria
+
+- BRANCH_PUSHED: Current branch exists on origin
+- PR_CREATED: PR successfully created via gh
+- TEMPLATE_USED: If template exists, it was used
+- ISSUES_LINKED: Any referenced issues are linked
+- URL_RETURNED: User has the PR URL
+
 ## Usage
 
 ```

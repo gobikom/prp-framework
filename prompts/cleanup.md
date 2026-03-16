@@ -99,22 +99,77 @@ gh pr list --head {branch} --state all --json number,title,state,mergedAt,url --
 
 ---
 
-## Phase 3: CLEANUP
+## Phase 3: ARCHIVE ARTIFACTS
+
+Commit PR-related artifacts to main so they're preserved in git history.
+
+### 3.1 Switch to Main
+
+```bash
+git checkout main
+git pull origin main
+```
+
+### 3.2 Collect Artifacts (for each verified branch)
+
+Find all artifacts related to this PR/branch:
+
+```bash
+NUMBER={pr-number}
+BRANCH={branch-name}
+
+# Review artifacts
+ls .prp-output/reviews/pr-${NUMBER}-*.md 2>/dev/null
+ls .prp-output/reviews/pr-context-${BRANCH}.md 2>/dev/null
+
+# Fix summaries
+ls .prp-output/reviews/pr-${NUMBER}-fix-summary*.md 2>/dev/null
+
+# Implementation reports
+grep -rl "PR.*#${NUMBER}\|Branch.*${BRANCH}" .prp-output/reports/ 2>/dev/null
+
+# Completed plans (already archived by implement step)
+ls .prp-output/plans/completed/ 2>/dev/null
+```
+
+### 3.3 Stage and Commit Artifacts
+
+```bash
+git add .prp-output/reviews/pr-${NUMBER}-*.md 2>/dev/null
+git add .prp-output/reviews/pr-context-${BRANCH}.md 2>/dev/null
+git add .prp-output/reports/*-report*.md 2>/dev/null
+git add .prp-output/plans/completed/ 2>/dev/null
+
+# Only commit if there are staged changes
+git diff --cached --quiet || git commit -m "chore: archive artifacts for PR #${NUMBER} (${BRANCH})"
+```
+
+**If `DRY_RUN`:** List artifacts that would be committed but don't commit.
+
+**If no artifacts found:** Skip — record "No artifacts to archive."
+
+**PHASE_3_CHECKPOINT:**
+- [ ] On main branch
+- [ ] Artifacts found and committed (or none found)
+
+---
+
+## Phase 4: CLEANUP
 
 For each verified branch:
 
-### 3.1 Preview (always show)
+### 4.1 Preview (always show)
 
 ```markdown
 Branch: {branch}
 PR: #{number} — {title}
 Merged: {mergedAt}
-Actions: delete local + delete remote
+Actions: archive artifacts + delete local + delete remote
 ```
 
-**If `DRY_RUN`:** Show preview only, skip to Phase 4.
+**If `DRY_RUN`:** Show preview only, skip to Phase 5.
 
-### 3.2 Delete Local Branch
+### 4.2 Delete Local Branch
 
 ```bash
 git branch -d {branch}
@@ -126,7 +181,7 @@ git branch -d {branch}
 | Not fully merged error | Try `git branch -D {branch}` (PR is confirmed merged, safe to force) |
 | Branch not found | Record: "Local branch already deleted" |
 
-### 3.3 Delete Remote Branch
+### 4.3 Delete Remote Branch
 
 ```bash
 git push origin --delete {branch}
@@ -138,39 +193,43 @@ git push origin --delete {branch}
 | Already deleted / not found | Record: "Remote branch already deleted" |
 | Permission error | Record: "Failed to delete remote branch (permission denied)" |
 
-### 3.4 Prune Remote Tracking Refs
+### 4.4 Prune Remote Tracking Refs
 
 ```bash
 git remote prune origin
 ```
 
-**PHASE_3_CHECKPOINT:**
+**PHASE_4_CHECKPOINT:**
 - [ ] Local branch deleted (or already gone)
 - [ ] Remote branch deleted (or already gone)
 - [ ] Stale refs pruned
 
 ---
 
-## Phase 4: OUTPUT
+## Phase 5: OUTPUT
 
-### 4.1 Summary Table
+### 5.1 Summary Table
 
 ```markdown
 ## Cleanup Summary
 
-| Branch | PR | Status | Local | Remote |
-|--------|-----|--------|-------|--------|
-| {branch} | #{number} | Merged | Deleted | Deleted |
-| {branch2} | #{number} | Open | Skipped | Skipped |
+| Branch | PR | Status | Artifacts | Local | Remote |
+|--------|-----|--------|-----------|-------|--------|
+| {branch} | #{number} | Merged | Committed | Deleted | Deleted |
+| {branch2} | #{number} | Open | Skipped | Skipped | Skipped |
 
 **Cleaned**: {N} branch(es)
 **Skipped**: {M} branch(es)
 ```
 
-### 4.2 Dry Run Output (if `DRY_RUN`)
+### 5.2 Dry Run Output (if `DRY_RUN`)
 
 ```markdown
 ## Dry Run Preview (no changes made)
+
+Would archive artifacts:
+- .prp-output/reviews/pr-{NUMBER}-review.md
+- .prp-output/reviews/pr-context-{BRANCH}.md
 
 Would clean up:
 - {branch} (PR #{number}, merged {date})
@@ -182,7 +241,7 @@ Would skip:
 Run without --dry-run to execute.
 ```
 
-### 4.3 Next Steps
+### 5.3 Next Steps
 
 ```markdown
 ### Tips
@@ -223,6 +282,7 @@ Run without --dry-run to execute.
 ## Success Criteria
 
 - **PR_VERIFIED**: PR merge status confirmed before any branch deletion
+- **ARTIFACTS_ARCHIVED**: Related artifacts committed to main before cleanup
 - **LOCAL_DELETED**: Local branch removed (or confirmed already gone)
 - **REMOTE_DELETED**: Remote branch removed (or confirmed already gone)
 - **REFS_PRUNED**: Stale remote tracking references cleaned
