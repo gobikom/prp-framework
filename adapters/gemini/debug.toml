@@ -1,0 +1,70 @@
+description = "Root cause analysis using 5-Whys methodology with strict evidence standards"
+prompt = """# PRP Debug — Root Cause Analysis
+
+Input: {{args}}
+
+Format: <error|symptom|stack-trace> [--quick]
+
+## Mission
+
+Find the **actual root cause** — the specific code, config, or logic that, if changed, would prevent this issue. Not symptoms. Not intermediate failures. The origin.
+
+**The Test**: "If I changed THIS, would the issue be prevented?" If "maybe" or "partially" → keep digging.
+
+## Steps
+
+1. **Classify Input**:
+   - Raw symptom (vague, error msg, stack trace) → INVESTIGATE: form hypotheses, test them.
+   - Pre-diagnosed (identifies location) → VALIDATE: confirm diagnosis, check related issues.
+   - `--quick` → surface scan (2-3 Whys). No flag → deep analysis (full 5 Whys, git history required).
+   - Restate symptom in one sentence.
+
+2. **Hypothesize**: Generate 2-4 hypotheses with conditions, evidence needed, likelihood (HIGH/MED/LOW). Rank and select most probable.
+
+3. **5 Whys Investigation**:
+   ```
+   WHY 1: Why does [symptom] occur?
+   → Because [cause A] → Evidence: [file:line, code snippet]
+   WHY 2: Why does [cause A] happen?
+   → Because [cause B] → Evidence: [proof]
+   ... continue ...
+   WHY 5: → ROOT CAUSE → Evidence: [exact file:line]
+   ```
+   **Evidence Standards (STRICT)**:
+   - Valid: `file.ts:123` with code snippet, command output you ran, test you executed.
+   - Invalid: "likely", "probably", logical deduction without code proof.
+   - Every "because" MUST have evidence. If evidence refutes hypothesis → pivot to next.
+   - Investigation: search error messages, read full context, `git blame`, run suspicious code with edge inputs. For "it worked before": `git log --oneline -20`, `git diff HEAD~10 [files]`.
+
+4. **Validate Root Cause** — three tests:
+   - Causation: root cause logically leads to symptom through evidence chain?
+   - Necessity: if root cause didn't exist, would symptom still occur? (must be NO)
+   - Sufficiency: root cause alone enough, or co-factors? (document if co-factors)
+   - If any fail → go deeper or broader.
+   - Deep mode: `git log --oneline -10 -- [files]`, `git blame [file]`. Document when introduced, by whom, regression vs original bug.
+   - Rule out alternatives with evidence.
+
+5. **Generate Report**: `mkdir -p .prp-output/debug`. Path: `.prp-output/debug/rca-{issue-slug}-{TIMESTAMP}.md` where `TIMESTAMP=$(date +%Y%m%d-%H%M)`.
+   Report includes: issue summary, root cause, severity, confidence, full evidence chain with file:line references, git history (deep mode), fix specification (current vs required code), files to modify, verification steps.
+
+6. **Output**: Issue, root cause, confidence, report path, 2-3 sentence summary, fix description, next steps.
+
+## Critical Rules
+
+1. **Symptoms lie** — error message says what failed, not why.
+2. **First explanation often wrong** — resist stopping early.
+3. **No evidence = no claim** — "likely", "probably", "may" not allowed.
+4. **Test, don't just read** — execution proves behavior; reading proves intent.
+5. **Git history mandatory** in deep mode.
+6. **Fix should be obvious** — if root cause is correct, fix writes itself.
+
+## Usage
+
+/prp:debug "TypeError: Cannot read property 'id' of undefined"
+/prp:debug "Login fails after upgrading auth library" --quick
+/prp:debug "Stack trace: Error at line 45 of handler.ts..."
+
+## Success Criteria
+
+ROOT_CAUSE_FOUND, EVIDENCE_CHAIN_COMPLETE, FIX_ACTIONABLE, VERIFICATION_CLEAR
+"""

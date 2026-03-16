@@ -218,10 +218,10 @@ prp-framework/
 │   ├── claude-code-skills/     # Claude Code skills (1 skill)
 │   ├── claude-code-hooks/      # Claude Code hooks (Ralph stop)
 │   ├── claude-code-plugin/     # Claude Code plugin metadata
-│   ├── codex/                  # Codex skills (9 skills)
-│   ├── opencode/               # OpenCode commands (9 commands)
-│   ├── gemini/                 # Gemini commands (9 commands)
-│   ├── antigravity/            # Antigravity workflows (9 workflows)
+│   ├── codex/                  # Codex skills (16 skills)
+│   ├── opencode/               # OpenCode commands (16 commands)
+│   ├── gemini/                 # Gemini commands (16 commands)
+│   ├── antigravity/            # Antigravity workflows (16 workflows)
 │   └── generic/                # AGENTS.md for Kimi/others
 ├── docs/                       # Documentation
 ├── scripts/                    # Installation scripts

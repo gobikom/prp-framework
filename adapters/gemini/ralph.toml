@@ -1,0 +1,66 @@
+description = "Autonomous implementation loop — executes a PRP plan iteratively until all validations pass"
+prompt = """# PRP Ralph Loop — Autonomous Implementation
+
+Input: {{args}}
+
+Format: <plan.md|prd.md> [--max-iterations N]
+
+## Mission
+
+Autonomous feedback loop: implement plan → validate → fix → repeat until ALL checks pass. Self-referential — each iteration reads previous work from files and git history.
+
+## Steps
+
+1. **Parse Input**: Must end in `.plan.md` or `.prd.md`. Extract `--max-iterations N` (default: 20). If invalid/missing → STOP: "Ralph requires a PRP plan or PRD file."
+   - `.plan.md` → use as plan. `.prd.md` → parse Implementation Phases, find first `pending` phase with `complete` dependencies.
+   - Verify file exists: `test -f "{file_path}"`.
+
+2. **Detect Toolchain**: Check lock files (bun/pnpm/yarn/npm/uv/cargo/go). **Plan-provided commands take precedence** — if plan has Metadata table with Runner/Type Check/Lint/Test/Build, use those. Auto-detect fallback:
+   - JS/TS: `{runner} run type-check` / `{runner} run lint` / `{runner} test` / `{runner} run build`
+   - Python: `mypy .` / `ruff check .` / `pytest` / N/A
+   - Rust: `cargo check` / `cargo clippy` / `cargo test` / `cargo build`
+   - Go: `go vet ./...` / `golangci-lint run` / `go test ./...` / `go build ./...`
+
+3. **Create State File**: Write `.claude/prp-ralph.state.md` with iteration count, plan path, timestamps, Codebase Patterns section, Progress Log. Create `.prp-output/ralph-archives/` dir.
+   Display startup: plan path, iteration 1/{max}. Inform user: monitor via `cat .claude/prp-ralph.state.md`, cancel via `/prp:ralph-cancel`.
+
+4. **Execute Iteration**:
+   a. Read state file (patterns, previous progress), plan file, git status.
+   b. Identify incomplete tasks and validation commands.
+   c. Implement each task — read requirements, follow MIRROR/pattern refs.
+   d. Run ALL validations (type-check, lint, tests, build).
+   e. Coverage check on new/changed code (target: ≥90%). Write additional tests if below.
+   f. If any fail → analyze, fix, re-validate. Repeat.
+   g. Update plan file (mark completed tasks). Update state Progress Log with completed items, validation status, learnings.
+   h. Consolidate reusable codebase patterns to state file top section.
+
+5. **Completion Check** — ALL must be true: all tasks done, type-check PASS, lint PASS, tests PASS, build PASS, acceptance criteria met.
+   - **If NOT all pass**: Document state, end response. Stop hook feeds prompt back for next iteration.
+   - **If ALL pass**: Proceed to step 6.
+
+6. **Complete the Loop**:
+   a. Generate report: `.prp-output/reports/{plan-name}-report.md` (summary, tasks, validation results, patterns, learnings, deviations).
+   b. Archive: Copy state + plan + report to `.prp-output/ralph-archives/{DATE}-{PLAN_NAME}/`.
+   c. Generate PR review context: `.prp-output/reviews/pr-context-{BRANCH}.md` (files changed, summary, validation status, review focus areas).
+   d. Move plan: `mv {plan_path} .prp-output/plans/completed/`.
+   e. Clean up: `rm .claude/prp-ralph.state.md`.
+   f. Output: `<promise>COMPLETE</promise>`.
+
+## Edge Cases
+
+- Max iterations reached → archive incomplete state, document blockers, suggest next steps.
+- Stuck on same error → check Codebase Patterns, try alternative approaches, document for human.
+- Plan has errors → document problems, continue with what's executable.
+- **Do NOT output completion promise if validations are failing.**
+- **Do NOT lie to exit — the loop continues until genuinely complete.**
+
+## Usage
+
+/prp:ralph .prp-output/plans/auth-feature-20260210-1430.plan.md
+/prp:ralph .prp-output/plans/auth-feature.plan.md --max-iterations 10
+/prp:ralph .prp-output/prds/drafts/my-feature-prd.md
+
+## Success Criteria
+
+PLAN_EXECUTED, VALIDATIONS_PASS, REPORT_GENERATED, LEARNINGS_CAPTURED, PATTERNS_CONSOLIDATED, ARCHIVE_CREATED, PR_CONTEXT_CREATED, CLEAN_EXIT
+"""

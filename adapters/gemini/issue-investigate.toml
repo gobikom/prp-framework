@@ -1,0 +1,60 @@
+description = "Analyze GitHub issue or problem description and produce actionable implementation plan"
+prompt = """# PRP Issue Investigate — Analyze Issue & Create Plan
+
+Input: {{args}}
+
+Format: <issue-number|URL|description>
+
+## Mission
+
+Investigate the issue and produce a comprehensive implementation plan that can be executed by `/prp:issue-fix` without questions. Post as GitHub comment if GH issue.
+
+## Steps
+
+1. **Parse Input**:
+   - Number (`123`, `#123`) → `gh issue view {number} --json title,body,labels,comments,state,url,author`.
+   - URL → extract issue number, fetch.
+   - Free-form text → use as problem description (no GitHub posting).
+   - Classify type: BUG (broken/error/crash), ENHANCEMENT (add/support/feature), REFACTOR (clean up/simplify), CHORE (update/upgrade), DOCUMENTATION (docs/readme).
+   - If closed → report. If has linked PR → warn.
+
+2. **Assess** (each needs one-sentence reasoning):
+   - **BUG → Severity**: CRITICAL (system down, data loss) / HIGH (major feature broken) / MEDIUM (partial, workaround exists) / LOW (minor, cosmetic).
+   - **Non-BUG → Priority**: HIGH (blocking, frequently requested) / MEDIUM (important not urgent) / LOW (nice to have).
+   - **Complexity**: HIGH (5+ files, architectural) / MEDIUM (2-4 files) / LOW (1-2 files, isolated).
+   - **Confidence**: HIGH (clear root cause, strong evidence) / MEDIUM (likely cause, some assumptions) / LOW (uncertain, many unknowns).
+
+3. **Explore Codebase**: Search for related files, integration points, similar patterns, existing tests, error handling. Document findings with file:line references and actual code snippets.
+
+4. **Analyze**:
+   - BUG → 5 Whys with evidence at each step. Check `git log`, `git blame` on affected files.
+   - ENHANCEMENT/REFACTOR → identify what to add/change, integration points, scope boundaries.
+   - All: list files to CREATE/UPDATE/DELETE, dependencies, edge cases, risks, validation strategy.
+
+5. **Generate Artifact**: `mkdir -p .prp-output/issues`, `TIMESTAMP=$(date +%Y%m%d-%H%M)`.
+   Path: `.prp-output/issues/issue-{number}-{TIMESTAMP}.md` (or `investigation-{TIMESTAMP}.md` for free-form).
+   Contents: title, type, assessment table with reasoning, problem statement, root cause/evidence chain, affected files table (file:lines, action, description), integration points, git history, step-by-step implementation plan with current/required code snippets, patterns to follow, edge cases & risks, validation commands, scope boundaries, metadata.
+
+6. **Commit Artifact**: `git add .prp-output/issues/issue-{number}-{TIMESTAMP}.md && git commit -m "Investigate issue #{number}: {title}"`.
+
+7. **Post to GitHub** (GH issues only): `gh issue comment {number} --body "..."` with assessment table, problem statement, evidence chain, implementation plan table, validation commands, next step: "Run `/prp:issue-fix {number}`".
+
+8. **Output**: Issue summary, type, assessment table, key findings (root cause, files affected, scope), artifact path, GitHub status, next step.
+
+## Edge Cases
+
+- Closed issue → report, still create artifact if wanted.
+- Linked PR exists → warn, ask to continue.
+- Can't determine root cause → confidence LOW, proceed with best hypothesis.
+- Very large scope → suggest breaking into smaller issues, focus on core.
+
+## Usage
+
+/prp:issue-investigate 123
+/prp:issue-investigate https://github.com/org/repo/issues/456
+/prp:issue-investigate "Search returns stale results after cache invalidation"
+
+## Success Criteria
+
+ARTIFACT_COMPLETE, EVIDENCE_BASED, IMPLEMENTABLE, GITHUB_POSTED, COMMITTED
+"""

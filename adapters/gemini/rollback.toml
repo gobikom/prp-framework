@@ -1,0 +1,61 @@
+description = "Safely undo implementation changes with stash backup and restore capability"
+prompt = """# PRP Rollback — Safely Undo Implementation Changes
+
+Input: {{args}}
+
+Format: [--soft | --hard | --restore]
+
+## Mission
+
+Safely undo implementation changes on the current branch. Always creates a stash backup before destructive operations.
+
+## Modes
+
+| Flag | Behavior |
+|------|----------|
+| *(none)* | Interactive — show changes, ask which mode |
+| `--soft` | Unstage changes only (keep working directory) |
+| `--hard` | Full revert to origin/main HEAD (stash backup first) |
+| `--restore` | Restore from most recent PRP rollback stash |
+
+## Steps
+
+1. **Inspect State**: `BRANCH=$(git branch --show-current)`, `git status --short`, `git log origin/main..HEAD --oneline`, `git diff --stat origin/main..HEAD`. Display branch, uncommitted changes count, commits ahead count.
+
+2. **Handle --restore**: `git stash list | grep "prp-rollback" | head -1`. Found → show stash contents, `git stash pop stash@{N}`, display restored. Not found → STOP: "No PRP rollback stash found."
+
+3. **Determine Mode** (if no flag): Show options:
+   - [1] --soft: Unstage all changes (safe, no data loss)
+   - [2] --hard: Revert to origin/main HEAD (stash backup created first)
+   - [3] Cancel
+   Wait for selection. [3] → STOP.
+
+4. **Execute --soft**: If commits ahead: `git reset HEAD~{N} --soft`. If only staged changes: `git restore --staged .`. Display: "Changes unstaged. Files preserved in working directory."
+
+5. **Execute --hard**:
+   a. **Stash backup FIRST**: `STASH_MSG="prp-rollback-$(date +%Y%m%d-%H%M)-{BRANCH}"`, `git stash push -u -m "$STASH_MSG"`. If error → STOP.
+   b. **Reset**: `git reset --hard origin/main`.
+   c. **Confirm**: `git log --oneline -3`, `git status --short`.
+   d. Display: branch, reset commit hash, stash backup name, restore instructions.
+
+6. **Cleanup suggestion** (optional): If 0 commits ahead after reset, suggest (don't execute): `git checkout main && git branch -d {BRANCH}`.
+
+## Critical Rules
+
+1. **Always stash before --hard** — never `git reset --hard` without stash backup.
+2. **Never delete branches** — only suggest, never execute.
+3. **Show before destroy** — display what will be affected before --hard.
+4. **--soft is always safe** — no confirmation needed.
+5. **--restore is idempotent** — if stash pop fails (conflicts), report clearly.
+
+## Usage
+
+/prp:rollback                # Interactive mode
+/prp:rollback --soft         # Unstage only
+/prp:rollback --hard         # Full revert (with backup)
+/prp:rollback --restore      # Recover from rollback
+
+## Success Criteria
+
+STASH_CREATED, STATE_CLEAN, RESTORE_WORKS, NO_DATA_LOSS
+"""

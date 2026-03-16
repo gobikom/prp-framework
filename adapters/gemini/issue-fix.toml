@@ -1,0 +1,78 @@
+description = "Implement fix from issue-investigate artifact — safe staging, validation, PR creation, and self-review"
+prompt = """# PRP Issue Fix — Implement from Investigation Artifact
+
+Input: {{args}}
+
+Format: <issue-number|artifact-path>
+
+## Mission
+
+Execute the implementation plan from `/prp:issue-investigate`. Follow the artifact exactly — if something seems wrong, validate first, don't silently deviate.
+
+## Steps
+
+1. **Load Artifact**:
+   - Number → `ls -t .prp-output/issues/issue-{number}*.md 2>/dev/null | head -1`.
+   - Path → use directly.
+   - Not found → STOP: "Run `/prp:issue-investigate {number}` first."
+   - Parse: issue number, title, type, files to modify, implementation steps, validation commands, test cases.
+
+2. **Validate Plan Accuracy**: For each file in artifact — read actual code, compare to expected snippets. If significant drift → warn, suggest re-investigation or proceed with caution. If approach seems wrong → STOP and explain.
+
+3. **Git Check**:
+   - On main + clean → `git checkout -b fix/issue-{number}-{slug}`.
+   - On feature/fix branch → use it (warn if name doesn't match issue).
+   - Dirty state → STOP: "Commit or stash first."
+   - `git pull --rebase origin main`.
+
+4. **Implement**: Execute each step from artifact in order.
+   - UPDATE files: find exact lines, make specified change, preserve surrounding code.
+   - CREATE files: use patterns from artifact, follow existing conventions.
+   - Tests: add cases as specified, follow existing test patterns.
+   - **DO**: follow artifact order, match code style, copy from "Patterns to Follow".
+   - **DON'T**: refactor unrelated code, add unplanned improvements, change formatting of untouched lines.
+   - Track any deviations with reasons.
+
+5. **Validate**: Run all validation commands from artifact (type-check, tests, lint). All must pass. If failures → fix, re-run, note additional fixes.
+
+6. **Safe Staging & Commit**:
+   ```
+   git diff --name-only | xargs -r git add
+   git ls-files --others --exclude-standard | xargs -r git add
+   git diff --cached --name-only  # verify no unexpected files
+   git commit -m "Fix: {title} (#{number})
+
+   {problem statement}
+
+   Changes:
+   - {change 1}
+   - {change 2}
+
+   Fixes #{number}"
+   ```
+
+7. **Create PR**: `git push -u origin HEAD`. `gh pr create --title "Fix: {title} (#{number})" --body "..."` with summary, root cause, changes table, testing checklist, validation commands, `Fixes #{number}`, implementation details.
+
+8. **Self-Review**: Review the diff focusing on: root cause addressed?, code quality, test coverage, edge cases, security. Post review as PR comment via `gh pr comment`.
+
+9. **Archive**: `mkdir -p .prp-output/issues/completed && mv {artifact} .prp-output/issues/completed/`. Commit and push archive.
+
+10. **Output**: Issue, branch, PR number/URL, changes table, validation results, self-review summary, artifact archived path, next steps (human review, merge).
+
+## Edge Cases
+
+- Artifact outdated (code drift) → warn, suggest re-investigation.
+- Tests fail → debug and fix (fix code, not test, unless test is wrong).
+- Merge conflicts → resolve, re-validate, note in PR.
+- PR creation fails → check for existing PR, provide manual command.
+- Already on branch with changes → use existing branch.
+
+## Usage
+
+/prp:issue-fix 123
+/prp:issue-fix .prp-output/issues/issue-123-20260210-1430.md
+
+## Success Criteria
+
+PLAN_EXECUTED, VALIDATION_PASSED, PR_CREATED, REVIEW_POSTED, ARTIFACT_ARCHIVED, AUDIT_TRAIL
+"""
