@@ -9,6 +9,13 @@ Target: $ARGUMENTS
 
 0. **Pre-commit quality check (advisory)**: scan staged files for debug artifacts (TODO/FIXME, console.log/debugger), `any` type usage in .ts files, quick validation (skip in run-all). Warns but does NOT block commit.
 1. `git status --short` — if nothing, stop
+1.5. **Plan-aware message** (optional): Check for completed plan matching current branch:
+   ```bash
+   BRANCH=$(git branch --show-current)
+   SLUG=$(echo "$BRANCH" | sed 's|^feature/||')
+   ls -t .prp-output/plans/completed/*${SLUG}*.plan.md 2>/dev/null | head -1
+   ```
+   If found, extract Summary and User Story to inform commit message generation. If not found, skip silently — diff-based message is fine.
 2. Stage matching files:
    - blank = all (`git add -A`)
    - `staged` = current staging

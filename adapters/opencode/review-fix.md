@@ -166,6 +166,17 @@ git push origin $(git branch --show-current)
 
 If nothing to commit: skip and report "No changes needed."
 
+### Invalidate Review Context
+
+After push, delete the pre-generated context so re-review builds fresh context from the updated diff:
+
+```bash
+BRANCH=$(git branch --show-current)
+rm -f .prp-output/reviews/pr-context-${BRANCH}.md
+```
+
+> **Why**: The context file was generated during implement — after fixes are pushed, the diff has changed. Re-review (run-all Step 6.4) must re-extract context to avoid reviewing stale code.
+
 ## Phase 7: REPORT — Post Summary and Update Artifacts
 
 **Save fix summary locally (with timestamp):**
@@ -185,6 +196,8 @@ gh pr comment ${NUMBER} --body-file "$SUMMARY_FILE"
 > **Note**: Uses `-fix-summary` suffix to identify fix summaries separately from review files.
 
 **Update review artifact**: Append "Fix Outcome" section with timestamp, commit hash, and fix counts.
+
+**Update pipeline manifest**: If `.prp-output/manifests/{BRANCH}.json` exists, append `fixes` array with fix-summary path.
 
 ## Output
 

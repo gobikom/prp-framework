@@ -39,6 +39,13 @@ Execute the plan end-to-end autonomously. Validate after every change. Fix befor
 8. **Archive**: `mv $ARGUMENTS .prp-output/plans/completed/`
 
    **GATE**: Do NOT proceed to step 9 until plan is archived.
+
+   **8.1 Pipeline Manifest**: Create/update `.prp-output/manifests/{BRANCH}.json` to track all artifacts for this pipeline run:
+   ```bash
+   mkdir -p .prp-output/manifests
+   BRANCH=$(git branch --show-current)
+   ```
+   Write JSON with: `branch`, `plan` (archived path), `report` (report path from step 6), `context` (pr-context path from step 9), `created` (ISO timestamp). This manifest enables precise cleanup later — no globbing needed.
 9. **Generate Review Context** (for run-all workflow): Save to `.prp-output/reviews/pr-context-{BRANCH}.md` with: branch, files changed, implementation summary, validation status, key changes for review, focus areas. This saves ~60K tokens when running via run-all. **CRITICAL**: Generate even if implementation fails early — if aborting in steps 4-6, jump directly to this step before stopping. Include note about incomplete status and list completed/remaining tasks.
 10. **Output**: Status, validation summary, files changed, deviations, artifacts (including review context), PRD progress (if applicable), next steps.
     > **Note for orchestrators**: The "Next Steps" above are for standalone usage only. If this command was invoked as part of run-all, the orchestrator should ignore these suggestions and proceed to its next step.
