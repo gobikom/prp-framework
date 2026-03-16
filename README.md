@@ -241,7 +241,7 @@ All tools produce artifacts in `.prp-output/`:
 - Codex: `-codex` suffix
 - OpenCode: `-opencode` suffix
 - Gemini: `-gemini` suffix
-- Kimi/Generic: `-other` suffix
+- Kimi/Generic: timestamp-based (e.g., `jwt-report-20260210-1430.md`)
 
 ## Updating Framework
 

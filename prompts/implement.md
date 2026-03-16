@@ -33,6 +33,8 @@ Check for these files to determine the project's toolchain:
 
 **Store the detected runner** — use it for all subsequent commands.
 
+> **Plan-provided commands take precedence**: If the plan contains a Metadata table with Runner/Type Check/Lint/Test/Build commands, use those directly instead of auto-detecting. Plan commands were verified during planning and are more reliable.
+
 ### 0.2 Identify Validation Scripts
 
 Check `package.json` (or equivalent) for available scripts:
@@ -55,11 +57,15 @@ Read the plan file at the specified path.
 
 Locate and understand:
 
+- **Plan Metadata** (frontmatter) — Runner, commands, mode, status. **Update status from `pending` to `in-progress`.**
+- **Metadata table** — Runner and pre-filled validation commands (Type Check, Lint, Test, Build). **If present, use these instead of auto-detecting in Phase 0.**
 - **Summary** — What we're building
 - **Patterns to Mirror** — Code to copy from
-- **Files to Change** — CREATE/UPDATE list
+- **Files to Change** — CREATE/UPDATE list with **Insert At** hints (line numbers are hints — verify before editing)
+- **Integration Points** — Where new code hooks into existing code (caller, hook location, wiring details)
 - **Step-by-Step Tasks** — Implementation order
 - **Validation Commands** — How to verify (USE THESE, not hardcoded commands)
+- **Confidence Score** — Plan quality indicator (for reporting)
 - **Acceptance Criteria** — Definition of done
 
 ### 1.3 Validate Plan Exists
@@ -264,6 +270,8 @@ CHANGED_FILES=$(git diff --name-only origin/main...HEAD | grep -E '\.(ts|tsx|js|
 
 **Coverage target: 90% on new/changed code** (not overall project coverage).
 
+**Important**: This is a lightweight metric gate. The deeper behavioral quality analysis happens later during the review phase.
+
 ### 4.2.5 Integration Tests (conditional)
 
 > **Run if**: Plan's Testing Strategy includes integration test specifications, OR project has `test:integration` or `test:e2e` script.
@@ -372,11 +380,19 @@ mkdir -p .prp-output/reports
 
 ### 5.2 Generate Report
 
-**Path**: `.prp-output/reports/{name}-report-other.md`
+**Artifact Naming (Timestamp Format)**:
 
-> `{name}` = derived from plan filename (e.g., plan `user-auth.plan.md` → report `user-auth-report-other.md`)
+```bash
+TIMESTAMP=$(date +%Y%m%d-%H%M)
+# Check for existing files with same base name
+ls .prp-output/reports/{plan-name}-report*.md 2>/dev/null
+```
 
-> **Note**: Uses `-other` suffix to identify generic/Kimi implementation reports and prevent overwriting reports from other tools (each tool uses its own suffix for parallel implementation capability).
+**Path**: `.prp-output/reports/{plan-name}-report-{TIMESTAMP}.md`
+
+Example: `user-auth-report-20260210-1430.md`
+
+> **Note**: Timestamp-based naming prevents file collisions when re-running implementations. Tool-specific adapters may add a tool suffix (e.g., `-codex`, `-gemini`) for multi-tool parallel execution scenarios.
 
 ```markdown
 # Implementation Report
@@ -488,9 +504,13 @@ mkdir -p .prp-output/plans/completed
 mv {ARGS} .prp-output/plans/completed/
 ```
 
+**GATE**: Do NOT proceed to Phase 6 until plan is archived. This prevents re-running the same plan.
+
 ### 5.5 Generate Review Context File (for run-all workflow)
 
 **Purpose**: Pre-generate context for review workflows to save ~60K tokens when running via the full run-all workflow.
+
+**CRITICAL**: Generate this file even if implementation fails early. Include note: "Implementation incomplete at task {N}/{total}. Partial context for review." List completed tasks with validation status and remaining tasks. This enables review workflows to provide partial feedback, which is better than no feedback.
 
 **Path**: `.prp-output/reviews/pr-context-{BRANCH}.md`
 
@@ -546,9 +566,10 @@ Save the file to `.prp-output/reviews/pr-context-{BRANCH}.md`
 
 **PHASE_5_CHECKPOINT:**
 
-- [ ] Report created at `.prp-output/reports/`
-- [ ] PRD updated (if applicable) — phase marked complete
-- [ ] Plan moved to completed folder
+- [ ] Report created at `.prp-output/reports/{plan-name}-report-{TIMESTAMP}.md`
+- [ ] PRD updated (if applicable) — phase status changed from `in-progress` to `complete`
+- [ ] Plan moved to `.prp-output/plans/completed/`
+- [ ] Verified plan file no longer exists in original location
 - [ ] Review context file created at `.prp-output/reviews/pr-context-{BRANCH}.md`
 
 ---
@@ -585,7 +606,8 @@ Save the file to `.prp-output/reviews/pr-context-{BRANCH}.md`
 
 ### Artifacts
 
-- Report: `.prp-output/reports/{name}-report-other.md`
+- Report: `.prp-output/reports/{plan-name}-report-{TIMESTAMP}.md`
+- Review Context: `.prp-output/reviews/pr-context-{BRANCH}.md`
 - Plan archived to: `.prp-output/plans/completed/`
 
 {If from PRD:}
@@ -610,6 +632,8 @@ To continue: run plan workflow with `{prd-path}`
 3. Merge when approved
 {If more phases: "4. Continue with next phase using plan workflow"}
 ```
+
+> **Note for orchestrators**: The "Next Steps" above are for standalone usage only. If this command was invoked as part of a run-all workflow, the orchestrator should ignore these suggestions and proceed to its next step.
 
 ---
 

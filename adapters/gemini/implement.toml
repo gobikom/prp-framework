@@ -9,14 +9,14 @@ Execute the plan end-to-end autonomously. Validate after every change. Fix befor
 
 ## Steps
 
-1. **Detect Environment**: Package manager from lock files (bun/pnpm/yarn/npm/uv/cargo/go). Validation scripts from config. Use plan's "Validation Commands".
-2. **Load Plan**: Read plan, extract: Summary, Patterns to Mirror, Files to Change, Tasks, Validation Commands, Acceptance Criteria. If not found: STOP.
+1. **Detect Environment**: Package manager from lock files (bun/pnpm/yarn/npm/uv/cargo/go). Validation scripts from config. **Plan-provided commands take precedence** — if plan has Metadata table with Runner/Type Check/Lint/Test/Build, use those directly instead of auto-detecting.
+2. **Load Plan**: Read plan, extract: Plan Metadata (update status `pending` → `in-progress`), Metadata table (pre-filled commands), Summary, Patterns to Mirror, Files to Change (with **Insert At** hints — verify line numbers), **Integration Points** (caller, hook location, wiring), Tasks, Validation Commands, **Confidence Score**, Acceptance Criteria. If not found: STOP.
 3. **Prepare Git**: Check branch + worktree state. In worktree → use it. On main clean → create branch. On main dirty → STOP. On feature → use it. Sync: `git fetch origin && git pull --rebase origin main 2>/dev/null || true`
 4. **Execute Tasks (TDD Approach)**: For each task — read MIRROR reference and Testing Strategy. **Write test first (RED)** for new functions/modules (skip test-first for config/wiring/schema tasks). **Implement (GREEN)** — follow MIRROR pattern, run tests until passing. **Validate immediately** (type-check after EVERY change). Track progress with TDD status: `Task 1: Test ✅ (3 cases) — Impl ✅`. Document deviations (WHAT and WHY).
 5. **Full Validation**:
    - Static: type-check + lint (zero errors). Lint fix → re-check → manual fix.
    - Tests: MUST write/update tests. If fail: determine root cause → fix → re-run until green.
-   - Coverage: After tests pass, check coverage on new/changed code (target: **90%**). Auto-detect tool (jest/vitest `--coverage`, pytest `--cov`, `go test -cover`). If < 90% → write more tests. If no tool → skip with warning.
+   - Coverage: After tests pass, check coverage on new/changed code (target: **90%**). Auto-detect tool (jest/vitest `--coverage`, pytest `--cov`, `go test -cover`). If < 90% → write more tests. If no tool → skip with warning. (Lightweight metric gate — deeper behavioral analysis happens during review.)
    - Build: must succeed.
    - Integration (if applicable): start server → test endpoints → stop server.
    - Edge cases from plan.
@@ -25,9 +25,11 @@ Execute the plan end-to-end autonomously. Validate after every change. Fix befor
    - Performance Regression (conditional): if plan has benchmarks + project has tooling → run and flag regressions > 20%.
    - API Contract Validation (conditional): if OpenAPI/GraphQL schema exists + API surface changed → validate schema.
 6. **Report**: Save to `.prp-output/reports/{name}-report-gemini.md` with: assessment vs reality, tasks completed, validation results, files changed, deviations, issues, tests written. Uses `-gemini` suffix to identify Gemini implementation reports and prevent overwriting reports from other tools.
-7. **Generate Review Context** (for run-all workflow): Save to `.prp-output/reviews/pr-context-{BRANCH}.md` with: branch, files changed, implementation summary, validation status, key changes for review, focus areas. Saves ~60K tokens when running via run-all.
-8. **PRD Update** (if applicable): Change phase status from `in-progress` to `complete`.
-9. **Archive**: Move plan to `.prp-output/plans/completed/`
+7. **PRD Update** (if applicable): Change phase status from `in-progress` to `complete`.
+8. **Archive**: Move plan to `.prp-output/plans/completed/`
+
+   **GATE**: Do NOT proceed to step 9 until plan is archived.
+9. **Generate Review Context** (for run-all workflow): Save to `.prp-output/reviews/pr-context-{BRANCH}.md` with: branch, files changed, implementation summary, validation status, key changes for review, focus areas. Saves ~60K tokens when running via run-all. **CRITICAL**: Generate even if implementation fails early — if aborting in steps 4-6, jump directly to this step before stopping. Include note about incomplete status and list completed/remaining tasks.
 10. **Output**: Status, validation summary, files changed, deviations, artifacts (including review context), PRD progress (if applicable), next steps.
     > **Note for orchestrators**: The "Next Steps" above are for standalone usage only. If this command was invoked as part of run-all, the orchestrator should ignore these suggestions and proceed to its next step.
 
@@ -36,8 +38,7 @@ Execute the plan end-to-end autonomously. Validate after every change. Fix befor
 - All plan tasks executed
 - Type-check, lint, tests, build all pass
 - Implementation report created
-- Review context file created
-- PRD updated (if applicable)
+- Review context file created at `.prp-output/reviews/pr-context-{BRANCH}.md`
 - PRD updated (if applicable) — phase status is `complete`
 - Plan archived
 - Plan removed from original location (prevents re-run)
