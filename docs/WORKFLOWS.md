@@ -584,8 +584,10 @@ Commit → PR → Review/Fix Loop → Summary
 | Flag | Description |
 |------|-------------|
 | `--prp-path <path>` | Use existing plan, skip plan step. Validates file exists. |
+| `--skip-plan` | Alias for `--prp-path` — prompts to select from available plans in `.prp-output/plans/` |
+| `--fast` | Use fast-track plan mode (lighter codebase analysis, good for simple features) |
 | `--ralph` | Use ralph loop instead of one-shot implement |
-| `--ralph-max-iter N` | Set ralph max iterations (default: 5) |
+| `--ralph-max-iter N` | Set ralph max iterations (default: 10) |
 | `--resume` | Resume from last failed step using saved state |
 | `--skip-review` | Skip review step |
 | `--no-pr` | Skip PR and review steps |

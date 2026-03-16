@@ -1,6 +1,6 @@
 ---
 description: Orchestrate complete PRP workflow - plan, implement, commit, PR, and review in sequence with context passing
-argument-hint: "<feature-description>" or --prp-path <path/to/plan.md> [--ralph] [--ralph-max-iter N] [--skip-review] [--no-pr] [--fix-severity <levels>] [--resume] [--no-interact] [--dry-run]
+argument-hint: "<feature-description>" or --prp-path <path/to/plan.md> [--fast] [--ralph] [--ralph-max-iter N] [--skip-review] [--no-pr] [--fix-severity <levels>] [--resume] [--no-interact] [--dry-run]
 ---
 
 # PRP Full Workflow Runner
@@ -28,15 +28,25 @@ Execute the complete PRP workflow end-to-end autonomously. Each step delegates t
 | Input | Action |
 |-------|--------|
 | Feature description (text) | Start from Step 1 (create plan) |
-| `--prp-path <path>` | Skip to Step 2 (plan already exists) |
+| `--prp-path <path>` | Skip to Step 2 (plan already exists). Alias: `--skip-plan` |
+| `--fast` | Use fast-track plan mode (lighter codebase analysis, good for simple features) |
 | `--ralph` | Use ralph loop for Step 3 instead of prp-implement (resilient, slower) |
 | `--ralph-max-iter N` | Set max ralph iterations (default: 10, max recommended: 20) |
 | `--skip-review` | Skip Step 6 (review) |
 | `--no-pr` | Skip Steps 5 and 6 (PR and review) |
 | `--fix-severity <levels>` | Override review-fix severity (default: `critical,high,medium,suggestion`). Example: `--fix-severity critical,high` |
+| `--skip-plan` | Alias for `--prp-path` when user already has a plan. Prompts to select from available plans in `.prp-output/plans/` |
 | `--resume` | Resume from last failed step using saved state (`.claude/prp-run-all.state.md`) |
 | `--no-interact` | Never ask user questions — use best judgment for ambiguous requirements, pick defaults for choices. Pre-condition errors still STOP with error (not wait). |
 | `--dry-run` | Preview all steps that would be executed without running anything. Shows: steps, estimated token cost, artifacts that would be created. Exits after preview. |
+
+**If `--skip-plan` provided (without `--prp-path`):**
+
+List available plans and let user select (or auto-select most recent if `NO_INTERACT = true`):
+```bash
+ls -t .prp-output/plans/*.plan.md 2>/dev/null | head -5
+```
+If exactly 1 plan found → use it. If multiple → ask user (or pick most recent in no-interact mode). If none → STOP: "No plans found. Run without --skip-plan."
 
 **If `--prp-path` provided, validate the file exists:**
 
@@ -68,6 +78,7 @@ REVIEW_ARTIFACT = "{TBD — set in Step 6.1}"
 USE_RALPH = {true | false}
 RALPH_MAX_ITER = {N, default 10}
 FIX_SEVERITY = "{from --fix-severity, default 'critical,high,medium,suggestion'}"
+FAST_PLAN = {true | false} (ignored if PLAN_PATH is already set — Step 2 will be skipped)
 NO_INTERACT = {true | false}
 DRY_RUN = {true | false}
 ```
@@ -83,14 +94,14 @@ Mode:    {--ralph if USE_RALPH else "default implement"}
 
 Steps that would run:
   ┌─ Step 1: Create branch        → feature/{slug}
-  ├─ Step 2: Create plan          → .prp-output/plans/{slug}-{TIMESTAMP}.plan.md
+  ├─ Step 2: Create plan          → {"skipped (--skip-plan/--prp-path)" if PLAN_PATH else ".prp-output/plans/{slug}-{TIMESTAMP}.plan.md" + (" (--fast mode)" if FAST_PLAN else "")}
   ├─ Step 3: Implement            → {"/prp-ralph (loop up to N iter)" if USE_RALPH else "/prp-implement (single pass)"}
   ├─ Step 4: Commit               → conventional commit on feature branch
   ├─ Step 5: Create PR            → {"skipped (--no-pr)" if NO_PR else "PR to main"}
   └─ Step 6: Review & Fix         → {"skipped (--skip-review)" if SKIP_REVIEW else "review-agents + review-fix"}
 
 Estimated token cost:
-  Plan:      ~10-20K tokens    (codebase analysis)
+  Plan:      {"~0K tokens        (skipped)" if PLAN_PATH else ("~5-10K tokens    (fast-track)" if FAST_PLAN else "~10-20K tokens    (codebase analysis)")}
   Implement: {"~15K × " + RALPH_MAX_ITER + " iterations = ~" + (15*RALPH_MAX_ITER) + "K tokens (ralph mode)" if USE_RALPH else "~15-30K tokens (single pass)"}
   Commit:    ~2K tokens
   PR:        ~3K tokens
@@ -214,7 +225,7 @@ STOP and wait for user decision.
 **If `--resume` with state file:**
 
 1. Read `.claude/prp-run-all.state.md` YAML frontmatter
-2. Restore: `FEATURE`, `PLAN_PATH`, `BRANCH`, `PR_NUMBER`, `REVIEW_ARTIFACT`, `USE_RALPH`, `RALPH_MAX_ITER`, `FIX_SEVERITY`, `SKIP_REVIEW`, `NO_PR`
+2. Restore: `FEATURE`, `PLAN_PATH`, `BRANCH`, `PR_NUMBER`, `REVIEW_ARTIFACT`, `USE_RALPH`, `RALPH_MAX_ITER`, `FIX_SEVERITY`, `FAST_PLAN`, `SKIP_REVIEW`, `NO_PR`
 3. Set `RESUME_FROM = step` value from state
 4. Validate restored state:
    - Branch exists: `git branch --list {BRANCH}`
@@ -241,6 +252,7 @@ review_artifact: ""
 use_ralph: {USE_RALPH}
 ralph_max_iter: {RALPH_MAX_ITER}
 fix_severity: "{FIX_SEVERITY}"
+fast_plan: {FAST_PLAN}
 skip_review: {SKIP_REVIEW}
 no_pr: {NO_PR}
 no_interact: {NO_INTERACT}
@@ -292,13 +304,14 @@ git checkout -b feature/{slug-from-feature-description}
 ```
 Use Skill tool with:
   skill: "prp-core:prp-plan"
-  args: "{FEATURE}" (append " --no-interact" if NO_INTERACT = true)
+  args: "{FEATURE}" (append " --fast" if FAST_PLAN = true) (append " --no-interact" if NO_INTERACT = true)
 ```
 
 This command will:
-- Analyze the codebase
-- Generate a comprehensive plan
+- Analyze the codebase (lighter analysis if `--fast`)
+- Generate a comprehensive plan with validation commands, integration points, confidence score
 - Save to `.prp-output/plans/`
+- If `--fast`: skip deep codebase analysis, produce a simpler plan faster (good for well-understood features)
 - If `--no-interact`: skip clarification questions, use best judgment for ambiguous requirements
 
 **Variable update**: `PLAN_PATH = {generated plan path}`
@@ -332,12 +345,13 @@ Use Skill tool with:
 ```
 
 This command will:
+- Detect project toolchain (Phase 0 — plan-provided commands take precedence)
 - Read and execute the plan
-- Run validation loops (typecheck, lint, test, build)
+- Run validation loops (typecheck, lint, test, build) using detected commands
 - Auto-fix failures
-- Write implementation report
-- **Generate review context file** (`pr-context-{branch}.md`) ← Token optimization
-- Archive the plan
+- Write implementation report (timestamp-based naming)
+- **Generate review context file** (`pr-context-{branch}.md`) ← Token optimization (even on early failure)
+- Archive the plan (GATE — blocks output until archived)
 
 **Wait for completion.** This is the longest step.
 
@@ -447,7 +461,7 @@ Run validation commands to verify:
 - `{runner} run build`
 ```
 
-Save to: `.prp-output/reports/{plan-slug}-report.md`
+Save to: `.prp-output/reports/{plan-slug}-report-{RUN_TIMESTAMP}.md`
 
 **If pr-context is missing**, create a minimal context:
 
@@ -601,13 +615,15 @@ Use Skill tool with:
 ```
 
 This command will:
+- Detect project toolchain (Phase 0 — branch-matching plan discovery)
 - Load the review artifact directly (no discovery/selection needed)
 - Fix issues matching the severity filter in priority order
-- Validate after each severity batch (type-check + lint + test)
+- Validate after each severity batch using detected commands (GATE before push)
+- Stage only modified files (safe staging — no `git add -A`)
 - Commit and push fixes to the PR branch
-- Post fix summary comment on PR
+- Save fix summary with timestamp, post to PR, update review artifact
 
-**Default severity**: `critical,high,medium,suggestion` — fixes all issues. Override with `--fix-severity critical,high` to fix only blocking issues.
+**Default severity**: `critical,high,medium,suggestion` — fixes all issues. Override with `--severity critical,high` to fix only blocking issues.
 All severity levels are fixed by default for comprehensive code quality. Use `--fix-severity` to narrow scope if needed.
 
 **❌ DO NOT**:
@@ -622,12 +638,14 @@ If NOT → STOP → Go back and call it now.
 
 Increment: `REVIEW_CYCLE = REVIEW_CYCLE + 1`
 
-Re-run review to confirm fixes resolved all critical/high issues and no regressions were introduced:
+Re-run review to confirm fixes resolved all critical/high issues and no regressions were introduced.
+
+**Pass the same context file** — it's still valid and saves tokens:
 
 ```
 Use Skill tool with:
   skill: "prp-core:prp-review-agents"
-  args: "{PR_NUMBER}"
+  args: "{PR_NUMBER} --context .prp-output/reviews/pr-context-{BRANCH}.md"
 ```
 
 → **Return to Step 6.2** to evaluate results.
@@ -668,11 +686,11 @@ Generate final report:
 
 ### Artifacts
 
-- Plan: `{PLAN_PATH}` (archived)
-- Report: `.prp-output/reports/{name}-report.md`
+- Plan: `{PLAN_PATH}` (archived to `.prp-output/plans/completed/`)
+- Report: `.prp-output/reports/{name}-report-{RUN_TIMESTAMP}.md`
 - Review Context: `.prp-output/reviews/pr-context-{BRANCH}.md`
-- Review: `.prp-output/reviews/pr-{NUMBER}-review.md`
-- Fix Summary: `.prp-output/reviews/pr-{NUMBER}-fix-summary.md` (if fixes applied)
+- Review: `.prp-output/reviews/pr-{PR_NUMBER}-agents-review.md`
+- Fix Summary: `.prp-output/reviews/pr-{PR_NUMBER}-fix-summary-*.md` (if fixes applied — timestamp set by prp-review-fix)
 - PR: {URL}
 
 ### Review Verdict
