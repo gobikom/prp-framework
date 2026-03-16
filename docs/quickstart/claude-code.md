@@ -149,6 +149,16 @@ cd .prp && ./scripts/install.sh && cd ..
 
 > ดู config ฉบับเต็ม + tiered options ที่ [USER-GUIDE.md -- Permissions](../USER-GUIDE.md#permissions--unattended-mode-claude-code)
 
+## Cross-Adapter Comparison
+
+| Adapter | Format | Syntax | Commands | Storage |
+|---------|--------|--------|----------|---------|
+| **Claude Code** | **`.md`** | **`/prp-core:cmd`** | **19** | **`.claude/commands/`** |
+| Codex | `SKILL.md` | `$prp-cmd` | 17 | `.codex/skills/` |
+| OpenCode | `.md` | `/prp:cmd` | 17 | `.opencode/commands/prp/` |
+| Gemini | `.toml` | `/prp:cmd` | 17 | `.gemini/commands/prp/` |
+| Antigravity | `.md` | `/prp-cmd` | 17 | `.agents/workflows/prp/` |
+
 ## Tips
 
 - ใช้ `--fast` flag สำหรับ changes ง่ายๆ -- skip design doc, short plan

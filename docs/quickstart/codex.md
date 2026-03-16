@@ -114,6 +114,16 @@ $prp-review-fix 25
 | Hooks | Ralph stop hook | ไม่มี |
 | Namespaces | 3 (core, mkt, bot) | 1 (prp) |
 
+## Cross-Adapter Comparison
+
+| Adapter | Format | Syntax | Commands | Storage |
+|---------|--------|--------|----------|---------|
+| Claude Code | `.md` | `/prp-core:cmd` | 19 | `.claude/commands/` |
+| **Codex** | **`SKILL.md`** | **`$prp-cmd`** | **17** | **`.codex/skills/`** |
+| OpenCode | `.md` | `/prp:cmd` | 17 | `.opencode/commands/prp/` |
+| Gemini | `.toml` | `/prp:cmd` | 17 | `.gemini/commands/prp/` |
+| Antigravity | `.md` | `/prp-cmd` | 17 | `.agents/workflows/prp/` |
+
 ## Tips
 
 - ใช้ `--fast` flag สำหรับ changes ง่ายๆ

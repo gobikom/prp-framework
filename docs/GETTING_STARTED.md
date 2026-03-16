@@ -128,16 +128,18 @@ cd .prp && ./scripts/install.sh
   "permissions": {
     "allow": [
       "Bash(git *)", "Bash(gh *)", "Bash(ls *)", "Bash(mkdir *)",
-      "Bash(mv *)", "Bash(cp *)", "Bash(rm *)", "Bash(cat *)",
+      "Bash(mv *)", "Bash(cp *)", "Bash(cat *)",
       "Bash(test *)", "Bash(find *)", "Bash(date *)", "Bash(head *)",
-      "Bash(echo *)", "Bash(grep *)", "Bash(sed *)", "Bash(jq *)",
-      "Bash(npm *)", "Bash(npx *)", "Bash(bun *)"
+      "Bash(echo *)", "Bash(grep *)", "Bash(jq *)",
+      "Bash(npm *)", "Bash(npx *)", "Bash(bun *)",
+      "Bash(rm -f .claude/prp-*)", "Bash(rm -rf .prp-output/*)",
+      "Bash(sed -i* .prp-output/*)"
     ]
   }
 }
 ```
 
-> ดู config ฉบับเต็มที่ [USER-GUIDE.md — Permissions & Unattended Mode](USER-GUIDE.md#permissions--unattended-mode-claude-code)
+> **หมายเหตุ**: Config นี้ scope `rm` ให้ลบได้เฉพาะ PRP state files และ artifacts, `sed` แก้ได้เฉพาะ artifacts — ดู config ฉบับเต็ม + tiered options ที่ [USER-GUIDE.md — Permissions & Unattended Mode](USER-GUIDE.md#permissions--unattended-mode-claude-code)
 
 ### Test Commands
 
