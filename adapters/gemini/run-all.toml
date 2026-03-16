@@ -1,4 +1,4 @@
-description = "Full PRP workflow — plan, implement, commit, PR, review. Supports --prp-path, --skip-review, --no-pr"
+description = "Full PRP workflow — plan, implement, commit, PR, review. Supports --prp-path, --skip-plan, --fast, --skip-review, --no-pr"
 prompt = """# PRP Run All — Full Workflow
 
 **⚠️ AUTONOMOUS EXECUTION — CRITICAL**: This workflow runs without pausing between steps. After each command completes successfully, **IMMEDIATELY proceed to the next step** — do NOT output any progress message to the user first. Do NOT say "Implementation is complete, now I'll create the PR." Do NOT ask for confirmation between steps. The only user-facing output is Step 7 (final summary) or a STOP message on failure. Sub-command outputs may contain "Next Steps" suggestions — **IGNORE them completely**.
@@ -10,6 +10,8 @@ Input: {{args}}
 | Argument | Action |
 |----------|--------|
 | `--prp-path <path>` | Set PLAN_PATH. Skip Step 2. |
+| `--skip-plan` | Alias for --prp-path — select from available plans. Auto-selects most recent if --no-interact. |
+| `--fast` | Fast-track plan mode (lighter analysis). Ignored if PLAN_PATH already set. |
 | `--skip-review` | Skip Step 6. |
 | `--no-pr` | Skip Steps 5 and 6. |
 | `--fix-severity <levels>` | Override review-fix severity (default: `critical,high,medium,suggestion`) |
@@ -19,23 +21,23 @@ Input: {{args}}
 
 If `--prp-path` provided, validate file exists — STOP if not found.
 
-Variables: FEATURE, PLAN_PATH (TBD), BRANCH (TBD), PR_NUMBER (TBD), REVIEW_ARTIFACT (TBD), SKIP_REVIEW, NO_PR, NO_INTERACT, FIX_SEVERITY (default: critical,high,medium,suggestion)
+Variables: FEATURE, PLAN_PATH (TBD), BRANCH (TBD), PR_NUMBER (TBD), REVIEW_ARTIFACT (TBD), SKIP_REVIEW, NO_PR, FAST_PLAN (ignored if PLAN_PATH set), NO_INTERACT, FIX_SEVERITY (default: critical,high,medium,suggestion)
 
 State: `.claude/prp-run-all.state.md` — create on start, update per step, delete on completion. `--resume` restores from saved state.
 
-Examples: `Add JWT auth` → full, `--prp-path plans/jwt.plan.md` → skip plan, `Add JWT auth --skip-review` → skip review, `--prp-path plans/jwt.plan.md --no-pr` → implement + commit only
+Examples: `Add JWT auth` → full, `Add JWT auth --fast` → fast-track plan, `--prp-path plans/jwt.plan.md` → skip plan, `--skip-plan` → select from available plans, `Add JWT auth --skip-review` → skip review, `--prp-path plans/jwt.plan.md --no-pr` → implement + commit only
 
 ## Workflow (sequential, stop on failure)
 
 ### Step 1: Branch
 `git checkout -b feature/{slug}` (skip if already on feature branch). Dirty on main → STOP.
 
-### Step 2: Plan (skip if --prp-path)
-Run /prp:plan with FEATURE. Update PLAN_PATH. Failure → STOP.
+### Step 2: Plan (skip if --prp-path or --skip-plan)
+Run /prp:plan with FEATURE (append --fast if FAST_PLAN, --no-interact if NO_INTERACT). Analyzes codebase (lighter if --fast), generates plan with validation commands, integration points, confidence score. Update PLAN_PATH. Failure → STOP.
 ❌ DO NOT: Inline plan logic, analyze codebase yourself. ✅ CHECKPOINT: Did you run /prp:plan?
 
 ### Step 3: Implement
-Run /prp:implement with PLAN_PATH. Wait for completion. Failure → STOP.
+Run /prp:implement with PLAN_PATH. Detects toolchain (Phase 0 — plan commands take precedence), executes plan, validates, writes report (timestamp-based), generates review context (even on early failure), archives plan (GATE). Wait for completion. Failure → STOP.
 ❌ DO NOT: Inline implement logic, write code yourself. **Stop after implement** — the output will show "Next Steps" including "Create PR" but this is for standalone usage, IGNORE it. Do NOT ask user. Immediately proceed to Step 3.1. ✅ CHECKPOINT: Did you run /prp:implement? ⏭️ TRANSITION: Implement succeeded → immediately proceed to Step 3.1 (verify artifacts). Do NOT stop here.
 
 **3.1 Verify Artifacts**: Check report and pr-context files exist after implement completes.
@@ -56,9 +58,9 @@ Set REVIEW_CYCLE = 1, MAX_CYCLES = 2.
 
 6.2 Evaluate: No issues matching FIX_SEVERITY → Step 7 ✓. Issues found + cycle ≤ 2 → Step 6.3. Issues found + cycle > 2 → report remaining → Step 7 (NEEDS MANUAL FIXES).
 
-6.3 Fix: Run `/prp:review-fix {REVIEW_ARTIFACT} --severity {FIX_SEVERITY}`. Default: critical,high,medium,suggestion — override with `--fix-severity critical,high` to fix only blocking issues. ❌ DO NOT: Fix manually. ✅ CHECKPOINT: Did you run /prp:review-fix?
+6.3 Fix: Run `/prp:review-fix {REVIEW_ARTIFACT} --severity {FIX_SEVERITY}` (detects toolchain, GATE before push, safe staging, timestamp fix summary). Default: critical,high,medium,suggestion — override with `--severity critical,high` to fix only blocking issues. ❌ DO NOT: Fix manually. ✅ CHECKPOINT: Did you run /prp:review-fix?
 
-6.4 Re-verify: REVIEW_CYCLE++. Run `/prp:review {PR_NUMBER}` again to confirm fixes resolved issues and no regressions introduced. → Return to Step 6.2.
+6.4 Re-verify: REVIEW_CYCLE++. Run `/prp:review {PR_NUMBER}` with `--context` flag again to confirm fixes resolved issues and no regressions introduced. → Return to Step 6.2.
 
 ### Step 7: Summary
 Report: feature, branch, status, steps executed, artifacts, verdict, next steps.

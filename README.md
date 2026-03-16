@@ -97,7 +97,7 @@ cp -r prp-framework/* my-project/
 | **PR** | Create pull request | Ready to push |
 | **Rollback** | Safely undo implementation changes (--soft / --hard with stash backup / --restore) | Implementation went wrong |
 | **Cleanup** | Post-merge cleanup (delete local/remote branches, verify PR merged, `--all` / `--dry-run`) | After PR merged |
-| **Run All** | Full workflow end-to-end (supports `--ralph`, `--resume`, `--fix-severity`, `--no-interact`, `--dry-run`) | Complete automation |
+| **Run All** | Full workflow end-to-end (supports `--fast`, `--skip-plan`, `--ralph`, `--resume`, `--fix-severity`, `--no-interact`, `--dry-run`) | Complete automation |
 
 ## Tool Support
 
@@ -117,6 +117,8 @@ cp -r prp-framework/* my-project/
 /prp-core:cleanup                                          # Clean up current branch after merge
 /prp-core:cleanup --all --dry-run                          # Preview batch cleanup of all merged branches
 /prp-core:run-all Add JWT auth                             # Full workflow (plan→implement→commit→PR→review)
+/prp-core:run-all Add JWT auth --fast                      # Full workflow with fast-track plan
+/prp-core:run-all --skip-plan                              # Select existing plan, then implement
 /prp-core:run-all Add JWT auth --ralph                     # Full workflow using ralph loop
 /prp-core:run-all Add JWT auth --resume                    # Resume from last failed step
 /prp-core:run-all Add JWT auth --fix-severity critical     # Override review-fix severity
