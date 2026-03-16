@@ -1,0 +1,20 @@
+---
+description: Cancel active PRP Ralph loop
+agent: build
+---
+
+# Cancel PRP Ralph Loop
+
+1. **Check**: `test -f .claude/prp-ralph.state.md` → ACTIVE or NOT_FOUND.
+2. **If NOT_FOUND**: "No active Ralph loop found."
+3. **If ACTIVE**:
+   - Read state: `head -20 .claude/prp-ralph.state.md` — extract iteration and plan path.
+   - Remove: `rm .claude/prp-ralph.state.md`
+   - Report: iteration stopped at, plan path, work preserved in modified files and git commits.
+   - To resume: `/prp:ralph {plan_path}` or `/prp:implement {plan_path}`
+
+## Success Criteria
+
+- LOOP_DETECTED: State file checked
+- STATE_REMOVED: State file deleted
+- WORK_PRESERVED: No code reverted
