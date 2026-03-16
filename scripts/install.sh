@@ -308,7 +308,7 @@ fi
 
 echo ""
 echo "📁 Creating runtime artifact directories..."
-mkdir -p "$PROJECT_DIR/.prp-output"/{prds/drafts,designs,plans/completed,reports,reviews,debug,issues/completed}
+mkdir -p "$PROJECT_DIR/.prp-output"/{prds/drafts,designs,plans/completed,reports,reviews,debug,issues/completed,ralph-archives}
 echo -e "${GREEN}  ✅ Created .prp-output/ structure${NC}"
 
 # Add gitignore rules to consumer project
@@ -368,15 +368,23 @@ elif $USED_COPY; then
 fi
 
 echo ""
-echo "Available workflows:"
-echo "  • Claude Code Core: /prp-core:prd, /prp-core:plan, /prp-core:implement, etc."
-echo "  • Claude Code Marketing: /prp-mkt:landing, /prp-mkt:demo, /prp-mkt:pitch, /prp-mkt:competitor"
-echo "  • Claude Code Bot: /prp-bot:intent, /prp-bot:flow, /prp-bot:prompt-eng, /prp-bot:voice-ux, /prp-bot:integration"
-echo "  • Codex: \$prp-prd, \$prp-design, \$prp-plan, etc."
-echo "  • OpenCode: /prp:prd, /prp:design, /prp:plan, etc."
-echo "  • Gemini: /prp:prd, /prp:design, /prp:plan, etc."
-echo "  • Antigravity: /prp-prd, /prp-design, /prp-plan, etc."
-echo "  • Kimi/Generic: Use natural language (see AGENTS.md)"
+echo "Available workflows (19 core commands):"
+echo ""
+echo "  Claude Code (/prp-core:*):"
+echo "    Development:  prd, design, plan, implement, commit, pr"
+echo "    Review:       review, review-fix, review-agents, feature-review, feature-review-agents"
+echo "    Debug/Issue:  debug, issue-investigate, issue-fix"
+echo "    Automation:   ralph, ralph-cancel, rollback, cleanup, run-all"
+echo ""
+echo "  Claude Code Marketing (/prp-mkt:*): landing, demo, pitch, competitor"
+echo "  Claude Code Bot (/prp-bot:*): intent, flow, prompt-eng, voice-ux, integration"
+echo ""
+echo "  Other tools:"
+echo "    Codex:        \$prp-plan, \$prp-implement, \$prp-debug, \$prp-ralph, etc."
+echo "    OpenCode:     /prp:plan, /prp:implement, /prp:debug, /prp:ralph, etc."
+echo "    Gemini:       /prp:plan, /prp:implement, /prp:debug, /prp:ralph, etc."
+echo "    Antigravity:  /prp-plan, /prp-implement, /prp-debug, /prp-ralph, etc."
+echo "    Kimi/Generic: Use natural language (see AGENTS.md)"
 echo ""
 echo "Documentation: $FRAMEWORK_DIR/docs/"
 echo ""

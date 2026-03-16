@@ -625,6 +625,293 @@ When `--ralph` is used, implement step is replaced with `/prp-ralph`:
 
 ---
 
+## Workflow: Debug (Root Cause Analysis)
+
+**Purpose:** Find the actual root cause of an issue using the 5 Whys methodology — not symptoms, not intermediate failures, but the origin.
+
+**When to Use:**
+
+- Error messages, stack traces, or vague bug reports
+- "It worked before" regressions
+- Intermittent or hard-to-reproduce issues
+
+### Process
+
+```
+CLASSIFY (Parse Input, Determine Mode) → HYPOTHESIZE (2-4 Theories) →
+INVESTIGATE (5 Whys with Evidence) → VALIDATE (Causation/Necessity/Sufficiency) →
+REPORT → OUTPUT
+```
+
+### Key Features
+
+- **Two Modes:** `--quick` for surface scan (2-3 Whys, ~5 min) or deep analysis (full 5 Whys with git history)
+- **Hypothesis-Driven:** Generates 2-4 ranked hypotheses before investigating; pivots if evidence refutes leading theory
+- **Strict Evidence Standards:** Every "because" must have a `file:line` reference, command output, or executed test — no "likely" or "probably" allowed
+- **Three Validation Tests:** Causation (does root cause lead to symptom?), Necessity (would symptom still occur without it?), Sufficiency (is it alone enough?)
+- **Git History Required (Deep Mode):** Documents when/who/why the problematic code was introduced, including commit hash and blame
+- **Fix Specification:** Report includes current vs required code, files to modify, and verification steps
+
+### Output
+
+- RCA report: `.prp-output/debug/rca-{issue-slug}-{TIMESTAMP}.md`
+- Contains: evidence chain, git history, fix specification with implementation guidance, verification steps
+
+### Usage
+
+```bash
+# Claude Code
+/prp-core:debug "Login fails with 401 after token refresh"
+
+# Quick mode (surface scan)
+/prp-core:debug "TypeError in dashboard" --quick
+
+# Codex
+$prp-debug "Login fails with 401 after token refresh"
+
+# OpenCode/Gemini
+/prp:debug "Login fails with 401 after token refresh"
+
+# Kimi/Generic
+"Debug root cause: Login fails with 401 after token refresh"
+```
+
+---
+
+## Workflow: Issue Investigate
+
+**Purpose:** Analyze a GitHub issue (or free-form description) and produce a comprehensive implementation plan artifact that can be executed by the issue-fix command.
+
+**When to Use:**
+
+- GitHub issue needs analysis before implementation
+- Want a structured investigation posted as a GitHub comment
+- Need to assess severity, complexity, and confidence before committing to a fix
+
+### Process
+
+```
+PARSE (Determine Input Type, Fetch GH Issue) → EXPLORE (Codebase Intelligence) →
+ANALYZE (Root Cause / Change Rationale) → GENERATE (Create Artifact) →
+COMMIT (Save Artifact) → POST (GitHub Comment) → REPORT
+```
+
+### Key Features
+
+- **Input Flexibility:** Accepts issue number (`123`, `#123`), GitHub URL, or free-form description
+- **Issue Classification:** Automatically classifies as BUG, ENHANCEMENT, REFACTOR, CHORE, or DOCUMENTATION
+- **Assessment with Reasoning:** Severity/Priority, Complexity, and Confidence each include a one-sentence justification based on investigation findings
+- **Codebase-First Exploration:** Discovers relevant files, integration points, similar patterns, and existing test patterns with actual code snippets
+- **5 Whys for Bugs:** Full root cause analysis with evidence chain for BUG-type issues
+- **GitHub Integration:** Posts formatted investigation summary as a comment on the issue (skipped for free-form input)
+- **Artifact as Specification:** The generated artifact is self-contained — an implementing agent can work from it without asking questions
+
+### Output
+
+- Investigation artifact: `.prp-output/issues/issue-{number}-{TIMESTAMP}.md` (or `investigation-{TIMESTAMP}.md` for free-form)
+- GitHub comment posted to issue (if GH issue input)
+- Contains: assessment table, problem statement, evidence chain, affected files with line numbers, implementation steps, patterns to follow, edge cases, validation commands, scope boundaries
+
+### Usage
+
+```bash
+# Claude Code — from issue number
+/prp-core:issue-investigate 123
+
+# From GitHub URL
+/prp-core:issue-investigate https://github.com/org/repo/issues/123
+
+# From free-form description (no GH posting)
+/prp-core:issue-investigate "API returns 500 when user has no profile"
+
+# Codex
+$prp-issue-investigate 123
+
+# OpenCode/Gemini
+/prp:issue-investigate 123
+
+# Kimi/Generic
+"Investigate issue #123 and create an implementation plan"
+```
+
+---
+
+## Workflow: Issue Fix
+
+**Purpose:** Load an investigation artifact and execute the implementation plan — implement changes, validate, create a PR linked to the issue, and run a self-review.
+
+**When to Use:**
+
+- After running Issue Investigate to create an implementation plan
+- When you have an existing `.prp-output/issues/issue-{number}-*.md` artifact ready to execute
+
+### Process
+
+```
+LOAD (Find & Parse Artifact) → VALIDATE (Sanity Check vs Current Code) →
+GIT-CHECK (Ensure Correct Branch) → IMPLEMENT (Execute Steps) →
+VERIFY (Run Validation) → COMMIT (Safe Staging) →
+PR (Create & Link to Issue) → REVIEW (Self Code Review) →
+ARCHIVE (Move to Completed) → REPORT
+```
+
+### Key Features
+
+- **Artifact-Driven:** Follows the investigation artifact step-by-step; deviations are documented, not silently applied
+- **Drift Detection:** Compares artifact's "current code" snippets against actual codebase; warns if code has changed since investigation
+- **Smart Git State:** Decision tree handles worktrees, main branch, feature branches, and dirty state — creates `fix/issue-{number}-{slug}` branch when needed
+- **Safe Staging:** Uses `git diff --name-only` + `git ls-files --others` instead of `git add -A` to avoid staging unintended files
+- **PR Linked to Issue:** Creates PR with `Fixes #{number}` to auto-close the issue on merge
+- **Self-Review:** Posts an automated code review comment on the PR covering root cause alignment, code quality, test coverage, edge cases, and security
+- **Artifact Archival:** Moves completed artifact to `.prp-output/issues/completed/` after PR creation
+
+### Output
+
+- Implementation on a new branch: `fix/issue-{number}-{slug}`
+- Pull request linked to the issue with `Fixes #{number}`
+- Self-review comment posted on the PR
+- Archived artifact: `.prp-output/issues/completed/issue-{number}-{TIMESTAMP}.md`
+
+### Usage
+
+```bash
+# Claude Code — from issue number (finds latest artifact)
+/prp-core:issue-fix 123
+
+# From specific artifact path
+/prp-core:issue-fix .prp-output/issues/issue-123-20260210-1430.md
+
+# Codex
+$prp-issue-fix 123
+
+# OpenCode/Gemini
+/prp:issue-fix 123
+
+# Kimi/Generic
+"Fix issue #123 using the investigation artifact"
+```
+
+---
+
+## Workflow: Feature Review
+
+**Purpose:** Perform a comprehensive, senior-engineer-level review of a package or folder — covering code quality, product ideas, performance, and security.
+
+**When to Use:**
+
+- Evaluating overall health of a package or feature area
+- Looking for product improvement opportunities and new feature ideas
+- Auditing performance or security before a release
+- Onboarding to an unfamiliar codebase area
+
+### Process
+
+```
+PARSE (Validate Path, Determine Focus) → CONTEXT EXTRACTION (Token Optimization) →
+ANALYZE (Deep Code Review per Focus) → PRIORITIZE (Impact × Effort) →
+REPORT → OUTPUT
+```
+
+### Key Features
+
+- **Focus Flag:** `--focus code|product|performance|security|all` narrows analysis to specific areas (default: `all`)
+- **Token-Optimized Context Caching:** Extracts package structure, guidelines, and file inventory once into `.prp-output/reviews/feature-context-{package-name}.md`; re-runs within 1 hour skip extraction entirely (~40-50% token savings)
+- **Selective File Reading:** Prioritizes files relevant to the focus area (e.g., `--focus security` reads auth handlers and input validation first)
+- **Health Scorecard:** 1-10 scores for Code Quality, Product Potential, Performance, and Security
+- **Prioritized Action Items:** Findings sorted by impact vs effort (Critical/High/Medium/Low) with estimated effort (Quick Win / Small / Medium / Large)
+- **Suggested Roadmap:** Three-phase improvement plan (Foundation, Enhancement, Innovation)
+- **Multi-Agent Support:** Context file is shared by both single-agent and multi-agent feature review workflows
+
+### Phases
+
+1. **PARSE:** Validate input path, determine focus areas, check for existing context
+2. **CONTEXT EXTRACTION:** Gather project rules, package structure, manifest, key files — write context file
+3. **ANALYZE:** Deep review across focus areas (architecture, patterns, type safety, testing, product ideas, performance, security)
+4. **PRIORITIZE:** Categorize findings by impact, estimate effort, calculate ROI
+5. **REPORT:** Generate comprehensive markdown report with scores, findings, and roadmap
+6. **OUTPUT:** Present summary with scores, action item counts, and artifact paths
+
+### Output
+
+- Review report: `.prp-output/reviews/feature-review-{package-name}-{date}.md`
+- Context file: `.prp-output/reviews/feature-context-{package-name}.md`
+- Contains: executive summary, health scorecard, code quality analysis, product/feature ideas, performance recommendations, security findings, prioritized action items, suggested roadmap
+
+### Usage
+
+```bash
+# Claude Code — review entire package
+/prp-core:feature-review packages/web
+
+# Focus on security only
+/prp-core:feature-review src/features/auth --focus security
+
+# Focus on product ideas
+/prp-core:feature-review packages/dashboard --focus product
+
+# All areas (default)
+/prp-core:feature-review src/core --focus all
+
+# Codex
+$prp-feature-review packages/web --focus code
+
+# OpenCode/Gemini
+/prp:feature-review packages/web --focus performance
+
+# Kimi/Generic
+"Review the packages/web folder focusing on security"
+```
+
+---
+
+## Workflow: Ralph Cancel
+
+**Purpose:** Cancel an active Ralph autonomous implementation loop, preserving all work done so far.
+
+**When to Use:**
+
+- Ralph loop is running and you want to stop it immediately
+- You want to take over implementation manually
+- The loop is heading in the wrong direction
+
+### Process
+
+```
+Check State File → If NOT_FOUND: Report No Active Loop →
+If ACTIVE: Read Iteration/Plan → Remove State File → Report
+```
+
+### Key Features
+
+- **Non-Destructive:** Only removes the state file (`.claude/prp-ralph.state.md`) — no code changes are reverted
+- **Work Preserved:** All modified files, git commits, and in-progress changes remain intact
+- **Iteration Reporting:** Shows which iteration Ralph was on and which plan was being executed
+- **Resume Path:** After cancelling, you can restart with the same plan or switch to manual implementation
+
+### Output
+
+- State file removed: `.claude/prp-ralph.state.md`
+- Report showing iteration number and plan path
+- All code changes preserved (check `git status`)
+
+### Usage
+
+```bash
+# Claude Code
+/prp-core:ralph-cancel
+
+# Codex
+$prp-ralph-cancel
+
+# OpenCode/Gemini
+/prp:ralph-cancel
+
+# Kimi/Generic
+"Cancel the active Ralph loop"
+```
+
+---
+
 ## Tool-Specific Notes
 
 ### Claude Code

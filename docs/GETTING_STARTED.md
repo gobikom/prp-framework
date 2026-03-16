@@ -141,11 +141,20 @@ cd .prp && ./scripts/install.sh
 
 ### Test Commands
 
+PRP Framework มี 19 core commands ใน 4 หมวดหมู่:
+
+```
+Development:  prd, design, plan, implement, commit, pr
+Review:       review, review-fix, review-agents, feature-review, feature-review-agents
+Debug/Issue:  debug, issue-investigate, issue-fix
+Automation:   ralph, ralph-cancel, rollback, cleanup, run-all
+```
+
 **Claude Code:**
 ```bash
 claude
-# Type: /prp
-# Should see: /prp-prd, /prp-plan, /prp-implement, etc.
+# Type: /prp-core:
+# Should see all 19 commands listed above
 ```
 
 **Codex:**
@@ -166,9 +175,12 @@ Create `CLAUDE.md` (or equivalent) with project-specific conventions:
 
 PRP framework installed via: `.prp/` (submodule v1.0.0)
 
-Available commands:
-- Claude Code: /prp-prd, /prp-design, /prp-plan, /prp-implement, /prp-review-agents, /prp-commit, /prp-pr
-- Codex: $prp-prd, $prp-design, $prp-plan, etc.
+Available commands (19 core commands):
+- Development: prd, design, plan, implement, commit, pr
+- Review: review, review-fix, review-agents, feature-review, feature-review-agents
+- Debug/Issue: debug, issue-investigate, issue-fix
+- Automation: ralph, ralph-cancel, rollback, cleanup, run-all
+- Claude Code prefix: /prp-core:  |  Codex prefix: $prp-
 - Other tools: See AGENTS.md
 
 ## Project-Specific Conventions
@@ -224,6 +236,37 @@ Plan will be saved to:
 ```
 /prp-implement .prp-output/plans/user-auth-20260210-1445.plan.md
 ```
+
+### Debug Flow
+
+วิเคราะห์ root cause ของปัญหา:
+
+```
+/prp-core:debug "Login fails after session timeout"
+```
+
+ผลลัพธ์จะถูกบันทึกใน `.prp-output/debug/rca-{slug}-{TIMESTAMP}.md`
+
+### Issue Flow
+
+ตรวจสอบและแก้ไข GitHub issue:
+
+```
+/prp-core:issue-investigate 45
+/prp-core:issue-fix 45
+```
+
+`issue-investigate` จะวิเคราะห์ issue และสร้าง investigation report ก่อน จากนั้น `issue-fix` จะอ่าน report แล้ว implement fix ให้
+
+### Full Automation Flow
+
+รัน workflow ทั้งหมดแบบอัตโนมัติ (PRD → Plan → Implement → Review → Commit → PR):
+
+```
+/prp-core:run-all "Add dark mode toggle" --ralph --no-interact
+```
+
+`--ralph` เปิด autonomous implementation loop ที่จะ iterate จนกว่า validations จะผ่านทั้งหมด `--no-interact` ข้ามการถามยืนยันทุกขั้นตอน
 
 ## Updating Framework
 
@@ -366,6 +409,7 @@ rm .claude/prp-run-all.state.md
 ## Next Steps
 
 - Read [WORKFLOWS.md](WORKFLOWS.md) for detailed workflow documentation
+- Read per-tool quick start guides in [docs/quickstart/](quickstart/)
 - See [CONTRIBUTING.md](CONTRIBUTING.md) to contribute improvements
 - Check [README.md](../README.md) for architecture overview
 
