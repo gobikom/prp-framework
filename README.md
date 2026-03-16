@@ -90,7 +90,7 @@ cp -r prp-framework/* my-project/
 | **Design** | Technical design doc (optional) | Complex features needing architecture blueprint |
 | **Plan** | Implementation plan with validation | Starting a new feature |
 | **Implement** | Execute plan with validation loops | Have a plan, ready to code |
-| **Ralph** | Autonomous loop until all validations pass (Claude Code only) | Complex features where first-pass impl may fail |
+| **Ralph** | Autonomous loop until all validations pass | Complex features where first-pass impl may fail |
 | **Review** | Multi-pass PR code review | PR created, need review |
 | **Review Fix** | Auto-fix all review issues to PR branch | After review, fix critical/high/medium/suggestions |
 | **Commit** | Smart staging + conventional commit | Code ready to commit |
@@ -203,7 +203,13 @@ prp-framework/
 │   ├── commit.md
 │   ├── pr.md
 │   ├── cleanup.md
-│   └── run-all.md
+│   ├── run-all.md
+│   ├── ralph.md
+│   ├── debug.md
+│   ├── rollback.md
+│   ├── issue-investigate.md
+│   ├── issue-fix.md
+│   └── feature-review.md
 ├── adapters/                   # Tool-specific adapters
 │   ├── claude-code/            # Claude Code core commands (19 commands)
 │   ├── claude-code-marketing/  # Marketing commands (4 commands)

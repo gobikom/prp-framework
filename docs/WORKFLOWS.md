@@ -479,7 +479,7 @@ Automatically includes:
 
 **Purpose:** Execute an implementation plan iteratively until ALL validations pass. Unlike `/prp-implement` (one-shot), Ralph loops autonomously — fixing failures and retrying until complete.
 
-**Claude Code only** — requires stop hook mechanism not available in other tools.
+**Note:** The stop hook (automatic loop termination) requires Claude Code. On other tools, run the canonical `prompts/ralph.md` prompt manually and terminate when validations pass.
 
 ### Process
 
