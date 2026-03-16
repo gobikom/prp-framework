@@ -15,7 +15,13 @@ NC='\033[0m' # No Color
 
 # Get absolute path to framework directory
 FRAMEWORK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-PROJECT_DIR="$(cd "$FRAMEWORK_DIR/.." && pwd)"
+
+# PROJECT_DIR: accept as $1 (for symlink installs), env var, or derive from parent
+if [ -n "$1" ]; then
+    PROJECT_DIR="$(cd "$1" && pwd)"
+elif [ -z "$PROJECT_DIR" ]; then
+    PROJECT_DIR="$(cd "$FRAMEWORK_DIR/.." && pwd)"
+fi
 
 echo "Framework directory: $FRAMEWORK_DIR"
 echo "Project directory: $PROJECT_DIR"
