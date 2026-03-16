@@ -41,14 +41,18 @@ Apply fixes for all issues found by `/prp-review` or `/prp-review-agents`:
 
 ### 0.2 Identify Validation Commands
 
-Check config for available scripts. Use the **most recently used plan's validation commands** if available:
+Check config for available scripts. Use the **PR branch's plan validation commands** if available:
 
 ```bash
-# Check for most recent plan (may have pre-filled commands)
-ls -t .prp-output/plans/completed/*.plan.md 2>/dev/null | head -1
+# Find a completed plan whose branch matches the current PR branch
+PR_BRANCH=$(gh pr view {NUMBER} --json headRefName -q '.headRefName' 2>/dev/null)
+PLAN_SLUG=$(echo "$PR_BRANCH" | sed 's|^feature/||')
+
+# Look for matching plan (by slug in filename)
+ls -t .prp-output/plans/completed/*${PLAN_SLUG}*.plan.md 2>/dev/null | head -1
 ```
 
-> **Plan-provided commands take precedence**: If a completed plan exists with a Metadata table containing Runner/Type Check/Lint/Test/Build commands, use those directly instead of auto-detecting. They were verified during planning and are more reliable.
+> **Plan-provided commands take precedence — but only if the plan matches the PR branch**. If a matching completed plan exists with a Metadata table containing Runner/Type Check/Lint/Test/Build commands, use those directly instead of auto-detecting. If no matching plan is found, fall back to auto-detection below.
 
 **Fallback — auto-detect from project config:**
 
@@ -203,12 +207,12 @@ Extract all issues grouped by severity. Look for sections:
 
 | Review Section | Maps To |
 |----------------|---------|
-| Critical / Critical Issues | **Critical** |
-| High Priority / Important / Important Issues | **High** |
+| Critical / Critical Issues / Critical (block merge) | **Critical** |
+| High Priority / Important / Important Issues / Important (address before merge) | **High** |
 | Medium Priority | **Medium** |
-| Suggestions / Low | **Suggestion** |
+| Suggestions / Low / Suggestions (nice to have) | **Suggestion** |
 
-> **Note**: The agents-review format does not use "Medium" — issues are either Critical, Important, or Suggestion. When parsing agents-review, treat Important as High.
+> **Note**: The agents-review format does not use "Medium" — issues are either Critical, Important, or Suggestion. When parsing agents-review, treat Important as High. Codex/Gemini adapters use parenthetical labels (e.g., "Critical (block merge)") — match on the keyword before the parenthetical.
 
 **PHASE_1_CHECKPOINT:**
 - [ ] Review artifact resolved (auto or user-selected)
@@ -243,6 +247,11 @@ PR_BRANCH=$(gh pr view {NUMBER} --json headRefName -q '.headRefName')
 
 if [ "$CURRENT" = "$PR_BRANCH" ]; then
   echo "Already on PR branch: $PR_BRANCH"
+  # Verify working directory is clean before proceeding
+  if [ -n "$(git status --porcelain)" ]; then
+    echo "⚠️ Working directory is dirty. Stash or commit changes first."
+    # STOP if dirty — don't mix pre-existing changes with review fixes
+  fi
 else
   gh pr checkout {NUMBER}
 fi
@@ -407,8 +416,11 @@ Run all **detected validation commands** from Phase 0:
 **Do NOT use `git add -A`** — this can stage unintended files (.env, build artifacts, editor files).
 
 ```bash
-# Stage only files that were intentionally modified
-git diff --name-only | xargs git add
+# Stage modified tracked files
+git diff --name-only | xargs -r git add
+
+# Stage new files created as part of fixes (untracked, non-ignored)
+git ls-files --others --exclude-standard | xargs -r git add
 
 # Review what's being staged
 git status
@@ -479,17 +491,18 @@ git push origin $(git branch --show-current) --force-with-lease
 
 ```bash
 TIMESTAMP=$(date +%Y%m%d-%H%M)
+SUMMARY_FILE=".prp-output/reviews/pr-${NUMBER}-fix-summary-${TIMESTAMP}.md"
 mkdir -p .prp-output/reviews
 ```
 
-**Path**: `.prp-output/reviews/pr-{NUMBER}-fix-summary-{TIMESTAMP}.md`
+**Path**: `$SUMMARY_FILE` (e.g., `.prp-output/reviews/pr-8-fix-summary-20260316-1430.md`)
 
-Save the full summary markdown to this file before posting to GitHub.
+Save the full summary markdown to `$SUMMARY_FILE` before posting to GitHub.
 
 ### 8.2 Post Summary Comment to PR
 
 ```bash
-gh pr comment {NUMBER} --body-file .prp-output/reviews/pr-{NUMBER}-fix-summary-{TIMESTAMP}.md
+gh pr comment ${NUMBER} --body-file "$SUMMARY_FILE"
 ```
 
 Summary content:
