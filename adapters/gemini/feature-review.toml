@@ -1,0 +1,55 @@
+description = "Comprehensive feature and code review — code quality, product ideas, performance, and security analysis"
+prompt = """# PRP Feature Review — Comprehensive Package Review
+
+Input: {{args}}
+
+Format: <package-path> [--focus code|product|performance|security|all]
+
+## Mission
+
+Senior-engineer-level review: understand codebase, analyze quality, suggest product improvements, identify performance opportunities, review security. Generate actionable report.
+
+## Steps
+
+1. **Parse Input**: Validate path exists (`ls -la {path}`). Default focus: `all`. Check for existing context: `ls .prp-output/reviews/feature-context-{pkg}.md` — if recent (<1 hour), skip to step 3.
+
+2. **Context Extraction (Token Optimization)**: Extract ONCE, cache for re-runs.
+   - `mkdir -p .prp-output/reviews`
+   - Gather: project rules (CLAUDE.md), package structure (tree -L 3), package.json, key files list, README.
+   - Categorize files: entry points, config, core logic, UI components, utils, tests.
+   - Write context file: `.prp-output/reviews/feature-context-{pkg}.md` with structure, manifest, file inventory, initial observations.
+
+3. **Analyze** (read files selectively by focus area):
+
+   **Code Quality**: Architecture (separation of concerns, abstractions, module boundaries), patterns (naming, DRY, error handling, logging), type safety (no implicit `any`, generics, null safety), testing (coverage, unit/integration, edge cases), documentation.
+
+   **Product/Feature**: Current features and users, feature ideas (missing capabilities, friction reduction, 10x improvements), UX improvements, integration opportunities, user journey pain points.
+
+   **Performance**: Code-level (N+1 queries, unnecessary async, memory leaks, heavy computations, large imports), architecture (caching, lazy loading, query optimization, API batching, pagination), metrics (load time, memory, network, rendering).
+
+   **Security**: Input validation (SQL/XSS injection, file uploads), auth (route protection, token handling, session mgmt, RBAC), data protection (encryption, secrets in env vars, PII, logging exposure), API (rate limiting, CORS, API keys, request validation).
+
+4. **Prioritize**: Categorize by impact (Critical/High/Medium/Low). Estimate effort (Quick Win/<1d, Small/1-3d, Medium/1-2w, Large/>2w). ROI: High impact + Low effort = Do first.
+
+5. **Generate Report**: Path: `.prp-output/reviews/feature-review-{pkg}-{date}.md`.
+   Contents: Executive summary with health score (1-10), area scores (Code Quality, Product Potential, Performance, Security), strengths, improvements with file references, product ideas (quick wins, strategic, innovation, UX), performance recommendations, security findings, prioritized action items table (item, type, effort, impact), metrics to track, suggested roadmap (3 phases).
+
+6. **Output**: Package path, files analyzed, health score, key findings per area, action items counts by priority, artifact paths (report + context), recommended next steps.
+
+## Token Optimization
+
+- Context file avoids redundant reads across re-runs and multi-agent reviews.
+- Selective reading by focus: `code` → entry points/core/utils, `product` → UI/user-facing, `performance` → hot paths/queries/APIs, `security` → auth/handlers/validation.
+- Estimated savings: ~40-50% vs reading everything.
+
+## Usage
+
+/prp:feature-review packages/web
+/prp:feature-review src/features/auth --focus security
+/prp:feature-review packages/api --focus performance
+/prp:feature-review . --focus all
+
+## Success Criteria
+
+CONTEXT_CACHED, CONTEXT_GATHERED, CODE_REVIEWED, IDEAS_GENERATED, PERFORMANCE_CHECKED, SECURITY_ASSESSED, REPORT_CREATED, ACTIONS_PRIORITIZED
+"""
