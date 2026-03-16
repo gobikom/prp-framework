@@ -291,7 +291,7 @@ After review, the command also:
 | `--severity critical,high,medium` | ทุกอย่างยกเว้น Suggestion |
 | ไม่ระบุ | ทุก severity (default) |
 
-**Output**: `.prp-output/reviews/pr-{NUMBER}-fix-summary.md`
+**Output**: `.prp-output/reviews/pr-{NUMBER}-fix-summary-{TIMESTAMP}.md`
 
 ---
 

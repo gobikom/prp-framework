@@ -209,7 +209,7 @@ TIMESTAMP=$(date +%Y%m%d-%H%M)
 | `debug` | `.prp-output/debug/rca-{slug}-{TIMESTAMP}.md` |
 | `issue-investigate` | `.prp-output/issues/issue-{number}-{TIMESTAMP}.md` |
 | `review` | `.prp-output/reviews/pr-{NUMBER}-review.md` (ใช้ PR number แทน) |
-| `review-fix` | `.prp-output/reviews/pr-{NUMBER}-fix-summary.md` (อ่านจาก review artifact) |
+| `review-fix` | `.prp-output/reviews/pr-{NUMBER}-fix-summary-{TIMESTAMP}.md` (อ่านจาก review artifact) |
 | `feature-review` | `.prp-output/reviews/feature-review-{pkg}-{date}.md` (ใช้ date แทน) |
 
 ### หา Artifact ล่าสุด

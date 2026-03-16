@@ -353,7 +353,7 @@ If a fix causes validation to fail: revert that fix, add to skip log, continue.
 
 ### Output
 
-- Fix summary: `.prp-output/reviews/pr-{N}-fix-summary.md`
+- Fix summary: `.prp-output/reviews/pr-{N}-fix-summary-{TIMESTAMP}.md`
 - PR comment with fixed/skipped counts per severity
 - "Fix Outcome" section appended to the review artifact
 
@@ -656,7 +656,7 @@ TIMESTAMP=$(date +%Y%m%d-%H%M)
 | Debug | `debug/rca-login-error-20260210-1430.md` |
 | Issue Investigate | `issues/issue-123-20260210-1430.md` |
 | Review | `reviews/pr-42-review.md` (ใช้ PR number) |
-| Review Fix | `reviews/pr-42-fix-summary.md` (อ่านจาก review artifact) |
+| Review Fix | `reviews/pr-42-fix-summary-20260210-1430.md` (timestamp prevents overwrite) |
 | Feature Review | `reviews/feature-review-auth-20260210.md` (ใช้ date) |
 
 ### หา Artifact ล่าสุด
