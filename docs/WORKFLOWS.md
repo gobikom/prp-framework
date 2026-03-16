@@ -299,11 +299,18 @@ $prp-review 42 tests errors
 
 **When to Use:** After running Review (or Review Agents) and wanting AI to automatically fix Critical, High, Medium, and/or Suggestion issues.
 
+### Key Features
+
+- **Phase 0 Toolchain Detection:** Reads package manager from lock files and prefers validation commands from a matching completed plan (JS/TS, Python, Rust, Go all supported)
+- **Agents-Review Parsing:** Handles both standard review format and agents-review format; maps "Important" → High for Codex/Gemini parenthetical labels
+- **Validation GATE:** Full suite (type-check + lint + test + build) must pass before commit; failing fixes are reverted and skipped automatically
+- **Safe Git Staging:** Uses `git diff --name-only` + `git ls-files --others` instead of `git add -A` to avoid staging unintended files
+
 ### Process
 
 ```
-Load Artifact → Resolve Artifact → Checkout PR Branch →
-Triage → Fix (per severity batch) → Validate → Commit → Push → Comment on PR
+Detect Toolchain → Load Artifact → Resolve Artifact → Checkout PR Branch →
+Triage → Fix (per severity batch) → Validate (GATE) → Commit → Push → Comment on PR
 ```
 
 ### Artifact Resolution
