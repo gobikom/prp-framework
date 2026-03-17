@@ -224,7 +224,8 @@ prp-framework/
 │   ├── antigravity/            # Antigravity workflows (16 workflows)
 │   └── generic/                # AGENTS.md for Kimi/others
 ├── docs/                       # Documentation
-├── scripts/                    # Installation scripts
+│   └── SCRIPTS-REFERENCE.md   # Detailed script docs
+├── scripts/                    # Installation & utility scripts
 └── LICENSE
 ```
 
@@ -252,6 +253,8 @@ All tools produce artifacts in `.prp-output/`:
 - Kimi/Generic: timestamp-based (e.g., `jwt-report-20260210-1430.md`)
 
 ## Updating Framework
+
+> For detailed documentation on all scripts, see [docs/SCRIPTS-REFERENCE.md](docs/SCRIPTS-REFERENCE.md).
 
 ### With Submodule (Symlinks)
 

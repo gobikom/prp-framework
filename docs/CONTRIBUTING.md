@@ -175,8 +175,11 @@ Then run `install.sh` to create symlinks.
 | File | Purpose |
 | ------ | ------- |
 | `scripts/install.sh` | Main installation script (auto-registers ralph hook) |
+| `scripts/sync.sh` | Sync updates for hard-copy (non-symlink) installs |
 | `scripts/cleanup-artifacts.sh` | Artifact cleanup utility |
 | `scripts/migrate-artifacts.sh` | Migration from old artifact paths |
+| `scripts/prp-run-all-state.sh` | State management for run-all workflow |
+| `docs/SCRIPTS-REFERENCE.md` | Detailed documentation for all scripts |
 | `docs/USER-GUIDE.md` | Complete command reference (Thai) |
 | `README.md` | Project overview (English) |
 | `adapters/claude-code/prp-ralph.md` | Ralph autonomous loop command |

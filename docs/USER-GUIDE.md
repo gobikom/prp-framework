@@ -1123,6 +1123,8 @@ cd .prp && ./scripts/migrate-artifacts.sh && cd ..
 
 Script จะ copy artifacts เก่าไปยัง `.prp-output/` โดยไม่ลบต้นฉบับ
 
+> **ดูรายละเอียดทุก script:** [docs/SCRIPTS-REFERENCE.md](SCRIPTS-REFERENCE.md)
+
 ---
 
 ## Artifacts Location
