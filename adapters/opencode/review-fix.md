@@ -13,6 +13,22 @@ Format: `<pr-number|review-artifact-path> [--severity critical,high,medium,sugge
 
 Load the review artifact from `/prp:review`, apply all fixable issues in priority order, validate, and push to the PR branch. Report what was fixed and what required manual attention.
 
+
+## Agent Mode Detection
+
+If your input context contains `[WORKSPACE CONTEXT]` (injected by a multi-agents framework),
+you are running as a sub-agent. Apply these optimizations:
+
+- **Skip Phase 0** (toolchain detection) — if the context includes a `toolchain` JSON
+  block with runner/type_check/lint/test/build commands, use those directly.
+- **Skip CLAUDE.md reading** — already loaded by parent session.
+- **Phase 1 (Load Review Artifact)**: Check context files for the review artifact path
+  instead of searching the filesystem.
+
+All other phases (fix application, validation loops) run unchanged.
+
+---
+
 ## Phase 0: DETECT — Project Toolchain
 
 Identify package manager from lock files (bun/pnpm/yarn/npm/uv/cargo/go). Identify validation commands — check for a completed plan matching the PR branch:
@@ -166,6 +182,17 @@ git push origin $(git branch --show-current)
 
 If nothing to commit: skip and report "No changes needed."
 
+### Invalidate Review Context
+
+After push, delete the pre-generated context so re-review builds fresh context from the updated diff:
+
+```bash
+BRANCH=$(git branch --show-current)
+rm -f .prp-output/reviews/pr-context-${BRANCH}.md
+```
+
+> **Why**: The context file was generated during implement — after fixes are pushed, the diff has changed. Re-review (run-all Step 6.4) must re-extract context to avoid reviewing stale code.
+
 ## Phase 7: REPORT — Post Summary and Update Artifacts
 
 **Save fix summary locally (with timestamp):**
@@ -185,6 +212,8 @@ gh pr comment ${NUMBER} --body-file "$SUMMARY_FILE"
 > **Note**: Uses `-fix-summary` suffix to identify fix summaries separately from review files.
 
 **Update review artifact**: Append "Fix Outcome" section with timestamp, commit hash, and fix counts.
+
+**Update pipeline manifest**: If `.prp-output/manifests/{BRANCH}.json` exists, append `fixes` array with fix-summary path.
 
 ## Output
 

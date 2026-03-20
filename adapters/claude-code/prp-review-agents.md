@@ -34,6 +34,25 @@ test -f "$CONTEXT_FILE" && echo "FOUND" || echo "NOT_FOUND"
 
 ---
 
+## Agent Mode Detection
+
+If your input context contains `[WORKSPACE CONTEXT]` (injected by a multi-agents framework),
+you are running as a sub-agent. Apply these optimizations:
+
+- **Skip Phase 1 context extraction** — if a `pr-context-*.md` file path is provided in
+  the context files, use it directly. The upstream commit_pr agent already created the PR
+  and gathered context.
+- **Skip CLAUDE.md reading** — already loaded by parent session.
+- **Skip PR metadata fetch** if PR number is available in context files (from commit_pr output).
+- **Skip Validation Phase** if context file already contains validation results
+  (from `/prp-implement` or `/prp-ralph`).
+
+All review agent dispatches (code-reviewer, security-reviewer, etc.) and result
+aggregation run unchanged — these are where quality comes from.
+
+---
+
+
 ## Phase 0.5: Incremental Review Detection
 
 **Only when `--since-last-review` flag is provided.** Skip this phase otherwise.

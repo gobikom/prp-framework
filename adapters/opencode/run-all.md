@@ -109,10 +109,12 @@ Set `REVIEW_CYCLE = 1`, `MAX_CYCLES = 2`.
 Default severity: `critical,high,medium,suggestion` — override with `--severity critical,high` to fix only blocking issues.
 ❌ DO NOT: Fix issues yourself, run validation separately. ✅ CHECKPOINT: Did you invoke `/prp:review-fix`?
 
-**6.4 Re-verify**: Increment `REVIEW_CYCLE`. `/prp:review {PR_NUMBER}` with `--context` flag to confirm issues resolved and no regressions introduced. → Return to Step 6.2.
+**6.4 Re-verify**: Increment `REVIEW_CYCLE`. `/prp:review {PR_NUMBER} --since-last-review` to review only the delta from review-fix (saves tokens, faster). Note: `pr-context` was invalidated by review-fix, so review will re-extract fresh context automatically. → Return to Step 6.2.
 
 ### Step 7: Summary
 Report: feature, branch, status, steps executed table, artifacts, review verdict, next steps.
+
+**Clean up state file**: `rm -f .claude/prp-run-all.state.md` — only on successful completion. On failure, state file is preserved for `--resume`.
 
 ## Rules
 

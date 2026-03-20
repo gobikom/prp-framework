@@ -969,6 +969,8 @@ ls -t .prp-output/plans/*.plan.md | head -1
 ./scripts/cleanup-artifacts.sh 30
 ```
 
+> See [SCRIPTS-REFERENCE.md](SCRIPTS-REFERENCE.md) for full documentation on all scripts.
+
 ---
 
 ## Workflow: Rollback

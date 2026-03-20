@@ -85,6 +85,25 @@ Discover the actual structure before proceeding.
 
 ---
 
+## Agent Mode Detection
+
+If your input context contains `[WORKSPACE CONTEXT]` (injected by a multi-agents framework),
+you are running as a sub-agent. Apply these optimizations:
+
+- **Skip Phase 0.5** (toolchain detection) — if the context includes a `toolchain` JSON
+  block with runner/commands, use those directly instead of re-detecting.
+- **Skip CLAUDE.md reading** — the parent session already loaded project conventions
+  into context. Do not re-read them.
+- **Skip Directory Discovery** in the Context section — the parent agent already explored
+  the codebase. Focus on targeted file reads for pattern extraction instead.
+- **Proceed directly to Phase 1** with the feature description from context.
+
+All other phases (codebase pattern extraction, research, plan generation) run unchanged —
+these are where quality comes from.
+
+---
+
+
 ## Phase 0.5: DETECT — Project Toolchain
 
 **Identify the project's package manager and validation commands** before any planning begins.

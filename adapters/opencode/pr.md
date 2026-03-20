@@ -31,6 +31,11 @@ Extract `--no-interact` flag and base branch from arguments.
    - Analyze files: `git diff --stat origin/main..HEAD` and `git diff --name-only origin/main..HEAD`
    - Determine title: single commit → use message, multiple → summarize. Format: `{type}: {description}`
    - Extract issue refs: `Fixes #123`, `Closes #123`, `Relates to #123`
+   - **Load implementation report** (optional enrichment):
+     ```bash
+     ls -t .prp-output/reports/*-report*.md 2>/dev/null | head -1
+     ```
+     If found, extract: summary, deviations from plan, validation results, test coverage. Use these to enrich PR description (summary section, testing section, notable deviations). If not found, skip silently — git log is sufficient.
 3. **Push**: `git push -u origin HEAD` (if fails, may need `--force-with-lease` — warn user)
 4. **Create PR**:
    - If template: fill sections from commits/changes

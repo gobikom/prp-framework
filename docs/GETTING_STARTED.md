@@ -302,6 +302,8 @@ If something is broken, force a clean re-install:
 cd .prp && ./scripts/install.sh && cd ..
 ```
 
+> **Detailed script documentation:** See [docs/SCRIPTS-REFERENCE.md](SCRIPTS-REFERENCE.md) for in-depth coverage of `install.sh`, `sync.sh`, `cleanup-artifacts.sh`, and other scripts.
+
 ## Troubleshooting
 
 ### Symlinks Not Working

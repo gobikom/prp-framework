@@ -2,6 +2,20 @@
 description: Comprehensive feature & code review - analyzes package/folder for quality, product ideas, performance, and security
 ---
 
+## Agent Mode Detection
+
+If your input context contains `[WORKSPACE CONTEXT]` (injected by a multi-agents framework),
+you are running as a sub-agent. Apply these optimizations:
+
+- **Skip CLAUDE.md reading** — already loaded by parent session.
+- **Skip directory discovery** — the parent agent already explored the codebase.
+- **Skip PR context extraction** if a `pr-context-*.md` file is provided in context files.
+
+All review passes and analysis phases run unchanged — these are where quality comes from.
+
+---
+
+
 # PRP Feature Review — Comprehensive Feature & Code Review
 
 Target: $ARGUMENTS
