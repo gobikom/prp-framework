@@ -12,6 +12,22 @@ Format: `<pr-number> [aspects: comments|tests|errors|types|code|security|deps|do
 
 Multi-pass review of PR. Each pass focuses on one quality dimension. Report only high-confidence issues (80%+).
 
+
+## Agent Mode Detection
+
+If your input context contains `[WORKSPACE CONTEXT]` (injected by a multi-agents framework),
+you are running as a sub-agent. Apply these optimizations:
+
+- **Skip Phase 1 context extraction** if a `pr-context-*.md` file path is provided in
+  the context files — use it directly (the upstream commit_pr agent already gathered this).
+- **Skip CLAUDE.md reading** — already loaded by parent session.
+- **Skip PR metadata fetch** if PR number and diff are available in context files.
+
+All review passes (code, security, deps, docs, tests, etc.) run unchanged —
+these are where quality comes from.
+
+---
+
 ## Phase 0: Context Detection (Token Optimization)
 
 Check for pre-generated pr-context: `.prp-output/reviews/pr-context-{BRANCH}.md`. If found, use it to skip context extraction. If `--context <path>` provided, use that path directly.

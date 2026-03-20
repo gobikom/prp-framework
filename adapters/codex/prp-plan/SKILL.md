@@ -13,6 +13,25 @@ Feature description or path to PRD file: `$ARGUMENTS`
 
 Format: `<feature description | path/to/prd.md> [--fast] [--no-interact]`
 
+
+## Agent Mode Detection
+
+If your input context contains `[WORKSPACE CONTEXT]` (injected by a multi-agents framework),
+you are running as a sub-agent. Apply these optimizations:
+
+- **Skip Phase 0.5** (toolchain detection) — if the context includes a `toolchain` JSON
+  block with runner/commands, use those directly instead of re-detecting.
+- **Skip CLAUDE.md reading** — the parent session already loaded project conventions
+  into context. Do not re-read them.
+- **Skip Directory Discovery** in the Context section — the parent agent already explored
+  the codebase. Focus on targeted file reads for pattern extraction instead.
+- **Proceed directly to Phase 1** with the feature description from context.
+
+All other phases (codebase pattern extraction, research, plan generation) run unchanged —
+these are where quality comes from.
+
+---
+
 ## Objective
 
 Transform the input into a battle-tested implementation plan through systematic codebase exploration, pattern extraction, and strategic research.

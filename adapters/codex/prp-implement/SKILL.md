@@ -11,6 +11,23 @@ metadata:
 
 Path to plan file: `$ARGUMENTS`
 
+
+## Agent Mode Detection
+
+If your input context contains `[WORKSPACE CONTEXT]` (injected by a multi-agents framework),
+you are running as a sub-agent. Apply these optimizations:
+
+- **Skip Phase 0** (project environment detection) — if the context includes a `toolchain`
+  JSON block with runner/type_check/lint/test/build commands, use those directly.
+  If a plan Metadata table is present, plan commands still take precedence.
+- **Skip CLAUDE.md reading** in Phase 1 — already loaded by parent session.
+- **Phase 1 (Load Plan)**: If no plan file path in `{ARGS}`, check context files for
+  plan content — the multi-agents planner may have passed it inline.
+
+All other phases (implementation, validation loops, reporting) run unchanged.
+
+---
+
 ## Mission
 
 Execute the plan end-to-end with rigorous self-validation. You are autonomous.
