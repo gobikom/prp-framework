@@ -5,6 +5,22 @@ metadata:
   short-description: Review pull request
 ---
 
+## Agent Mode Detection
+
+If your input context contains `[WORKSPACE CONTEXT]` (injected by a multi-agents framework),
+you are running as a sub-agent. Apply these optimizations:
+
+- **Skip Phase 1 context extraction** if a `pr-context-*.md` file path is provided in
+  the context files — use it directly (the upstream commit_pr agent already gathered this).
+- **Skip CLAUDE.md reading** — already loaded by parent session.
+- **Skip PR metadata fetch** if PR number and diff are available in context files.
+
+All review passes (code, security, deps, docs, tests, etc.) run unchanged —
+these are where quality comes from.
+
+---
+
+
 # PRP Review — Comprehensive PR Code Review
 
 ## Input
@@ -209,21 +225,6 @@ If validation fails, verdict is at least NEEDS FIXES.
 Include this frontmatter at the top of the review file:
 
 ```yaml
----
-
-## Agent Mode Detection
-
-If your input context contains `[WORKSPACE CONTEXT]` (injected by a multi-agents framework),
-you are running as a sub-agent. Apply these optimizations:
-
-- **Skip Phase 1 context extraction** if a `pr-context-*.md` file path is provided in
-  the context files — use it directly (the upstream commit_pr agent already gathered this).
-- **Skip CLAUDE.md reading** — already loaded by parent session.
-- **Skip PR metadata fetch** if PR number and diff are available in context files.
-
-All review passes (code, security, deps, docs, tests, etc.) run unchanged —
-these are where quality comes from.
-
 ---
 
 pr: {NUMBER}

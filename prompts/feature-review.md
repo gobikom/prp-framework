@@ -21,6 +21,20 @@ Perform a comprehensive, senior-engineer-level review of a package or folder to:
 
 ---
 
+## Agent Mode Detection
+
+If your input context contains `[WORKSPACE CONTEXT]` (injected by a multi-agents framework),
+you are running as a sub-agent. Apply these optimizations:
+
+- **Skip CLAUDE.md reading** — already loaded by parent session.
+- **Skip directory discovery** — the parent agent already explored the codebase.
+- **Skip PR context extraction** if a `pr-context-*.md` file is provided in context files.
+
+All review passes and analysis phases run unchanged — these are where quality comes from.
+
+---
+
+
 ## Phase 1: PARSE - Understand Input
 
 ### 1.1 Parse Arguments

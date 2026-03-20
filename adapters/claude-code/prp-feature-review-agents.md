@@ -3,6 +3,20 @@ description: Comprehensive feature review using specialized agents - code qualit
 argument-hint: "<package-path> [--focus code|product|perf|security|a11y|deps|obs|all] [--quick]"
 ---
 
+## Agent Mode Detection
+
+If your input context contains `[WORKSPACE CONTEXT]` (injected by a multi-agents framework),
+you are running as a sub-agent. Apply these optimizations:
+
+- **Skip CLAUDE.md reading** — already loaded by parent session.
+- **Skip directory discovery** — the parent agent already explored the codebase.
+- **Skip PR context extraction** if a `pr-context-*.md` file is provided in context files.
+
+All review passes and analysis phases run unchanged — these are where quality comes from.
+
+---
+
+
 # Feature Review with Specialized Agents
 
 Run a multi-agent review on a package or folder, with each agent focusing on a specific aspect of quality.
