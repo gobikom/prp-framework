@@ -4,6 +4,22 @@
 
 ---
 
+## Agent Mode Detection
+
+If your input context contains `[WORKSPACE CONTEXT]` (injected by a multi-agents framework),
+you are running as a sub-agent. Apply these optimizations:
+
+- **Skip Phase 0** (toolchain detection) — if the context includes a `toolchain` JSON
+  block with runner/type_check/lint/test/build commands, use those directly.
+- **Skip CLAUDE.md reading** — already loaded by parent session.
+- **Phase 1 (Load Review Artifact)**: Check context files for the review artifact path
+  instead of searching the filesystem.
+
+All other phases (fix application, validation loops) run unchanged.
+
+---
+
+
 ## Mission
 
 Apply all fixable issues found by the Review workflow. Load the review artifact, fix each issue in priority order, validate, push to the PR branch, and post a summary.
