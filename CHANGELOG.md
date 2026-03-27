@@ -33,7 +33,21 @@ Every major version release MUST include a `docs/migration/vX.0-to-vY.0.md` file
 
 ## [Unreleased]
 
-_No unreleased changes._
+### Changed
+- **Upgrade all adapter `review` commands to multi-pass parity** — All 5 adapters (Claude Code, Codex, OpenCode, Gemini CLI, Antigravity) now have equivalent review depth:
+  - Phase 0.5: Incremental Review with finding merge logic (Resolved/Remaining/New)
+  - Phase 1.5: Large PR Strategy with 4-tier risk categorization and coverage map
+  - Conditional Pass Dispatch: auto-detect file types for accessibility and performance passes
+  - 11 review passes (added Performance + Accessibility) with detailed "Do NOT report" guidance
+  - Result Deduplication with before/after examples
+  - Review Metrics (JSONL + aggregate summary via `--metrics` flag)
+  - Context file template, Implementation Report update template, PRD update
+  - Workflow Integration, Critical Reminders, Success Criteria sections
+  - Claude Code `prp-review-agents.md`: added Per-File Checklist, Issue Severity Definitions, PRD Update, Critical Reminders, Success Criteria (775 → 846 lines)
+  - Codex `prp-review/SKILL.md`: full rewrite (307 → 876 lines)
+  - OpenCode `review.md`: full rewrite (205 → 874 lines)
+  - Antigravity `prp-review.md`: full rewrite (201 → 873 lines)
+  - Gemini `review.toml`: full rewrite (154 → 655 lines)
 
 ---
 

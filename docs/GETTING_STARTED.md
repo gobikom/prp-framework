@@ -147,10 +147,12 @@ PRP Framework มี 19 core commands ใน 4 หมวดหมู่:
 
 ```
 Development:  prd, design, plan, implement, commit, pr
-Review:       review, review-fix, review-agents, feature-review, feature-review-agents
+Review:       review, review-fix, review-agents*, feature-review, feature-review-agents*
 Debug/Issue:  debug, issue-investigate, issue-fix
 Automation:   ralph, ralph-cancel, rollback, cleanup, run-all
 ```
+
+> \* `review-agents` และ `feature-review-agents` เป็น Claude Code exclusive (ใช้ multi-agent dispatch via Task tool) — adapters อื่นใช้ `review` ซึ่งเป็น multi-pass sequential ที่มี feature parity เทียบเท่า
 
 **Claude Code:**
 ```bash

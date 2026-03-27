@@ -98,7 +98,7 @@ $prp-review-fix 25
 
 - **Skills Storage** -- commands อยู่ใน `.codex/skills/prp-*/SKILL.md`
 - **Sequential Execution** -- ไม่มี parallel agents (ต่างจาก Claude Code)
-- **No Multi-Agent Review** -- ใช้ `$prp-review` แทน `review-agents`
+- **Multi-Pass Review** -- ใช้ `$prp-review` (11 passes, feature-equivalent กับ `review-agents`) แทน multi-agent dispatch
 - **No Feature Review Agents** -- ใช้ `$prp-feature-review` (single pass)
 - **Full Prompt Parity** -- canonical prompts เหมือนกันทุก tool, ต่างแค่ wrapper format
 - **Artifact Naming** -- ใช้ `-codex` suffix (e.g., `jwt-prd-codex.md`)
@@ -108,7 +108,7 @@ $prp-review-fix 25
 | Feature | Claude Code | Codex |
 |---------|------------|-------|
 | Commands | 19 | 17 |
-| Parallel agents | review-agents, feature-review-agents | ไม่มี |
+| Review architecture | Multi-agent (dispatch via Task tool) | Multi-pass (sequential, same quality) |
 | Command format | `/prp-core:command` | `$prp-command` |
 | Storage | `.claude/commands/` | `.codex/skills/` |
 | Hooks | Ralph stop hook | ไม่มี |

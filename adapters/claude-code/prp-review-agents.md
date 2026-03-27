@@ -262,6 +262,33 @@ Suggested splits based on file categories:
 
 ---
 
+## Per-File Review Checklist
+
+For EVERY changed file, each agent should check against these 7 categories (code-reviewer covers all; specialist agents cover their domain):
+
+- **Correctness**: Logic errors, edge cases, error handling
+- **Type Safety**: No implicit `any`, return types declared, type guards
+- **Pattern Compliance**: Codebase patterns, naming conventions, imports
+- **Security**: Input validation, secrets exposure, injection vulnerabilities
+- **Performance**: N+1 queries, unnecessary async, memory leaks
+- **Completeness**: Tests for new code, docs updated, TODOs addressed
+- **Maintainability**: Readability, over/under-engineering, magic numbers
+
+## Issue Severity Definitions
+
+Agents use different severity systems internally. Map all findings to these unified levels for result aggregation:
+
+| Level | Criteria | Examples | Aggregation Category |
+|-------|----------|----------|---------------------|
+| Critical | Blocking — must fix, security/data risk | Security vulnerabilities, data loss, crashes | **Critical** |
+| High | Should fix before merge — correctness/safety | Type safety violations, logic errors, silent failures | **Important** |
+| Medium | Should consider — quality/consistency | Pattern inconsistencies, missing edge cases | **Suggestions** |
+| Low | Nice to have — polish | Style preferences, minor optimizations | **Suggestions** |
+
+**Implementation report check**: Documented deviations are intentional — only flag **undocumented** deviations.
+
+---
+
 ## Review Aspects
 
 | Aspect | Agent | When to Run |
@@ -634,6 +661,18 @@ ls -t .prp-output/reports/*-report*.md 2>/dev/null | head -1
 
 ---
 
+## Update PRD (if applicable)
+
+If implementation report references a Source PRD:
+
+| Verdict | PRD Update |
+|---------|------------|
+| READY TO MERGE | Change phase status from `complete` to `reviewed` |
+| NEEDS FIXES | Add note: "Review: {N} issues to address" |
+| CRITICAL ISSUES | Add note: "Blocked: {brief reason}" |
+
+---
+
 ## Review Metrics Collection
 
 ### Append Metrics After Every Review
@@ -773,3 +812,35 @@ If no metrics file exists: "No review metrics found. Metrics will be collected a
 - Review metrics appended to `.prp-output/reviews/review-metrics.jsonl` after every review
 - docs-impact-agent commits and pushes doc updates to PR branch
 - code-simplifier commits and pushes improvements to PR branch
+
+---
+
+## Critical Reminders
+
+1. **Understand before judging.** Read full context, not just the diff.
+2. **Be specific.** Include file:line references and concrete fix suggestions.
+3. **Prioritize.** Use severity levels honestly — not everything is critical.
+4. **Be constructive.** Offer solutions, not just problems.
+5. **Acknowledge good work.** If something is done well, say so.
+6. **Run validation.** Don't skip automated checks.
+7. **Check patterns.** Read existing similar code to understand expectations.
+8. **Think about edge cases.** What happens with null, empty, very large, concurrent?
+9. **Check implementation report.** Documented deviations are intentional, not issues.
+
+---
+
+## Success Criteria
+
+- CONTEXT_GATHERED: PR metadata, diff, artifacts reviewed
+- CODE_REVIEWED: All changed files analyzed with per-file checklist
+- SECURITY_REVIEWED: OWASP Top 10 checked
+- DEPS_ANALYZED: CVEs, outdated packages, licenses checked
+- VALIDATION_RUN: Type check, lint, tests, build executed
+- ISSUES_DEDUPLICATED: Duplicate findings merged across agents
+- CONDITIONAL_DISPATCHED: Specialist agents triggered by file types (accessibility, performance)
+- ISSUES_CATEGORIZED: Findings organized by unified severity levels
+- PR_UPDATED: Formal review posted to GitHub (approve/request-changes)
+- METRICS_COLLECTED: Review metrics appended to JSONL
+- RECOMMENDATION_CLEAR: Verdict with rationale
+- CHECKLIST_APPLIED: Per-file review checklist used for every changed file
+- PRD_UPDATED: If PRD exists, phase status updated based on verdict
