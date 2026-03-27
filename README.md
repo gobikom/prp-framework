@@ -14,7 +14,7 @@ PRP (Plan-Review-PR) Framework is a portable, tool-agnostic workflow system for 
 ✅ **Complete Workflows** - PRD → Design → Plan → Implement → Review → Commit → PR
 ✅ **Resilient Automation** - State management with `--resume`, review-fix loops, coverage enforcement (90%)
 ✅ **Quality Built-in** - TDD approach, conditional design docs, pre-commit checks, security/performance validation
-✅ **100% Workflow Parity** - All tools follow the same workflow steps (Claude Code is the full implementation with 19 commands, 30 agents, hooks, and skills; other adapters are optimized lite versions)
+✅ **100% Workflow Parity** - All tools follow the same workflow steps with equivalent review depth (11-pass review across all adapters). Claude Code adds 19 commands, 30 agents, hooks, and skills; other adapters use multi-pass architecture for the same quality.
 ✅ **Claude Code Advanced** - 30 specialized agents, skills, hooks for enhanced workflows
 ✅ **Domain Extensions** - Marketing automation and AI Bot development command packs
 
@@ -91,7 +91,7 @@ cp -r prp-framework/* my-project/
 | **Plan** | Implementation plan with validation | Starting a new feature |
 | **Implement** | Execute plan with validation loops | Have a plan, ready to code |
 | **Ralph** | Autonomous loop until all validations pass | Complex features where first-pass impl may fail |
-| **Review** | Multi-pass PR code review | PR created, need review |
+| **Review** | Multi-pass PR code review (11 passes: code, security, deps, docs, tests, comments, errors, types, perf, a11y, simplify) | PR created, need review |
 | **Review Fix** | Auto-fix all review issues to PR branch | After review, fix critical/high/medium/suggestions |
 | **Commit** | Smart staging + conventional commit | Code ready to commit |
 | **PR** | Create pull request | Ready to push |
