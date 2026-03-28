@@ -222,7 +222,7 @@ prp-framework/
 │   ├── opencode/               # OpenCode commands (16 commands)
 │   ├── gemini/                 # Gemini commands (16 commands)
 │   ├── antigravity/            # Antigravity workflows (16 workflows)
-│   └── generic/                # AGENTS.md for Kimi/others
+│   └── generic/                # AGENTS.md for Kimi and other AI tools (natural language)
 ├── docs/                       # Documentation
 │   └── SCRIPTS-REFERENCE.md   # Detailed script docs
 ├── scripts/                    # Installation & utility scripts

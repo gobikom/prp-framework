@@ -25,6 +25,27 @@ fi
 
 echo "Framework directory: $FRAMEWORK_DIR"
 echo "Project directory: $PROJECT_DIR"
+
+# Detect version from CHANGELOG
+CURRENT_VERSION=$(grep -oP '## \[\K[0-9]+\.[0-9]+\.[0-9]+' "$FRAMEWORK_DIR/CHANGELOG.md" 2>/dev/null | head -1)
+if [ -n "$CURRENT_VERSION" ]; then
+    echo "Framework version: v${CURRENT_VERSION}"
+fi
+
+# Check for previous install version
+PREV_VERSION=""
+if [ -f "$PROJECT_DIR/.claude/prp-version" ]; then
+    PREV_VERSION=$(cat "$PROJECT_DIR/.claude/prp-version" 2>/dev/null)
+fi
+
+if [ -n "$PREV_VERSION" ] && [ "$PREV_VERSION" != "$CURRENT_VERSION" ] && [ -n "$CURRENT_VERSION" ]; then
+    echo -e "${YELLOW}Upgrading from v${PREV_VERSION} → v${CURRENT_VERSION}${NC}"
+    # Check for migration guide
+    MIGRATION_FILE="$FRAMEWORK_DIR/docs/migration/v${PREV_VERSION%%.*}.${PREV_VERSION#*.}-to-v${CURRENT_VERSION}.md"
+    if [ -f "$MIGRATION_FILE" ]; then
+        echo -e "  Migration guide: ${GREEN}${MIGRATION_FILE}${NC}"
+    fi
+fi
 echo ""
 
 # Auto-recover: restore agent/hook files if a previous buggy install converted
@@ -394,3 +415,9 @@ printf "    %-14s %s\n" "Kimi/Generic:" "Use natural language (see AGENTS.md)"
 echo ""
 echo "Documentation: $FRAMEWORK_DIR/docs/"
 echo ""
+
+# Save installed version for upgrade detection
+if [ -n "$CURRENT_VERSION" ]; then
+    mkdir -p "$PROJECT_DIR/.claude"
+    echo "$CURRENT_VERSION" > "$PROJECT_DIR/.claude/prp-version"
+fi
