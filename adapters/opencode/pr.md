@@ -1,5 +1,5 @@
 ---
-description: Create a pull request from current branch with proper title, body, linked issues, and implementation report enrichment. Uses PR templates if available.
+description: "Create a pull request from current branch with proper title, body, linked issues, and implementation report enrichment. Uses PR templates if available."
 agent: build
 ---
 

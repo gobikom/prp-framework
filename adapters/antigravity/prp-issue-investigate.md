@@ -1,5 +1,5 @@
 ---
-description: Investigate a GitHub issue or problem - analyze codebase, create plan, post to GitHub
+description: "Investigate a GitHub issue or problem - analyze codebase, create plan, post to GitHub"
 ---
 
 ---

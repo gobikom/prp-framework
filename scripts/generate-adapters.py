@@ -13,17 +13,11 @@ Usage:
 """
 
 import argparse
-import os
 import re
 import sys
 from pathlib import Path
 
 import yaml
-
-try:
-    import tomli_w
-except ImportError:
-    tomli_w = None
 
 
 # ---------------------------------------------------------------------------
@@ -37,15 +31,51 @@ OVERLAYS_DIR = PROMPTS_DIR / "overlays"
 ADAPTERS_DIR = ROOT_DIR / "adapters"
 CONFIG_PATH = ROOT_DIR / "adapters.yml"
 
+# Required top-level keys in adapters.yml
+REQUIRED_CONFIG_KEYS = {"adapters", "commands"}
+REQUIRED_ADAPTER_KEYS = {"file_pattern", "format", "args_placeholder",
+                         "tool_command_template", "artifact_suffix"}
+REQUIRED_COMMAND_KEYS = {"description"}
+
 
 # ---------------------------------------------------------------------------
 # Config loading
 # ---------------------------------------------------------------------------
 
 def load_config() -> dict:
-    """Load adapters.yml config."""
-    with open(CONFIG_PATH) as f:
-        return yaml.safe_load(f)
+    """Load and validate adapters.yml config."""
+    if not CONFIG_PATH.exists():
+        print(f"Error: Config file not found: {CONFIG_PATH}", file=sys.stderr)
+        sys.exit(1)
+
+    try:
+        with open(CONFIG_PATH) as f:
+            config = yaml.safe_load(f)
+    except yaml.YAMLError as e:
+        print(f"Error: Invalid YAML in {CONFIG_PATH}: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    # Validate top-level structure
+    missing = REQUIRED_CONFIG_KEYS - set(config.keys())
+    if missing:
+        print(f"Error: Missing top-level keys in adapters.yml: {missing}", file=sys.stderr)
+        sys.exit(1)
+
+    # Validate adapter entries
+    for name, cfg in config["adapters"].items():
+        missing_keys = REQUIRED_ADAPTER_KEYS - set(cfg.keys())
+        if missing_keys:
+            print(f"Error: Adapter '{name}' missing keys: {missing_keys}", file=sys.stderr)
+            sys.exit(1)
+
+    # Validate command entries
+    for name, cfg in config["commands"].items():
+        missing_keys = REQUIRED_COMMAND_KEYS - set(cfg.keys())
+        if missing_keys:
+            print(f"Error: Command '{name}' missing keys: {missing_keys}", file=sys.stderr)
+            sys.exit(1)
+
+    return config
 
 
 # ---------------------------------------------------------------------------
@@ -151,44 +181,57 @@ def substitute_placeholders(content: str, adapter_cfg: dict, cmd_name: str) -> s
 
 
 # ---------------------------------------------------------------------------
+# YAML value quoting
+# ---------------------------------------------------------------------------
+
+def yaml_quote(value: str) -> str:
+    """Quote a YAML value if it contains special characters."""
+    if not value:
+        return '""'
+    # Characters that require quoting in YAML
+    needs_quoting = any(c in value for c in ':#{}[]|>&*!?,\'"') or value.startswith(("-", " "))
+    if needs_quoting:
+        # Use double quotes, escaping any internal double quotes
+        escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+        return f'"{escaped}"'
+    return value
+
+
+# ---------------------------------------------------------------------------
 # Frontmatter generation
 # ---------------------------------------------------------------------------
 
+def get_description(adapter_name: str, cmd_cfg: dict) -> str:
+    """Get the description for a command, checking overrides first."""
+    desc_overrides = cmd_cfg.get("description-overrides", {})
+    desc_map = cmd_cfg.get("description", {})
+
+    if adapter_name in desc_overrides:
+        return desc_overrides[adapter_name]
+    if adapter_name in desc_map:
+        return desc_map[adapter_name]
+    return desc_map.get("default", "")
+
+
 def generate_frontmatter_md(adapter_name: str, cmd_name: str, cmd_cfg: dict,
                              adapter_cfg: dict) -> str:
-    """Generate YAML frontmatter for Markdown adapters."""
+    """Generate YAML frontmatter for Markdown adapters (non-codex)."""
     fields = adapter_cfg.get("frontmatter", {}).get("fields", [])
     if not fields:
         return ""
 
     lines = ["---"]
-
-    # Get description (check overrides first, then adapter-specific, then default)
-    desc_overrides = cmd_cfg.get("description-overrides", {})
-    desc_map = cmd_cfg.get("description", {})
-
-    if adapter_name in desc_overrides:
-        desc = desc_overrides[adapter_name]
-    elif adapter_name in desc_map:
-        desc = desc_map[adapter_name]
-    else:
-        desc = desc_map.get("default", "")
+    desc = get_description(adapter_name, cmd_cfg)
 
     for field in fields:
         if field == "description":
-            lines.append(f"description: {desc}")
+            lines.append(f"description: {yaml_quote(desc)}")
         elif field == "argument-hint":
             hint = cmd_cfg.get("argument-hint", "")
             if hint:
-                lines.append(f"argument-hint: {hint}")
+                lines.append(f"argument-hint: {yaml_quote(hint)}")
         elif field == "name":
             lines.append(f"name: prp-{cmd_name}")
-        elif field == "metadata":
-            short = cmd_cfg.get("codex-short-description", cmd_name)
-            lines.append(f"description: {desc}")
-            # For codex, description is already added, need to restructure
-            # Codex format: name, description, metadata.short-description
-            pass
         elif field == "agent":
             agent = cmd_cfg.get("opencode-agent", "plan")
             lines.append(f"agent: {agent}")
@@ -199,22 +242,15 @@ def generate_frontmatter_md(adapter_name: str, cmd_name: str, cmd_cfg: dict,
 
 def generate_codex_frontmatter(cmd_name: str, cmd_cfg: dict, adapter_cfg: dict) -> str:
     """Generate Codex-specific frontmatter with metadata block."""
-    desc_overrides = cmd_cfg.get("description-overrides", {})
-    desc_map = cmd_cfg.get("description", {})
-
-    if "codex" in desc_overrides:
-        desc = desc_overrides["codex"]
-    else:
-        desc = desc_map.get("default", "")
-
+    desc = get_description("codex", cmd_cfg)
     short = cmd_cfg.get("codex-short-description", cmd_name)
 
     lines = [
         "---",
         f"name: prp-{cmd_name}",
-        f"description: {desc}",
+        f"description: {yaml_quote(desc)}",
         "metadata:",
-        f"  short-description: {short}",
+        f"  short-description: {yaml_quote(short)}",
         "---",
     ]
     return "\n".join(lines)
@@ -227,16 +263,7 @@ def generate_codex_frontmatter(cmd_name: str, cmd_cfg: dict, adapter_cfg: dict) 
 def generate_alias_content(cmd_name: str, cmd_cfg: dict, adapter_name: str) -> str:
     """Generate content for alias commands."""
     alias_of = cmd_cfg.get("alias-of", "")
-
-    desc_overrides = cmd_cfg.get("description-overrides", {})
-    desc_map = cmd_cfg.get("description", {})
-
-    if adapter_name in desc_overrides:
-        desc = desc_overrides[adapter_name]
-    elif adapter_name in desc_map:
-        desc = desc_map[adapter_name]
-    else:
-        desc = desc_map.get("default", "")
+    desc = get_description(adapter_name, cmd_cfg)
 
     return f"""This is an alias for `prp-{alias_of}`.
 
@@ -283,12 +310,9 @@ def wrap_with_xml(content: str, overlay: dict | None) -> str:
         parts.append(f"<context>\n{sections['context']}\n</context>")
 
     # <process> wraps the main content
-    # Prepend any wrap_before content
     body = content
     if "wrap_before" in sections:
         body = sections["wrap_before"] + "\n\n" + body
-
-    # Append any wrap_after content
     if "wrap_after" in sections:
         body = body + "\n\n" + sections["wrap_after"]
 
@@ -297,8 +321,7 @@ def wrap_with_xml(content: str, overlay: dict | None) -> str:
     # Any additional sections from overlay (output, verification, etc.)
     for key in ["output", "verification", "success_criteria"]:
         if key in sections:
-            tag = key if "_" not in key else key
-            parts.append(f"<{tag}>\n{sections[key]}\n</{tag}>")
+            parts.append(f"<{key}>\n{sections[key]}\n</{key}>")
 
     return "\n\n".join(parts)
 
@@ -307,12 +330,33 @@ def wrap_with_xml(content: str, overlay: dict | None) -> str:
 # TOML generation (Gemini)
 # ---------------------------------------------------------------------------
 
+def toml_escape_string(value: str) -> str:
+    """Escape a string for use in a TOML basic string (double-quoted)."""
+    return value.replace("\\", "\\\\").replace('"', '\\"')
+
+
 def generate_toml_content(description: str, prompt_body: str) -> str:
     """Generate TOML file content for Gemini adapter."""
+    safe_desc = toml_escape_string(description)
+    # In TOML multi-line basic strings ("""), backslashes must be escaped
+    safe_body = prompt_body.replace("\\", "\\\\")
     # Escape triple quotes in content if present
-    safe_body = prompt_body.replace('"""', '\\"\\"\\"')
+    safe_body = safe_body.replace('"""', '\\"\\"\\"')
 
-    return f'description = "{description}"\nprompt = """\n{safe_body}\n"""\n'
+    return f'description = "{safe_desc}"\nprompt = """\n{safe_body}\n"""\n'
+
+
+# ---------------------------------------------------------------------------
+# Path safety
+# ---------------------------------------------------------------------------
+
+def validate_output_path(out_path: Path, adapter_dir: Path) -> bool:
+    """Ensure output path is inside the adapter directory (prevent path traversal)."""
+    try:
+        out_path.resolve().relative_to(adapter_dir.resolve())
+        return True
+    except ValueError:
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -343,20 +387,12 @@ def generate_adapter_file(adapter_name: str, cmd_name: str, config: dict) -> tup
     body = substitute_placeholders(body, adapter_cfg, cmd_name)
 
     # Get description
-    desc_overrides = cmd_cfg.get("description-overrides", {})
-    desc_map = cmd_cfg.get("description", {})
-    if adapter_name in desc_overrides:
-        desc = desc_overrides[adapter_name]
-    elif adapter_name in desc_map:
-        desc = desc_map[adapter_name]
-    else:
-        desc = desc_map.get("default", "")
+    desc = get_description(adapter_name, cmd_cfg)
 
     # Format-specific output
     fmt = adapter_cfg.get("format", "md")
 
     if fmt == "toml":
-        # Gemini TOML format
         content = generate_toml_content(desc, body)
     else:
         # Markdown format — build frontmatter + body
@@ -374,8 +410,7 @@ def generate_adapter_file(adapter_name: str, cmd_name: str, config: dict) -> tup
         if adapter_cfg.get("wrapper") == "xml" and not is_alias:
             if overlay:
                 body = wrap_with_xml(body, overlay)
-            # If no overlay exists, still wrap in basic <process> tags
-            elif not is_alias:
+            else:
                 body = f"<process>\n{body}\n</process>"
 
         content = frontmatter + "\n" + body if frontmatter else body
@@ -416,6 +451,12 @@ def generate_all(config: dict, adapter_filter: str | None = None,
 
             out_path = adapter_dir / rel_path
 
+            # Path traversal check
+            if not validate_output_path(out_path, adapter_dir):
+                print(f"  ERROR: Path traversal detected: {out_path}", file=sys.stderr)
+                stats["errors"] += 1
+                continue
+
             if dry_run:
                 print(f"  [DRY RUN] Would write: {out_path}")
                 stats["generated"] += 1
@@ -437,8 +478,12 @@ def generate_all(config: dict, adapter_filter: str | None = None,
             # Ensure parent directory exists (for codex prp-{name}/ dirs)
             out_path.parent.mkdir(parents=True, exist_ok=True)
 
-            out_path.write_text(content)
-            stats["generated"] += 1
+            try:
+                out_path.write_text(content)
+                stats["generated"] += 1
+            except OSError as e:
+                print(f"  ERROR: Failed to write {out_path}: {e}", file=sys.stderr)
+                stats["errors"] += 1
 
     return stats
 
@@ -468,8 +513,8 @@ def main():
     config = load_config()
 
     if args.adapter and args.adapter not in config["adapters"]:
-        print(f"Error: Unknown adapter '{args.adapter}'")
-        print(f"Available: {', '.join(config['adapters'].keys())}")
+        print(f"Error: Unknown adapter '{args.adapter}'", file=sys.stderr)
+        print(f"Available: {', '.join(config['adapters'].keys())}", file=sys.stderr)
         sys.exit(1)
 
     stats = generate_all(

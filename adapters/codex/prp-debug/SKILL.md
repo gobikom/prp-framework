@@ -1,6 +1,6 @@
 ---
 name: prp-debug
-description: Root cause analysis using the 5 Whys methodology — finds the actual fixable code, not symptoms. Produces evidence-backed RCA report with fix specification.
+description: "Root cause analysis using the 5 Whys methodology — finds the actual fixable code, not symptoms. Produces evidence-backed RCA report with fix specification."
 metadata:
   short-description: Root cause analysis
 ---

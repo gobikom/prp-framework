@@ -60,7 +60,7 @@ Perform a comprehensive, senior-engineer-level review of a package or folder to:
 ls -la {input-path} 2>/dev/null || echo "PATH_NOT_FOUND"
 
 # Get file count and structure
-find {input-path} -type f \( -name "*.ts" -o -name "*.tsx" -o -name "*.js" -o -name "*.jsx" \) | wc -l
+find {input-path} -type f \\( -name "*.ts" -o -name "*.tsx" -o -name "*.js" -o -name "*.jsx" \\) | wc -l
 ```
 
 **If path doesn't exist:** STOP and report error.
@@ -113,7 +113,7 @@ cat {input-path}/package.json 2>/dev/null | head -100
 
 **Key Files List:**
 ```bash
-find {input-path} -type f \( -name "*.ts" -o -name "*.tsx" \) | head -100
+find {input-path} -type f \\( -name "*.ts" -o -name "*.tsx" \\) | head -100
 ```
 
 **README:**

@@ -1,6 +1,6 @@
 ---
-description: Implement a fix from investigation artifact - code changes, PR, and self-review
-argument-hint: <issue-number|artifact-path>
+description: "Implement a fix from investigation artifact - code changes, PR, and self-review"
+argument-hint: "<issue-number|artifact-path>"
 ---
 <process>
 

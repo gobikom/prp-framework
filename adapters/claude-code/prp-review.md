@@ -1,6 +1,6 @@
 ---
-description: Comprehensive PR code review - checks diff, patterns, runs validation, comments on PR
-argument-hint: <pr-number|pr-url> [--approve|--request-changes]
+description: "Comprehensive PR code review - checks diff, patterns, runs validation, comments on PR"
+argument-hint: "<pr-number|pr-url> [--approve|--request-changes]"
 ---
 <process>
 

@@ -248,12 +248,12 @@ Write this structure to the artifact file.
 
 | Metric     | Value                         | Reasoning                                                                |
 | ---------- | ----------------------------- | ------------------------------------------------------------------------ |
-| Severity   | {CRITICAL\|HIGH\|MEDIUM\|LOW} | {Why this severity? Based on user impact, workarounds, scope of failure} |
-| Complexity | {LOW\|MEDIUM\|HIGH}           | {Why this complexity? Based on files affected, integration points, risk} |
-| Confidence | {HIGH\|MEDIUM\|LOW}           | {Why this confidence? Based on evidence quality, unknowns, assumptions}  |
+| Severity   | {CRITICAL\\|HIGH\\|MEDIUM\\|LOW} | {Why this severity? Based on user impact, workarounds, scope of failure} |
+| Complexity | {LOW\\|MEDIUM\\|HIGH}           | {Why this complexity? Based on files affected, integration points, risk} |
+| Confidence | {HIGH\\|MEDIUM\\|LOW}           | {Why this confidence? Based on evidence quality, unknowns, assumptions}  |
 
 <!-- For non-BUG types, replace Severity row with Priority:
-| Priority | {HIGH\|MEDIUM\|LOW} | {Why this priority? Based on user value, blocking status, frequency} |
+| Priority | {HIGH\\|MEDIUM\\|LOW} | {Why this priority? Based on user value, blocking status, frequency} |
 -->
 
 ---
@@ -535,8 +535,8 @@ EOF
 | Metric | Value | Reasoning |
 |--------|-------|-----------|
 | {Severity or Priority} | {value} | {why - based on investigation} |
-| Complexity | {LOW\|MEDIUM\|HIGH} | {why - based on files/integration/risk} |
-| Confidence | {HIGH\|MEDIUM\|LOW} | {why - based on evidence/unknowns} |
+| Complexity | {LOW\\|MEDIUM\\|HIGH} | {why - based on files/integration/risk} |
+| Confidence | {HIGH\\|MEDIUM\\|LOW} | {why - based on evidence/unknowns} |
 
 ### Key Findings
 

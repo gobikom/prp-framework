@@ -1,5 +1,5 @@
 ---
-description: Multi-pass feature review — alias for feature-review which already includes comprehensive quality, security, performance, and product analysis.
+description: "Multi-pass feature review — alias for feature-review which already includes comprehensive quality, security, performance, and product analysis."
 agent: plan
 ---
 This is an alias for `prp-feature-review`.

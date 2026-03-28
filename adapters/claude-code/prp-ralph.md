@@ -1,6 +1,6 @@
 ---
 description: Start autonomous Ralph loop to execute PRP plan until all validations pass
-argument-hint: <plan.md|prd.md> [--max-iterations N]
+argument-hint: "<plan.md|prd.md> [--max-iterations N]"
 ---
 <process>
 

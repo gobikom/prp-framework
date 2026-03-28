@@ -222,9 +222,9 @@ Read the template and fill in each section based on:
 ### 4.2 If No Template — Use Default Format
 
 ```bash
-gh pr create \
-  --title "{title}" \
-  --base "{base-branch}" \
+gh pr create \\
+  --title "{title}" \\
+  --base "{base-branch}" \\
   --body "$(cat <<'EOF'
 ## Summary
 

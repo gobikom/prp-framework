@@ -1,5 +1,5 @@
 ---
-description: Comprehensive feature & code review — analyzes package/folder for quality, product ideas, performance, and security.
+description: "Comprehensive feature & code review — analyzes package/folder for quality, product ideas, performance, and security."
 agent: plan
 ---
 

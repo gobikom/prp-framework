@@ -198,7 +198,7 @@ bun run build || npm run build
 
 ```bash
 # Get changed source files (exclude tests)
-CHANGED_FILES=$(git diff --name-only origin/main...HEAD | grep -E '\.(ts|tsx|js|jsx|py|rs|go)$' | grep -v -E '(test|spec|__test__)')
+CHANGED_FILES=$(git diff --name-only origin/main...HEAD | grep -E '\\.(ts|tsx|js|jsx|py|rs|go)$' | grep -v -E '(test|spec|__test__)')
 ```
 
 Run coverage tool (auto-detect: jest `--coverage`, vitest `--coverage`, pytest `--cov`, `go test -cover`, `cargo tarpaulin`).

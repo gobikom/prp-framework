@@ -277,7 +277,7 @@ Common patterns:
 
 ```bash
 # Get list of changed source files (exclude tests themselves)
-CHANGED_FILES=$(git diff --name-only origin/main...HEAD | grep -E '\.(ts|tsx|js|jsx|py|rs|go)$' | grep -v -E '(test|spec|__test__)' )
+CHANGED_FILES=$(git diff --name-only origin/main...HEAD | grep -E '\\.(ts|tsx|js|jsx|py|rs|go)$' | grep -v -E '(test|spec|__test__)' )
 ```
 
 3. **Evaluate against threshold:**

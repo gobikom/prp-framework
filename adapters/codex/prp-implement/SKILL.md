@@ -1,6 +1,6 @@
 ---
 name: prp-implement
-description: Execute an implementation plan with rigorous validation loops — typecheck, lint, test, and build after every change. TDD approach with automatic failure recovery.
+description: "Execute an implementation plan with rigorous validation loops — typecheck, lint, test, and build after every change. TDD approach with automatic failure recovery."
 metadata:
   short-description: Execute implementation plan
 ---

@@ -1,6 +1,6 @@
 ---
 name: prp-issue-investigate
-description: Investigate a GitHub issue or problem - analyze codebase, create plan, post to GitHub
+description: "Investigate a GitHub issue or problem - analyze codebase, create plan, post to GitHub"
 metadata:
   short-description: issue investigate
 ---

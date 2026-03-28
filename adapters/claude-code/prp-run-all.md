@@ -1,6 +1,6 @@
 ---
-description: Orchestrate complete PRP workflow - plan, implement, commit, PR, and review in sequence with context passing
-argument-hint: "<feature-description>" or --prp-path <path/to/plan.md> [--fast] [--ralph] [--ralph-max-iter N] [--skip-review] [--no-pr] [--fix-severity <levels>] [--resume] [--no-interact] [--dry-run]
+description: "Orchestrate complete PRP workflow - plan, implement, commit, PR, and review in sequence with context passing"
+argument-hint: "\"<feature-description>\" or --prp-path <path/to/plan.md> [--fast] [--ralph] [--ralph-max-iter N] [--skip-review] [--no-pr] [--fix-severity <levels>] [--resume] [--no-interact] [--dry-run]"
 ---
 <process>
 ## Agent Mode Detection

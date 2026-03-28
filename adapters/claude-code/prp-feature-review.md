@@ -1,6 +1,6 @@
 ---
-description: Comprehensive feature & code review - analyzes package/folder for quality, product ideas, performance, and security
-argument-hint: <package-path> [--focus code|product|performance|security|all]
+description: "Comprehensive feature & code review - analyzes package/folder for quality, product ideas, performance, and security"
+argument-hint: "<package-path> [--focus code|product|performance|security|all]"
 ---
 <process>
 

@@ -1,5 +1,5 @@
 ---
-description: Implement a fix from investigation artifact — code changes, PR, and self-review.
+description: "Implement a fix from investigation artifact — code changes, PR, and self-review."
 ---
 
 

@@ -1,6 +1,6 @@
 ---
-description: Comprehensive PR review using specialized agents - security, dependencies, code quality, tests, errors, types, docs, and simplification
-argument-hint: "<pr-number> [aspects: comments|tests|errors|types|code|security|deps|docs|perf|a11y|simplify|all] [--since-last-review] [--metrics]"
+description: "Comprehensive PR review using specialized agents - security, dependencies, code quality, tests, errors, types, docs, and simplification"
+argument-hint: "\"<pr-number> [aspects: comments|tests|errors|types|code|security|deps|docs|perf|a11y|simplify|all] [--since-last-review] [--metrics]\""
 ---
 This is an alias for `prp-review`.
 

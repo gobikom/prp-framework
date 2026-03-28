@@ -1,6 +1,6 @@
 ---
-description: Fix all issues from PR review artifact - applies critical, high, medium, and suggestion fixes to the PR branch
-argument-hint: <pr-number|review-artifact-path> [--severity critical,high,medium,suggestion]
+description: "Fix all issues from PR review artifact - applies critical, high, medium, and suggestion fixes to the PR branch"
+argument-hint: "<pr-number|review-artifact-path> [--severity critical,high,medium,suggestion]"
 ---
 <process>
 

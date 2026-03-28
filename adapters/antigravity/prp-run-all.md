@@ -1,5 +1,5 @@
 ---
-description: Execute the complete PRP workflow end-to-end — plan, implement, commit, PR, review, and fix. Supports --fast, --ralph, --skip-plan, --skip-review, --no-pr, --resume, --no-interact, --dry-run, --fix-severity options.
+description: "Execute the complete PRP workflow end-to-end — plan, implement, commit, PR, review, and fix. Supports --fast, --ralph, --skip-plan, --skip-review, --no-pr, --resume, --no-interact, --dry-run, --fix-severity options."
 ---
 ## Agent Mode Detection
 

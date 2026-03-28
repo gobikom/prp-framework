@@ -42,17 +42,17 @@ Grep staged files for common debug artifacts:
 
 ```bash
 # TODO/FIXME comments (warning only)
-git diff --cached | grep -n "TODO\|FIXME"
+git diff --cached | grep -n "TODO\\|FIXME"
 
 # Debug statements (warning)
-git diff --cached | grep -n "console\.log\|console\.debug\|debugger\|pdb\.set_trace\|print("
+git diff --cached | grep -n "console\\.log\\|console\\.debug\\|debugger\\|pdb\\.set_trace\\|print("
 ```
 
 ### 0.3 Type safety check (TypeScript projects)
 
 ```bash
 # Scan for `any` type usage in staged .ts files (skip test files and .d.ts)
-git diff --cached -- '*.ts' ':!*.test.ts' ':!*.spec.ts' ':!*.d.ts' | grep -n ": any\|as any\|<any>"
+git diff --cached -- '*.ts' ':!*.test.ts' ':!*.spec.ts' ':!*.d.ts' | grep -n ": any\\|as any\\|<any>"
 ```
 
 ### 0.4 Quick validation (skip in run-all context)

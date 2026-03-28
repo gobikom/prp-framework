@@ -1,5 +1,5 @@
 ---
-description: Comprehensive multi-pass PR code review covering quality, security, dependencies, docs, tests, error handling, types, performance, accessibility, and simplification. Posts findings to GitHub.
+description: "Comprehensive multi-pass PR code review covering quality, security, dependencies, docs, tests, error handling, types, performance, accessibility, and simplification. Posts findings to GitHub."
 agent: plan
 ---
 

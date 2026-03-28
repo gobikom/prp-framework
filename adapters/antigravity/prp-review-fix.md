@@ -1,5 +1,5 @@
 ---
-description: Fix all issues from a PR review artifact — applies critical, high, medium, and suggestion fixes to the PR branch with validation loops and automatic failure recovery.
+description: "Fix all issues from a PR review artifact — applies critical, high, medium, and suggestion fixes to the PR branch with validation loops and automatic failure recovery."
 ---
 
 ## Agent Mode Detection

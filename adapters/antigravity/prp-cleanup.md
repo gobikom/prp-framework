@@ -1,5 +1,5 @@
 ---
-description: Post-merge cleanup — verify PR merged, archive artifacts, delete local/remote branches. Supports --all for batch cleanup, --dry-run for preview.
+description: "Post-merge cleanup — verify PR merged, archive artifacts, delete local/remote branches. Supports --all for batch cleanup, --dry-run for preview."
 ---
 ## Agent Mode Detection
 

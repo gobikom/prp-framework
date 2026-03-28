@@ -1,5 +1,5 @@
 ---
-description: Interactive PRD generator - problem-first, hypothesis-driven product spec
+description: "Interactive PRD generator - problem-first, hypothesis-driven product spec"
 ---
 ---
 

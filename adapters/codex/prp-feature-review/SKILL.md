@@ -1,6 +1,6 @@
 ---
 name: prp-feature-review
-description: Comprehensive feature & code review — analyzes package/folder for quality, product ideas, performance, and security.
+description: "Comprehensive feature & code review — analyzes package/folder for quality, product ideas, performance, and security."
 metadata:
   short-description: Feature code review
 ---

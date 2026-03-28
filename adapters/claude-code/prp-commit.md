@@ -1,6 +1,6 @@
 ---
 description: Quick commit with natural language file targeting
-argument-hint: [target description] (blank = all changes)
+argument-hint: "[target description] (blank = all changes)"
 ---
 <process>
 ## Agent Mode Detection

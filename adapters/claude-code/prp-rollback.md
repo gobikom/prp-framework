@@ -1,6 +1,6 @@
 ---
 description: Safely roll back implementation changes with git stash backup and restore
-argument-hint: [--soft | --hard] [--restore]
+argument-hint: "[--soft | --hard] [--restore]"
 ---
 <process>
 

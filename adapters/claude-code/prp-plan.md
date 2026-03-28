@@ -1,6 +1,6 @@
 ---
 description: Create comprehensive feature implementation plan with codebase analysis and research
-argument-hint: <feature description | path/to/prd.md> [--fast] [--no-interact]
+argument-hint: "<feature description | path/to/prd.md> [--fast] [--no-interact]"
 ---
 <objective>
 Transform "$ARGUMENTS" into a battle-tested implementation plan through systematic codebase exploration, pattern extraction, and strategic research.

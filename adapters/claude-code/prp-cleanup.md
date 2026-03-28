@@ -1,6 +1,6 @@
 ---
 description: Clean up branches and verify PR status after merge
-argument-hint: [branch-name] [--all] [--dry-run]
+argument-hint: "[branch-name] [--all] [--dry-run]"
 ---
 <process>
 ## Agent Mode Detection

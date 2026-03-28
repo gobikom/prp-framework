@@ -36,7 +36,7 @@ cd .prp && ./scripts/install.sh
 ### All Tests
 
 ```bash
-# Run every test suite (199 unit + 24 e2e = 223 tests)
+# Run every test suite
 bats tests/install/install.bats tests/run-all/state-file.bats tests/ralph/ralph-stop.bats \
      tests/scripts/scripts.bats tests/commands/structure.bats tests/adapters/parity.bats \
      tests/e2e/install-sandbox.bats tests/e2e/state-lifecycle.bats tests/e2e/scripts-sandbox.bats

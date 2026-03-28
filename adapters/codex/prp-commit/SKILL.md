@@ -1,6 +1,6 @@
 ---
 name: prp-commit
-description: Stage files with natural language targeting, pre-commit quality scan, plan-aware commit message, and conventional commit format.
+description: "Stage files with natural language targeting, pre-commit quality scan, plan-aware commit message, and conventional commit format."
 metadata:
   short-description: Smart git commit
 ---

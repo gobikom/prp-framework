@@ -1,6 +1,6 @@
 ---
-description: Deep root cause analysis - finds the actual cause, not just symptoms
-argument-hint: <issue|error|stacktrace> [--quick]
+description: "Deep root cause analysis - finds the actual cause, not just symptoms"
+argument-hint: "<issue|error|stacktrace> [--quick]"
 ---
 <process>
 

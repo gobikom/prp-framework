@@ -1,6 +1,6 @@
 ---
 description: Create a PR from current branch with unpushed commits
-argument-hint: [base-branch] [--no-interact] (default: main)
+argument-hint: "[base-branch] [--no-interact] (default: main)"
 ---
 <process>
 

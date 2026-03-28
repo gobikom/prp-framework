@@ -1,6 +1,6 @@
 ---
 name: prp-plan
-description: Create a comprehensive implementation plan by analyzing the codebase, discovering patterns, and producing a step-by-step actionable plan document.
+description: "Create a comprehensive implementation plan by analyzing the codebase, discovering patterns, and producing a step-by-step actionable plan document."
 metadata:
   short-description: Create implementation plan
 ---

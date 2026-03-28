@@ -1,6 +1,6 @@
 ---
-description: Comprehensive feature review using specialized agents - code quality, product ideas, performance, security, accessibility, dependencies, and observability
-argument-hint: "<package-path> [--focus code|product|perf|security|a11y|deps|obs|all] [--quick]"
+description: "Comprehensive feature review using specialized agents - code quality, product ideas, performance, security, accessibility, dependencies, and observability"
+argument-hint: "\"<package-path> [--focus code|product|perf|security|a11y|deps|obs|all] [--quick]\""
 ---
 This is an alias for `prp-feature-review`.
 

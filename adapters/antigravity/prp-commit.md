@@ -1,5 +1,5 @@
 ---
-description: Stage files with natural language targeting, pre-commit quality scan, plan-aware commit message, and conventional commit format.
+description: "Stage files with natural language targeting, pre-commit quality scan, plan-aware commit message, and conventional commit format."
 ---
 ## Agent Mode Detection
 
