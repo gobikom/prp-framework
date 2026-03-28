@@ -561,7 +561,7 @@ The context file (`.prp-output/reviews/feature-context-{package-name}.md`) serve
 
 1. **Avoid redundant reads** - Package structure, guidelines, and file inventory extracted once
 2. **Enable re-runs** - If context is recent, skip Phase 2 entirely
-3. **Support multi-agent** - Same context file used by `{TOOL}:feature-review-agents`
+3. **Support multi-agent** - Same context file can be reused by multi-agent review workflows
 
 ### Selective File Reading
 

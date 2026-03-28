@@ -176,13 +176,13 @@ TIMESTAMP=$(date +%Y%m%d-%H%M)
 ls .prp-output/prds/drafts/{kebab-case-name}-prd-agents*.md 2>/dev/null
 ```
 
-**Output path**: `.prp-output/prds/drafts/{kebab-case-name}-prd-agents-{TIMESTAMP}.md`
+**Output path**: `.prp-output/prds/drafts/{kebab-case-name}-prd-gemini-{TIMESTAMP}.md`
 
-Example: `auth-feature-prd-agents-20260210-1430.md`
+Example: `auth-feature-prd-gemini-20260210-1430.md`
 
 Create directory if needed: `mkdir -p .prp-output/prds/drafts`
 
-> **Note**: Uses `-agents` suffix to identify Claude Code PRD drafts (consistent with multi-agent review naming). Multiple tools can create draft PRDs in `drafts/` subdirectory for comparison. User manually merges best sections to final version at `.prp-output/prds/{name}-prd.md` (no suffix, root level) which Plan command will reference.
+> **Note**: Uses `-agents` suffix to identify which tool produced the PRD draft (consistent with multi-agent review naming). Multiple tools can create draft PRDs in `drafts/` subdirectory for comparison. User manually merges best sections to final version at `.prp-output/prds/{name}-prd.md` (no suffix, root level) which Plan command will reference.
 
 ### PRD Template
 
@@ -424,7 +424,7 @@ After generating, report:
 ```markdown
 ## PRD Created
 
-**File**: `.prp-output/prds/drafts/{name}-prd-agents-{TIMESTAMP}.md` (DRAFT)
+**File**: `.prp-output/prds/drafts/{name}-prd-gemini-{TIMESTAMP}.md` (DRAFT)
 
 ### Summary
 

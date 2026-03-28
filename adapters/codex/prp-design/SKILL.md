@@ -170,13 +170,13 @@ TIMESTAMP=$(date +%Y%m%d-%H%M)
 ls .prp-output/designs/{feature}-design-agents*.md 2>/dev/null
 ```
 
-**Output path**: `.prp-output/designs/{feature}-design-agents-{TIMESTAMP}.md`
+**Output path**: `.prp-output/designs/{feature}-design-codex-{TIMESTAMP}.md`
 
-Example: `auth-feature-design-agents-20260210-1430.md`
+Example: `auth-feature-design-codex-20260210-1430.md`
 
 Create directory: `mkdir -p .prp-output/designs`
 
-> **Note**: Uses `-agents` suffix to identify Claude Code design docs (consistent with multi-agent review naming). Multiple tools can create design docs with different tool suffixes for comparison.
+> **Note**: Uses `-agents` suffix to identify which tool produced the design doc (consistent with multi-agent review naming). Multiple tools can create design docs with different tool suffixes for comparison.
 
 ### Design Doc Template
 
@@ -419,7 +419,7 @@ Report:
 ```markdown
 ## Design Doc Created
 
-**File**: `.prp-output/designs/{name}-design-agents-{TIMESTAMP}.md` (REFERENCE ONLY)
+**File**: `.prp-output/designs/{name}-design-codex-{TIMESTAMP}.md` (REFERENCE ONLY)
 
 ### Summary
 
