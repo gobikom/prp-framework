@@ -156,25 +156,38 @@ Build: {runner} run {script-name}
 
 Check for monorepo configuration files at project root:
 
-| File Found | Monorepo Type | Filter Command |
-|------------|---------------|----------------|
-| `pnpm-workspace.yaml` | pnpm workspaces | `pnpm --filter {pkg}` |
-| `turbo.json` | Turborepo | `turbo run {script} --filter={pkg}` |
-| `nx.json` | Nx | `nx run {pkg}:{script}` |
-| `lerna.json` | Lerna | `lerna run {script} --scope={pkg}` |
-| `packages/` dir + root `package.json` with `workspaces` | yarn/npm workspaces | `yarn workspace {pkg}` |
+| File Found | Monorepo Type |
+|------------|---------------|
+| `pnpm-workspace.yaml` | pnpm workspaces |
+| `turbo.json` | Turborepo |
+| `nx.json` | Nx |
+| `lerna.json` | Lerna |
+| root `package.json` with `"workspaces"` field | yarn/npm workspaces |
+
+**If `--package` flag provided but NO monorepo config detected:**
+> WARNING: `--package {name}` specified but no monorepo configuration found (no pnpm-workspace.yaml, turbo.json, nx.json, lerna.json, or workspaces field in package.json). Ignoring `--package` flag — proceeding as single-package project.
 
 **If monorepo detected:**
 
-1. **List packages** — parse workspace config to find available packages:
+1. **Discover workspace directories** — read the actual workspace config:
    ```bash
-   # pnpm
-   pnpm ls --depth -1 --json 2>/dev/null | head -50
-   # or fallback: list directories in packages/, apps/, etc.
-   ls -d packages/*/ apps/*/ 2>/dev/null
+   # pnpm: read pnpm-workspace.yaml → packages: glob patterns
+   cat pnpm-workspace.yaml
+   # yarn/npm: read package.json → "workspaces" field
+   cat package.json | jq '.workspaces'
+   # Nx: read workspace.json or project.json files
+   # Turbo: read turbo.json → relies on package.json workspaces
+   # Fallback: scan common directories
+   ls -d packages/*/ apps/*/ libs/*/ services/*/ modules/*/ 2>/dev/null
    ```
 
-2. **Determine target package:**
+2. **List available packages** from discovered workspace directories:
+   ```bash
+   # Find all package.json files in workspace dirs
+   find {workspace-dirs} -maxdepth 2 -name "package.json" -exec dirname {} \;
+   ```
+
+3. **Determine target package:**
 
    | Condition | Action |
    |-----------|--------|
@@ -182,31 +195,42 @@ Check for monorepo configuration files at project root:
    | Feature description mentions a specific package | Auto-detect. Confirm with user (unless `--no-interact`) |
    | Neither | Ask user to specify (unless `--no-interact` → scope to root/all) |
 
-3. **Resolve package path:**
-   ```
-   PACKAGE_DIR = {workspace-root}/{packages|apps}/{MONOREPO_PACKAGE}
+4. **Resolve package path** from discovered workspaces:
+   ```bash
+   # Find the actual directory for the package name
+   PACKAGE_DIR=$(find {workspace-dirs} -maxdepth 2 -name "package.json" \
+     -exec grep -l "\"name\".*\"$MONOREPO_PACKAGE\"" {} \; | head -1 | xargs dirname)
    ```
    Verify the directory exists. If not → STOP with error listing available packages.
 
-4. **Scope toolchain commands** (override 0.5.3):
-   ```
-   Runner: {detected runner}
-   Type Check: {filter-command} run type-check
-   Lint: {filter-command} run lint
-   Test: {filter-command} test
-   Build: {filter-command} run build
-   ```
-   Example for pnpm + package "api": `pnpm --filter api run lint`
+5. **Scope toolchain commands** (override 0.5.3) — syntax varies by monorepo tool:
 
-5. **Store monorepo metadata:**
+   | Monorepo Type | Scoped Command Pattern | Example (package: api, script: lint) |
+   |---------------|------------------------|--------------------------------------|
+   | pnpm workspaces | `pnpm --filter {pkg} run {script}` | `pnpm --filter api run lint` |
+   | Turborepo | `turbo run {script} --filter={pkg}` | `turbo run lint --filter=api` |
+   | Nx | `nx run {pkg}:{script}` | `nx run api:lint` |
+   | Lerna | `lerna run {script} --scope={pkg}` | `lerna run lint --scope=api` |
+   | yarn workspaces | `yarn workspace {pkg} run {script}` | `yarn workspace api run lint` |
+   | npm workspaces | `npm run {script} -w {pkg}` | `npm run lint -w api` |
+
+   Generate scoped commands for plan metadata:
    ```
-   Monorepo: {type} (e.g., pnpm-workspaces, turborepo)
+   Type Check: {scoped command for type-check}
+   Lint: {scoped command for lint}
+   Test: {scoped command for test}
+   Build: {scoped command for build}
+   ```
+
+6. **Store monorepo metadata:**
+   ```
+   Monorepo: {type}
    Package: {MONOREPO_PACKAGE}
    Package Dir: {PACKAGE_DIR}
-   Filter: {filter-command prefix}
+   Monorepo Tool: {pnpm|turbo|nx|lerna|yarn|npm}
    ```
 
-**If no monorepo detected**: Skip this section entirely. No impact on workflow.
+**If no monorepo detected and no `--package` flag**: Skip this section entirely. No impact on workflow.
 
 **PHASE_0_5_CHECKPOINT:**
 - [ ] Package manager detected from lock file

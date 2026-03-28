@@ -148,6 +148,14 @@ Write a single-line message in imperative mood:
 
 Types: `feat`, `fix`, `refactor`, `docs`, `test`, `chore`
 
+**Monorepo scope**: If a completed plan has `Package` in its Metadata (or changes are scoped to a single package directory), add the package name as scope:
+
+```
+{type}({package}): {description}
+```
+
+Example: `feat(api): add OAuth2 authentication flow`
+
 ```bash
 git commit -m "{type}: {description}"
 ```
