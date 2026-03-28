@@ -447,6 +447,22 @@ Generate final report:
 
 ---
 
+---
+
+## Edge Cases
+
+| Situation | Action |
+|-----------|--------|
+| Plan step succeeds but implement fails partway | STOP - implement generates partial report + pr-context before stopping. Use `--resume` to continue. |
+| Branch already exists from prior aborted run | Use existing branch if on it, or switch to it. State file tracks which branch. |
+| State file exists but `--resume` not passed | Interactive: warn and ask. `--no-interact`: auto-delete stale state, start fresh. |
+| Lock file exists (concurrent run) | Check age - if >2 hours, treat as stale and remove. Otherwise STOP. |
+| Review finds no issues | Skip review-fix, proceed directly to summary. |
+| All review-fix issues skipped | Report skipped issues in summary. Still counts as reviewed. |
+| `--ralph` but hook not registered | STOP with install instructions. |
+| Disk full during state write | STOP - state may be corrupted. Delete state file and restart. |
+| PR creation fails (auth/permission) | STOP - commit is safe on branch. User can manually create PR. |
+
 ## Success Criteria
 
 - PLAN_CREATED: Plan exists and is valid
