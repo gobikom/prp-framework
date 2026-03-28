@@ -341,13 +341,13 @@ This gives visibility into what will change before any edits happen.
 
 ### Fix Order
 
-Issues are fixed in priority order, with validation after each batch:
+Issues are fixed in priority order, with quick validation (type-check + lint) after each batch and a full suite once at the end:
 
 ```
-Critical → [validate] → High → [validate] → Medium → [validate] → Suggestion
+Critical → [quick check] → High → [quick check] → Medium → [quick check] → Suggestion → [full suite]
 ```
 
-If a fix causes validation to fail: revert that fix, add to skip log, continue.
+Quick check = type-check + lint only (fast feedback). Full suite = type-check + lint + tests + build (runs once after all batches to save tokens). If a fix causes validation to fail: revert that fix, add to skip log, continue.
 
 ### Severity Filter
 
