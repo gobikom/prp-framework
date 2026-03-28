@@ -45,6 +45,9 @@ dist/
 build/
 *.tgz
 
+# Python
+__pycache__/
+
 # Temporary
 tmp/
 temp/
