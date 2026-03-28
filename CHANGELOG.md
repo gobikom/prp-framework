@@ -37,6 +37,37 @@ _No unreleased changes._
 
 ---
 
+## [2.2.0] — 2026-03-28
+
+**Auto-Generation & Cross-Adapter Expansion Release** — Adapter files are now auto-generated from `prompts/` as single source of truth. Marketing/bot commands expanded to all 5 adapters. Monorepo support added.
+
+### Added
+
+- **Adapter auto-generation** (`scripts/generate-adapters.py`) — generates all 140 adapter files (28 commands × 5 adapters) from canonical `prompts/` with a single command. Supports `--dry-run`, `--diff`, `--adapter` filter. Eliminates manual 5-adapter sync and prevents cross-adapter drift. (PR #34)
+- **`adapters.yml`** — central config defining transformation rules for all adapters: file patterns, placeholder mappings (`{ARGS}` → `$ARGUMENTS`/`{{args}}`), frontmatter formats, tool command syntax
+- **Overlay system** (`prompts/overlays/`) — tool-specific content (XML wrapping, agent strategies) that extends base prompts without modifying them. Currently used for Claude Code `plan` XML structure
+- **9 marketing/bot commands cross-adapter** — `landing`, `demo`, `pitch`, `competitor`, `intent`, `flow`, `prompt-eng`, `voice-ux`, `integration` now available in all 5 adapters (were Claude Code-only). Total commands: 19 → 28. (PR #35)
+- **`group_dirs`** config — routes marketing/bot commands to separate directories for Claude Code (`claude-code-marketing/`, `claude-code-bot/`) while other adapters keep all commands in one directory
+- **Monorepo support** — auto-detects pnpm workspaces, Turborepo, Nx, Lerna, yarn/npm workspaces. New `--package <name>` flag for `plan`, `implement`, and `run-all` to scope to a specific package. Per-tool scoped validation commands (e.g., `pnpm --filter api test`, `turbo run lint --filter=api`, `nx run api:lint`). (PR #36)
+- **Monorepo-aware commits** — `commit` adds package scope to conventional commit format: `feat(api): description`
+- **`requirements.txt`** — Python dependencies for the generator (`pyyaml>=6.0,<7.0`)
+- **17 new tests** — overlay XML output, monorepo detection, group_dirs routing, placeholder substitution, TOML validity, idempotency. Total: 244 → 271
+
+### Changed
+
+- **`docs/CONTRIBUTING.md`** — new editing workflow: edit `prompts/` → run `generate-adapters.py` → test. Manual adapter editing no longer needed
+- **Adapter files** — all 95 existing + 45 new adapter files are now generated from canonical prompts, fixing accumulated drift from manual editing
+
+### Migration
+
+See `docs/migration/v2.1-to-v2.2.md` for details. Key changes:
+
+- **Do NOT manually edit files in `adapters/`** — they are now generated. Edit `prompts/` instead, then run `python3 scripts/generate-adapters.py`
+- **New dependency**: Python 3.10+ with `pyyaml` for running the generator
+- **No breaking changes** — all existing commands, flags, and artifacts work identically
+
+---
+
 ## [2.1.0] — 2026-03-28
 
 **Cross-Adapter Parity Release** — All 8 core commands upgraded to feature parity across 5 adapters. +11,835 lines across 32 files. Every adapter now has phase checkpoints, full templates, failure diagnostics, and unique features ported across tools.
