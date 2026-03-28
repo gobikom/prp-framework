@@ -16,9 +16,19 @@ NC='\033[0m' # No Color
 # Get absolute path to framework directory
 FRAMEWORK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-# PROJECT_DIR: accept as $1 (for symlink installs), env var, or derive from parent
-if [ -n "$1" ]; then
-    PROJECT_DIR="$(cd "$1" && pwd)"
+# Parse arguments
+SKIP_INJECT=false
+for arg in "$@"; do
+    case "$arg" in
+        --no-inject) SKIP_INJECT=true ;;
+        -*) ;; # ignore unknown flags
+        *)  PROJECT_DIR_ARG="$arg" ;;
+    esac
+done
+
+# PROJECT_DIR: accept as positional arg (for symlink installs), env var, or derive from parent
+if [ -n "$PROJECT_DIR_ARG" ]; then
+    PROJECT_DIR="$(cd "$PROJECT_DIR_ARG" && pwd)"
 elif [ -z "$PROJECT_DIR" ]; then
     PROJECT_DIR="$(cd "$FRAMEWORK_DIR/.." && pwd)"
 fi
@@ -376,6 +386,14 @@ elif ! grep -q '^\.prp/$' "$GITIGNORE_FILE" 2>/dev/null; then
 .prp/
 GITIGNORE2
     echo -e "${GREEN}  ✅ Added .prp/ to .gitignore (local clone detected)${NC}"
+fi
+
+# Inject PRP section into CLAUDE.md
+if ! $SKIP_INJECT; then
+    echo "→ Injecting PRP section into CLAUDE.md"
+    "$FRAMEWORK_DIR/scripts/inject-claude-md.sh" "$PROJECT_DIR"
+else
+    echo -e "${YELLOW}→ Skipping CLAUDE.md injection (--no-inject)${NC}"
 fi
 
 echo ""
