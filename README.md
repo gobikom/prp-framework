@@ -14,9 +14,11 @@ PRP (Plan-Review-PR) Framework is a portable, tool-agnostic workflow system for 
 ✅ **Complete Workflows** - PRD → Design → Plan → Implement → Review → Commit → PR
 ✅ **Resilient Automation** - State management with `--resume`, review-fix loops, coverage enforcement (90%)
 ✅ **Quality Built-in** - TDD approach, conditional design docs, pre-commit checks, security/performance validation
-✅ **100% Workflow Parity** - All tools follow the same workflow steps with equivalent review depth (11-pass review across all adapters). Claude Code adds 19 commands, 30 agents, hooks, and skills; other adapters use multi-pass architecture for the same quality.
+✅ **100% Workflow Parity** - 28 commands across all 5 adapters (19 core + 4 marketing + 5 bot), auto-generated from canonical prompts to guarantee zero drift
+✅ **Auto-Generation** - Single source of truth in `prompts/` — edit once, generate all 5 adapters with `scripts/generate-adapters.py`
+✅ **Monorepo Support** - Auto-detects pnpm workspaces, Turborepo, Nx, Lerna. `--package` flag scopes plan/implement/run-all to a specific package
 ✅ **Claude Code Advanced** - 30 specialized agents, skills, hooks for enhanced workflows
-✅ **Domain Extensions** - Marketing automation and AI Bot development command packs
+✅ **Domain Extensions** - Marketing automation and AI Bot development command packs in all adapters
 
 ## Quick Start
 
@@ -211,7 +213,7 @@ prp-framework/
 │   ├── issue-fix.md
 │   └── feature-review.md
 ├── adapters/                   # Tool-specific adapters
-│   ├── claude-code/            # Claude Code core commands (19 commands)
+│   ├── claude-code/            # Claude Code core commands (19 commands, auto-generated)
 │   ├── claude-code-marketing/  # Marketing commands (4 commands)
 │   ├── claude-code-bot/        # AI Bot commands (5 commands)
 │   ├── claude-code-agents/     # Claude Code agents (30 agents)
