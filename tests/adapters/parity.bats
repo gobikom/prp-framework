@@ -665,3 +665,92 @@ with open('$f', 'rb') as fh:
     GENERATED=$(echo "$OUTPUT" | grep -oP '\d+ generated' | grep -oP '\d+')
     [ "$GENERATED" -eq 0 ]
 }
+
+# ─────────────────────────────────────────────
+# 22. Overlay output verification (from #34 review)
+# ─────────────────────────────────────────────
+@test "claude-code plan has XML sections from overlay" {
+    grep -q '<objective>' "$FRAMEWORK_DIR/adapters/claude-code/prp-plan.md"
+    grep -q '</objective>' "$FRAMEWORK_DIR/adapters/claude-code/prp-plan.md"
+    grep -q '<context>' "$FRAMEWORK_DIR/adapters/claude-code/prp-plan.md"
+    grep -q '<process>' "$FRAMEWORK_DIR/adapters/claude-code/prp-plan.md"
+    grep -q '<success_criteria>' "$FRAMEWORK_DIR/adapters/claude-code/prp-plan.md"
+    grep -q '<verification>' "$FRAMEWORK_DIR/adapters/claude-code/prp-plan.md"
+}
+
+@test "claude-code plan skip_before removes header (no duplicate objective)" {
+    # The prompt starts with "## Agent Mode Detection" and has "## Objective"
+    # After skip_before="## Phase 0", the <process> should NOT contain "## Objective"
+    # because that section is in <objective> via overlay
+    ! grep -q '## Objective' "$FRAMEWORK_DIR/adapters/claude-code/prp-plan.md" || {
+        # If ## Objective exists, it must be inside <objective>, not <process>
+        PROC_CONTENT=$(sed -n '/<process>/,/<\/process>/p' "$FRAMEWORK_DIR/adapters/claude-code/prp-plan.md")
+        ! echo "$PROC_CONTENT" | grep -q '## Objective'
+    }
+}
+
+# ─────────────────────────────────────────────
+# 23. Monorepo support
+# ─────────────────────────────────────────────
+@test "plan.md has monorepo detection section" {
+    grep -q "Detect Monorepo" "$FRAMEWORK_DIR/prompts/plan.md"
+    grep -q "\-\-package" "$FRAMEWORK_DIR/prompts/plan.md"
+}
+
+@test "implement.md has monorepo detection section" {
+    grep -q "Detect Monorepo" "$FRAMEWORK_DIR/prompts/implement.md"
+}
+
+@test "run-all.md supports --package flag" {
+    grep -q "\-\-package" "$FRAMEWORK_DIR/prompts/run-all.md"
+    grep -q "MONOREPO_PACKAGE" "$FRAMEWORK_DIR/prompts/run-all.md"
+}
+
+@test "commit.md has monorepo scope for conventional commits" {
+    grep -q "Monorepo scope" "$FRAMEWORK_DIR/prompts/commit.md"
+    grep -q '{type}({package})' "$FRAMEWORK_DIR/prompts/commit.md"
+}
+
+@test "all adapters have monorepo detection in plan" {
+    for adapter in claude-code codex opencode antigravity; do
+        case "$adapter" in
+            codex) file="$FRAMEWORK_DIR/adapters/$adapter/prp-plan/SKILL.md" ;;
+            opencode) file="$FRAMEWORK_DIR/adapters/$adapter/plan.md" ;;
+            *) file="$FRAMEWORK_DIR/adapters/$adapter/prp-plan.md" ;;
+        esac
+        grep -qi "Detect Monorepo" "$file" || {
+            echo "FAIL: $adapter plan missing monorepo detection"
+            return 1
+        }
+    done
+    grep -q "Detect Monorepo" "$FRAMEWORK_DIR/adapters/gemini/plan.toml"
+}
+
+@test "all adapters have monorepo detection in implement" {
+    for adapter in claude-code codex opencode antigravity; do
+        case "$adapter" in
+            codex) file="$FRAMEWORK_DIR/adapters/$adapter/prp-implement/SKILL.md" ;;
+            opencode) file="$FRAMEWORK_DIR/adapters/$adapter/implement.md" ;;
+            *) file="$FRAMEWORK_DIR/adapters/$adapter/prp-implement.md" ;;
+        esac
+        grep -qi "Detect Monorepo" "$file" || {
+            echo "FAIL: $adapter implement missing monorepo detection"
+            return 1
+        }
+    done
+    grep -q "Detect Monorepo" "$FRAMEWORK_DIR/adapters/gemini/implement.toml"
+}
+
+@test "plan and implement have consistent monorepo types" {
+    # Both should support all 5 types: pnpm, turbo, nx, lerna, yarn/npm
+    for keyword in pnpm-workspace turbo.json nx.json lerna.json workspaces; do
+        grep -q "$keyword" "$FRAMEWORK_DIR/prompts/plan.md" || {
+            echo "FAIL: plan.md missing $keyword"
+            return 1
+        }
+        grep -q "$keyword" "$FRAMEWORK_DIR/prompts/implement.md" || {
+            echo "FAIL: implement.md missing $keyword"
+            return 1
+        }
+    done
+}

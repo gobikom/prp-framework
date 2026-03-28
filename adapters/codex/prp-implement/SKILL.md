@@ -67,6 +67,35 @@ Check `package.json` (or equivalent) for available scripts:
 
 **Use the plan's "Validation Commands" section** — it should specify exact commands for this project.
 
+### 0.3 Detect Monorepo (if not in plan)
+
+If the plan Metadata contains `Monorepo` and `Package` fields, use those directly to scope commands. Otherwise auto-detect:
+
+| File Found | Monorepo Type |
+|------------|---------------|
+| `pnpm-workspace.yaml` | pnpm workspaces |
+| `turbo.json` | Turborepo |
+| `nx.json` | Nx |
+| `lerna.json` | Lerna |
+| root `package.json` with `"workspaces"` field | yarn/npm workspaces |
+
+**If monorepo detected and plan has `Package` field:**
+- Set `MONOREPO_PACKAGE` from plan Metadata
+- Scope validation commands using the correct tool syntax:
+
+  | Monorepo Type | Scoped Command Pattern | Example (pkg: api, script: lint) |
+  |---------------|------------------------|----------------------------------|
+  | pnpm workspaces | `pnpm --filter {pkg} run {script}` | `pnpm --filter api run lint` |
+  | Turborepo | `turbo run {script} --filter={pkg}` | `turbo run lint --filter=api` |
+  | Nx | `nx run {pkg}:{script}` | `nx run api:lint` |
+  | Lerna | `lerna run {script} --scope={pkg}` | `lerna run lint --scope=api` |
+  | yarn workspaces | `yarn workspace {pkg} run {script}` | `yarn workspace api run lint` |
+  | npm workspaces | `npm run {script} -w {pkg}` | `npm run lint -w api` |
+
+- If plan already has scoped Validation Commands (from `/prp-plan --package`), use those directly.
+
+**If monorepo detected but no package specified**: Run validation at root level (default behavior, no scoping).
+
 ---
 
 ## Phase 1: LOAD - Read the Plan
