@@ -11,28 +11,28 @@ FRAMEWORK_DIR="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)"
 # ─────────────────────────────────────────────
 # 1. Core command existence per adapter
 # ─────────────────────────────────────────────
-@test "claude-code has all 9 core commands" {
-    [ -f "$FRAMEWORK_DIR/adapters/claude-code/prp-prd.md" ]
-    [ -f "$FRAMEWORK_DIR/adapters/claude-code/prp-design.md" ]
-    [ -f "$FRAMEWORK_DIR/adapters/claude-code/prp-plan.md" ]
-    [ -f "$FRAMEWORK_DIR/adapters/claude-code/prp-implement.md" ]
-    [ -f "$FRAMEWORK_DIR/adapters/claude-code/prp-commit.md" ]
-    [ -f "$FRAMEWORK_DIR/adapters/claude-code/prp-pr.md" ]
-    [ -f "$FRAMEWORK_DIR/adapters/claude-code/prp-review.md" ]
-    [ -f "$FRAMEWORK_DIR/adapters/claude-code/prp-review-fix.md" ]
-    [ -f "$FRAMEWORK_DIR/adapters/claude-code/prp-run-all.md" ]
+@test "all 5 adapters have 19 commands each" {
+    [ "$(ls "$FRAMEWORK_DIR/adapters/claude-code"/prp-*.md | wc -l)" -eq 19 ]
+    [ "$(ls -d "$FRAMEWORK_DIR/adapters/codex"/prp-*/ | wc -l)" -eq 19 ]
+    [ "$(ls "$FRAMEWORK_DIR/adapters/opencode"/*.md | wc -l)" -eq 19 ]
+    [ "$(ls "$FRAMEWORK_DIR/adapters/antigravity"/prp-*.md | wc -l)" -eq 19 ]
+    [ "$(ls "$FRAMEWORK_DIR/adapters/gemini"/*.toml | wc -l)" -eq 19 ]
 }
 
-@test "codex has all 9 core skills" {
-    [ -d "$FRAMEWORK_DIR/adapters/codex/prp-prd" ]
-    [ -d "$FRAMEWORK_DIR/adapters/codex/prp-design" ]
-    [ -d "$FRAMEWORK_DIR/adapters/codex/prp-plan" ]
-    [ -d "$FRAMEWORK_DIR/adapters/codex/prp-implement" ]
-    [ -d "$FRAMEWORK_DIR/adapters/codex/prp-commit" ]
-    [ -d "$FRAMEWORK_DIR/adapters/codex/prp-pr" ]
-    [ -d "$FRAMEWORK_DIR/adapters/codex/prp-review" ]
-    [ -d "$FRAMEWORK_DIR/adapters/codex/prp-review-fix" ]
-    [ -d "$FRAMEWORK_DIR/adapters/codex/prp-run-all" ]
+@test "codex has review-agents and feature-review-agents aliases" {
+    [ -d "$FRAMEWORK_DIR/adapters/codex/prp-review-agents" ]
+    [ -d "$FRAMEWORK_DIR/adapters/codex/prp-feature-review-agents" ]
+    grep -qi "alias" "$FRAMEWORK_DIR/adapters/codex/prp-review-agents/SKILL.md"
+    grep -qi "alias" "$FRAMEWORK_DIR/adapters/codex/prp-feature-review-agents/SKILL.md"
+}
+
+@test "all non-CC adapters have review-agents and feature-review-agents aliases" {
+    grep -qi "alias" "$FRAMEWORK_DIR/adapters/opencode/review-agents.md"
+    grep -qi "alias" "$FRAMEWORK_DIR/adapters/opencode/feature-review-agents.md"
+    grep -qi "alias" "$FRAMEWORK_DIR/adapters/antigravity/prp-review-agents.md"
+    grep -qi "alias" "$FRAMEWORK_DIR/adapters/antigravity/prp-feature-review-agents.md"
+    grep -qi "alias" "$FRAMEWORK_DIR/adapters/gemini/review-agents.toml"
+    grep -qi "alias" "$FRAMEWORK_DIR/adapters/gemini/feature-review-agents.toml"
 }
 
 @test "opencode has all 9 core commands" {
