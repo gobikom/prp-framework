@@ -510,3 +510,99 @@ check_all_6() {
 @test "claude-code run-all has --dry-run flag" {
     grep -q "\-\-dry-run" "$FRAMEWORK_DIR/adapters/claude-code/prp-run-all.md"
 }
+
+# ─────────────────────────────────────────────
+# 21. Auto-generation infrastructure
+# ─────────────────────────────────────────────
+@test "adapters.yml config exists" {
+    [ -f "$FRAMEWORK_DIR/adapters.yml" ]
+}
+
+@test "generate-adapters.py script exists and is valid Python" {
+    [ -f "$FRAMEWORK_DIR/scripts/generate-adapters.py" ]
+    python3 -m py_compile "$FRAMEWORK_DIR/scripts/generate-adapters.py"
+}
+
+@test "generate-adapters.py --dry-run lists all 95 files" {
+    # 19 commands × 5 adapters = 95 files
+    OUTPUT=$(python3 "$FRAMEWORK_DIR/scripts/generate-adapters.py" --dry-run 2>&1)
+    COUNT=$(echo "$OUTPUT" | grep -c "DRY RUN")
+    # Derive expected count from config
+    EXPECTED=$(python3 -c "
+import yaml
+c = yaml.safe_load(open('$FRAMEWORK_DIR/adapters.yml'))
+print(len(c['adapters']) * len(c['commands']))
+")
+    [ "$COUNT" -eq "$EXPECTED" ]
+}
+
+@test "adapters.yml defines all 19 commands" {
+    COUNT=$(python3 -c "import yaml; c=yaml.safe_load(open('$FRAMEWORK_DIR/adapters.yml')); print(len(c['commands']))")
+    [ "$COUNT" -eq 19 ]
+}
+
+@test "adapters.yml defines all 5 adapters" {
+    COUNT=$(python3 -c "import yaml; c=yaml.safe_load(open('$FRAMEWORK_DIR/adapters.yml')); print(len(c['adapters']))")
+    [ "$COUNT" -eq 5 ]
+}
+
+@test "claude-code plan overlay exists" {
+    [ -f "$FRAMEWORK_DIR/prompts/overlays/claude-code/plan.md" ]
+}
+
+@test "generate-adapters.py --adapter gemini --dry-run lists 19 files" {
+    OUTPUT=$(python3 "$FRAMEWORK_DIR/scripts/generate-adapters.py" --adapter gemini --dry-run 2>&1)
+    COUNT=$(echo "$OUTPUT" | grep -c "DRY RUN")
+    [ "$COUNT" -eq 19 ]
+    # All should be gemini paths
+    ! echo "$OUTPUT" | grep "DRY RUN" | grep -qv "gemini"
+}
+
+@test "generate-adapters.py rejects unknown --adapter name" {
+    run python3 "$FRAMEWORK_DIR/scripts/generate-adapters.py" --adapter nonexistent
+    [ "$status" -ne 0 ]
+}
+
+@test "claude-code adapters use \$ARGUMENTS placeholder" {
+    grep -q '\$ARGUMENTS' "$FRAMEWORK_DIR/adapters/claude-code/prp-review.md"
+}
+
+@test "gemini adapters use {{args}} placeholder" {
+    grep -q '{{args}}' "$FRAMEWORK_DIR/adapters/gemini/review.toml"
+}
+
+@test "claude-code uses /prp-core:prp- tool prefix" {
+    grep -q '/prp-core:prp-' "$FRAMEWORK_DIR/adapters/claude-code/prp-run-all.md"
+}
+
+@test "codex uses \$prp- tool prefix" {
+    grep -q '\$prp-' "$FRAMEWORK_DIR/adapters/codex/prp-run-all/SKILL.md"
+}
+
+@test "opencode uses /prp: tool prefix" {
+    grep -q '/prp:' "$FRAMEWORK_DIR/adapters/opencode/run-all.md"
+}
+
+@test "gemini uses / tool prefix (no prp namespace)" {
+    grep -q '`/plan' "$FRAMEWORK_DIR/adapters/gemini/run-all.toml"
+}
+
+@test "all gemini .toml files are valid TOML" {
+    for f in "$FRAMEWORK_DIR"/adapters/gemini/*.toml; do
+        python3 -c "
+import tomllib
+with open('$f', 'rb') as fh:
+    tomllib.load(fh)
+" || {
+            echo "FAIL: Invalid TOML in $f"
+            return 1
+        }
+    done
+}
+
+@test "generated adapters are idempotent (running twice produces same output)" {
+    # Run generate once (already done), then run again — should produce 0 changes
+    OUTPUT=$(python3 "$FRAMEWORK_DIR/scripts/generate-adapters.py" 2>&1)
+    GENERATED=$(echo "$OUTPUT" | grep -oP '\d+ generated' | grep -oP '\d+')
+    [ "$GENERATED" -eq 0 ]
+}

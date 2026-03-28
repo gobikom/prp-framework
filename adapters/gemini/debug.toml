@@ -1,4 +1,5 @@
-description = "Root cause analysis using the 5 Whys methodology — finds the actual cause, not just symptoms."\nprompt = """
+description = "Root cause analysis using the 5 Whys methodology — finds the actual cause, not just symptoms."
+prompt = """
 
 # PRP Debug — Root Cause Analysis
 
@@ -300,4 +301,5 @@ WHY: {First level cause}
 - FIX_ACTIONABLE: Someone could implement from the report
 - VERIFICATION_CLEAR: How to confirm fix works
 - REPORT_SAVED: RCA report at `.prp-output/debug/rca-{slug}-{TIMESTAMP}.md`
+
 """

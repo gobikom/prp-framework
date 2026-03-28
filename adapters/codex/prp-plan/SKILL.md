@@ -1,6 +1,6 @@
 ---
 name: prp-plan
-description: Create a comprehensive implementation plan by analyzing the codebase, discovering patterns, and producing a step-by-step actionable plan document.
+description: "Create a comprehensive implementation plan by analyzing the codebase, discovering patterns, and producing a step-by-step actionable plan document."
 metadata:
   short-description: Create implementation plan
 ---
@@ -415,7 +415,7 @@ The plan file MUST include lifecycle frontmatter (`status: pending`, `runner`, `
 12. **Testing Strategy** — unit tests table + integration tests (conditional) + test data + performance benchmarks (conditional) + edge cases checklist
 13. **Validation Commands** — 6 levels (Static Analysis, Unit Tests, Full Suite, Database, Browser, Manual), **pre-filled with actual commands**
 14. **Confidence Score** — 5 dimensions × 2pts = 10 formula: Patterns + Gotchas + Integration + Validation + Testing
-15. **Acceptance Criteria** — definition of done
+15. **Acceptance Criteria** — definition of done (including unit tests cover >= 90% of new code)
 16. **Completion Checklist** — all 6 validation levels
 17. **Risks and Mitigations** — likelihood, impact, strategy
 18. **Technical Design** (conditional, HIGH or API/DB) — API contracts, DB schema, sequence diagrams, NFRs, migration & rollback

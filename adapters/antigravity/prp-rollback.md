@@ -1,4 +1,6 @@
----\ndescription: Safely undo implementation changes with stash backup. Supports --soft, --hard, and --restore modes.\n---\n
+---
+description: "Safely undo implementation changes with stash backup. Supports --soft, --hard, and --restore modes."
+---
 
 # PRP Rollback — Safely Undo Implementation Changes
 

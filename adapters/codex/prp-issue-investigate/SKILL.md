@@ -1,9 +1,9 @@
----\nname: prp-issue-investigate\ndescription: Investigate a GitHub issue or problem - analyze codebase, create plan, post to GitHub
-argument-hint: <issue-number|url|"description">\nmetadata:\n  short-description: issue investigate\n---\n
-
-# Investigate Issue
-
-**Input**: $ARGUMENTS
+---
+name: prp-issue-investigate
+description: "Investigate a GitHub issue or problem - analyze codebase, create plan, post to GitHub"
+metadata:
+  short-description: issue investigate
+---
 
 ---
 

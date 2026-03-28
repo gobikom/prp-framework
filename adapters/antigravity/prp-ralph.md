@@ -1,4 +1,6 @@
----\ndescription: Start autonomous Ralph loop to execute PRP plan until all validations pass. Self-referential feedback loop with iteration tracking.\n---\n
+---
+description: Start autonomous Ralph loop to execute PRP plan until all validations pass. Self-referential feedback loop with iteration tracking.
+---
 
 
 # PRP Ralph Loop

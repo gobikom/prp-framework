@@ -1,17 +1,31 @@
 ---
 description: Quick commit with natural language file targeting
-argument-hint: [target description] (blank = all changes)
+argument-hint: "[target description] (blank = all changes)"
+---
+<process>
+## Agent Mode Detection
+
+If your input context contains `[WORKSPACE CONTEXT]` (injected by a multi-agents framework),
+you are running as a sub-agent. Apply these optimizations:
+
+- **Skip CLAUDE.md reading** — already loaded by parent session.
+- **Skip Phase 0 quality check** if invoked from run-all (implement already validated).
+
+All other phases (assess, stage, commit) run unchanged.
+
 ---
 
-# Commit
+# PRP Commit — Smart Git Commit
 
-**Target**: $ARGUMENTS
+## Input
 
----
+Target description: `$ARGUMENTS`
 
-## Your Mission
+## Mission
 
 Stage files matching the target, write a concise commit message, commit.
+
+**Golden Rule**: Commit messages should explain what changed and why. Use conventional commit format.
 
 ---
 
@@ -55,12 +69,12 @@ git diff --cached -- '*.ts' ':!*.test.ts' ':!*.spec.ts' ':!*.d.ts' | grep -n ": 
 
 Summarize findings:
 
-```markdown
-**Pre-commit Quality Check:**
+```
+Pre-commit Quality Check:
 - Debug artifacts: {count} found (TODO: {n}, console.log: {n})
 - Type safety: {count} `any` usage found
 - Quick validation: {passed/skipped}
-- ⚠️ Advisory: {warnings if any}
+- Advisory: {warnings if any}
 ```
 
 **PHASE_0_CHECKPOINT:**
@@ -162,10 +176,25 @@ Tasks: {N} completed
 **Committed**: {hash} - {message}
 **Files**: {count} files (+{add}/-{del})
 
+{If plan context used:}
+**Plan**: {plan-filename}
+
 Next: `git push` or `/prp-core:prp-pr`
 ```
 
-> **Note for orchestrators**: This "Next" suggestion is for standalone usage only. If this command was invoked as part of `/prp-core:prp-run-all`, the orchestrator should ignore this and proceed to its next step.
+> **Note for orchestrators**: The "Next" suggestion is for standalone usage only. If this command was invoked as part of run-all, the orchestrator should ignore it and proceed to its next step.
+
+---
+
+## Examples
+
+```
+/prp-core:prp-commit                          # All changes
+/prp-core:prp-commit typescript files         # *.ts only
+/prp-core:prp-commit except package-lock      # Exclude specific
+/prp-core:prp-commit only the new files       # Untracked only
+/prp-core:prp-commit staged                   # Already-staged only
+```
 
 ---
 
@@ -182,23 +211,13 @@ Next: `git push` or `/prp-core:prp-pr`
 
 ---
 
-## Examples
-
-```
-/prp-commit                          # All changes
-/prp-commit typescript files         # *.ts only
-/prp-commit except package-lock      # Exclude specific
-/prp-commit only the new files       # Untracked only
-/prp-commit staged                   # Already-staged only
-```
-
----
-
 ## Success Criteria
 
-- **FILES_STAGED**: Correct files staged per target description
-- **QUALITY_CHECKED**: Pre-commit advisory scan completed
-- **PLAN_CONTEXT**: If completed plan exists, enriched commit message
-- **MESSAGE_CLEAR**: Commit message follows conventional format and is descriptive
-- **COMMITTED**: Git commit succeeded
-- **OUTPUT_SHOWN**: User sees commit hash, message, and file count
+- FILES_STAGED: Correct files staged per target description
+- QUALITY_CHECKED: Pre-commit advisory scan completed
+- PLAN_CONTEXT: If completed plan exists, enriched commit message
+- MESSAGE_CLEAR: Commit message follows conventional format and is descriptive
+- COMMITTED: Git commit succeeded
+- OUTPUT_SHOWN: User sees commit hash, message, and file count
+
+</process>

@@ -1,0 +1,2 @@
+# Dependencies for scripts/generate-adapters.py
+pyyaml>=6.0,<7.0

@@ -1,7 +1,9 @@
 ---
-description: Comprehensive feature & code review - analyzes package/folder for quality, product ideas, performance, and security
-argument-hint: <package-path> [--focus code|product|performance|security|all]
+description: "Comprehensive feature & code review - analyzes package/folder for quality, product ideas, performance, and security"
+argument-hint: "<package-path> [--focus code|product|performance|security|all]"
 ---
+<process>
+
 
 ## Agent Mode Detection
 
@@ -564,7 +566,7 @@ The context file (`.prp-output/reviews/feature-context-{package-name}.md`) serve
 
 1. **Avoid redundant reads** - Package structure, guidelines, and file inventory extracted once
 2. **Enable re-runs** - If context is recent, skip Phase 2 entirely
-3. **Support multi-agent** - Same context file used by `/prp-feature-review-agents`
+3. **Support multi-agent** - Same context file can be reused by multi-agent review workflows
 
 ### Selective File Reading
 
@@ -599,3 +601,5 @@ The context file (`.prp-output/reviews/feature-context-{package-name}.md`) serve
 - **SECURITY_ASSESSED**: Vulnerabilities and risks documented
 - **REPORT_CREATED**: Comprehensive markdown report saved
 - **ACTIONS_PRIORITIZED**: Clear next steps with effort/impact
+
+</process>

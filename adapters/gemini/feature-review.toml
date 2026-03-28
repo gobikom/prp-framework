@@ -1,4 +1,5 @@
-description = "Comprehensive feature & code review — analyzes package/folder for quality, product ideas, performance, and security."\nprompt = """
+description = "Comprehensive feature & code review — analyzes package/folder for quality, product ideas, performance, and security."
+prompt = """
 
 
 ## Agent Mode Detection
@@ -59,7 +60,7 @@ Perform a comprehensive, senior-engineer-level review of a package or folder to:
 ls -la {input-path} 2>/dev/null || echo "PATH_NOT_FOUND"
 
 # Get file count and structure
-find {input-path} -type f \( -name "*.ts" -o -name "*.tsx" -o -name "*.js" -o -name "*.jsx" \) | wc -l
+find {input-path} -type f \\( -name "*.ts" -o -name "*.tsx" -o -name "*.js" -o -name "*.jsx" \\) | wc -l
 ```
 
 **If path doesn't exist:** STOP and report error.
@@ -112,7 +113,7 @@ cat {input-path}/package.json 2>/dev/null | head -100
 
 **Key Files List:**
 ```bash
-find {input-path} -type f \( -name "*.ts" -o -name "*.tsx" \) | head -100
+find {input-path} -type f \\( -name "*.ts" -o -name "*.tsx" \\) | head -100
 ```
 
 **README:**
@@ -597,4 +598,5 @@ The context file (`.prp-output/reviews/feature-context-{package-name}.md`) serve
 - **SECURITY_ASSESSED**: Vulnerabilities and risks documented
 - **REPORT_CREATED**: Comprehensive markdown report saved
 - **ACTIONS_PRIORITIZED**: Clear next steps with effort/impact
+
 """

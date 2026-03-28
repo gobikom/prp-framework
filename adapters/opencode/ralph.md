@@ -1,4 +1,7 @@
----\ndescription: Start autonomous Ralph loop to execute PRP plan until all validations pass. Self-referential feedback loop with iteration tracking.\nagent: plan\n---\n
+---
+description: Start autonomous Ralph loop to execute PRP plan until all validations pass. Self-referential feedback loop with iteration tracking.
+agent: plan
+---
 
 
 # PRP Ralph Loop
@@ -40,7 +43,7 @@ Ralph requires a PRP plan or PRD file.
 
 Create one first:
   /prp:plan "your feature description"   # Creates plan from description
-  /prp-prd "your product idea"           # Creates PRD with phases
+  /prp:prd "your product idea"           # Creates PRD with phases
 
 Then run:
   /prp-ralph .prp-output/plans/your-feature.plan.md --max-iterations 20

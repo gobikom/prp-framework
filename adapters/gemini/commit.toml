@@ -1,5 +1,16 @@
 description = "Stage files with natural language targeting, pre-commit quality scan, plan-aware commit message, and conventional commit format."
 prompt = """
+## Agent Mode Detection
+
+If your input context contains `[WORKSPACE CONTEXT]` (injected by a multi-agents framework),
+you are running as a sub-agent. Apply these optimizations:
+
+- **Skip CLAUDE.md reading** — already loaded by parent session.
+- **Skip Phase 0 quality check** if invoked from run-all (implement already validated).
+
+All other phases (assess, stage, commit) run unchanged.
+
+---
 
 # PRP Commit — Smart Git Commit
 
@@ -31,17 +42,17 @@ Grep staged files for common debug artifacts:
 
 ```bash
 # TODO/FIXME comments (warning only)
-git diff --cached | grep -n "TODO\|FIXME"
+git diff --cached | grep -n "TODO\\|FIXME"
 
 # Debug statements (warning)
-git diff --cached | grep -n "console\.log\|console\.debug\|debugger\|pdb\.set_trace\|print("
+git diff --cached | grep -n "console\\.log\\|console\\.debug\\|debugger\\|pdb\\.set_trace\\|print("
 ```
 
 ### 0.3 Type safety check (TypeScript projects)
 
 ```bash
 # Scan for `any` type usage in staged .ts files (skip test files and .d.ts)
-git diff --cached -- '*.ts' ':!*.test.ts' ':!*.spec.ts' ':!*.d.ts' | grep -n ": any\|as any\|<any>"
+git diff --cached -- '*.ts' ':!*.test.ts' ':!*.spec.ts' ':!*.d.ts' | grep -n ": any\\|as any\\|<any>"
 ```
 
 ### 0.4 Quick validation (skip in run-all context)
@@ -205,4 +216,5 @@ Next: `git push` or `/pr`
 - MESSAGE_CLEAR: Commit message follows conventional format and is descriptive
 - COMMITTED: Git commit succeeded
 - OUTPUT_SHOWN: User sees commit hash, message, and file count
+
 """

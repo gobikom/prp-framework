@@ -1,11 +1,8 @@
 ---
-description: Investigate a GitHub issue or problem - analyze codebase, create plan, post to GitHub
-argument-hint: <issue-number|url|"description">
+description: "Investigate a GitHub issue or problem - analyze codebase, create plan, post to GitHub"
+argument-hint: "<issue-number|url|\"description\">"
 ---
-
-# Investigate Issue
-
-**Input**: $ARGUMENTS
+<process>
 
 ---
 
@@ -13,7 +10,7 @@ argument-hint: <issue-number|url|"description">
 
 Investigate the issue/problem and produce a comprehensive implementation plan that:
 
-1. Can be executed by `/prp-issue-fix`
+1. Can be executed by `/prp-core:prp-issue-fix`
 2. Is posted as a GitHub comment (if GH issue provided)
 3. Captures all context needed for one-pass implementation
 
@@ -114,7 +111,7 @@ Each assessment requires a **one-sentence reasoning** explaining WHY you chose t
 
 ### 2.1 Search for Relevant Code
 
-Use Task tool with subagent_type="Explore":
+Use task with subagent_type="Explore":
 
 ```
 Explore the codebase to understand the issue:
@@ -512,7 +509,7 @@ gh issue comment {number} --body "$(cat <<'EOF'
 
 ### Next Step
 
-To implement: `/prp-issue-fix {number}`
+To implement: `/prp-core:prp-issue-fix {number}`
 
 ---
 
@@ -567,7 +564,7 @@ EOF
 
 ### Next Step
 
-Run `/prp-issue-fix {number}` to execute the plan.
+Run `/prp-core:prp-issue-fix {number}` to execute the plan.
 ````
 
 ---
@@ -606,3 +603,5 @@ Run `/prp-issue-fix {number}` to execute the plan.
 - **IMPLEMENTABLE**: Another agent can execute without questions
 - **GITHUB_POSTED**: Comment visible on issue (if GH issue)
 - **COMMITTED**: Artifact saved in git
+
+</process>

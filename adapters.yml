@@ -1,0 +1,230 @@
+# PRP Adapter Auto-Generation Config
+# Source of truth for transforming prompts/ → adapters/{tool}/
+#
+# Usage: python3 scripts/generate-adapters.py
+
+adapters:
+  claude-code:
+    file_pattern: "prp-{name}.md"
+    format: md
+    args_placeholder: "$ARGUMENTS"
+    # {TOOL}:cmd → /prp-core:prp-cmd
+    tool_command_template: "/prp-core:prp-{cmd}"
+    # {TOOL} in artifact paths → claude-code
+    artifact_suffix: "claude-code"
+    frontmatter:
+      fields: [description, argument-hint]
+    wrapper: xml  # Wrap content in <objective>, <context>, <process> tags
+    overlays: true  # Load from prompts/overlays/claude-code/
+
+  codex:
+    file_pattern: "prp-{name}/SKILL.md"
+    format: md
+    args_placeholder: "$ARGUMENTS"
+    # {TOOL}:cmd → $prp-cmd
+    tool_command_template: "$prp-{cmd}"
+    artifact_suffix: "codex"
+    frontmatter:
+      fields: [name, description, metadata]
+
+  opencode:
+    file_pattern: "{name}.md"
+    format: md
+    args_placeholder: "$ARGUMENTS"
+    # {TOOL}:cmd → /prp:cmd
+    tool_command_template: "/prp:{cmd}"
+    artifact_suffix: "opencode"
+    frontmatter:
+      fields: [description, agent]
+
+  gemini:
+    file_pattern: "{name}.toml"
+    format: toml
+    args_placeholder: "{{args}}"
+    # {TOOL}:cmd → /cmd
+    tool_command_template: "/{cmd}"
+    artifact_suffix: "gemini"
+
+  antigravity:
+    file_pattern: "prp-{name}.md"
+    format: md
+    args_placeholder: "$ARGUMENTS"
+    # {TOOL}:cmd → /prp-cmd
+    tool_command_template: "/prp-{cmd}"
+    artifact_suffix: "antigravity"
+    frontmatter:
+      fields: [description]
+
+# Per-command metadata
+# Used for frontmatter generation across adapters
+commands:
+  prd:
+    description:
+      claude-code: "Interactive PRD generator - problem-first, hypothesis-driven product spec"
+      default: "Interactive PRD generator - problem-first, hypothesis-driven product spec"
+    argument-hint: "[feature/product idea] (blank = start with questions)"
+    codex-short-description: "prd"
+    opencode-agent: "plan"
+
+  design:
+    description:
+      claude-code: "Generate technical design document from PRD as optional reference (not in workflow)"
+      default: "Generate technical design document from PRD as optional reference (not in workflow)"
+    argument-hint: "path/to/prd.md"
+    codex-short-description: "design"
+    opencode-agent: "plan"
+
+  plan:
+    description:
+      claude-code: "Create comprehensive feature implementation plan with codebase analysis and research"
+      default: "Create a comprehensive implementation plan by analyzing the codebase, discovering patterns, and producing a step-by-step actionable plan document."
+    argument-hint: "<feature description | path/to/prd.md> [--fast] [--no-interact]"
+    codex-short-description: "Create implementation plan"
+    opencode-agent: "plan"
+
+  implement:
+    description:
+      claude-code: "Execute an implementation plan with rigorous validation loops"
+      default: "Execute an implementation plan with rigorous validation loops — typecheck, lint, test, and build after every change. TDD approach with automatic failure recovery."
+    argument-hint: "<path/to/plan.md>"
+    codex-short-description: "Execute implementation plan"
+    opencode-agent: "build"
+
+  commit:
+    description:
+      claude-code: "Quick commit with natural language file targeting"
+      default: "Stage files with natural language targeting, pre-commit quality scan, plan-aware commit message, and conventional commit format."
+    argument-hint: "[target description] (blank = all changes)"
+    codex-short-description: "Smart git commit"
+    opencode-agent: "build"
+
+  pr:
+    description:
+      claude-code: "Create a PR from current branch with unpushed commits"
+      default: "Create a pull request from current branch with proper title, body, linked issues, and implementation report enrichment. Uses PR templates if available."
+    argument-hint: "[base-branch] [--no-interact] (default: main)"
+    codex-short-description: "Create pull request"
+    opencode-agent: "build"
+
+  review:
+    description:
+      claude-code: "Comprehensive PR code review - checks diff, patterns, runs validation, comments on PR"
+      default: "Comprehensive multi-pass PR code review covering quality, security, dependencies, docs, tests, error handling, types, performance, accessibility, and simplification. Posts findings to GitHub."
+    argument-hint: "<pr-number|pr-url> [--approve|--request-changes]"
+    codex-short-description: "Review pull request"
+    opencode-agent: "plan"
+
+  review-fix:
+    description:
+      claude-code: "Fix all issues from PR review artifact - applies critical, high, medium, and suggestion fixes to the PR branch"
+      default: "Fix all issues from a PR review artifact — applies critical, high, medium, and suggestion fixes to the PR branch with validation loops and automatic failure recovery."
+    argument-hint: "<pr-number|review-artifact-path> [--severity critical,high,medium,suggestion]"
+    codex-short-description: "Fix PR review issues"
+    opencode-agent: "plan"
+
+  review-agents:
+    alias: true
+    alias-of: review
+    description:
+      claude-code: "Comprehensive PR review using specialized agents - security, dependencies, code quality, tests, errors, types, docs, and simplification"
+      default: "Multi-pass PR review — alias for prp-review which already includes all 11 review passes with equivalent quality."
+    argument-hint: "\"<pr-number> [aspects: comments|tests|errors|types|code|security|deps|docs|perf|a11y|simplify|all] [--since-last-review] [--metrics]\""
+    codex-short-description: "Multi-pass PR review (alias)"
+    opencode-agent: "plan"
+    # Antigravity uses "prp-review" in description, others use just "review"
+    description-overrides:
+      codex: "Multi-pass PR review — alias for prp-review which already includes all 11 review passes with equivalent quality."
+      opencode: "Multi-pass PR review — alias for review which already includes all 11 review passes with equivalent quality."
+      gemini: "Multi-pass PR review — alias for review which already includes all 11 review passes with equivalent quality."
+      antigravity: "Multi-pass PR review — alias for prp-review which already includes all 11 review passes with equivalent quality."
+
+  feature-review:
+    description:
+      claude-code: "Comprehensive feature & code review - analyzes package/folder for quality, product ideas, performance, and security"
+      default: "Comprehensive feature & code review — analyzes package/folder for quality, product ideas, performance, and security."
+    argument-hint: "<package-path> [--focus code|product|performance|security|all]"
+    codex-short-description: "Feature code review"
+    opencode-agent: "plan"
+
+  feature-review-agents:
+    alias: true
+    alias-of: feature-review
+    description:
+      claude-code: "Comprehensive feature review using specialized agents - code quality, product ideas, performance, security, accessibility, dependencies, and observability"
+      default: "Multi-pass feature review — alias for prp-feature-review which already includes comprehensive quality, security, performance, and product analysis."
+    argument-hint: "\"<package-path> [--focus code|product|perf|security|a11y|deps|obs|all] [--quick]\""
+    codex-short-description: "Multi-pass feature review (alias)"
+    opencode-agent: "plan"
+    description-overrides:
+      codex: "Multi-pass feature review — alias for prp-feature-review which already includes comprehensive quality, security, performance, and product analysis."
+      opencode: "Multi-pass feature review — alias for feature-review which already includes comprehensive quality, security, performance, and product analysis."
+      gemini: "Multi-pass feature review — alias for feature-review which already includes comprehensive quality, security, performance, and product analysis."
+      antigravity: "Multi-pass feature review — alias for prp-feature-review which already includes comprehensive quality, security, performance, and product analysis."
+
+  debug:
+    description:
+      claude-code: "Deep root cause analysis - finds the actual cause, not just symptoms"
+      default: "Root cause analysis using the 5 Whys methodology — finds the actual cause, not just symptoms."
+    argument-hint: "<issue|error|stacktrace> [--quick]"
+    codex-short-description: "Root cause analysis"
+    opencode-agent: "plan"
+    description-overrides:
+      codex: "Root cause analysis using the 5 Whys methodology — finds the actual fixable code, not symptoms. Produces evidence-backed RCA report with fix specification."
+
+  issue-investigate:
+    description:
+      claude-code: "Investigate a GitHub issue or problem - analyze codebase, create plan, post to GitHub"
+      default: "Investigate a GitHub issue or problem - analyze codebase, create plan, post to GitHub"
+    argument-hint: "<issue-number|url|\"description\">"
+    codex-short-description: "issue investigate"
+    opencode-agent: "plan"
+
+  issue-fix:
+    description:
+      claude-code: "Implement a fix from investigation artifact - code changes, PR, and self-review"
+      default: "Implement a fix from investigation artifact — code changes, PR, and self-review."
+    argument-hint: "<issue-number|artifact-path>"
+    codex-short-description: "Fix from investigation"
+    opencode-agent: "plan"
+
+  ralph:
+    description:
+      claude-code: "Start autonomous Ralph loop to execute PRP plan until all validations pass"
+      default: "Start autonomous Ralph loop to execute PRP plan until all validations pass. Self-referential feedback loop with iteration tracking."
+    argument-hint: "<plan.md|prd.md> [--max-iterations N]"
+    codex-short-description: "Autonomous implementation loop"
+    opencode-agent: "plan"
+
+  ralph-cancel:
+    description:
+      claude-code: "Cancel active PRP Ralph loop"
+      default: "Cancel an active PRP Ralph loop and preserve work done so far."
+    argument-hint: ""
+    codex-short-description: "Cancel Ralph loop"
+    opencode-agent: "plan"
+
+  rollback:
+    description:
+      claude-code: "Safely roll back implementation changes with git stash backup and restore"
+      default: "Safely undo implementation changes with stash backup. Supports --soft, --hard, and --restore modes."
+    argument-hint: "[--soft | --hard] [--restore]"
+    codex-short-description: "Safely undo implementation changes"
+    opencode-agent: "plan"
+    description-overrides:
+      codex: "Safely undo implementation changes on the current branch with stash backup for recovery. Supports --soft (unstage), --hard (revert to origin/main), and --restore (recover from stash)."
+
+  cleanup:
+    description:
+      claude-code: "Clean up branches and verify PR status after merge"
+      default: "Post-merge cleanup — verify PR merged, archive artifacts, delete local/remote branches. Supports --all for batch cleanup, --dry-run for preview."
+    argument-hint: "[branch-name] [--all] [--dry-run]"
+    codex-short-description: "Post-merge cleanup"
+    opencode-agent: "plan"
+
+  run-all:
+    description:
+      claude-code: "Orchestrate complete PRP workflow - plan, implement, commit, PR, and review in sequence with context passing"
+      default: "Execute the complete PRP workflow end-to-end — plan, implement, commit, PR, review, and fix. Supports --fast, --ralph, --skip-plan, --skip-review, --no-pr, --resume, --no-interact, --dry-run, --fix-severity options."
+    argument-hint: "\"<feature-description>\" or --prp-path <path/to/plan.md> [--fast] [--ralph] [--ralph-max-iter N] [--skip-review] [--no-pr] [--fix-severity <levels>] [--resume] [--no-interact] [--dry-run]"
+    codex-short-description: "Full PRP workflow"
+    opencode-agent: "plan"

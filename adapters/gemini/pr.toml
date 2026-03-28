@@ -222,9 +222,9 @@ Read the template and fill in each section based on:
 ### 4.2 If No Template — Use Default Format
 
 ```bash
-gh pr create \
-  --title "{title}" \
-  --base "{base-branch}" \
+gh pr create \\
+  --title "{title}" \\
+  --base "{base-branch}" \\
   --body "$(cat <<'EOF'
 ## Summary
 
@@ -400,4 +400,5 @@ gh pr create --draft --title "{title}" --body "{body}"
 - REPORT_ENRICHED: If implementation report exists, PR body includes context from it
 - ISSUES_LINKED: Any referenced issues are linked
 - URL_RETURNED: User has the PR URL to share/review
+
 """

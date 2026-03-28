@@ -1,15 +1,29 @@
 ---
 description: Create a PR from current branch with unpushed commits
-argument-hint: [base-branch] [--no-interact] (default: main)
+argument-hint: "[base-branch] [--no-interact] (default: main)"
+---
+<process>
+
+## Agent Mode Detection
+
+If your input context contains `[WORKSPACE CONTEXT]` (injected by a multi-agents framework),
+you are running as a sub-agent. Apply these optimizations:
+
+- **Skip Phase 2 template discovery** — if context files include PR body content, use it directly.
+- **Skip CLAUDE.md reading** — already loaded by parent session.
+- **Phase 1**: If PR number is already known from context, skip existing PR check.
+
+All other phases (push, create, verify) run unchanged.
+
 ---
 
-# Create Pull Request
+# PRP PR — Create Pull Request
 
-**Base branch**: $ARGUMENTS (default: main)
+## Input
 
----
+Base branch: `$ARGUMENTS` (default: main)
 
-## Your Mission
+## Mission
 
 Create a well-formatted pull request from the current branch, using repository PR templates if available, with a clear summary of changes.
 
@@ -19,22 +33,20 @@ Create a well-formatted pull request from the current branch, using repository P
 
 ## Step 0: PARSE FLAGS
 
-**Extract from `$ARGUMENTS`:**
+Extract from `$ARGUMENTS`:
+- `NO_INTERACT` = true if `--no-interact` found
+- `BASE_BRANCH` = first non-flag argument, default "main"
 
-```
-NO_INTERACT = true if "--no-interact" found in $ARGUMENTS, else false
-BASE_BRANCH = first non-flag argument, default "main"
-```
-
-**⚠️ AUTONOMOUS MODE (`--no-interact`)**: When `NO_INTERACT = true`:
-- **NEVER** use `AskUserQuestion` — zero user questions, zero pauses.
-- Auto-resolve every decision point using safe defaults (see each phase below).
-- Output warnings to the user but do NOT wait for acknowledgment.
-- Pre-condition errors (on main, no commits) still STOP with error message.
+**Autonomous mode (`--no-interact`)**: NEVER ask user questions. Auto-resolve decisions:
+- Uncommitted changes → WARN only, PROCEED (don't stop)
+- Existing PR found → reuse it (set PR_NUMBER/URL, skip to Phase 5)
+- Push fails → auto `git push --force-with-lease`
+- Multiple templates → auto-select default
+- Pre-condition errors (on main, no commits) still STOP.
 
 ---
 
-## Phase 1: VALIDATE - Check Prerequisites
+## Phase 1: VALIDATE — Check Prerequisites
 
 ### 1.1 Verify Git State
 
@@ -84,7 +96,7 @@ Use `gh pr view` to see details or `gh pr edit` to modify.
 
 ---
 
-## Phase 2: DISCOVER - Gather Context
+## Phase 2: DISCOVER — Gather Context
 
 ### 2.1 Check for PR Template
 
@@ -132,6 +144,7 @@ git diff --name-only origin/main..HEAD
 - Format: `{type}: {description}` (e.g., "feat: Add user authentication")
 
 **Common prefixes:**
+
 | Prefix | Usage |
 |--------|-------|
 | `feat:` | New feature |
@@ -141,7 +154,17 @@ git diff --name-only origin/main..HEAD
 | `test:` | Adding tests |
 | `chore:` | Maintenance |
 
-### 2.5 Load Implementation Report (optional enrichment)
+### 2.5 Extract Issue References
+
+From commit messages, find patterns like:
+- `Fixes #123`
+- `Closes #123`
+- `Relates to #123`
+- `#123`
+
+Include these in the PR body under "Related Issues".
+
+### 2.6 Load Implementation Report (optional enrichment)
 
 ```bash
 # Find the most recent implementation report
@@ -161,11 +184,12 @@ ls -t .prp-output/reports/*-report*.md 2>/dev/null | head -1
 - [ ] Commit messages extracted
 - [ ] Changed files listed
 - [ ] PR title determined
+- [ ] Issue references extracted
 - [ ] Implementation report loaded (if available)
 
 ---
 
-## Phase 3: PUSH - Ensure Branch is Remote
+## Phase 3: PUSH — Ensure Branch is Remote
 
 ### 3.1 Push to Origin
 
@@ -188,16 +212,17 @@ git push -u origin HEAD
 
 ---
 
-## Phase 4: CREATE - Build and Submit PR
+## Phase 4: CREATE — Build and Submit PR
 
 ### 4.1 If Template Exists
 
 Read the template and fill in each section based on:
 - Commit messages
 - Changed files
+- Implementation report (if loaded in Phase 2.6)
 - Any linked issues (look for `#123` or `Fixes #123` in commits)
 
-### 4.2 If No Template - Use Default Format
+### 4.2 If No Template — Use Default Format
 
 ```bash
 gh pr create \
@@ -207,6 +232,7 @@ gh pr create \
 ## Summary
 
 {1-2 sentence description of what this PR accomplishes}
+{If implementation report found: include summary from report}
 
 ## Changes
 
@@ -246,24 +272,15 @@ EOF
 )"
 ```
 
-### 4.3 Extract Issue References
-
-From commit messages, find patterns like:
-- `Fixes #123`
-- `Closes #123`
-- `Relates to #123`
-- `#123`
-
-Include these in the PR body under "Related Issues".
-
 **PHASE_4_CHECKPOINT:**
 - [ ] PR body generated (from template or default)
 - [ ] Title is clear and follows convention
+- [ ] Implementation report context included (if available)
 - [ ] Related issues linked
 
 ---
 
-## Phase 5: VERIFY - Confirm Creation
+## Phase 5: VERIFY — Confirm Creation
 
 ### 5.1 Get PR Details
 
@@ -285,7 +302,7 @@ gh pr checks
 
 ---
 
-## Phase 6: OUTPUT - Report to User
+## Phase 6: OUTPUT — Report to User
 
 ```markdown
 ## Pull Request Created
@@ -326,7 +343,7 @@ gh pr checks
 - View PR: `gh pr view --web`
 ```
 
-> **Note for orchestrators**: The "Next Steps" above are for standalone usage only. If this command was invoked as part of `/prp-core:prp-run-all`, the orchestrator should ignore these suggestions and proceed to its next step.
+> **Note for orchestrators**: The "Next Steps" above are for standalone usage only. If this command was invoked as part of run-all, the orchestrator should ignore these suggestions and proceed to its next step.
 
 ---
 
@@ -357,7 +374,7 @@ ls .github/PULL_REQUEST_TEMPLATE/
 
 - If multiple templates:
   - **Default**: Ask user which template to use
-  - **If `--no-interact` flag is set**: Auto-select the default template (first one alphabetically, or `default.md` if it exists). Do NOT ask.
+  - **If `--no-interact`**: Auto-select the default template (first one alphabetically, or `default.md` if it exists). Do NOT ask.
 
 ### Draft PR requested
 
@@ -369,20 +386,22 @@ gh pr create --draft --title "{title}" --body "{body}"
 
 ## Usage Examples
 
-```bash
-/prp-core:pr                    # Create PR to main
-/prp-core:pr develop            # Create PR to develop branch
-/prp-core:pr --no-interact      # Fully autonomous, no questions
-/prp-core:pr main --no-interact # Autonomous to main
+```
+/prp-core:prp-pr                    # Create PR to main
+/prp-core:prp-pr develop            # Create PR to develop branch
+/prp-core:prp-pr --no-interact      # Fully autonomous, no questions
+/prp-core:prp-pr main --no-interact # Autonomous to main
 ```
 
 ---
 
 ## Success Criteria
 
-- **BRANCH_PUSHED**: Current branch exists on origin
-- **PR_CREATED**: PR successfully created via gh
-- **TEMPLATE_USED**: If template exists, it was used
-- **REPORT_ENRICHED**: If implementation report exists, PR body includes context from it
-- **ISSUES_LINKED**: Any referenced issues are linked
-- **URL_RETURNED**: User has the PR URL to share/review
+- BRANCH_PUSHED: Current branch exists on origin
+- PR_CREATED: PR successfully created via gh
+- TEMPLATE_USED: If template exists, it was used
+- REPORT_ENRICHED: If implementation report exists, PR body includes context from it
+- ISSUES_LINKED: Any referenced issues are linked
+- URL_RETURNED: User has the PR URL to share/review
+
+</process>

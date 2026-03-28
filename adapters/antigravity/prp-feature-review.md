@@ -1,4 +1,6 @@
----\ndescription: Comprehensive feature & code review — analyzes package/folder for quality, product ideas, performance, and security.\n---\n
+---
+description: "Comprehensive feature & code review — analyzes package/folder for quality, product ideas, performance, and security."
+---
 
 
 ## Agent Mode Detection

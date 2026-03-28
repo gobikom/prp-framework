@@ -1,6 +1,6 @@
 ---
 name: prp-rollback
-description: Safely undo implementation changes on the current branch with stash backup for recovery. Supports --soft (unstage), --hard (revert to origin/main), and --restore (recover from stash).
+description: "Safely undo implementation changes on the current branch with stash backup for recovery. Supports --soft (unstage), --hard (revert to origin/main), and --restore (recover from stash)."
 metadata:
   short-description: Safely undo implementation changes
 ---

@@ -1,4 +1,5 @@
-description = "Generate technical design document from PRD as optional reference (not in workflow)"\nprompt = """
+description = "Generate technical design document from PRD as optional reference (not in workflow)"
+prompt = """
 ---
 
 ## Mission
@@ -462,4 +463,5 @@ This is a **reference document**. Workflow continues as:
 - **PERFORMANCE_PLANNED**: Targets and optimization strategies defined
 - **DECISIONS_DOCUMENTED**: Key choices with rationale and trade-offs
 - **REFERENCE_ONLY**: Clearly marked as support material, not workflow gate
+
 """

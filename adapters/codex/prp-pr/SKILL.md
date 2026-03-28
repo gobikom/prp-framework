@@ -1,6 +1,6 @@
 ---
 name: prp-pr
-description: Create a pull request from current branch with proper title, body, linked issues, and implementation report enrichment. Uses PR templates if available.
+description: "Create a pull request from current branch with proper title, body, linked issues, and implementation report enrichment. Uses PR templates if available."
 metadata:
   short-description: Create pull request
 ---

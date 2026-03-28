@@ -1,9 +1,9 @@
----\nname: prp-design\ndescription: Generate technical design document from PRD as optional reference (not in workflow)\nmetadata:\n  short-description: design\n---\n
-
-# Design Document Generator
-
-**Input**: $ARGUMENTS (PRD file path)
-
+---
+name: prp-design
+description: Generate technical design document from PRD as optional reference (not in workflow)
+metadata:
+  short-description: design
+---
 ---
 
 ## Mission

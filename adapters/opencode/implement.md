@@ -1,8 +1,7 @@
 ---
-description: Execute an implementation plan with rigorous validation loops — typecheck, lint, test, and build after every change. TDD approach with automatic failure recovery.
+description: "Execute an implementation plan with rigorous validation loops — typecheck, lint, test, and build after every change. TDD approach with automatic failure recovery."
 agent: build
 ---
-
 
 ## Agent Mode Detection
 
@@ -401,10 +400,10 @@ mkdir -p .prp-output/reports
 
 ```bash
 TIMESTAMP=$(date +%Y%m%d-%H%M)
-ls .prp-output/reports/{plan-name}-report*.md 2>/dev/null
+ls .prp-output/reports/{name}-report*.md 2>/dev/null
 ```
 
-**Path**: `.prp-output/reports/{plan-name}-report-{TIMESTAMP}.md`
+**Path**: `.prp-output/reports/{name}-report-{TIMESTAMP}.md`
 
 > **Note**: Uses timestamp format to prevent overwriting previous reports.
 
@@ -624,7 +623,7 @@ Based on implementation:
 
 **PHASE_5_CHECKPOINT:**
 
-- [ ] Report created at `.prp-output/reports/{plan-name}-report-{TIMESTAMP}.md`
+- [ ] Report created at `.prp-output/reports/{name}-report-{TIMESTAMP}.md`
 - [ ] PRD updated (if applicable) — phase status changed from `in-progress` to `complete`
 - [ ] Plan moved to `.prp-output/plans/completed/`
 - [ ] Verified plan file no longer exists in original location
