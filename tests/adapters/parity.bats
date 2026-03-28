@@ -394,7 +394,114 @@ check_all_6() {
 }
 
 # ─────────────────────────────────────────────
-# 16. Claude Code-specific commands exist
+# 16. Content-level parity — Success Criteria in all commands
+# ─────────────────────────────────────────────
+
+@test "all review files have Success Criteria" {
+    check_all_6 "Success Criteria" "review"
+}
+
+@test "all implement files have Success Criteria" {
+    check_all_6 "Success Criteria" "implement"
+}
+
+@test "all review-fix files have Success Criteria" {
+    check_all_6 "Success Criteria" "review-fix"
+}
+
+@test "all pr files have Success Criteria" {
+    check_all_6 "Success Criteria" "pr"
+}
+
+@test "all cleanup files have Success Criteria" {
+    check_all_6 "Success Criteria" "cleanup"
+}
+
+@test "all run-all files have Success Criteria" {
+    check_all_6 "Success Criteria" "run-all"
+}
+
+@test "all plan files have Success Criteria" {
+    check_all_6 "Success Criteria\|success_criteria" "plan"
+}
+
+@test "all debug files have Success Criteria" {
+    check_all_6 "Success Criteria" "debug"
+}
+
+# ─────────────────────────────────────────────
+# 17. Content-level parity — Edge Cases
+# ─────────────────────────────────────────────
+
+@test "all review files have Edge Cases" {
+    check_all_6 "Edge Case" "review"
+}
+
+@test "all review-fix files have Edge Cases" {
+    check_all_6 "Edge Case" "review-fix"
+}
+
+@test "all pr files have Edge Cases" {
+    check_all_6 "Edge Case\|Handling Edge" "pr"
+}
+
+@test "all cleanup files have Edge Cases" {
+    check_all_6 "Edge Case" "cleanup"
+}
+
+@test "all run-all files have Edge Cases" {
+    check_all_6 "Edge Case" "run-all"
+}
+
+# ─────────────────────────────────────────────
+# 18. Artifact suffix — adapters use their own tool suffix
+# ─────────────────────────────────────────────
+
+@test "codex review uses -codex suffix" {
+    grep -q "\-codex" "$FRAMEWORK_DIR/adapters/codex/prp-review/SKILL.md"
+}
+
+@test "opencode review uses -opencode suffix" {
+    grep -q "\-opencode" "$FRAMEWORK_DIR/adapters/opencode/review.md"
+}
+
+@test "antigravity review uses -antigravity suffix" {
+    grep -q "\-antigravity" "$FRAMEWORK_DIR/adapters/antigravity/prp-review.md"
+}
+
+@test "gemini review uses -gemini suffix" {
+    grep -q "\-gemini" "$FRAMEWORK_DIR/adapters/gemini/review.toml"
+}
+
+@test "prompts review uses -{TOOL} suffix" {
+    grep -q "\-{TOOL}" "$FRAMEWORK_DIR/prompts/review.md"
+}
+
+# ─────────────────────────────────────────────
+# 19. Prompt drift detection — key section counts
+# ─────────────────────────────────────────────
+
+@test "prompts/ and codex have similar checkpoint counts for implement" {
+    PROMPT_COUNT=$(grep -c "CHECKPOINT" "$FRAMEWORK_DIR/prompts/implement.md")
+    CODEX_COUNT=$(grep -c "CHECKPOINT" "$FRAMEWORK_DIR/adapters/codex/prp-implement/SKILL.md")
+    # Allow ±1 difference
+    [ "$(( PROMPT_COUNT - CODEX_COUNT ))" -le 1 ] && [ "$(( CODEX_COUNT - PROMPT_COUNT ))" -le 1 ]
+}
+
+@test "prompts/ and codex have similar checkpoint counts for review-fix" {
+    PROMPT_COUNT=$(grep -c "CHECKPOINT" "$FRAMEWORK_DIR/prompts/review-fix.md")
+    CODEX_COUNT=$(grep -c "CHECKPOINT" "$FRAMEWORK_DIR/adapters/codex/prp-review-fix/SKILL.md")
+    [ "$(( PROMPT_COUNT - CODEX_COUNT ))" -le 1 ] && [ "$(( CODEX_COUNT - PROMPT_COUNT ))" -le 1 ]
+}
+
+@test "prompts/ and codex have similar checkpoint counts for run-all" {
+    PROMPT_COUNT=$(grep -c "CHECKPOINT" "$FRAMEWORK_DIR/prompts/run-all.md")
+    CODEX_COUNT=$(grep -c "CHECKPOINT" "$FRAMEWORK_DIR/adapters/codex/prp-run-all/SKILL.md")
+    [ "$(( PROMPT_COUNT - CODEX_COUNT ))" -le 1 ] && [ "$(( CODEX_COUNT - PROMPT_COUNT ))" -le 1 ]
+}
+
+# ─────────────────────────────────────────────
+# 20. Claude Code-specific commands exist
 # ─────────────────────────────────────────────
 @test "claude-code has prp-rollback command" {
     [ -f "$FRAMEWORK_DIR/adapters/claude-code/prp-rollback.md" ]
