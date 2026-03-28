@@ -26,10 +26,13 @@ FRAMEWORK_DIR="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)"
     grep -qi "alias" "$FRAMEWORK_DIR/adapters/codex/prp-feature-review-agents/SKILL.md"
 }
 
-@test "all non-CC adapters have review-agents alias" {
+@test "all non-CC adapters have review-agents and feature-review-agents aliases" {
     grep -qi "alias" "$FRAMEWORK_DIR/adapters/opencode/review-agents.md"
+    grep -qi "alias" "$FRAMEWORK_DIR/adapters/opencode/feature-review-agents.md"
     grep -qi "alias" "$FRAMEWORK_DIR/adapters/antigravity/prp-review-agents.md"
+    grep -qi "alias" "$FRAMEWORK_DIR/adapters/antigravity/prp-feature-review-agents.md"
     grep -qi "alias" "$FRAMEWORK_DIR/adapters/gemini/review-agents.toml"
+    grep -qi "alias" "$FRAMEWORK_DIR/adapters/gemini/feature-review-agents.toml"
 }
 
 @test "opencode has all 9 core commands" {
