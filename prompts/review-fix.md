@@ -121,10 +121,10 @@ ls -t .prp-output/reviews/pr-{NUMBER}-*review*.md 2>/dev/null
 
 This may return multiple files, e.g.:
 ```
-.prp-output/reviews/pr-123-agents-review.md   <- prp-review-agents (multi-agent)
-.prp-output/reviews/pr-123-review.md          <- prp-review (claude-code)
-.prp-output/reviews/pr-123-review-{TOOL}.md    <- codex
-.prp-output/reviews/pr-123-review-gemini.md   <- gemini
+.prp-output/reviews/pr-123-review-{TOOL}.md   <- this tool's review
+.prp-output/reviews/pr-123-agents-review.md   <- multi-agent review
+.prp-output/reviews/pr-123-review-toolA.md    <- another tool's review
+.prp-output/reviews/pr-123-review-toolB.md    <- yet another tool's review
 ```
 
 ### 1.3 Resolve Which Artifact to Use
@@ -141,8 +141,8 @@ List them with metadata and ask user to select:
 ```
 Multiple review artifacts found for PR #123:
 
-  [1] pr-123-review-{TOOL}.md    (codex)         modified: 2026-02-27 14:30
-  [2] pr-123-review-gemini.md   (gemini)        modified: 2026-02-27 10:15
+  [1] pr-123-review-{TOOL}.md    (this tool)     modified: 2026-02-27 14:30
+  [2] pr-123-review-toolA.md    (tool A)        modified: 2026-02-27 10:15
   [3] pr-123-agents-review.md   (agents)        modified: 2026-02-26 09:00
 
 Which review should be fixed? Enter number (or press Enter for [1] most recent):

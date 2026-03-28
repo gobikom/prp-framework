@@ -299,21 +299,18 @@ FRAMEWORK_DIR="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)"
 }
 
 # ─────────────────────────────────────────────
-# 13. Claude Code-specific commands exist
-# ─────────────────────────────────────────────
-# ─────────────────────────────────────────────
 # 13. v2.1.0 Content Parity — Phase Checkpoints
 # ─────────────────────────────────────────────
 
 # Helper: check section exists in all 6 locations (5 adapters + prompts)
 check_all_6() {
-    local pattern="$1"
-    grep -qi "$pattern" "$FRAMEWORK_DIR/adapters/claude-code/prp-$2.md"
-    grep -qi "$pattern" "$FRAMEWORK_DIR/adapters/codex/prp-$2/SKILL.md"
-    grep -qi "$pattern" "$FRAMEWORK_DIR/adapters/opencode/$2.md"
-    grep -qi "$pattern" "$FRAMEWORK_DIR/adapters/gemini/$2.toml"
-    grep -qi "$pattern" "$FRAMEWORK_DIR/adapters/antigravity/prp-$2.md"
-    grep -qi "$pattern" "$FRAMEWORK_DIR/prompts/$2.md"
+    local pattern="$1" cmd="$2"
+    grep -qi "$pattern" "$FRAMEWORK_DIR/adapters/claude-code/prp-${cmd}.md" || { echo "FAIL: claude-code/prp-${cmd}.md missing '${pattern}'"; return 1; }
+    grep -qi "$pattern" "$FRAMEWORK_DIR/adapters/codex/prp-${cmd}/SKILL.md" || { echo "FAIL: codex/prp-${cmd}/SKILL.md missing '${pattern}'"; return 1; }
+    grep -qi "$pattern" "$FRAMEWORK_DIR/adapters/opencode/${cmd}.md" || { echo "FAIL: opencode/${cmd}.md missing '${pattern}'"; return 1; }
+    grep -qi "$pattern" "$FRAMEWORK_DIR/adapters/gemini/${cmd}.toml" || { echo "FAIL: gemini/${cmd}.toml missing '${pattern}'"; return 1; }
+    grep -qi "$pattern" "$FRAMEWORK_DIR/adapters/antigravity/prp-${cmd}.md" || { echo "FAIL: antigravity/prp-${cmd}.md missing '${pattern}'"; return 1; }
+    grep -qi "$pattern" "$FRAMEWORK_DIR/prompts/${cmd}.md" || { echo "FAIL: prompts/${cmd}.md missing '${pattern}'"; return 1; }
 }
 
 @test "all implement files have phase checkpoints" {
@@ -388,11 +385,12 @@ check_all_6() {
 }
 
 @test "prompts/ have no tool-specific suffixes" {
-    ! grep -q '\-codex' "$FRAMEWORK_DIR/prompts/review.md"
-    ! grep -q '\-opencode' "$FRAMEWORK_DIR/prompts/review.md"
-    ! grep -q '\-antigravity' "$FRAMEWORK_DIR/prompts/review.md"
-    ! grep -q '\-codex' "$FRAMEWORK_DIR/prompts/review-fix.md"
-    ! grep -q '\-codex' "$FRAMEWORK_DIR/prompts/run-all.md"
+    for cmd in review implement review-fix pr commit cleanup run-all plan; do
+        ! grep -q '\-codex' "$FRAMEWORK_DIR/prompts/${cmd}.md"
+        ! grep -q '\-opencode' "$FRAMEWORK_DIR/prompts/${cmd}.md"
+        ! grep -q '\-antigravity' "$FRAMEWORK_DIR/prompts/${cmd}.md"
+        ! grep -q '\-gemini' "$FRAMEWORK_DIR/prompts/${cmd}.md"
+    done
 }
 
 # ─────────────────────────────────────────────
