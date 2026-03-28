@@ -1,19 +1,3 @@
-# PRP Implement — Execute Implementation Plan
-
-## Input
-
-Path to plan file: `{ARGS}`
-
-## Mission
-
-Execute the plan end-to-end with rigorous self-validation. You are autonomous.
-
-- **Validation loops catch mistakes early** — run checks after every change
-- **Fix issues immediately** — never accumulate broken state
-- **Golden Rule**: If a validation fails, fix it before moving on
-- The goal is a working implementation, not just code that exists
-
----
 
 ## Agent Mode Detection
 
@@ -31,7 +15,23 @@ All other phases (implementation, validation loops, reporting) run unchanged.
 
 ---
 
-## Phase 0: DETECT — Project Environment
+# PRP Implement — Execute Implementation Plan
+
+## Input
+
+Path to plan file: `{ARGS}`
+
+## Mission
+
+Execute the plan end-to-end with rigorous self-validation. You are autonomous.
+
+**Core Philosophy**: Validation loops catch mistakes early. Run checks after every change. Fix issues immediately. The goal is a working implementation, not just code that exists.
+
+**Golden Rule**: If a validation fails, fix it before moving on. Never accumulate broken state.
+
+---
+
+## Phase 0: DETECT - Project Environment
 
 ### 0.1 Identify Package Manager
 
@@ -63,11 +63,13 @@ Check `package.json` (or equivalent) for available scripts:
 
 ---
 
-## Phase 1: LOAD — Read the Plan
+## Phase 1: LOAD - Read the Plan
 
 ### 1.1 Load Plan File
 
-Read the plan file at the specified path.
+```bash
+cat {ARGS}
+```
 
 ### 1.2 Extract Key Sections
 
@@ -91,7 +93,7 @@ Locate and understand:
 ```
 Error: Plan not found at {ARGS}
 
-Create a plan first using the plan workflow.
+Create a plan first: {TOOL}:plan "feature description"
 ```
 
 **PHASE_1_CHECKPOINT:**
@@ -102,7 +104,7 @@ Create a plan first using the plan workflow.
 
 ---
 
-## Phase 2: PREPARE — Git State
+## Phase 2: PREPARE - Git State
 
 ### 2.1 Check Current State
 
@@ -136,7 +138,7 @@ git pull --rebase origin main 2>/dev/null || true
 
 ---
 
-## Phase 3: EXECUTE — Implement Tasks (TDD Approach)
+## Phase 3: EXECUTE - Implement Tasks (TDD Approach)
 
 **For each task in the plan's Step-by-Step Tasks section:**
 
@@ -157,7 +159,7 @@ git pull --rebase origin main 2>/dev/null || true
    - Happy path tests
    - Error/edge case tests from the plan's Edge Cases Checklist
 3. Run tests — they SHOULD FAIL (RED) because implementation doesn't exist yet
-4. If tests pass without implementation → tests are not testing the right thing, rewrite
+4. If tests pass without implementation — tests are not testing the right thing, rewrite
 
 ### 3.3 Implement (GREEN)
 
@@ -209,7 +211,7 @@ If you must deviate from the plan:
 
 ---
 
-## Phase 4: VALIDATE — Full Verification
+## Phase 4: VALIDATE - Full Verification
 
 ### 4.1 Static Analysis
 
@@ -261,18 +263,19 @@ Common patterns:
 
 1. **Detect coverage tool:**
 
-| Ecosystem | Coverage Command |
-|-----------|-----------------|
-| JS/TS (jest) | `{runner} test --coverage` |
-| JS/TS (vitest) | `{runner} run test --coverage` |
-| Python | `pytest --cov=. --cov-report=term-missing` |
-| Rust | `cargo tarpaulin` or `cargo llvm-cov` |
-| Go | `go test -coverprofile=coverage.out ./... && go tool cover -func=coverage.out` |
+| Ecosystem | Coverage Command | Report |
+|-----------|-----------------|--------|
+| JS/TS (jest) | `{runner} test --coverage` | `--coverageReporters=text` |
+| JS/TS (vitest) | `{runner} run test --coverage` | built-in |
+| Python | `pytest --cov=. --cov-report=term-missing` | or `coverage run -m pytest && coverage report` |
+| Rust | `cargo tarpaulin` | or `cargo llvm-cov` |
+| Go | `go test -coverprofile=coverage.out ./... && go tool cover -func=coverage.out` | built-in |
 
 2. **Focus on new/changed files only:**
 
 ```bash
-CHANGED_FILES=$(git diff --name-only origin/main...HEAD | grep -E '\.(ts|tsx|js|jsx|py|rs|go)$' | grep -v -E '(test|spec|__test__)')
+# Get list of changed source files (exclude tests themselves)
+CHANGED_FILES=$(git diff --name-only origin/main...HEAD | grep -E '\.(ts|tsx|js|jsx|py|rs|go)$' | grep -v -E '(test|spec|__test__)' )
 ```
 
 3. **Evaluate against threshold:**
@@ -298,7 +301,7 @@ CHANGED_FILES=$(git diff --name-only origin/main...HEAD | grep -E '\.(ts|tsx|js|
    ```bash
    {runner} run test:integration  # or equivalent from plan
    ```
-3. **If fail**: Read error → fix → re-run → only proceed when passing
+3. **If fail**: Read error — fix — re-run — only proceed when passing
 
 ### 4.3 Build Check
 
@@ -341,10 +344,6 @@ Run any edge case tests specified in the plan.
 
 **Check for common security issues in changed files:**
 
-```bash
-CHANGED_FILES=$(git diff --name-only origin/main...HEAD | grep -E '\.(ts|tsx|js|jsx|py|rs|go)$')
-```
-
 1. **Hardcoded secrets**: Search for API keys, tokens, passwords in source
 2. **SQL injection patterns**: Search for string concatenation in queries
 3. **Unsafe eval/exec**: Search for `eval()`, `exec()`, `Function()` in changed files
@@ -359,7 +358,6 @@ CHANGED_FILES=$(git diff --name-only origin/main...HEAD | grep -E '\.(ts|tsx|js|
 1. Check for benchmark command: `test:bench`, `bench`, or plan-specified command
 2. If available, run benchmark and compare against plan's baseline targets
 3. Flag any regression > 20% from baseline
-4. **If regression detected**: Investigate, optimize, or document as known trade-off
 
 ### 4.8 API Contract Validation (conditional)
 
@@ -367,10 +365,8 @@ CHANGED_FILES=$(git diff --name-only origin/main...HEAD | grep -E '\.(ts|tsx|js|
 > **Skip if**: No API schema files, or feature doesn't touch API endpoints.
 
 1. Detect API schema: `openapi.yaml`, `openapi.json`, `schema.graphql`, tRPC routers
-2. If OpenAPI: validate spec is still valid
-3. If GraphQL: run schema validation
-4. If tRPC: type-check covers this (already done in 4.1)
-5. **If validation fails**: Fix schema or implementation to match
+2. Validate spec/schema is still valid after changes
+3. For tRPC: type-check covers this (already done in 4.1)
 
 **PHASE_4_CHECKPOINT:**
 
@@ -386,7 +382,7 @@ CHANGED_FILES=$(git diff --name-only origin/main...HEAD | grep -E '\.(ts|tsx|js|
 
 ---
 
-## Phase 5: REPORT — Create Implementation Report
+## Phase 5: REPORT - Create Implementation Report
 
 ### 5.1 Create Report Directory
 
@@ -400,15 +396,12 @@ mkdir -p .prp-output/reports
 
 ```bash
 TIMESTAMP=$(date +%Y%m%d-%H%M)
-# Check for existing files with same base name
 ls .prp-output/reports/{plan-name}-report*.md 2>/dev/null
 ```
 
 **Path**: `.prp-output/reports/{plan-name}-report-{TIMESTAMP}.md`
 
-Example: `user-auth-report-20260210-1430.md`
-
-> **Note**: Timestamp-based naming prevents file collisions when re-running implementations. Tool-specific adapters may add a tool suffix (e.g., `-codex`, `-gemini`) for multi-tool parallel execution scenarios.
+> **Note**: Uses timestamp format to prevent overwriting previous reports.
 
 ```markdown
 # Implementation Report
@@ -434,11 +427,11 @@ Compare the original plan's assessment with what actually happened:
 | Metric | Predicted | Actual | Reasoning |
 |--------|-----------|--------|-----------|
 | Complexity | {from plan} | {actual} | {Why it matched or differed} |
-| Confidence | {from plan} | {actual} | {e.g., "root cause was correct" or "had to pivot because X"} |
+| Confidence | {from plan} | {actual} | {e.g., "root cause was correct" or "had to pivot"} |
 
 **If implementation deviated from the plan, explain why:**
 
-- {What changed and why - based on what you discovered during implementation}
+- {What changed and why}
 
 ---
 
@@ -487,7 +480,7 @@ Compare the original plan's assessment with what actually happened:
 ## Tests Written
 
 | Test File | Test Cases |
-|-----------|-----------|
+|-----------|------------|
 | `src/x.test.ts` | {list of test functions} |
 
 ---
@@ -495,7 +488,7 @@ Compare the original plan's assessment with what actually happened:
 ## Next Steps
 
 - [ ] Review implementation
-- [ ] Create PR (if applicable)
+- [ ] Create PR: `gh pr create` (if applicable)
 - [ ] Merge when approved
 ```
 
@@ -503,30 +496,57 @@ Compare the original plan's assessment with what actually happened:
 
 **Check if plan was generated from a PRD:**
 - Look in the plan file for `Source PRD:` reference
-- Or check if plan filename matches a phase pattern
+- Or check if plan filename matches a phase pattern (e.g., `feature-phase-1.plan.md`)
 
-**If PRD source exists:**
+**If PRD source exists, you MUST update it:**
 
-1. Read the PRD file
-2. Find the phase row in the Implementation Phases table
-3. Update the phase:
-   - Change Status from `in-progress` to `complete`
-4. Save the PRD
+1. **Read the PRD file** using the path from plan's metadata
+2. **Find the Implementation Phases table** in the PRD
+3. **Locate the row** matching the phase name from this plan
+4. **Update the row** by changing:
+   - Status: `in-progress` → `complete`
+   - Add completion date if there's a date column
+5. **Save the PRD file**
 
-### 5.4 Archive Plan
-
-```bash
-mkdir -p .prp-output/plans/completed
-mv {ARGS} .prp-output/plans/completed/
+**Example before:**
+```markdown
+| 1 | User Authentication | in-progress | `plans/auth.plan.md` |
 ```
 
-**GATE**: Do NOT proceed to Phase 6 until plan is archived. This prevents re-running the same plan.
+**Example after:**
+```markdown
+| 1 | User Authentication | complete | `plans/auth.plan.md` |
+```
+
+**CRITICAL**: Do NOT skip this step. The PRD tracks overall progress and other phases depend on accurate status.
+
+### 5.4 Archive Plan to Completed
+
+**Always archive the plan after successful implementation:**
+
+```bash
+# Create completed directory if it doesn't exist
+mkdir -p .prp-output/plans/completed
+
+# Move plan to completed folder
+mv "{ARGS}" .prp-output/plans/completed/
+```
+
+**Verify the move:**
+```bash
+ls -la .prp-output/plans/completed/
+```
+
+**If move fails** (e.g., file already exists), use a timestamped name:
+```bash
+mv "{ARGS}" ".prp-output/plans/completed/$(basename {ARGS} .md)-$(date +%Y%m%d).md"
+```
 
 ### 5.5 Generate Review Context File (for run-all workflow)
 
-**Purpose**: Pre-generate context for review workflows to save ~60K tokens when running via the full run-all workflow.
+**Purpose**: Pre-generate context for review to save ~60K tokens when running via run-all workflow.
 
-**CRITICAL**: Generate this file even if implementation fails early. Include note: "Implementation incomplete at task {N}/{total}. Partial context for review." List completed tasks with validation status and remaining tasks. This enables review workflows to provide partial feedback, which is better than no feedback.
+**CRITICAL**: Generate this file even if implementation fails early. Include note: "Implementation incomplete at task {N}/{total}. Partial context for review." List completed tasks with validation status and remaining tasks. This enables review to provide partial feedback.
 
 **Path**: `.prp-output/reviews/pr-context-{BRANCH}.md`
 
@@ -535,7 +555,7 @@ BRANCH=$(git branch --show-current)
 mkdir -p .prp-output/reviews
 ```
 
-Generate a context file containing:
+**Generate the context file:**
 
 ```markdown
 # PR Review Context
@@ -544,41 +564,58 @@ Generate a context file containing:
 **Generated**: {YYYY-MM-DD HH:MM}
 **Source Plan**: `{ARGS}`
 
+---
+
 ## Files Changed
 
-{Output of: git diff --name-only origin/main...HEAD}
+{List from git diff --name-only origin/main...HEAD}
+
+| File | Action | Summary |
+|------|--------|---------|
+| `src/x.ts` | CREATE | {brief description} |
+| `src/y.ts` | UPDATE | {brief description} |
+
+---
 
 ## Implementation Summary
 
-{Brief summary from the implementation report}
+{Copy from the report's Summary section}
+
+---
 
 ## Validation Status
 
 | Check | Result |
 |-------|--------|
-| Type check | {result} |
-| Lint | {result} |
-| Tests | {result} |
-| Build | {result} |
-| Coverage | {result} |
+| Type check | ✅ |
+| Lint | ✅ |
+| Tests | ✅ ({N} passed) |
+| Build | ✅ |
+
+---
 
 ## Key Changes for Review
 
 ### New Files
-{List new files with brief description}
+{List new files with brief purpose}
 
 ### Modified Files
 {List modified files with what changed}
 
 ### Tests Added
-{List test files with coverage summary}
+{List test files and what they cover}
+
+---
 
 ## Review Focus Areas
 
-{List areas that need careful review — complex logic, security, performance}
+Based on implementation:
+- {Area 1 that reviewers should focus on}
+- {Area 2 that might need extra attention}
+- {Any gotchas or edge cases}
 ```
 
-Save the file to `.prp-output/reviews/pr-context-{BRANCH}.md`
+**Save the file** to `.prp-output/reviews/pr-context-{BRANCH}.md`
 
 **PHASE_5_CHECKPOINT:**
 
@@ -588,9 +625,11 @@ Save the file to `.prp-output/reviews/pr-context-{BRANCH}.md`
 - [ ] Verified plan file no longer exists in original location
 - [ ] Review context file created at `.prp-output/reviews/pr-context-{BRANCH}.md`
 
+**GATE**: Do NOT proceed to Phase 6 until plan is archived. This prevents re-running the same plan.
+
 ---
 
-## Phase 6: OUTPUT — Report to User
+## Phase 6: OUTPUT - Report to User
 
 ```markdown
 ## Implementation Complete
@@ -622,7 +661,7 @@ Save the file to `.prp-output/reviews/pr-context-{BRANCH}.md`
 
 ### Artifacts
 
-- Report: `.prp-output/reports/{plan-name}-report-{TIMESTAMP}.md`
+- Report: `.prp-output/reports/{name}-report-{TIMESTAMP}.md`
 - Review Context: `.prp-output/reviews/pr-context-{BRANCH}.md`
 - Plan archived to: `.prp-output/plans/completed/`
 
@@ -639,17 +678,17 @@ Save the file to `.prp-output/reviews/pr-context-{BRANCH}.md`
 **Next Phase**: {next pending phase, or "All phases complete!"}
 {If next phase can parallel: "Note: Phase {X} can also start now (parallel)"}
 
-To continue: run plan workflow with `{prd-path}`
+To continue: `{TOOL}:plan {prd-path}`
 
 ### Next Steps
 
 1. Review the report (especially if deviations noted)
-2. Create PR using the PR workflow
+2. Create PR: `gh pr create` or `{TOOL}:pr`
 3. Merge when approved
-{If more phases: "4. Continue with next phase using plan workflow"}
+{If more phases: "4. Continue with next phase: `{TOOL}:plan {prd-path}`"}
 ```
 
-> **Note for orchestrators**: The "Next Steps" above are for standalone usage only. If this command was invoked as part of a run-all workflow, the orchestrator should ignore these suggestions and proceed to its next step.
+> **Note for orchestrators**: The "Next Steps" above are for standalone usage only. If this command was invoked as part of run-all, the orchestrator should ignore these suggestions and proceed to its next step (Step 3.1: verify artifacts, then Step 4: commit).
 
 ---
 
@@ -690,15 +729,21 @@ To continue: run plan workflow with `{prd-path}`
 3. Check request format
 4. Fix implementation and retry
 
+### Early Abort (any phase)
+
+**Jump to Phase 5.5 (Generate Review Context) before stopping** — generate partial context with completed/remaining tasks, then Phase 5.2 (Report) if possible. Partial feedback is better than no feedback.
+
 ---
 
 ## Success Criteria
 
-- **TASKS_COMPLETE**: All plan tasks executed
-- **TYPES_PASS**: Type-check command exits 0
-- **LINT_PASS**: Lint command exits 0 (warnings OK)
-- **TESTS_PASS**: Test command all green
-- **BUILD_PASS**: Build command succeeds
-- **REPORT_CREATED**: Implementation report exists
-- **PR_CONTEXT_CREATED**: Review context file exists at `.prp-output/reviews/pr-context-{BRANCH}.md`
-- **PLAN_ARCHIVED**: Original plan moved to completed
+- TASKS_COMPLETE: All plan tasks executed
+- TYPES_PASS: Type-check command exits 0
+- LINT_PASS: Lint command exits 0 (warnings OK)
+- TESTS_PASS: Test command all green
+- BUILD_PASS: Build command succeeds
+- REPORT_CREATED: Implementation report exists at `.prp-output/reports/`
+- PR_CONTEXT_CREATED: Review context file exists at `.prp-output/reviews/pr-context-{BRANCH}.md`
+- PRD_UPDATED: If plan came from PRD, phase status is `complete`
+- PLAN_ARCHIVED: Original plan moved to `.prp-output/plans/completed/`
+- PLAN_REMOVED: Original plan no longer in `.prp-output/plans/` (prevents re-run)

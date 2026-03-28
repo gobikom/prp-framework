@@ -301,6 +301,103 @@ FRAMEWORK_DIR="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)"
 # ─────────────────────────────────────────────
 # 13. Claude Code-specific commands exist
 # ─────────────────────────────────────────────
+# ─────────────────────────────────────────────
+# 13. v2.1.0 Content Parity — Phase Checkpoints
+# ─────────────────────────────────────────────
+
+# Helper: check section exists in all 6 locations (5 adapters + prompts)
+check_all_6() {
+    local pattern="$1"
+    grep -qi "$pattern" "$FRAMEWORK_DIR/adapters/claude-code/prp-$2.md"
+    grep -qi "$pattern" "$FRAMEWORK_DIR/adapters/codex/prp-$2/SKILL.md"
+    grep -qi "$pattern" "$FRAMEWORK_DIR/adapters/opencode/$2.md"
+    grep -qi "$pattern" "$FRAMEWORK_DIR/adapters/gemini/$2.toml"
+    grep -qi "$pattern" "$FRAMEWORK_DIR/adapters/antigravity/prp-$2.md"
+    grep -qi "$pattern" "$FRAMEWORK_DIR/prompts/$2.md"
+}
+
+@test "all implement files have phase checkpoints" {
+    check_all_6 "CHECKPOINT" "implement"
+}
+
+@test "all review-fix files have phase checkpoints" {
+    check_all_6 "CHECKPOINT" "review-fix"
+}
+
+@test "all pr files have phase checkpoints" {
+    check_all_6 "CHECKPOINT" "pr"
+}
+
+@test "all commit files have phase checkpoints" {
+    check_all_6 "CHECKPOINT" "commit"
+}
+
+@test "all cleanup files have phase checkpoints" {
+    check_all_6 "CHECKPOINT" "cleanup"
+}
+
+@test "all plan files have phase checkpoints" {
+    check_all_6 "CHECKPOINT" "plan"
+}
+
+# ─────────────────────────────────────────────
+# 14. v2.1.0 Content Parity — New Features
+# ─────────────────────────────────────────────
+
+@test "all pr files mention implementation report enrichment" {
+    check_all_6 "Implementation Report\|implementation report\|REPORT_ENRICHED" "pr"
+}
+
+@test "all commit files mention plan-aware context" {
+    check_all_6 "Plan-Aware\|plan-aware\|PLAN_CONTEXT\|Phase 1.5" "commit"
+}
+
+@test "all cleanup files mention manifest-first discovery" {
+    check_all_6 "manifest\|MANIFEST" "cleanup"
+}
+
+@test "all cleanup files mention orphaned state cleanup" {
+    check_all_6 "state file\|STATE_CLEANED\|prp-run-all.state" "cleanup"
+}
+
+@test "all run-all files mention dry-run mode" {
+    check_all_6 "dry-run\|DRY_RUN\|dry.run" "run-all"
+}
+
+@test "all run-all files mention --since-last-review" {
+    check_all_6 "since-last-review\|incremental.*re-verify\|INCREMENTAL_REVIEW" "run-all"
+}
+
+@test "all run-all files mention ralph mode" {
+    check_all_6 "ralph\|RALPH" "run-all"
+}
+
+# ─────────────────────────────────────────────
+# 15. v2.1.0 Prompts — Tool-agnostic Placeholders
+# ─────────────────────────────────────────────
+
+@test "prompts/ use {ARGS} not \$ARGUMENTS" {
+    ! grep -q '\$ARGUMENTS' "$FRAMEWORK_DIR/prompts/review.md"
+    ! grep -q '\$ARGUMENTS' "$FRAMEWORK_DIR/prompts/implement.md"
+    ! grep -q '\$ARGUMENTS' "$FRAMEWORK_DIR/prompts/review-fix.md"
+    ! grep -q '\$ARGUMENTS' "$FRAMEWORK_DIR/prompts/pr.md"
+    ! grep -q '\$ARGUMENTS' "$FRAMEWORK_DIR/prompts/commit.md"
+    ! grep -q '\$ARGUMENTS' "$FRAMEWORK_DIR/prompts/cleanup.md"
+    ! grep -q '\$ARGUMENTS' "$FRAMEWORK_DIR/prompts/run-all.md"
+    ! grep -q '\$ARGUMENTS' "$FRAMEWORK_DIR/prompts/plan.md"
+}
+
+@test "prompts/ have no tool-specific suffixes" {
+    ! grep -q '\-codex' "$FRAMEWORK_DIR/prompts/review.md"
+    ! grep -q '\-opencode' "$FRAMEWORK_DIR/prompts/review.md"
+    ! grep -q '\-antigravity' "$FRAMEWORK_DIR/prompts/review.md"
+    ! grep -q '\-codex' "$FRAMEWORK_DIR/prompts/review-fix.md"
+    ! grep -q '\-codex' "$FRAMEWORK_DIR/prompts/run-all.md"
+}
+
+# ─────────────────────────────────────────────
+# 16. Claude Code-specific commands exist
+# ─────────────────────────────────────────────
 @test "claude-code has prp-rollback command" {
     [ -f "$FRAMEWORK_DIR/adapters/claude-code/prp-rollback.md" ]
 }

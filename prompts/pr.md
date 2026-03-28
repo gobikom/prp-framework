@@ -1,3 +1,17 @@
+
+## Agent Mode Detection
+
+If your input context contains `[WORKSPACE CONTEXT]` (injected by a multi-agents framework),
+you are running as a sub-agent. Apply these optimizations:
+
+- **Skip Phase 2 template discovery** — if context files include PR body content, use it directly.
+- **Skip CLAUDE.md reading** — already loaded by parent session.
+- **Phase 1**: If PR number is already known from context, skip existing PR check.
+
+All other phases (push, create, verify) run unchanged.
+
+---
+
 # PRP PR — Create Pull Request
 
 ## Input
@@ -9,6 +23,21 @@ Base branch: `{ARGS}` (default: main)
 Create a well-formatted pull request from the current branch, using repository PR templates if available, with a clear summary of changes.
 
 **Golden Rule**: PRs should tell reviewers what changed and why. Use existing templates when available.
+
+---
+
+## Step 0: PARSE FLAGS
+
+Extract from `{ARGS}`:
+- `NO_INTERACT` = true if `--no-interact` found
+- `BASE_BRANCH` = first non-flag argument, default "main"
+
+**Autonomous mode (`--no-interact`)**: NEVER ask user questions. Auto-resolve decisions:
+- Uncommitted changes → WARN only, PROCEED (don't stop)
+- Existing PR found → reuse it (set PR_NUMBER/URL, skip to Phase 5)
+- Push fails → auto `git push --force-with-lease`
+- Multiple templates → auto-select default
+- Pre-condition errors (on main, no commits) still STOP.
 
 ---
 
@@ -32,7 +61,8 @@ git log origin/main..HEAD --oneline
 | State | Action |
 |-------|--------|
 | On main/master | STOP: "Cannot create PR from main. Create a feature branch first." |
-| Uncommitted changes | WARN: "You have uncommitted changes. Commit or stash before creating PR." |
+| Uncommitted changes + `NO_INTERACT` | WARN only (print message), then PROCEED — do NOT ask or wait. |
+| Uncommitted changes + interactive | WARN: "You have uncommitted changes. Commit or stash before creating PR." |
 | No commits ahead | STOP: "No commits to create PR from. Branch is up to date with main." |
 | Has commits, clean | PROCEED |
 
@@ -42,7 +72,12 @@ git log origin/main..HEAD --oneline
 gh pr list --head $(git branch --show-current) --json number,url
 ```
 
-**If PR exists:**
+**If PR exists + `NO_INTERACT`:**
+- Reuse the existing PR — set `PR_NUMBER` and `PR_URL` from the result.
+- Skip directly to **Phase 5: VERIFY** (push new commits first if needed).
+- Do NOT stop or ask.
+
+**If PR exists + interactive:**
 ```
 PR already exists for this branch: {url}
 Use `gh pr view` to see details or `gh pr edit` to modify.
@@ -52,7 +87,7 @@ Use `gh pr view` to see details or `gh pr edit` to modify.
 - [ ] Not on main/master branch
 - [ ] Working directory is clean (or user acknowledged)
 - [ ] Has commits ahead of base branch
-- [ ] No existing PR for this branch
+- [ ] No existing PR for this branch (or reused existing in `--no-interact` mode)
 
 ---
 
@@ -114,11 +149,38 @@ git diff --name-only origin/main..HEAD
 | `test:` | Adding tests |
 | `chore:` | Maintenance |
 
+### 2.5 Extract Issue References
+
+From commit messages, find patterns like:
+- `Fixes #123`
+- `Closes #123`
+- `Relates to #123`
+- `#123`
+
+Include these in the PR body under "Related Issues".
+
+### 2.6 Load Implementation Report (optional enrichment)
+
+```bash
+# Find the most recent implementation report
+ls -t .prp-output/reports/*-report*.md 2>/dev/null | head -1
+```
+
+**If report found**, extract:
+- **Summary** — use to enrich PR description's summary section
+- **Deviations from plan** — include as notable context for reviewers
+- **Validation results** — pre-fill testing section with actual results
+- **Test coverage** — include in testing section
+
+**If not found**: Skip silently — git log is sufficient for PR description.
+
 **PHASE_2_CHECKPOINT:**
 - [ ] PR template located (or confirmed none exists)
 - [ ] Commit messages extracted
 - [ ] Changed files listed
 - [ ] PR title determined
+- [ ] Issue references extracted
+- [ ] Implementation report loaded (if available)
 
 ---
 
@@ -131,7 +193,11 @@ git diff --name-only origin/main..HEAD
 git push -u origin HEAD
 ```
 
-**If push fails:**
+**If push fails + `NO_INTERACT`:**
+- Automatically try `git push --force-with-lease -u origin HEAD` (safe force push).
+- If that also fails → STOP with error message. Do NOT ask.
+
+**If push fails + interactive:**
 - Check for remote branch conflicts
 - May need `--force-with-lease` if rebased (warn user first)
 
@@ -148,6 +214,7 @@ git push -u origin HEAD
 Read the template and fill in each section based on:
 - Commit messages
 - Changed files
+- Implementation report (if loaded in Phase 2.6)
 - Any linked issues (look for `#123` or `Fixes #123` in commits)
 
 ### 4.2 If No Template — Use Default Format
@@ -160,6 +227,7 @@ gh pr create \
 ## Summary
 
 {1-2 sentence description of what this PR accomplishes}
+{If implementation report found: include summary from report}
 
 ## Changes
 
@@ -178,8 +246,16 @@ gh pr create \
 
 </details>
 
+{If implementation report found:}
+## Implementation Notes
+
+{Deviations from plan, if any}
+{Notable decisions or trade-offs}
+
 ## Testing
 
+{If implementation report found: actual validation results}
+{Otherwise: checklist}
 - [ ] Type check passes
 - [ ] Tests pass
 - [ ] Manually verified
@@ -191,19 +267,10 @@ EOF
 )"
 ```
 
-### 4.3 Extract Issue References
-
-From commit messages, find patterns like:
-- `Fixes #123`
-- `Closes #123`
-- `Relates to #123`
-- `#123`
-
-Include these in the PR body under "Related Issues".
-
 **PHASE_4_CHECKPOINT:**
 - [ ] PR body generated (from template or default)
 - [ ] Title is clear and follows convention
+- [ ] Implementation report context included (if available)
 - [ ] Related issues linked
 
 ---
@@ -253,6 +320,13 @@ gh pr checks
 
 {List of changed files}
 
+{If implementation report was used:}
+### Implementation Context
+
+- Report: `.prp-output/reports/{name}-report-{TIMESTAMP}.md`
+- Validation: All checks passed
+- Deviations: {summary or "None"}
+
 ### Checks
 
 {Status of any CI checks, or "Pending"}
@@ -264,7 +338,7 @@ gh pr checks
 - View PR: `gh pr view --web`
 ```
 
-> **Note for orchestrators**: The "Next Steps" above are for standalone usage only. If this command was invoked as part of a run-all workflow, the orchestrator should ignore these suggestions and proceed to its next step.
+> **Note for orchestrators**: The "Next Steps" above are for standalone usage only. If this command was invoked as part of run-all, the orchestrator should ignore these suggestions and proceed to its next step.
 
 ---
 
@@ -295,7 +369,7 @@ ls .github/PULL_REQUEST_TEMPLATE/
 
 - If multiple templates:
   - **Default**: Ask user which template to use
-  - **If `--no-interact` flag is set**: Auto-select the default template (first alphabetically, or `default.md` if exists). Do NOT ask.
+  - **If `--no-interact`**: Auto-select the default template (first one alphabetically, or `default.md` if it exists). Do NOT ask.
 
 ### Draft PR requested
 
@@ -305,10 +379,22 @@ gh pr create --draft --title "{title}" --body "{body}"
 
 ---
 
+## Usage Examples
+
+```
+{TOOL}:pr                    # Create PR to main
+{TOOL}:pr develop            # Create PR to develop branch
+{TOOL}:pr --no-interact      # Fully autonomous, no questions
+{TOOL}:pr main --no-interact # Autonomous to main
+```
+
+---
+
 ## Success Criteria
 
-- **BRANCH_PUSHED**: Current branch exists on origin
-- **PR_CREATED**: PR successfully created via gh
-- **TEMPLATE_USED**: If template exists, it was used
-- **ISSUES_LINKED**: Any referenced issues are linked
-- **URL_RETURNED**: User has the PR URL to share/review
+- BRANCH_PUSHED: Current branch exists on origin
+- PR_CREATED: PR successfully created via gh
+- TEMPLATE_USED: If template exists, it was used
+- REPORT_ENRICHED: If implementation report exists, PR body includes context from it
+- ISSUES_LINKED: Any referenced issues are linked
+- URL_RETURNED: User has the PR URL to share/review

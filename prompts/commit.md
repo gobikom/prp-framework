@@ -1,3 +1,4 @@
+
 # PRP Commit — Smart Git Commit
 
 ## Input
@@ -7,6 +8,8 @@ Target description: `{ARGS}`
 ## Mission
 
 Stage files matching the target, write a concise commit message, commit.
+
+**Golden Rule**: Commit messages should explain what changed and why. Use conventional commit format.
 
 ---
 
@@ -50,13 +53,18 @@ git diff --cached -- '*.ts' ':!*.test.ts' ':!*.spec.ts' ':!*.d.ts' | grep -n ": 
 
 Summarize findings:
 
-```markdown
-**Pre-commit Quality Check:**
+```
+Pre-commit Quality Check:
 - Debug artifacts: {count} found (TODO: {n}, console.log: {n})
 - Type safety: {count} `any` usage found
 - Quick validation: {passed/skipped}
-- ⚠️ Advisory: {warnings if any}
+- Advisory: {warnings if any}
 ```
+
+**PHASE_0_CHECKPOINT:**
+- [ ] Staged files scanned
+- [ ] Debug artifacts reported (advisory)
+- [ ] Type safety checked (if TypeScript)
 
 ---
 
@@ -66,7 +74,26 @@ Summarize findings:
 git status --short
 ```
 
-If nothing to commit, stop.
+If nothing to commit, STOP: "Working directory clean, nothing to commit."
+
+---
+
+## Phase 1.5: PLAN-AWARE CONTEXT (optional enrichment)
+
+Check for a completed plan matching the current branch to enrich the commit message:
+
+```bash
+BRANCH=$(git branch --show-current)
+PLAN_SLUG=$(echo "$BRANCH" | sed 's|^feature/||')
+PLAN=$(ls -t .prp-output/plans/completed/*${PLAN_SLUG}*.plan.md 2>/dev/null | head -1)
+```
+
+**If plan found**, extract:
+- **Summary** — what was planned
+- **Task list** — which tasks were completed
+- Use these to write a more descriptive commit message body
+
+**If not found**: Skip silently — git diff is sufficient for message derivation.
 
 ---
 
@@ -90,6 +117,10 @@ Stage the matching files. Show what will be committed:
 git diff --cached --name-only
 ```
 
+**PHASE_2_CHECKPOINT:**
+- [ ] Files staged matching target description
+- [ ] Staged file list shown to user
+
 ---
 
 ## Phase 3: COMMIT
@@ -106,6 +137,21 @@ Types: `feat`, `fix`, `refactor`, `docs`, `test`, `chore`
 git commit -m "{type}: {description}"
 ```
 
+**If plan context was loaded (Phase 1.5)**, include a body with plan reference:
+
+```bash
+git commit -m "{type}: {description}
+
+Plan: {plan-filename}
+Tasks: {N} completed
+{If deviations: brief note}"
+```
+
+**PHASE_3_CHECKPOINT:**
+- [ ] Message follows conventional format
+- [ ] Plan context included if available
+- [ ] Commit succeeded
+
 ---
 
 ## Phase 4: OUTPUT
@@ -114,10 +160,25 @@ git commit -m "{type}: {description}"
 **Committed**: {hash} - {message}
 **Files**: {count} files (+{add}/-{del})
 
-Next: `git push` or create PR
+{If plan context used:}
+**Plan**: {plan-filename}
+
+Next: `git push` or `{TOOL}:pr`
 ```
 
-> **Note for orchestrators**: This "Next" suggestion is for standalone usage only. If invoked as part of a run-all workflow, ignore this and proceed to the next workflow step.
+> **Note for orchestrators**: The "Next" suggestion is for standalone usage only. If this command was invoked as part of run-all, the orchestrator should ignore it and proceed to its next step.
+
+---
+
+## Examples
+
+```
+{TOOL}:commit                          # All changes
+{TOOL}:commit typescript files         # *.ts only
+{TOOL}:commit except package-lock      # Exclude specific
+{TOOL}:commit only the new files       # Untracked only
+{TOOL}:commit staged                   # Already-staged only
+```
 
 ---
 
@@ -134,22 +195,11 @@ Next: `git push` or create PR
 
 ---
 
-## Examples
-
-```
-commit                          # All changes
-commit typescript files         # *.ts only
-commit except package-lock      # Exclude specific
-commit only the new files       # Untracked only
-commit staged                   # Already-staged only
-```
-
----
-
 ## Success Criteria
 
-- **FILES_STAGED**: Correct files staged per target description
-- **QUALITY_CHECKED**: Pre-commit advisory scan completed
-- **MESSAGE_CLEAR**: Commit message follows conventional format and is descriptive
-- **COMMITTED**: Git commit succeeded
-- **OUTPUT_SHOWN**: User sees commit hash, message, and file count
+- FILES_STAGED: Correct files staged per target description
+- QUALITY_CHECKED: Pre-commit advisory scan completed
+- PLAN_CONTEXT: If completed plan exists, enriched commit message
+- MESSAGE_CLEAR: Commit message follows conventional format and is descriptive
+- COMMITTED: Git commit succeeded
+- OUTPUT_SHOWN: User sees commit hash, message, and file count
