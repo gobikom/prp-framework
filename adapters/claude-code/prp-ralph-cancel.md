@@ -48,3 +48,11 @@ description: Cancel active PRP Ralph loop
    - Run `/prp-ralph {plan_path}` to start fresh
    - Or continue manually with `/prp-implement {plan_path}`
    ```
+
+---
+
+## Success Criteria
+
+- LOOP_DETECTED: State file checked for existence
+- STATE_REMOVED: `.claude/prp-ralph.state.md` deleted (if existed)
+- WORK_PRESERVED: No code changes reverted — only state file removed

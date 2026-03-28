@@ -1,14 +1,11 @@
-# PRP Issue Investigate — Analyze Issue and Create Implementation Plan
 
-## Input
+---
 
-Issue number, URL, or description: `{ARGS}`
-
-## Mission
+## Your Mission
 
 Investigate the issue/problem and produce a comprehensive implementation plan that:
 
-1. Can be executed by the issue-fix command
+1. Can be executed by `{TOOL}:issue-fix`
 2. Is posted as a GitHub comment (if GH issue provided)
 3. Captures all context needed for one-pass implementation
 
@@ -109,9 +106,11 @@ Each assessment requires a **one-sentence reasoning** explaining WHY you chose t
 
 ### 2.1 Search for Relevant Code
 
-Explore the codebase to understand the issue:
+Use task with subagent_type="Explore":
 
 ```
+Explore the codebase to understand the issue:
+
 ISSUE: {title/description}
 
 DISCOVER:
@@ -140,7 +139,7 @@ Return:
 
 **PHASE_2_CHECKPOINT:**
 
-- [ ] Codebase exploration completed successfully
+- [ ] Explore agent completed successfully
 - [ ] Core files identified with line numbers
 - [ ] Integration points mapped
 - [ ] Similar patterns found to mirror
@@ -411,7 +410,7 @@ describe("{feature}", () => {
 
 ## Metadata
 
-- **Investigated by**: AI
+- **Investigated by**: Claude
 - **Timestamp**: {ISO timestamp}
 - **Artifact**: `.prp-output/issues/issue-{number}-{TIMESTAMP}.md`
 
@@ -428,8 +427,7 @@ describe("{feature}", () => {
 ## Phase 5: COMMIT - Save Artifact
 
 ```bash
-# Stage only the artifact just created (not the entire directory)
-git add ".prp-output/issues/issue-{number}-${TIMESTAMP}.md"
+git add .prp-output/issues/
 git status
 ````
 
@@ -453,7 +451,7 @@ Format the artifact for GitHub and post:
 
 ````bash
 gh issue comment {number} --body "$(cat <<'EOF'
-## Investigation: {Title}
+## 🔍 Investigation: {Title}
 
 **Type**: `{TYPE}`
 
@@ -487,7 +485,7 @@ gh issue comment {number} --body "$(cat <<'EOF'
 | 2 | `src/x.test.ts` | Add test for {case} |
 
 <details>
-<summary>Detailed Implementation Steps</summary>
+<summary>📋 Detailed Implementation Steps</summary>
 
 {detailed steps from artifact}
 
@@ -506,11 +504,11 @@ gh issue comment {number} --body "$(cat <<'EOF'
 
 ### Next Step
 
-To implement: run the issue-fix command with `{number}`
+To implement: `{TOOL}:issue-fix {number}`
 
 ---
 
-_Investigated by AI • {timestamp}_
+_Investigated by Claude • {timestamp}_
 EOF
 )"
 
@@ -561,7 +559,7 @@ EOF
 
 ### Next Step
 
-Run the issue-fix command with `{number}` to execute the plan.
+Run `{TOOL}:issue-fix {number}` to execute the plan.
 ````
 
 ---

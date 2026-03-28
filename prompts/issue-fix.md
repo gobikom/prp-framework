@@ -1,12 +1,14 @@
-# PRP Issue Fix — Implement Fix from Investigation Artifact
 
-## Input
 
-Issue number or artifact path: `{ARGS}`
+# Implement Issue
 
-## Mission
+**Input**: {ARGS}
 
-Execute the implementation plan from the issue-investigate command:
+---
+
+## Your Mission
+
+Execute the implementation plan from `{TOOL}:issue-investigate`:
 
 1. Load and validate the artifact
 2. Ensure git state is correct
@@ -40,7 +42,11 @@ ls -t .prp-output/issues/issue-{number}*.md 2>/dev/null | head -1
 
 ### 1.2 Load and Parse Artifact
 
-Read the artifact file and extract:
+```bash
+cat {artifact-path}
+```
+
+**Extract from artifact:**
 
 - Issue number and title
 - Type (BUG/ENHANCEMENT/etc)
@@ -54,9 +60,9 @@ Read the artifact file and extract:
 **If artifact not found:**
 
 ```
-No artifact found for issue #{number} at .prp-output/issues/issue-{number}*.md
+❌ No artifact found for issue #{number} at .prp-output/issues/issue-{number}*.md
 
-Run the issue-investigate command with {number} first to create the implementation plan.
+Run `{TOOL}:issue-investigate {number}` first to create the implementation plan.
 ```
 
 **PHASE_1_CHECKPOINT:**
@@ -80,14 +86,14 @@ For each file mentioned in the artifact:
 **If significant drift detected:**
 
 ```
-Code has changed since investigation:
+⚠️ Code has changed since investigation:
 
 File: src/x.ts:45
 - Artifact expected: {snippet}
 - Actual code: {different snippet}
 
 Options:
-1. Re-run the issue-investigate command to get fresh analysis
+1. Re-run {TOOL}:issue-investigate to get fresh analysis
 2. Proceed carefully with manual adjustments
 ```
 
@@ -283,20 +289,9 @@ Execute any manual verification steps from the artifact.
 
 ### 6.1 Stage Changes
 
-Use safe staging to avoid accidentally committing unrelated files:
-
 ```bash
-# Stage modified tracked files
-git diff --name-only | xargs -r git add
-
-# Stage new untracked files created by this implementation
-git ls-files --others --exclude-standard | xargs -r git add
-
-# Verify no unexpected files are staged
-git diff --cached --name-only
-
-# Review what's being committed
-git status
+git add -A
+git status  # Review what's being committed
 ```
 
 ### 6.2 Write Commit Message
@@ -394,7 +389,7 @@ Fixes #{number}
 ---
 
 <details>
-<summary>Implementation Details</summary>
+<summary>📋 Implementation Details</summary>
 
 ### Implementation followed artifact:
 
@@ -433,9 +428,11 @@ PR_NUMBER=$(gh pr view --json number -q '.number')
 
 ### 8.1 Run Code Review
 
-Review the changes in this PR for issue #{number}:
+Use code review pass:
 
 ```
+Review the changes in this PR for issue #{number}.
+
 Focus on:
 1. Does the fix address the root cause from the investigation?
 2. Code quality - matches codebase patterns?
@@ -451,7 +448,7 @@ Review only the diff, not the entire codebase.
 
 ```bash
 gh pr comment --body "$(cat <<'EOF'
-## Automated Code Review
+## 🔍 Automated Code Review
 
 ### Summary
 
@@ -459,15 +456,15 @@ gh pr comment --body "$(cat <<'EOF'
 
 ### Findings
 
-#### Strengths
+#### ✅ Strengths
 - {Good thing 1}
 - {Good thing 2}
 
-#### Suggestions (non-blocking)
+#### ⚠️ Suggestions (non-blocking)
 - `{file}:{line}` - {suggestion}
 - {other suggestions}
 
-#### Security
+#### 🔒 Security
 - {Any concerns or "No security concerns identified"}
 
 ### Checklist
@@ -478,7 +475,7 @@ gh pr comment --body "$(cat <<'EOF'
 - [x] No obvious bugs introduced
 
 ---
-*Self-reviewed by AI • Ready for human review*
+*Self-reviewed by Claude • Ready for human review*
 EOF
 )"
 ```
@@ -535,9 +532,9 @@ git push
 
 | Check      | Result  |
 | ---------- | ------- |
-| Type check | PASS    |
-| Tests      | PASS    |
-| Lint       | PASS    |
+| Type check | ✅ Pass |
+| Tests      | ✅ Pass |
+| Lint       | ✅ Pass |
 
 ### Self-Review
 
@@ -545,7 +542,7 @@ git push
 
 ### Artifact
 
-Archived to `.prp-output/issues/completed/issue-{number}-{TIMESTAMP}.md`
+📄 Archived to `.prp-output/issues/completed/issue-{number}-{TIMESTAMP}.md`
 
 ### Next Steps
 
@@ -560,7 +557,7 @@ Archived to `.prp-output/issues/completed/issue-{number}-{TIMESTAMP}.md`
 ### Artifact is outdated
 
 - Warn user about drift
-- Suggest re-running the issue-investigate command
+- Suggest re-running `{TOOL}:issue-investigate`
 - Can proceed with caution if changes are minor
 
 ### Tests fail after implementation

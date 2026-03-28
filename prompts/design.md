@@ -1,7 +1,3 @@
-# Design Document Generator
-
-**Input**: `{ARGS}` (PRD file path)
-
 ---
 
 ## Mission
@@ -24,13 +20,20 @@ Design Doc = Architecture blueprint for complex features. Simple features can sk
 
 ## Phase 2: Explore Codebase
 
-**Find existing patterns** to inform design decisions:
+**Use task with subagent_type="Explore"** to find existing patterns:
 
-1. **Architecture Patterns**: Identify current project structure, module organization, dependency injection patterns
-2. **API Conventions**: REST/GraphQL endpoints, request/response formats, authentication patterns
-3. **Database Patterns**: ORM usage, migration patterns, query patterns, transaction handling
-4. **Component Patterns** (if frontend): Component hierarchy, state management, routing patterns
-5. **Integration Points**: External services, message queues, caching layers, storage
+```
+Explore the codebase to find patterns relevant to: {feature from PRD}
+
+DISCOVER:
+1. Architecture Patterns - project structure, module organization, dependency injection
+2. API Conventions - REST/GraphQL endpoints, request/response formats, auth patterns
+3. Database Patterns - ORM usage, migration patterns, query patterns, transactions
+4. Component Patterns (if frontend) - component hierarchy, state management, routing
+5. Integration Points - external services, message queues, caching, storage
+
+Return actual code examples with file:line references.
+```
 
 Document findings with **file:line references** to actual code.
 
@@ -38,7 +41,7 @@ Document findings with **file:line references** to actual code.
 
 ## Phase 3: Research
 
-**Technical research** for design decisions:
+**Use WebSearch for technical research:**
 
 1. **Official Documentation**: For technologies mentioned in PRD (match project versions)
 2. **Architecture Patterns**: Industry best practices for similar problems
@@ -56,13 +59,9 @@ Create comprehensive technical design:
 
 ### 4.1 System Architecture
 
-**ASCII Diagram** showing:
-- Components and their responsibilities
-- Data flow between components
-- External dependencies
-- Integration points
+**ASCII Diagram** showing components, data flow, external dependencies, integration points.
 
-**Example:**
+Example:
 ```
 ┌─────────────┐      ┌──────────────┐      ┌─────────────┐
 │   Client    │─────▶│   API        │─────▶│  Database   │
@@ -78,83 +77,23 @@ Create comprehensive technical design:
 
 ### 4.2 API Contracts
 
-Define request/response schemas using project conventions:
-
-**Example:**
-```typescript
-// POST /api/auth/login
-Request: {
-  email: string
-  password: string
-}
-
-Response: {
-  success: true
-  data: {
-    token: string
-    user: UserDTO
-  }
-}
-```
+Define request/response schemas using project conventions.
 
 ### 4.3 Database Schema
 
-**New tables or schema changes:**
-```sql
-CREATE TABLE sessions (
-  id UUID PRIMARY KEY,
-  user_id UUID REFERENCES users(id),
-  token TEXT NOT NULL,
-  expires_at TIMESTAMPTZ NOT NULL,
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE INDEX idx_sessions_token ON sessions(token);
-CREATE INDEX idx_sessions_user_id ON sessions(user_id);
-```
-
-**Migration strategy**: How to deploy without downtime
+**New tables or schema changes** with SQL + migration strategy.
 
 ### 4.4 Sequence Diagrams
 
-Critical user flows using Mermaid:
-
-```mermaid
-sequenceDiagram
-    participant C as Client
-    participant A as API
-    participant D as Database
-    participant R as Redis
-
-    C->>A: POST /api/auth/login
-    A->>D: SELECT user WHERE email
-    D-->>A: User data
-    A->>A: Verify password
-    A->>D: INSERT session
-    A->>R: SET session cache
-    A-->>C: Return token
-```
+Critical user flows using Mermaid.
 
 ### 4.5 Component Hierarchy (Frontend)
 
-If frontend changes:
-```
-App
-├── AuthProvider
-│   └── LoginPage
-│       ├── LoginForm
-│       └── ErrorBoundary
-├── DashboardLayout
-│   ├── Sidebar
-│   └── MainContent
-```
+Component tree if frontend changes.
 
 ### 4.6 Data Flow
 
-ASCII diagram showing data transformations:
-```
-Raw Input → Validation → Business Logic → Database → Response
-```
+ASCII diagram showing data transformations.
 
 ---
 
@@ -164,9 +103,7 @@ Document key decisions with rationale:
 
 | Decision | Choice | Alternatives | Rationale | Trade-offs |
 |----------|--------|--------------|-----------|------------|
-| Auth mechanism | JWT in httpOnly cookie | Session store, OAuth | Stateless, scalable | Cannot invalidate before expiry |
-| Token storage | Redis with TTL | Database | Fast lookup, auto-expire | Requires Redis |
-| Password hash | bcrypt (cost 12) | argon2, scrypt | Industry standard, widely supported | Slower than alternatives |
+| {Decision} | {Choice} | {Alternatives} | {Why} | {Trade-offs} |
 
 ---
 
@@ -214,22 +151,35 @@ Document key decisions with rationale:
 
 ## Phase 8: Generate Design Doc
 
-**Output path**: `.prp-output/designs/{name}-design-other.md`
+### Artifact Naming (Timestamp Format)
 
-> `{name}` = kebab-case feature name derived from PRD filename (e.g., `user-auth`, `payment-flow`)
+**Generate timestamp**:
+```bash
+TIMESTAMP=$(date +%Y%m%d-%H%M)
+```
+
+**Check for existing files**:
+```bash
+# Look for existing files with same base name
+ls .prp-output/designs/{feature}-design-agents*.md 2>/dev/null
+```
+
+**Output path**: `.prp-output/designs/{feature}-design-{TOOL}-{TIMESTAMP}.md`
+
+Example: `auth-feature-design-{TOOL}-20260210-1430.md`
 
 Create directory: `mkdir -p .prp-output/designs`
 
-> **Note**: Uses `-other` suffix to identify generic/Kimi design docs. Multiple tools can create design docs with different tool suffixes for comparison.
+> **Note**: Uses `-agents` suffix to identify which tool produced the design doc (consistent with multi-agent review naming). Multiple tools can create design docs with different tool suffixes for comparison.
 
 ### Design Doc Template
 
 ```markdown
 ---
-source-prd: .prp-output/prds/{name}-prd.md
+source-prd: .prp-output/prds/{feature}-prd.md
 created: {timestamp}
 status: reference
-tool: other
+tool: agents
 ---
 
 # {Feature Name} - Technical Design
@@ -451,7 +401,7 @@ tool: other
 *This is a reference document. It does not block the workflow. PRD → Plan → Implement remains the critical path.*
 
 *Generated: {timestamp}*
-*Tool: Generic/Kimi*
+*Tool: Claude Code (multi-agent)*
 ```
 
 ---
@@ -463,7 +413,7 @@ Report:
 ```markdown
 ## Design Doc Created
 
-**File**: `.prp-output/designs/{name}-design-other.md` (REFERENCE ONLY)
+**File**: `.prp-output/designs/{name}-design-{TOOL}-{TIMESTAMP}.md` (REFERENCE ONLY)
 
 ### Summary
 
@@ -494,24 +444,11 @@ Report:
 This is a **reference document**. Workflow continues as:
 
 1. Use this design doc as reference (optional)
-2. Create Plan from PRD: `/prp-plan .prp-output/prds/{name}-prd.md`
+2. Create Plan from PRD: `{TOOL}:plan .prp-output/prds/{name}-prd.md`
 3. Implement from Plan
 
 **Design Doc does NOT block workflow** - implementer can reference it for architecture guidance.
 ```
-
----
-
-## Edge Cases
-
-| Situation | Action |
-|-----------|--------|
-| PRD is still a draft (not finalized) | STOP — "PRD must be finalized before creating design doc." |
-| PRD file not found at given path | STOP — show available PRDs in `.prp-output/prds/` |
-| Simple feature (no API/DB changes) | Create lightweight design — skip API Contracts, Database Schema sections |
-| No frontend changes | Skip Component Hierarchy section |
-| Greenfield project (no existing patterns) | Focus on industry best practices instead of codebase patterns |
-| Design doc already exists for this feature | Warn, ask if should overwrite or create new version |
 
 ---
 

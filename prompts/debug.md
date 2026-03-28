@@ -1,16 +1,17 @@
+
 # PRP Debug — Root Cause Analysis
 
 ## Input
 
 Issue, error, or stack trace: `{ARGS}`
 
+Format: `<error-description|stack-trace|symptom> [--quick]`
+
 ## Mission
 
-Find the **actual root cause** - the specific code, config, or logic that, if changed, would prevent this issue. Not symptoms. Not intermediate failures. The origin.
+Find the **actual root cause** — the specific code, config, or logic that, if changed, would prevent this issue. Not symptoms. Not intermediate failures. The origin.
 
 **The Test**: "If I changed THIS, would the issue be prevented?" If the answer is "maybe" or "partially", you haven't found the root cause yet. Keep digging.
-
----
 
 ## Phase 1: CLASSIFY — Parse Input
 
@@ -18,8 +19,8 @@ Find the **actual root cause** - the specific code, config, or logic that, if ch
 
 | Type | Description | Action |
 |------|-------------|--------|
-| Raw symptom | Vague description, error message, stack trace | INVESTIGATE - form hypotheses, test them |
-| Pre-diagnosed | Already identifies location/problem | VALIDATE - confirm diagnosis, check for related issues |
+| Raw symptom | Vague description, error message, stack trace | INVESTIGATE — form hypotheses, test them |
+| Pre-diagnosed | Already identifies location/problem | VALIDATE — confirm diagnosis, check for related issues |
 
 ### 1.2 Determine Mode
 
@@ -39,13 +40,11 @@ Find the **actual root cause** - the specific code, config, or logic that, if ch
 - [ ] Mode determined (quick/deep)
 - [ ] Symptom restated clearly
 
----
-
 ## Phase 2: HYPOTHESIZE — Form Theories
 
 ### 2.1 Generate Hypotheses
 
-Based on the symptom, generate 2-4 hypotheses. For each:
+Based on the symptom, generate 2-4 hypotheses:
 
 | Hypothesis | What must be true | Evidence needed | Likelihood |
 |------------|-------------------|-----------------|------------|
@@ -60,8 +59,6 @@ Start with the most probable hypothesis.
 - [ ] 2-4 hypotheses generated
 - [ ] Ranked by likelihood
 - [ ] Leading hypothesis selected
-
----
 
 ## Phase 3: INVESTIGATE — The 5 Whys
 
@@ -127,8 +124,6 @@ git diff HEAD~10 [suspicious files]
 - [ ] Each step has concrete evidence
 - [ ] Root cause identified with file:line reference
 
----
-
 ## Phase 4: VALIDATE — Confirm Root Cause
 
 ### 4.1 Three Tests
@@ -148,10 +143,7 @@ git log --oneline -10 -- [affected files]
 git blame [affected file] | grep -A2 -B2 [line number]
 ```
 
-**Document:**
-- When was the problematic code introduced?
-- What commit/PR added it?
-- Has it changed recently or been stable?
+**Document:** When introduced, what commit/PR, has it changed recently, type (regression / original bug / long-standing).
 
 ### 4.3 Rule Out Alternatives
 
@@ -167,8 +159,6 @@ For deep mode, document why other hypotheses were rejected:
 - [ ] Git history documented (deep mode)
 - [ ] Alternative hypotheses ruled out (deep mode)
 
----
-
 ## Phase 5: REPORT — Generate Output
 
 ### 5.1 Create Report Directory
@@ -183,7 +173,6 @@ mkdir -p .prp-output/debug
 
 ```bash
 TIMESTAMP=$(date +%Y%m%d-%H%M)
-# Check for existing files with same base name
 ls .prp-output/debug/rca-{issue-slug}*.md 2>/dev/null
 ```
 
@@ -235,13 +224,12 @@ WHY: {First level cause}
 
 ### Implementation Guidance
 
-```{language}
+{language}
 // Current (problematic):
 {simplified example}
 
 // Required (fixed):
 {simplified example}
-```
 
 ### Files to Modify
 
@@ -255,8 +243,8 @@ WHY: {First level cause}
 ```
 
 **PHASE_5_CHECKPOINT:**
-- [ ] Report created
-- [ ] All sections filled
+- [ ] Report created at `.prp-output/debug/rca-{slug}-{TIMESTAMP}.md`
+- [ ] All sections filled with actual evidence
 - [ ] Fix specification is actionable
 
 ---
@@ -287,27 +275,27 @@ WHY: {First level cause}
 - Run verification steps to confirm resolution
 ```
 
----
-
 ## Critical Reminders
 
 1. **Symptoms lie.** The error message tells you what failed, not why.
-
 2. **First explanation is often wrong.** Resist the urge to stop early.
-
 3. **No evidence = no claim.** "Likely", "probably", "may" are not allowed.
-
 4. **Test, don't just read.** Execution proves behavior; reading proves intent.
-
 5. **Git history is mandatory.** In deep mode, you must include when/who/why.
-
 6. **The fix should be obvious.** If your root cause is correct, the fix writes itself.
 
----
+## Usage Examples
+
+```
+{TOOL}:debug "TypeError: Cannot read property 'id' of undefined at UserService.ts:45"
+{TOOL}:debug "Login fails intermittently on production" --quick
+{TOOL}:debug "Build started failing after upgrading to v3.0"
+```
 
 ## Success Criteria
 
-- **ROOT_CAUSE_FOUND**: Specific file:line identified
-- **EVIDENCE_CHAIN_COMPLETE**: Every step has proof
-- **FIX_ACTIONABLE**: Someone could implement from the report
-- **VERIFICATION_CLEAR**: How to confirm fix works
+- ROOT_CAUSE_FOUND: Specific file:line identified
+- EVIDENCE_CHAIN_COMPLETE: Every step has proof
+- FIX_ACTIONABLE: Someone could implement from the report
+- VERIFICATION_CLEAR: How to confirm fix works
+- REPORT_SAVED: RCA report at `.prp-output/debug/rca-{slug}-{TIMESTAMP}.md`

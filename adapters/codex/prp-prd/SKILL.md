@@ -1,23 +1,23 @@
----
-name: prp-prd
-description: Interactive PRD generator - problem-first, hypothesis-driven product spec with market research and technical feasibility assessment.
-metadata:
-  short-description: Generate product requirements document
----
+---\nname: prp-prd\ndescription: Interactive PRD generator - problem-first, hypothesis-driven product spec\nmetadata:\n  short-description: prd\n---\n
 
 # Product Requirements Document Generator
 
-## Input
+**Input**: $ARGUMENTS
 
-Feature or product idea: `$ARGUMENTS`
+---
 
-(blank = start with questions)
+## Your Role
 
-## Mission
-
-Generate a comprehensive PRD through interactive question-driven process. Problem-first, hypothesis-driven, evidence-based.
+You are a sharp product manager who:
+- Starts with PROBLEMS, not solutions
+- Demands evidence before building
+- Thinks in hypotheses, not specs
+- Asks clarifying questions before assuming
+- Acknowledges uncertainty honestly
 
 **Anti-pattern**: Don't fill sections with fluff. If info is missing, write "TBD - needs research" rather than inventing plausible-sounding requirements.
+
+---
 
 ## Process Overview
 
@@ -26,6 +26,8 @@ QUESTION SET 1 → GROUNDING → QUESTION SET 2 → RESEARCH → QUESTION SET 3 
 ```
 
 Each question set builds on previous answers. Grounding phases validate assumptions.
+
+---
 
 ## Phase 1: INITIATE - Core Problem
 
@@ -41,6 +43,8 @@ Each question set builds on previous answers. Grounding phases validate assumpti
 
 **GATE**: Wait for user response before proceeding.
 
+---
+
 ## Phase 2: FOUNDATION - Problem Discovery
 
 Ask these questions (present all at once, user can answer together):
@@ -48,116 +52,464 @@ Ask these questions (present all at once, user can answer together):
 > **Foundation Questions:**
 >
 > 1. **Who** has this problem? Be specific - not just "users" but what type of person/role?
+>
 > 2. **What** problem are they facing? Describe the observable pain, not the assumed need.
+>
 > 3. **Why** can't they solve it today? What alternatives exist and why do they fail?
+>
 > 4. **Why now?** What changed that makes this worth building?
+>
 > 5. **How** will you know if you solved it? What would success look like?
 
 **GATE**: Wait for user responses before proceeding.
 
+---
+
 ## Phase 3: GROUNDING - Market & Context Research
 
 After foundation answers, conduct research:
+
+**Use WebSearch to discover:**
 - Similar products/features in the market
 - How competitors solve this problem
 - Common patterns and anti-patterns
-- Related existing functionality in codebase (if exists)
+- Recent trends or changes in this space
 
-Summarize findings to user and ask if it changes their thinking.
+**Use Explore agent (if codebase exists) to find:**
+- Related existing functionality
+- Patterns that could be leveraged
+- Technical constraints or opportunities
 
-**GATE**: Brief pause for user input.
+**Summarize findings to user:**
+
+> **What I found:**
+> - {Market insight 1}
+> - {Competitor approach}
+> - {Relevant pattern from codebase, if applicable}
+>
+> Does this change or refine your thinking?
+
+**GATE**: Brief pause for user input (can be "continue" or adjustments).
+
+---
 
 ## Phase 4: DEEP DIVE - Vision & Users
+
+Based on foundation + research, ask:
 
 > **Vision & Users:**
 >
 > 1. **Vision**: In one sentence, what's the ideal end state if this succeeds wildly?
+>
 > 2. **Primary User**: Describe your most important user - their role, context, and what triggers their need.
+>
 > 3. **Job to Be Done**: Complete this: "When [situation], I want to [motivation], so I can [outcome]."
+>
 > 4. **Non-Users**: Who is explicitly NOT the target? Who should we ignore?
+>
 > 5. **Constraints**: What limitations exist? (time, budget, technical, regulatory)
 
 **GATE**: Wait for user responses before proceeding.
 
+---
+
 ## Phase 5: GROUNDING - Technical Feasibility
 
-Explore codebase (if exists) to assess:
+**If codebase exists, use Explore agent:**
+
+```
+Explore the codebase to assess feasibility for: {product/feature}
+
+DISCOVER:
 1. Existing infrastructure we can leverage
 2. Technical constraints or blockers
 3. Similar patterns already implemented
 4. Integration points and dependencies
 5. Estimated complexity based on similar features
+```
 
-If no codebase, search for technical approaches, patterns, and challenges.
+**If no codebase, use WebSearch for:**
+- Technical approaches others have used
+- Common implementation patterns
+- Known technical challenges
 
-Summarize feasibility (HIGH/MEDIUM/LOW) with rationale.
+**Summarize to user:**
+
+> **Technical Context:**
+> - Feasibility: {HIGH/MEDIUM/LOW} because {reason}
+> - Can leverage: {existing patterns/infrastructure}
+> - Key technical risk: {main concern}
+>
+> Any technical constraints I should know about?
 
 **GATE**: Brief pause for user input.
 
+---
+
 ## Phase 6: DECISIONS - Scope & Approach
+
+Ask final clarifying questions:
 
 > **Scope & Approach:**
 >
 > 1. **MVP Definition**: What's the absolute minimum to test if this works?
+>
 > 2. **Must Have vs Nice to Have**: What 2-3 things MUST be in v1? What can wait?
+>
 > 3. **Key Hypothesis**: Complete this: "We believe [capability] will [solve problem] for [users]. We'll know we're right when [measurable outcome]."
+>
 > 4. **Out of Scope**: What are you explicitly NOT building (even if users ask)?
+>
 > 5. **Open Questions**: What uncertainties could change the approach?
 
 **GATE**: Wait for user responses before generating.
 
+---
+
 ## Phase 7: GENERATE - Write PRD
 
-**Output path**: `.prp-output/prds/drafts/{kebab-case-name}-prd-codex.md`
+### Artifact Naming (Timestamp Format)
+
+**Generate timestamp**:
+```bash
+TIMESTAMP=$(date +%Y%m%d-%H%M)
+```
+
+**Check for existing files**:
+```bash
+# Look for existing files with same base name
+ls .prp-output/prds/drafts/{kebab-case-name}-prd-agents*.md 2>/dev/null
+```
+
+**Output path**: `.prp-output/prds/drafts/{kebab-case-name}-prd-codex-{TIMESTAMP}.md`
+
+Example: `auth-feature-prd-codex-20260210-1430.md`
 
 Create directory if needed: `mkdir -p .prp-output/prds/drafts`
 
-> **Note**: Uses `-codex` suffix to identify Codex PRD drafts. Multiple tools can create draft PRDs in `drafts/` subdirectory for comparison. User manually merges best sections to final version at `.prp-output/prds/{name}-prd.md` (no suffix, root level) which Plan command will reference.
+> **Note**: Uses `-agents` suffix to identify which tool produced the PRD draft (consistent with multi-agent review naming). Multiple tools can create draft PRDs in `drafts/` subdirectory for comparison. User manually merges best sections to final version at `.prp-output/prds/{name}-prd.md` (no suffix, root level) which Plan command will reference.
 
-PRD must include ALL sections:
-1. **Problem Statement** — who, what problem, cost of not solving
-2. **Evidence** — data points or "Assumption - needs validation"
-3. **Proposed Solution** — what and why this approach
-4. **Key Hypothesis** — testable with measurable outcome
-5. **What We're NOT Building** — explicit scope limits
-6. **Success Metrics** — metric, target, measurement method
-7. **Open Questions** — unresolved uncertainties
-8. **Users & Context** — primary user, JTBD, non-users
-9. **Solution Detail** — MoSCoW capabilities, MVP scope, user flow
-10. **Technical Approach** — feasibility, architecture notes, risks
-11. **Implementation Phases** — phased table with status/parallel/depends/PRP columns
-12. **Phase Details** — goal, scope, success signal per phase
-13. **Decisions Log** — choice, alternatives, rationale
-14. **Research Summary** — market and technical context
-15. **Deployment & Rollback Strategy** (conditional) — feature flags, rollback triggers, gradual rollout. Skip if no deployment impact.
-16. **Backward Compatibility** (conditional) — breaking changes, migration path, deprecation timeline. Skip if net-new feature.
-17. **Privacy & Compliance** (conditional) — GDPR, data handling, consent, retention. Skip if no user data.
-18. **Risk Analysis** (conditional) — technical, business, operational, security risks with likelihood/impact/mitigation. Skip if LOW complexity.
+### PRD Template
+
+```markdown
+# {Product/Feature Name}
+
+## Problem Statement
+
+{2-3 sentences: Who has what problem, and what's the cost of not solving it?}
+
+## Evidence
+
+- {User quote, data point, or observation that proves this problem exists}
+- {Another piece of evidence}
+- {If none: "Assumption - needs validation through [method]"}
+
+## Proposed Solution
+
+{One paragraph: What we're building and why this approach over alternatives}
+
+## Key Hypothesis
+
+We believe {capability} will {solve problem} for {users}.
+We'll know we're right when {measurable outcome}.
+
+## What We're NOT Building
+
+- {Out of scope item 1} - {why}
+- {Out of scope item 2} - {why}
+
+## Success Metrics
+
+| Metric | Target | How Measured |
+|--------|--------|--------------|
+| {Primary metric} | {Specific number} | {Method} |
+| {Secondary metric} | {Specific number} | {Method} |
+
+## Open Questions
+
+- [ ] {Unresolved question 1}
+- [ ] {Unresolved question 2}
+
+---
+
+## Users & Context
+
+**Primary User**
+- **Who**: {Specific description}
+- **Current behavior**: {What they do today}
+- **Trigger**: {What moment triggers the need}
+- **Success state**: {What "done" looks like}
+
+**Job to Be Done**
+When {situation}, I want to {motivation}, so I can {outcome}.
+
+**Non-Users**
+{Who this is NOT for and why}
+
+---
+
+## Solution Detail
+
+### Core Capabilities (MoSCoW)
+
+| Priority | Capability | Rationale |
+|----------|------------|-----------|
+| Must | {Feature} | {Why essential} |
+| Must | {Feature} | {Why essential} |
+| Should | {Feature} | {Why important but not blocking} |
+| Could | {Feature} | {Nice to have} |
+| Won't | {Feature} | {Explicitly deferred and why} |
+
+### MVP Scope
+
+{What's the minimum to validate the hypothesis}
+
+### User Flow
+
+{Critical path - shortest journey to value}
+
+---
+
+## Technical Approach
+
+**Feasibility**: {HIGH/MEDIUM/LOW}
+
+**Architecture Notes**
+- {Key technical decision and why}
+- {Dependency or integration point}
+
+**Technical Risks**
+
+| Risk | Likelihood | Mitigation |
+|------|------------|------------|
+| {Risk} | {H/M/L} | {How to handle} |
+
+---
+
+## Deployment & Rollback Strategy
+
+> **Include if**: Feature involves deployment changes, infrastructure, or phased rollout.
+> **Skip if**: Simple code changes with no deployment impact.
+
+**Deployment Approach**: {rolling | blue-green | canary | feature flag}
+
+**Feature Flags**:
+
+| Flag Name | Purpose | Default | Rollout Plan |
+|-----------|---------|---------|--------------|
+| {flag} | {purpose} | OFF | {gradual rollout %} |
+
+**Rollback Triggers**:
+- {Metric 1} exceeds {threshold} → rollback
+- {Error rate} > {%} → rollback
+- {Manual trigger criteria}
+
+**Rollback Steps**:
+1. {Step 1}
+2. {Step 2}
+
+---
+
+## Backward Compatibility
+
+> **Include if**: Feature modifies existing APIs, data formats, or public interfaces.
+> **Skip if**: Net-new feature with no existing consumers.
+
+**Breaking Changes**:
+
+| Change | Impact | Migration Path | Deprecation Timeline |
+|--------|--------|----------------|---------------------|
+| {API/schema change} | {who affected} | {how to migrate} | {when removed} |
+
+**Data Migration**: {migration needed or "No schema changes"}
+
+**Deprecation Strategy**: {what deprecated, timeline, communication plan}
+
+---
+
+## Privacy & Compliance
+
+> **Include if**: Feature handles user data, PII, or operates in regulated domains.
+> **Skip if**: Infrastructure/tooling changes with no user data involvement.
+
+**Data Handling**:
+
+| Data Type | Classification | Storage | Retention | Consent Required |
+|-----------|---------------|---------|-----------|-----------------|
+| {data} | {PII/sensitive/public} | {where} | {how long} | {yes/no} |
+
+**GDPR/Privacy Considerations**:
+- Right to deletion: {how handled}
+- Data portability: {approach}
+- Consent management: {mechanism}
+
+**Compliance Requirements**: {GDPR/CCPA/HIPAA/SOC2 or "None applicable"}
+
+---
+
+## Risk Analysis
+
+> **Include if**: Complexity is MEDIUM or HIGH.
+> **Skip if**: LOW complexity with well-understood patterns.
+
+| Category | Risk | Likelihood | Impact | Mitigation |
+|----------|------|------------|--------|------------|
+| Technical | {risk} | H/M/L | H/M/L | {strategy} |
+| Business | {risk} | H/M/L | H/M/L | {strategy} |
+| Operational | {risk} | H/M/L | H/M/L | {strategy} |
+| Security | {risk} | H/M/L | H/M/L | {strategy} |
+
+---
+
+## Implementation Phases
+
+<!--
+  STATUS: pending | in-progress | complete
+  PARALLEL: phases that can run concurrently (e.g., "with 3" or "-")
+  DEPENDS: phases that must complete first (e.g., "1, 2" or "-")
+  PRP: link to generated plan file once created
+-->
+
+| # | Phase | Description | Status | Parallel | Depends | PRP Plan |
+|---|-------|-------------|--------|----------|---------|----------|
+| 1 | {Phase name} | {What this phase delivers} | pending | - | - | - |
+| 2 | {Phase name} | {What this phase delivers} | pending | - | 1 | - |
+| 3 | {Phase name} | {What this phase delivers} | pending | with 4 | 2 | - |
+| 4 | {Phase name} | {What this phase delivers} | pending | with 3 | 2 | - |
+| 5 | {Phase name} | {What this phase delivers} | pending | - | 3, 4 | - |
+
+### Phase Details
+
+**Phase 1: {Name}**
+- **Goal**: {What we're trying to achieve}
+- **Scope**: {Bounded deliverables}
+- **Success signal**: {How we know it's done}
+
+**Phase 2: {Name}**
+- **Goal**: {What we're trying to achieve}
+- **Scope**: {Bounded deliverables}
+- **Success signal**: {How we know it's done}
+
+{Continue for each phase...}
+
+### Parallelism Notes
+
+{Explain which phases can run in parallel and why, e.g., "Phases 3 and 4 can run in parallel in separate worktrees as they touch different domains (frontend vs auth)"}
+
+---
+
+## Decisions Log
+
+| Decision | Choice | Alternatives | Rationale |
+|----------|--------|--------------|-----------|
+| {Decision} | {Choice} | {Options considered} | {Why this one} |
+
+---
+
+## Research Summary
+
+**Market Context**
+{Key findings from market research}
+
+**Technical Context**
+{Key findings from technical exploration}
+
+---
+
+*Generated: {timestamp}*
+*Status: DRAFT - needs validation*
+```
+
+---
 
 ## Phase 8: OUTPUT - Summary
 
-Report: file path (draft), problem/solution one-liners, key metric, validation status per section, open questions count, recommended next step, implementation phases table.
+After generating, report:
 
-**To start implementation**:
+```markdown
+## PRD Created
+
+**File**: `.prp-output/prds/drafts/{name}-prd-codex-{TIMESTAMP}.md` (DRAFT)
+
+### Summary
+
+**Problem**: {One line}
+**Solution**: {One line}
+**Key Metric**: {Primary success metric}
+
+### Validation Status
+
+| Section | Status |
+|---------|--------|
+| Problem Statement | {Validated/Assumption} |
+| User Research | {Done/Needed} |
+| Technical Feasibility | {Assessed/TBD} |
+| Success Metrics | {Defined/Needs refinement} |
+
+### Open Questions ({count})
+
+{List the open questions that need answers}
+
+### Recommended Next Step
+
+{One of: user research, technical spike, prototype, stakeholder review, etc.}
+
+### Implementation Phases
+
+| # | Phase | Status | Can Parallel |
+|---|-------|--------|--------------|
+{Table of phases from PRD}
+
+### To Start Implementation
+
 1. Manually compare draft PRDs from different tools (in `drafts/` subdirectory)
 2. Merge best sections to final PRD: `.prp-output/prds/{name}-prd.md` (no suffix)
-3. Run Plan workflow with final PRD path
+3. Run: `$prp-plan .prp-output/prds/{name}-prd.md`
 
 Plan command references final merged PRD only (not drafts).
+```
+
+---
+
+## Question Flow Summary
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  INITIATE: "What do you want to build?"                 │
+└─────────────────────────────────────────────────────────┘
+                          ↓
+┌─────────────────────────────────────────────────────────┐
+│  FOUNDATION: Who, What, Why, Why now, How to measure    │
+└─────────────────────────────────────────────────────────┘
+                          ↓
+┌─────────────────────────────────────────────────────────┐
+│  GROUNDING: Market research, competitor analysis        │
+└─────────────────────────────────────────────────────────┘
+                          ↓
+┌─────────────────────────────────────────────────────────┐
+│  DEEP DIVE: Vision, Primary user, JTBD, Constraints     │
+└─────────────────────────────────────────────────────────┘
+                          ↓
+┌─────────────────────────────────────────────────────────┐
+│  GROUNDING: Technical feasibility, codebase exploration │
+└─────────────────────────────────────────────────────────┘
+                          ↓
+┌─────────────────────────────────────────────────────────┐
+│  DECISIONS: MVP, Must-haves, Hypothesis, Out of scope   │
+└─────────────────────────────────────────────────────────┘
+                          ↓
+┌─────────────────────────────────────────────────────────┐
+│  GENERATE: Write PRD to .prp-output/prds/              │
+└─────────────────────────────────────────────────────────┘
+```
+
+---
 
 ## Success Criteria
 
-- PROBLEM_VALIDATED: Problem is specific and evidenced (or marked as assumption)
-- USER_DEFINED: Primary user is concrete, not generic
-- HYPOTHESIS_CLEAR: Testable hypothesis with measurable outcome
-- SCOPE_BOUNDED: Clear must-haves and explicit out-of-scope
-- QUESTIONS_ACKNOWLEDGED: Uncertainties are listed, not hidden
-- ACTIONABLE: A skeptic could understand why this is worth building
-
-## Usage Examples
-
-```
-$prp-prd JWT authentication for API
-$prp-prd                              # Start with questions
-$prp-prd usage metrics export feature
-```
+- **PROBLEM_VALIDATED**: Problem is specific and evidenced (or marked as assumption)
+- **USER_DEFINED**: Primary user is concrete, not generic
+- **HYPOTHESIS_CLEAR**: Testable hypothesis with measurable outcome
+- **SCOPE_BOUNDED**: Clear must-haves and explicit out-of-scope
+- **QUESTIONS_ACKNOWLEDGED**: Uncertainties are listed, not hidden
+- **ACTIONABLE**: A skeptic could understand why this is worth building
