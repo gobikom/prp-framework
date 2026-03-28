@@ -1,0 +1,14 @@
+description = "Multi-pass feature review — alias for feature-review which already includes comprehensive quality, security, performance, and product analysis."
+prompt = """# PRP Feature Review Agents — Multi-Pass Feature Review
+
+> **This command is an alias for `/feature-review`.**
+>
+> **Use `/feature-review` directly.** This alias exists for cross-tool workflow compatibility.
+
+## Usage
+
+```
+/feature-review-agents src/features/auth     # Same as: /feature-review src/features/auth
+/feature-review-agents src/ --focus security  # Same as: /feature-review src/ --focus security
+```
+"""

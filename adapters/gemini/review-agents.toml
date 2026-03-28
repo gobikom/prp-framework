@@ -1,0 +1,20 @@
+description = "Multi-pass PR review — alias for review which already includes all 11 review passes with equivalent quality."
+prompt = """# PRP Review Agents — Multi-Pass PR Review
+
+> **This command is an alias for `/review`.**
+>
+> In Claude Code, `review-agents` dispatches multiple specialist agents in parallel via Task tool.
+> In Gemini, the standard `/review` command already runs all 11 review passes sequentially
+> with equivalent quality — including conditional dispatch, dedup, metrics, and incremental review.
+>
+> **Use `/review` directly.** This alias exists for cross-tool workflow compatibility.
+
+## Usage
+
+```
+/review-agents 163                        # Same as: /review 163
+/review-agents 163 security deps          # Same as: /review 163 security deps
+/review-agents 163 --since-last-review    # Same as: /review 163 --since-last-review
+/review-agents --metrics                  # Same as: /review --metrics
+```
+"""
