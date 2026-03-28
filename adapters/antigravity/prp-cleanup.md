@@ -1,7 +1,17 @@
 ---
 description: Post-merge cleanup — verify PR merged, archive artifacts, delete local/remote branches. Supports --all for batch cleanup, --dry-run for preview.
 ---
+## Agent Mode Detection
 
+If your input context contains `[WORKSPACE CONTEXT]` (injected by a multi-agents framework),
+you are running as a sub-agent. Apply these optimizations:
+
+- **Skip CLAUDE.md reading** — already loaded by parent session.
+- **Skip Phase 1 target discovery** if branch names are provided in context files.
+
+All other phases (verify, archive, cleanup) run unchanged.
+
+---
 
 # PRP Cleanup — Post-Merge Branch & Artifact Cleanup
 

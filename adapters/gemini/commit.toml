@@ -1,5 +1,16 @@
 description = "Stage files with natural language targeting, pre-commit quality scan, plan-aware commit message, and conventional commit format."
 prompt = """
+## Agent Mode Detection
+
+If your input context contains `[WORKSPACE CONTEXT]` (injected by a multi-agents framework),
+you are running as a sub-agent. Apply these optimizations:
+
+- **Skip CLAUDE.md reading** — already loaded by parent session.
+- **Skip Phase 0 quality check** if invoked from run-all (implement already validated).
+
+All other phases (assess, stage, commit) run unchanged.
+
+---
 
 # PRP Commit — Smart Git Commit
 
@@ -205,4 +216,5 @@ Next: `git push` or `/pr`
 - MESSAGE_CLEAR: Commit message follows conventional format and is descriptive
 - COMMITTED: Git commit succeeded
 - OUTPUT_SHOWN: User sees commit hash, message, and file count
+
 """

@@ -1,4 +1,5 @@
-description = "Cancel an active PRP Ralph loop and preserve work done so far."\nprompt = """
+description = "Cancel an active PRP Ralph loop and preserve work done so far."
+prompt = """
 
 # Cancel PRP Ralph Loop
 
@@ -55,4 +56,5 @@ To resume later:
 - LOOP_DETECTED: State file checked for existence
 - STATE_REMOVED: `.claude/prp-ralph.state.md` deleted (if existed)
 - WORK_PRESERVED: No code changes reverted — only state file removed
+
 """

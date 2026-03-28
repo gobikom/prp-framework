@@ -1,4 +1,5 @@
-description = "Implement a fix from investigation artifact — code changes, PR, and self-review."\nprompt = """
+description = "Implement a fix from investigation artifact — code changes, PR, and self-review."
+prompt = """
 
 
 # Implement Issue
@@ -602,4 +603,5 @@ git push
 - **REVIEW_POSTED**: Self-review comment on PR
 - **ARTIFACT_ARCHIVED**: Moved to completed folder
 - **AUDIT_TRAIL**: Full history in git and GitHub
+
 """

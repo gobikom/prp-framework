@@ -1,4 +1,7 @@
----\ndescription: Interactive PRD generator - problem-first, hypothesis-driven product spec\nagent: plan\n---\n
+---
+description: Interactive PRD generator - problem-first, hypothesis-driven product spec
+agent: plan
+---
 ---
 
 ## Your Role

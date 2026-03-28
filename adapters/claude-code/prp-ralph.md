@@ -2,6 +2,8 @@
 description: Start autonomous Ralph loop to execute PRP plan until all validations pass
 argument-hint: <plan.md|prd.md> [--max-iterations N]
 ---
+<process>
+
 
 # PRP Ralph Loop
 
@@ -41,8 +43,8 @@ Extract from input:
 Ralph requires a PRP plan or PRD file.
 
 Create one first:
-  /prp-plan "your feature description"   # Creates plan from description
-  /prp-prd "your product idea"           # Creates PRD with phases
+  /prp-core:prp-plan "your feature description"   # Creates plan from description
+  /prp-core:prp-prd "your product idea"           # Creates PRD with phases
 
 Then run:
   /prp-ralph .prp-output/plans/your-feature.plan.md --max-iterations 20
@@ -535,3 +537,5 @@ cat .prp-output/ralph-archives/2024-01-12-feature-name/learnings.md
 - **ARCHIVE_CREATED**: Full run archived for future reference
 - **PR_CONTEXT_CREATED**: Review context file exists at `.prp-output/reviews/pr-context-{BRANCH}.md`
 - **CLEAN_EXIT**: Completion promise output only when genuinely complete
+
+</process>

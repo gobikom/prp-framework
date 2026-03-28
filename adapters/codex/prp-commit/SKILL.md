@@ -4,6 +4,17 @@ description: Stage files with natural language targeting, pre-commit quality sca
 metadata:
   short-description: Smart git commit
 ---
+## Agent Mode Detection
+
+If your input context contains `[WORKSPACE CONTEXT]` (injected by a multi-agents framework),
+you are running as a sub-agent. Apply these optimizations:
+
+- **Skip CLAUDE.md reading** — already loaded by parent session.
+- **Skip Phase 0 quality check** if invoked from run-all (implement already validated).
+
+All other phases (assess, stage, commit) run unchanged.
+
+---
 
 # PRP Commit — Smart Git Commit
 

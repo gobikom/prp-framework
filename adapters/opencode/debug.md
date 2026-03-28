@@ -1,4 +1,7 @@
----\ndescription: Root cause analysis using the 5 Whys methodology — finds the actual cause, not just symptoms.\nagent: plan\n---\n
+---
+description: Root cause analysis using the 5 Whys methodology — finds the actual cause, not just symptoms.
+agent: plan
+---
 
 # PRP Debug — Root Cause Analysis
 

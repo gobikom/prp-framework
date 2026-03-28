@@ -2,6 +2,8 @@
 description: Implement a fix from investigation artifact - code changes, PR, and self-review
 argument-hint: <issue-number|artifact-path>
 ---
+<process>
+
 
 # Implement Issue
 
@@ -11,7 +13,7 @@ argument-hint: <issue-number|artifact-path>
 
 ## Your Mission
 
-Execute the implementation plan from `/prp-issue-investigate`:
+Execute the implementation plan from `/prp-core:prp-issue-investigate`:
 
 1. Load and validate the artifact
 2. Ensure git state is correct
@@ -65,7 +67,7 @@ cat {artifact-path}
 ```
 ❌ No artifact found for issue #{number} at .prp-output/issues/issue-{number}*.md
 
-Run `/prp-issue-investigate {number}` first to create the implementation plan.
+Run `/prp-core:prp-issue-investigate {number}` first to create the implementation plan.
 ```
 
 **PHASE_1_CHECKPOINT:**
@@ -96,7 +98,7 @@ File: src/x.ts:45
 - Actual code: {different snippet}
 
 Options:
-1. Re-run /prp-issue-investigate to get fresh analysis
+1. Re-run /prp-core:prp-issue-investigate to get fresh analysis
 2. Proceed carefully with manual adjustments
 ```
 
@@ -431,7 +433,7 @@ PR_NUMBER=$(gh pr view --json number -q '.number')
 
 ### 8.1 Run Code Review
 
-Use Task tool with subagent_type="code-reviewer":
+Use code review pass:
 
 ```
 Review the changes in this PR for issue #{number}.
@@ -560,7 +562,7 @@ git push
 ### Artifact is outdated
 
 - Warn user about drift
-- Suggest re-running `/prp-issue-investigate`
+- Suggest re-running `/prp-core:prp-issue-investigate`
 - Can proceed with caution if changes are minor
 
 ### Tests fail after implementation
@@ -604,3 +606,5 @@ git push
 - **REVIEW_POSTED**: Self-review comment on PR
 - **ARTIFACT_ARCHIVED**: Moved to completed folder
 - **AUDIT_TRAIL**: Full history in git and GitHub
+
+</process>

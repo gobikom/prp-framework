@@ -45,7 +45,7 @@ Ralph requires a PRP plan or PRD file.
 
 Create one first:
   $prp-plan "your feature description"   # Creates plan from description
-  /prp-prd "your product idea"           # Creates PRD with phases
+  $prp-prd "your product idea"           # Creates PRD with phases
 
 Then run:
   /prp-ralph .prp-output/plans/your-feature.plan.md --max-iterations 20

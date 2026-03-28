@@ -1,5 +1,5 @@
-description = "Investigate a GitHub issue or problem - analyze codebase, create plan, post to GitHub
-argument-hint: <issue-number|url|"description">"\nprompt = """
+description = "Investigate a GitHub issue or problem - analyze codebase, create plan, post to GitHub"
+prompt = """
 
 ---
 
@@ -600,4 +600,5 @@ Run `/issue-fix {number}` to execute the plan.
 - **IMPLEMENTABLE**: Another agent can execute without questions
 - **GITHUB_POSTED**: Comment visible on issue (if GH issue)
 - **COMMITTED**: Artifact saved in git
+
 """

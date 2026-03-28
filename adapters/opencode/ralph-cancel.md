@@ -1,4 +1,7 @@
----\ndescription: Cancel an active PRP Ralph loop and preserve work done so far.\nagent: plan\n---\n
+---
+description: Cancel an active PRP Ralph loop and preserve work done so far.
+agent: plan
+---
 
 # Cancel PRP Ralph Loop
 

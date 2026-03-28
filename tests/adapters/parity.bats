@@ -510,3 +510,35 @@ check_all_6() {
 @test "claude-code run-all has --dry-run flag" {
     grep -q "\-\-dry-run" "$FRAMEWORK_DIR/adapters/claude-code/prp-run-all.md"
 }
+
+# ─────────────────────────────────────────────
+# 21. Auto-generation infrastructure
+# ─────────────────────────────────────────────
+@test "adapters.yml config exists" {
+    [ -f "$FRAMEWORK_DIR/adapters.yml" ]
+}
+
+@test "generate-adapters.py script exists and is valid Python" {
+    [ -f "$FRAMEWORK_DIR/scripts/generate-adapters.py" ]
+    python3 -m py_compile "$FRAMEWORK_DIR/scripts/generate-adapters.py"
+}
+
+@test "generate-adapters.py --dry-run lists all 95 files" {
+    OUTPUT=$(python3 "$FRAMEWORK_DIR/scripts/generate-adapters.py" --dry-run 2>&1)
+    COUNT=$(echo "$OUTPUT" | grep -c "DRY RUN")
+    [ "$COUNT" -eq 95 ]
+}
+
+@test "adapters.yml defines all 19 commands" {
+    COUNT=$(python3 -c "import yaml; c=yaml.safe_load(open('$FRAMEWORK_DIR/adapters.yml')); print(len(c['commands']))")
+    [ "$COUNT" -eq 19 ]
+}
+
+@test "adapters.yml defines all 5 adapters" {
+    COUNT=$(python3 -c "import yaml; c=yaml.safe_load(open('$FRAMEWORK_DIR/adapters.yml')); print(len(c['adapters']))")
+    [ "$COUNT" -eq 5 ]
+}
+
+@test "claude-code plan overlay exists" {
+    [ -f "$FRAMEWORK_DIR/prompts/overlays/claude-code/plan.md" ]
+}

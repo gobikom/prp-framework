@@ -1,4 +1,5 @@
-description = "Safely undo implementation changes with stash backup. Supports --soft, --hard, and --restore modes."\nprompt = """
+description = "Safely undo implementation changes with stash backup. Supports --soft, --hard, and --restore modes."
+prompt = """
 
 # PRP Rollback — Safely Undo Implementation Changes
 
@@ -152,4 +153,5 @@ Do NOT delete automatically. Only suggest.
 - STATE_CLEAN: `git status` shows clean or expected state after rollback
 - RESTORE_WORKS: Stash can be popped to recover changes if needed
 - NO_DATA_LOSS: User's work is always recoverable via `--restore`
+
 """

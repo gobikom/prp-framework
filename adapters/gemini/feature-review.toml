@@ -1,4 +1,5 @@
-description = "Comprehensive feature & code review — analyzes package/folder for quality, product ideas, performance, and security."\nprompt = """
+description = "Comprehensive feature & code review — analyzes package/folder for quality, product ideas, performance, and security."
+prompt = """
 
 
 ## Agent Mode Detection
@@ -597,4 +598,5 @@ The context file (`.prp-output/reviews/feature-context-{package-name}.md`) serve
 - **SECURITY_ASSESSED**: Vulnerabilities and risks documented
 - **REPORT_CREATED**: Comprehensive markdown report saved
 - **ACTIONS_PRIORITIZED**: Clear next steps with effort/impact
+
 """

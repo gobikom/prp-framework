@@ -1,4 +1,6 @@
----\ndescription: Generate technical design document from PRD as optional reference (not in workflow)\n---\n
+---
+description: Generate technical design document from PRD as optional reference (not in workflow)
+---
 ---
 
 ## Mission

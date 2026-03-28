@@ -1,0 +1,3 @@
+# Dependencies for scripts/generate-adapters.py
+pyyaml>=6.0
+tomli_w>=1.0

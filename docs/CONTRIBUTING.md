@@ -96,7 +96,7 @@ prp-framework/
 
 ## Editing Workflow
 
-**IMPORTANT:** Always maintain 100% workflow parity across all tools — every tool must support the same workflow steps (PRD → Plan → Implement → Review → Commit → PR). Claude Code is the full reference implementation; other adapters are optimized lite versions and do not need to replicate every agent or hook.
+**IMPORTANT:** Always maintain 100% workflow parity across all tools — every tool must support the same workflow steps (PRD → Plan → Implement → Review → Commit → PR). All adapters are auto-generated from `prompts/` as the single source of truth.
 
 ### 1. Edit Source Prompt
 
@@ -107,28 +107,36 @@ Edit the canonical reference in `prompts/`:
 vim prompts/plan.md
 ```
 
-### 2. Update All Adapters
-
-Update each adapter to reflect the changes:
+If you need tool-specific content (e.g., Claude Code XML wrapping), edit the overlay instead:
 
 ```bash
-# Claude Code (most verbose, full-featured)
-vim adapters/claude-code/prp-plan.md
-
-# Codex (condensed but comprehensive)
-vim adapters/codex/prp-plan/SKILL.md
-
-# OpenCode (condensed with frontmatter)
-vim adapters/opencode/plan.md
-
-# Gemini (most condensed, TOML format)
-vim adapters/gemini/plan.toml
-
-# Generic (combined reference for Kimi/others)
-vim adapters/generic/AGENTS.md
+vim prompts/overlays/claude-code/plan.md
 ```
 
-### 3. Test All Tools
+### 2. Generate All Adapters
+
+Run the auto-generation script to produce all 5 adapter formats:
+
+```bash
+# Generate all adapters from prompts/
+python3 scripts/generate-adapters.py
+
+# Preview without writing (dry run)
+python3 scripts/generate-adapters.py --dry-run
+
+# Generate only one adapter
+python3 scripts/generate-adapters.py --adapter gemini
+```
+
+**Do NOT manually edit files in `adapters/`** — they are generated and will be overwritten.
+
+### 3. Run Parity Tests
+
+```bash
+bats tests/adapters/parity.bats
+```
+
+### 4. Test with Tools (optional)
 
 Test changes with each tool:
 
@@ -174,11 +182,14 @@ Then run `install.sh` to create symlinks.
 
 | File | Purpose |
 | ------ | ------- |
+| `scripts/generate-adapters.py` | Auto-generate all 5 adapters from prompts/ |
 | `scripts/install.sh` | Main installation script (auto-registers ralph hook) |
 | `scripts/sync.sh` | Sync updates for hard-copy (non-symlink) installs |
 | `scripts/cleanup-artifacts.sh` | Artifact cleanup utility |
 | `scripts/migrate-artifacts.sh` | Migration from old artifact paths |
 | `scripts/prp-run-all-state.sh` | State management for run-all workflow |
+| `adapters.yml` | Adapter transformation config (placeholders, frontmatter, formats) |
+| `prompts/overlays/` | Tool-specific overlay content (XML wrapping, agent strategies) |
 | `docs/SCRIPTS-REFERENCE.md` | Detailed documentation for all scripts |
 | `docs/USER-GUIDE.md` | Complete command reference (Thai) |
 | `README.md` | Project overview (English) |
@@ -223,63 +234,34 @@ Template:
 - {Criterion 2}
 ```
 
-### 2. Create Adapters
+### 2. Add Command to adapters.yml
 
-**Claude Code:**
+Add an entry under `commands:` in `adapters.yml`:
+
+```yaml
+  my-workflow:
+    description:
+      claude-code: "Short description for Claude Code"
+      default: "Longer description for other adapters."
+    argument-hint: "<input> [--flags]"
+    codex-short-description: "Short name"
+    opencode-agent: "plan"  # or "build"
+```
+
+### 3. Generate Adapters
+
 ```bash
-vim adapters/claude-code/prp-my-workflow.md
+python3 scripts/generate-adapters.py
+bats tests/adapters/parity.bats
 ```
 
-Include:
-- Frontmatter with description and argument-hint
-- Use `$ARGUMENTS` for input
-- Can use Task tool, WebSearch, etc.
-- Full detail
+If Claude Code needs tool-specific content (XML wrapping, agent strategies), create an overlay:
 
-**Codex:**
 ```bash
-mkdir adapters/codex/prp-my-workflow
-vim adapters/codex/prp-my-workflow/SKILL.md
+vim prompts/overlays/claude-code/my-workflow.md
 ```
 
-Include:
-- YAML frontmatter with name, description, metadata
-- Condensed but comprehensive
-- `$ARGUMENTS` for input
-
-**OpenCode:**
-```bash
-vim adapters/opencode/my-workflow.md
-```
-
-Include:
-- YAML frontmatter with description, agent
-- `$ARGUMENTS` for input
-- Most condensed
-
-**Gemini:**
-```bash
-vim adapters/gemini/my-workflow.toml
-```
-
-Include:
-- TOML description and prompt
-- `{{args}}` for input
-- Very condensed
-
-**Generic:**
-Add to `adapters/generic/AGENTS.md`:
-```markdown
-## Workflow: My Workflow
-
-**Trigger**: User says "..."
-
-### Process
-{Steps}
-
-### Usage
-- "Natural language trigger"
-```
+See `prompts/overlays/README.md` for overlay format.
 
 ### 3. Update Documentation
 

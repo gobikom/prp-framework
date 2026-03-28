@@ -1,9 +1,9 @@
----\nname: prp-prd\ndescription: Interactive PRD generator - problem-first, hypothesis-driven product spec\nmetadata:\n  short-description: prd\n---\n
-
-# Product Requirements Document Generator
-
-**Input**: $ARGUMENTS
-
+---
+name: prp-prd
+description: Interactive PRD generator - problem-first, hypothesis-driven product spec
+metadata:
+  short-description: prd
+---
 ---
 
 ## Your Role

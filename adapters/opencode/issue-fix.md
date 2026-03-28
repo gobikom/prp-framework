@@ -1,4 +1,7 @@
----\ndescription: Implement a fix from investigation artifact — code changes, PR, and self-review.\nagent: plan\n---\n
+---
+description: Implement a fix from investigation artifact — code changes, PR, and self-review.
+agent: plan
+---
 
 
 # Implement Issue

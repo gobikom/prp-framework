@@ -3,7 +3,6 @@ description: Create a pull request from current branch with proper title, body, 
 agent: build
 ---
 
-
 ## Agent Mode Detection
 
 If your input context contains `[WORKSPACE CONTEXT]` (injected by a multi-agents framework),

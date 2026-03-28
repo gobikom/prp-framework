@@ -1,58 +1,62 @@
 ---
 description: Cancel active PRP Ralph loop
 ---
+<process>
 
 # Cancel PRP Ralph Loop
 
----
+## Mission
 
-## Steps
+Cancel an active Ralph loop. Preserve all work done so far — only remove the state file.
 
-1. **Check if loop is active**
+## Step 1: Check Loop Status
 
-   ```bash
-   test -f .claude/prp-ralph.state.md && echo "ACTIVE" || echo "NOT_FOUND"
-   ```
+```bash
+test -f .claude/prp-ralph.state.md && echo "ACTIVE" || echo "NOT_FOUND"
+```
 
-2. **If NOT_FOUND**: Report "No active Ralph loop found."
+| Result | Action |
+|--------|--------|
+| NOT_FOUND | Report: "No active Ralph loop found." STOP. |
+| ACTIVE | Proceed to Step 2. |
 
-3. **If ACTIVE**:
+## Step 2: Read Current State
 
-   a. Read the state file to get current iteration:
+```bash
+head -20 .claude/prp-ralph.state.md
+```
 
-   ```bash
-   head -20 .claude/prp-ralph.state.md
-   ```
+Extract from YAML frontmatter:
+- `iteration`: current iteration number
+- `plan_path`: path to the plan being executed
 
-   b. Extract iteration number from the YAML frontmatter
+## Step 3: Remove State File
 
-   c. Remove the state file:
+```bash
+rm .claude/prp-ralph.state.md
+```
 
-   ```bash
-   rm .claude/prp-ralph.state.md
-   ```
+## Step 4: Report
 
-   d. Report:
+```markdown
+## Ralph Loop Cancelled
 
-   ```markdown
-   ## Ralph Loop Cancelled
+**Was at**: Iteration {N}
+**Plan**: {plan_path}
 
-   **Was at**: Iteration {N}
-   **Plan**: {plan_path}
+The loop has been stopped. Your work so far is preserved in:
+- Modified files (check `git status`)
+- Git commits (if any were made)
 
-   The loop has been stopped. Your work so far is preserved in:
-   - Modified files (check `git status`)
-   - Git commits (if any were made)
-
-   To resume later:
-   - Run `/prp-ralph {plan_path}` to start fresh
-   - Or continue manually with `/prp-implement {plan_path}`
-   ```
-
----
+To resume later:
+- Run `/prp-core:prp-ralph {plan_path}` to start fresh
+- Or continue manually with `/prp-core:prp-implement {plan_path}`
+```
 
 ## Success Criteria
 
 - LOOP_DETECTED: State file checked for existence
 - STATE_REMOVED: `.claude/prp-ralph.state.md` deleted (if existed)
 - WORK_PRESERVED: No code changes reverted — only state file removed
+
+</process>

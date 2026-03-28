@@ -2,11 +2,7 @@
 description: Interactive PRD generator - problem-first, hypothesis-driven product spec
 argument-hint: [feature/product idea] (blank = start with questions)
 ---
-
-# Product Requirements Document Generator
-
-**Input**: $ARGUMENTS
-
+<process>
 ---
 
 ## Your Role
@@ -184,13 +180,13 @@ TIMESTAMP=$(date +%Y%m%d-%H%M)
 ls .prp-output/prds/drafts/{kebab-case-name}-prd-agents*.md 2>/dev/null
 ```
 
-**Output path**: `.prp-output/prds/drafts/{kebab-case-name}-prd-agents-{TIMESTAMP}.md`
+**Output path**: `.prp-output/prds/drafts/{kebab-case-name}-prd-claude-code-{TIMESTAMP}.md`
 
-Example: `auth-feature-prd-agents-20260210-1430.md`
+Example: `auth-feature-prd-claude-code-20260210-1430.md`
 
 Create directory if needed: `mkdir -p .prp-output/prds/drafts`
 
-> **Note**: Uses `-agents` suffix to identify Claude Code PRD drafts (consistent with multi-agent review naming). Multiple tools can create draft PRDs in `drafts/` subdirectory for comparison. User manually merges best sections to final version at `.prp-output/prds/{name}-prd.md` (no suffix, root level) which Plan command will reference.
+> **Note**: Uses `-agents` suffix to identify which tool produced the PRD draft (consistent with multi-agent review naming). Multiple tools can create draft PRDs in `drafts/` subdirectory for comparison. User manually merges best sections to final version at `.prp-output/prds/{name}-prd.md` (no suffix, root level) which Plan command will reference.
 
 ### PRD Template
 
@@ -432,7 +428,7 @@ After generating, report:
 ```markdown
 ## PRD Created
 
-**File**: `.prp-output/prds/drafts/{name}-prd-agents-{TIMESTAMP}.md` (DRAFT)
+**File**: `.prp-output/prds/drafts/{name}-prd-claude-code-{TIMESTAMP}.md` (DRAFT)
 
 ### Summary
 
@@ -467,7 +463,7 @@ After generating, report:
 
 1. Manually compare draft PRDs from different tools (in `drafts/` subdirectory)
 2. Merge best sections to final PRD: `.prp-output/prds/{name}-prd.md` (no suffix)
-3. Run: `/prp-plan .prp-output/prds/{name}-prd.md`
+3. Run: `/prp-core:prp-plan .prp-output/prds/{name}-prd.md`
 
 Plan command references final merged PRD only (not drafts).
 ```
@@ -516,3 +512,5 @@ Plan command references final merged PRD only (not drafts).
 - **SCOPE_BOUNDED**: Clear must-haves and explicit out-of-scope
 - **QUESTIONS_ACKNOWLEDGED**: Uncertainties are listed, not hidden
 - **ACTIONABLE**: A skeptic could understand why this is worth building
+
+</process>

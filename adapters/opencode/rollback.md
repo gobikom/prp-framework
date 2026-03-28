@@ -1,4 +1,7 @@
----\ndescription: Safely undo implementation changes with stash backup. Supports --soft, --hard, and --restore modes.\nagent: plan\n---\n
+---
+description: Safely undo implementation changes with stash backup. Supports --soft, --hard, and --restore modes.
+agent: plan
+---
 
 # PRP Rollback — Safely Undo Implementation Changes
 

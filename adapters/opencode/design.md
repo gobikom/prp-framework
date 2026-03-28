@@ -1,4 +1,7 @@
----\ndescription: Generate technical design document from PRD as optional reference (not in workflow)\nagent: plan\n---\n
+---
+description: Generate technical design document from PRD as optional reference (not in workflow)
+agent: plan
+---
 ---
 
 ## Mission

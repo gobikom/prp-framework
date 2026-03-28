@@ -2,11 +2,7 @@
 description: Generate technical design document from PRD as optional reference (not in workflow)
 argument-hint: path/to/prd.md
 ---
-
-# Design Document Generator
-
-**Input**: $ARGUMENTS (PRD file path)
-
+<process>
 ---
 
 ## Mission
@@ -29,7 +25,7 @@ Design Doc = Architecture blueprint for complex features. Simple features can sk
 
 ## Phase 2: Explore Codebase
 
-**Use Task tool with subagent_type="Explore"** to find existing patterns:
+**Use task with subagent_type="Explore"** to find existing patterns:
 
 ```
 Explore the codebase to find patterns relevant to: {feature from PRD}
@@ -173,13 +169,13 @@ TIMESTAMP=$(date +%Y%m%d-%H%M)
 ls .prp-output/designs/{feature}-design-agents*.md 2>/dev/null
 ```
 
-**Output path**: `.prp-output/designs/{feature}-design-agents-{TIMESTAMP}.md`
+**Output path**: `.prp-output/designs/{feature}-design-claude-code-{TIMESTAMP}.md`
 
-Example: `auth-feature-design-agents-20260210-1430.md`
+Example: `auth-feature-design-claude-code-20260210-1430.md`
 
 Create directory: `mkdir -p .prp-output/designs`
 
-> **Note**: Uses `-agents` suffix to identify Claude Code design docs (consistent with multi-agent review naming). Multiple tools can create design docs with different tool suffixes for comparison.
+> **Note**: Uses `-agents` suffix to identify which tool produced the design doc (consistent with multi-agent review naming). Multiple tools can create design docs with different tool suffixes for comparison.
 
 ### Design Doc Template
 
@@ -422,7 +418,7 @@ Report:
 ```markdown
 ## Design Doc Created
 
-**File**: `.prp-output/designs/{name}-design-agents-{TIMESTAMP}.md` (REFERENCE ONLY)
+**File**: `.prp-output/designs/{name}-design-claude-code-{TIMESTAMP}.md` (REFERENCE ONLY)
 
 ### Summary
 
@@ -453,7 +449,7 @@ Report:
 This is a **reference document**. Workflow continues as:
 
 1. Use this design doc as reference (optional)
-2. Create Plan from PRD: `/prp-plan .prp-output/prds/{name}-prd.md`
+2. Create Plan from PRD: `/prp-core:prp-plan .prp-output/prds/{name}-prd.md`
 3. Implement from Plan
 
 **Design Doc does NOT block workflow** - implementer can reference it for architecture guidance.
@@ -470,3 +466,5 @@ This is a **reference document**. Workflow continues as:
 - **PERFORMANCE_PLANNED**: Targets and optimization strategies defined
 - **DECISIONS_DOCUMENTED**: Key choices with rationale and trade-offs
 - **REFERENCE_ONLY**: Clearly marked as support material, not workflow gate
+
+</process>

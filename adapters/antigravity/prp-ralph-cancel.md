@@ -1,4 +1,6 @@
----\ndescription: Cancel an active PRP Ralph loop and preserve work done so far.\n---\n
+---
+description: Cancel an active PRP Ralph loop and preserve work done so far.
+---
 
 # Cancel PRP Ralph Loop
 

@@ -668,7 +668,7 @@ verdict: {READY TO MERGE / NEEDS FIXES / CRITICAL ISSUES}
 
 Save aggregated review to `.prp-output/reviews/pr-{NUMBER}-review-codex.md` before posting to GitHub.
 
-> **Note**: Uses `-codex` suffix to identify Codex reviews and prevent overwriting reviews from other tools (each tool uses its own suffix for parallel review capability).
+> **Note**: Uses `-codex` suffix to identify which tool produced the review and prevent overwriting reviews from other tools (each tool uses its own suffix for parallel review capability).
 
 ### Post to GitHub
 
@@ -842,6 +842,20 @@ $prp-review 42 perf a11y              # Performance + accessibility focus
 $prp-review 163 --since-last-review   # Incremental re-review
 $prp-review --metrics                  # View review metrics
 ```
+
+---
+
+## Edge Cases
+
+| Situation | Action |
+|-----------|--------|
+| PR has 500+ changed files | Apply Large PR Strategy (Phase 1.5) — tier-based review |
+| `gh pr diff` returns empty | STOP — "No changes to review." |
+| No CLAUDE.md or conventions file | Proceed — rely on codebase patterns from diff |
+| PR is a revert commit | Focus on: was the revert correct? Any side effects? |
+| PR modifies only generated files | Skip most passes, note "generated code" in review |
+| Review artifact already exists | Overwrite with new review (timestamp in frontmatter tracks versions) |
+| `--metrics` with no metrics file | Display "No review metrics found" and EXIT |
 
 ---
 

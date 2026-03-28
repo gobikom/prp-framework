@@ -1,5 +1,6 @@
----\ndescription: Investigate a GitHub issue or problem - analyze codebase, create plan, post to GitHub
-argument-hint: <issue-number|url|"description">\n---\n
+---
+description: Investigate a GitHub issue or problem - analyze codebase, create plan, post to GitHub
+---
 
 ---
 
