@@ -495,7 +495,7 @@ For EVERY changed file, check against these 7 categories:
 
 Run automated checks to catch issues that code review alone may miss.
 
-**Skip if** context file already contains validation results.
+**Skip if** context file contains **concrete** validation results (actual PASS/FAIL with counts — not template placeholders like `✅` without details). If the Validation Status table has real results (e.g., "✅ PASS | 42 passed" or "❌ FAIL | 3 errors"), trust those results and skip re-running. If results look like unfilled templates, run validation.
 
 ### Run Validation Suite
 

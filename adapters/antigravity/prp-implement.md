@@ -617,12 +617,16 @@ mkdir -p .prp-output/reviews
 
 ## Validation Status
 
-| Check | Result |
-|-------|--------|
-| Type check | ✅ |
-| Lint | ✅ |
-| Tests | ✅ ({N} passed) |
-| Build | ✅ |
+**IMPORTANT**: Copy ACTUAL results from Phase 4 validation — do NOT use placeholders.
+Use ✅ PASS or ❌ FAIL with real counts. Review will skip re-running validation
+only if this table contains concrete results (not template placeholders).
+
+| Check | Result | Details |
+|-------|--------|---------|
+| Type check | {✅ PASS or ❌ FAIL} | {error count or "clean"} |
+| Lint | {✅ PASS or ❌ FAIL} | {warning/error count or "clean"} |
+| Tests | {✅ PASS or ❌ FAIL} | {N passed, M failed, or "all passed"} |
+| Build | {✅ PASS or ❌ FAIL} | {output size or "success"} |
 
 ---
 

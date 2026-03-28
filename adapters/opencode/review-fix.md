@@ -329,9 +329,9 @@ For each issue in the batch:
 
 **When skipping:** Note the issue in the skip log with reason.
 
-### 4.3 Validate After Each Batch
+### 4.3 Quick Check After Each Batch
 
-After fixing all issues in a severity batch, run the **detected validation commands** from Phase 0:
+After fixing all issues in a severity batch, run **only type-check + lint** (fast feedback):
 
 ```bash
 # Type checking — use detected command
@@ -341,11 +341,13 @@ After fixing all issues in a severity batch, run the **detected validation comma
 {lint_command}
 ```
 
-**If validation fails after a batch:**
+**Do NOT run tests or build here** — save the full suite for Phase 5 (once, after all batches).
+
+**If quick check fails after a batch:**
 1. Identify which fix caused the failure
 2. Revert that specific fix
 3. Add it to skip log with reason: "Validation failed"
-4. Re-run validation
+4. Re-run quick check
 5. Continue to next batch
 
 **PHASE_4_CHECKPOINT:**
@@ -353,15 +355,15 @@ After fixing all issues in a severity batch, run the **detected validation comma
 - [ ] High issues fixed (or skipped with reason)
 - [ ] Medium issues fixed (or skipped with reason)
 - [ ] Suggestions applied (or skipped with reason)
-- [ ] Validation passes after each batch
+- [ ] Type-check + lint pass after each batch
 
 ---
 
-## Phase 5: VALIDATE — Full Validation Suite
+## Phase 5: VALIDATE — Full Validation Suite (Once)
+
+Run the full suite **once** after all batches are complete. This saves significant tokens compared to running tests + build after every batch.
 
 ### 5.1 Run Complete Validation
-
-Run all **detected validation commands** from Phase 0:
 
 ```bash
 # Type check
