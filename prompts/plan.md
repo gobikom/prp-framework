@@ -52,6 +52,14 @@ ls -la */ 2>/dev/null | head -50
 
 ## Phase 0: DETECT — Input Type Resolution
 
+**Parse flags first** (remove from input before type detection):
+
+| Flag | Effect |
+|------|--------|
+| `--fast` | Fast-track mode (lighter analysis) |
+| `--no-interact` | Never ask questions — use best judgment |
+| `--package <name>` | Scope to a specific monorepo package (e.g., `--package api`). Sets `MONOREPO_PACKAGE`. |
+
 | Input Pattern | Type | Action |
 |---------------|------|--------|
 | Ends with `.prd.md` | PRD file | Parse PRD, select next phase |
@@ -138,10 +146,67 @@ Test: {runner} {test-command}
 Build: {runner} run {script-name}
 ```
 
+### 0.5.4 Detect Monorepo
+
+Check for monorepo configuration files at project root:
+
+| File Found | Monorepo Type | Filter Command |
+|------------|---------------|----------------|
+| `pnpm-workspace.yaml` | pnpm workspaces | `pnpm --filter {pkg}` |
+| `turbo.json` | Turborepo | `turbo run {script} --filter={pkg}` |
+| `nx.json` | Nx | `nx run {pkg}:{script}` |
+| `lerna.json` | Lerna | `lerna run {script} --scope={pkg}` |
+| `packages/` dir + root `package.json` with `workspaces` | yarn/npm workspaces | `yarn workspace {pkg}` |
+
+**If monorepo detected:**
+
+1. **List packages** — parse workspace config to find available packages:
+   ```bash
+   # pnpm
+   pnpm ls --depth -1 --json 2>/dev/null | head -50
+   # or fallback: list directories in packages/, apps/, etc.
+   ls -d packages/*/ apps/*/ 2>/dev/null
+   ```
+
+2. **Determine target package:**
+
+   | Condition | Action |
+   |-----------|--------|
+   | `--package <name>` flag provided | Use that package. Set `MONOREPO_PACKAGE = <name>` |
+   | Feature description mentions a specific package | Auto-detect. Confirm with user (unless `--no-interact`) |
+   | Neither | Ask user to specify (unless `--no-interact` → scope to root/all) |
+
+3. **Resolve package path:**
+   ```
+   PACKAGE_DIR = {workspace-root}/{packages|apps}/{MONOREPO_PACKAGE}
+   ```
+   Verify the directory exists. If not → STOP with error listing available packages.
+
+4. **Scope toolchain commands** (override 0.5.3):
+   ```
+   Runner: {detected runner}
+   Type Check: {filter-command} run type-check
+   Lint: {filter-command} run lint
+   Test: {filter-command} test
+   Build: {filter-command} run build
+   ```
+   Example for pnpm + package "api": `pnpm --filter api run lint`
+
+5. **Store monorepo metadata:**
+   ```
+   Monorepo: {type} (e.g., pnpm-workspaces, turborepo)
+   Package: {MONOREPO_PACKAGE}
+   Package Dir: {PACKAGE_DIR}
+   Filter: {filter-command prefix}
+   ```
+
+**If no monorepo detected**: Skip this section entirely. No impact on workflow.
+
 **PHASE_0_5_CHECKPOINT:**
 - [ ] Package manager detected from lock file
 - [ ] Validation script names read from config
 - [ ] Runner and commands stored for plan generation
+- [ ] If monorepo: type detected, package resolved, scoped commands set
 
 ---
 
@@ -198,6 +263,8 @@ Proceeding with fast-track anyway...
 ---
 
 ## Phase 2: EXPLORE — Codebase Intelligence
+
+**If monorepo with `MONOREPO_PACKAGE` set**: Focus exploration on `{PACKAGE_DIR}` first, then check shared packages (e.g., `packages/shared/`, `packages/common/`). Only explore other packages if cross-package integration is needed.
 
 Thoroughly explore the codebase to discover:
 
@@ -392,7 +459,7 @@ The plan file MUST include lifecycle frontmatter (`status: pending`, `runner`, `
 1. **Summary** — what we're building
 2. **User Story** — who, what, why
 3. **Problem/Solution Statements** — specific and testable
-4. **Metadata** — type, complexity, systems, dependencies, task count, **Runner + Type Check + Lint + Test + Build commands**
+4. **Metadata** — type, complexity, systems, dependencies, task count, **Runner + Type Check + Lint + Test + Build commands** (+ Monorepo/Package/Filter if applicable)
 5. **UX Design** — before/after ASCII diagrams + interaction changes table
 6. **Mandatory Reading** — P0/P1/P2 priority files the implementer MUST read first, external docs with version
 7. **Patterns to Mirror** — ACTUAL code snippets with SOURCE tags: naming, errors, logging, repository, service, tests

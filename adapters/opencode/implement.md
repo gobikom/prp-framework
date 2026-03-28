@@ -65,6 +65,24 @@ Check `package.json` (or equivalent) for available scripts:
 
 **Use the plan's "Validation Commands" section** — it should specify exact commands for this project.
 
+### 0.3 Detect Monorepo (if not in plan)
+
+If the plan Metadata contains `Monorepo` and `Filter` fields, use those directly. Otherwise auto-detect:
+
+| File Found | Monorepo Type | Filter Prefix |
+|------------|---------------|---------------|
+| `pnpm-workspace.yaml` | pnpm workspaces | `pnpm --filter {pkg}` |
+| `turbo.json` | Turborepo | `turbo run {script} --filter={pkg}` |
+| `nx.json` | Nx | `nx run {pkg}:{script}` |
+| `lerna.json` | Lerna | `lerna run {script} --scope={pkg}` |
+
+**If monorepo detected and plan has `Package` field:**
+- Set `MONOREPO_PACKAGE` from plan Metadata
+- Scope all validation commands: `{filter-prefix} {script}` instead of `{runner} run {script}`
+- Example: `pnpm --filter api test` instead of `pnpm test`
+
+**If monorepo detected but no package specified**: Run validation at root level (default behavior, no scoping).
+
 ---
 
 ## Phase 1: LOAD - Read the Plan

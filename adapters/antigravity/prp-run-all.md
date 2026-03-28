@@ -39,6 +39,7 @@ Execute the complete PRP workflow end-to-end autonomously. Each step delegates t
 | `--fix-severity <levels>` | Override review-fix severity (default: `critical,high,medium,suggestion`) |
 | `--resume` | Resume from last failed step using saved state |
 | `--no-interact` | Never ask user questions — use best judgment, pick defaults |
+| `--package <name>` | Scope to a specific monorepo package. Passed through to plan and implement steps. |
 | `--dry-run` | Preview all steps without executing. Show estimated token cost. Exit after preview. |
 | Remaining text | Set FEATURE = text |
 
@@ -64,6 +65,7 @@ NO_PR = {true if --no-pr}
 FIX_SEVERITY = "{from --fix-severity, default 'critical,high,medium,suggestion'}"
 FAST_PLAN = {true if --fast} (ignored if PLAN_PATH already set)
 NO_INTERACT = {true if --no-interact}
+MONOREPO_PACKAGE = "{from --package, or empty}"
 DRY_RUN = {true if --dry-run}
 ```
 
@@ -202,7 +204,7 @@ git checkout -b feature/{slug-from-FEATURE}
 
 ### Step 2: CREATE PLAN (skip if --prp-path or --skip-plan or RESUME_FROM > 2)
 
-Use `/prp-plan` with FEATURE (append `--fast` if FAST_PLAN, `--no-interact` if NO_INTERACT).
+Use `/prp-plan` with FEATURE (append `--fast` if FAST_PLAN, `--no-interact` if NO_INTERACT, `--package {MONOREPO_PACKAGE}` if set).
 
 This will: analyze codebase (lighter if --fast), generate plan with validation commands, integration points, confidence score. Save to `.prp-output/plans/`.
 
