@@ -100,7 +100,7 @@ $prp-review-fix 25
 - **Sequential Execution** -- ไม่มี parallel agents (ต่างจาก Claude Code)
 - **Multi-Pass Review** -- ใช้ `$prp-review` (11 passes, feature-equivalent กับ `review-agents`) แทน multi-agent dispatch
 - **No Feature Review Agents** -- ใช้ `$prp-feature-review` (single pass)
-- **Full Prompt Parity** -- canonical prompts เหมือนกันทุก tool, ต่างแค่ wrapper format
+- **Full Prompt Parity** -- ทุก command (plan, implement, review, review-fix, commit, pr, cleanup, run-all) มี feature parity เทียบเท่า Claude Code ตั้งแต่ v2.1.0
 - **Artifact Naming** -- ใช้ `-codex` suffix (e.g., `jwt-prd-codex.md`)
 
 ## Differences from Claude Code

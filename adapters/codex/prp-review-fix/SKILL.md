@@ -1,18 +1,9 @@
 ---
 name: prp-review-fix
-description: Fix all issues from a PR review artifact - applies critical, high, medium, and suggestion fixes directly to the PR branch.
+description: Fix all issues from a PR review artifact — applies critical, high, medium, and suggestion fixes to the PR branch with validation loops and automatic failure recovery.
 metadata:
   short-description: Fix PR review issues
 ---
-
-# PRP Review Fix — Apply Review Findings
-
-## Input
-
-PR number and optional severity filter: `$ARGUMENTS`
-
-Format: `<pr-number|review-artifact-path> [--severity critical,high,medium,suggestion]`
-
 
 ## Agent Mode Detection
 
@@ -29,13 +20,31 @@ All other phases (fix application, validation loops) run unchanged.
 
 ---
 
+# PRP Review Fix — Apply Review Findings
+
+## Input
+
+PR number and optional severity filter: `$ARGUMENTS`
+
+Format: `<pr-number|review-artifact-path> [--severity critical,high,medium,suggestion]`
+
 ## Mission
 
-Apply all fixable issues found by `prp-review`. Load the review artifact, fix each issue in priority order, validate, and push to the PR branch. Report what was fixed and what was skipped.
+Apply fixes for all issues found by `prp-review`:
 
-**Golden Rule**: Fix what the review found. Don't refactor unrelated code. Skip unclear or risky fixes — note them.
+1. Load the review artifact and parse issues by severity
+2. Detect project toolchain and validation commands
+3. Checkout the PR branch (or use it if already on it)
+4. Fix issues in priority order: Critical → High → Medium → Suggestion
+5. Run validation after each severity batch
+6. Commit and push fixes to the PR branch
+7. Post a summary comment on the PR
 
-## Phase 0: Detect Project Toolchain
+**Golden Rule**: Fix what the review found. Don't refactor unrelated code. If a fix is unclear or risky, skip and note it.
+
+---
+
+## Phase 0: DETECT — Project Toolchain
 
 ### 0.1 Identify Package Manager
 
@@ -59,7 +68,7 @@ PLAN_SLUG=$(echo "$PR_BRANCH" | sed 's|^feature/||')
 ls -t .prp-output/plans/completed/*${PLAN_SLUG}*.plan.md 2>/dev/null | head -1
 ```
 
-> **Plan-provided commands take precedence — but only if the plan matches the PR branch**. If a matching plan has a Metadata table with Runner/Type Check/Lint/Test/Build commands, use those directly. Otherwise fall back to auto-detection.
+> **Plan-provided commands take precedence — but only if the plan matches the PR branch**. If a matching completed plan exists with a Metadata table containing Runner/Type Check/Lint/Test/Build commands, use those directly. Otherwise fall back to auto-detection.
 
 **Fallback — auto-detect from project config:**
 
@@ -72,45 +81,115 @@ ls -t .prp-output/plans/completed/*${PLAN_SLUG}*.plan.md 2>/dev/null | head -1
 
 **Store detected commands** — use consistently for all validation steps.
 
-## Phase 1: Load Review Artifact
+---
+
+## Phase 1: LOAD — Get the Review Artifact
 
 ### 1.1 Parse Input
 
-**If input is a path**: use it directly.
+**Determine input type:**
 
-**If input is a PR number** (or no input → get current branch's PR):
+| Input Format | Action |
+|--------------|--------|
+| Path to artifact | Use path directly — skip discovery. Extract PR number from filename. |
+| Number (`123`, `#123`) | Discover artifacts for this PR number |
+| No input | Get current branch's PR number, then discover |
+
 ```bash
+# If no input: find current PR number
 gh pr view --json number -q '.number'
+```
+
+**When path is provided — extract PR number from filename:**
+
+```bash
+# Artifact name format: pr-{NUMBER}-*.md (e.g. pr-123-review-codex.md)
+ARTIFACT_PATH="{provided path}"
+NUMBER=$(basename "$ARTIFACT_PATH" | grep -oE 'pr-([0-9]+)-' | grep -oE '[0-9]+')
+
+# Fallback: get from current branch if filename doesn't match pattern
+if [ -z "$NUMBER" ]; then
+  NUMBER=$(gh pr view --json number -q '.number' 2>/dev/null)
+fi
+```
+
+**Set**: `NUMBER = {extracted or fetched PR number}` — used for checkout, comment, and push in later phases.
+
+### 1.2 Discover Artifacts
+
+**If input is a path**: use it directly, skip to 1.4.
+
+**If input is a PR number**: find all review artifacts for this PR:
+
+```bash
 ls -t .prp-output/reviews/pr-{NUMBER}-*review*.md 2>/dev/null
 ```
 
-### 1.2 Resolve Artifact
-
-**If 1 artifact found**: use it, show user which one was selected.
-
-**If multiple artifacts found** (multiple tools reviewed):
+This may return multiple files, e.g.:
 ```
-Multiple review artifacts for PR #{NUMBER}:
-  [1] pr-123-review.md          (claude-code)   2026-02-27 14:30
-  [2] pr-123-review-codex.md    (codex)         2026-02-27 10:15
-  [3] pr-123-review-gemini.md   (gemini)        2026-02-26 09:00
-
-Which review to fix? (Enter for [1] most recent):
+.prp-output/reviews/pr-123-agents-review.md   <- prp-review-agents (multi-agent)
+.prp-output/reviews/pr-123-review.md          <- prp-review (claude-code)
+.prp-output/reviews/pr-123-review-codex.md    <- codex
+.prp-output/reviews/pr-123-review-gemini.md   <- gemini
 ```
+
+### 1.3 Resolve Which Artifact to Use
+
+**Case A — Exactly 1 artifact found:**
+Use it automatically. Show user:
+```
+Using review artifact: pr-123-review-codex.md
+```
+
+**Case B — Multiple artifacts found:**
+List them with metadata and ask user to select:
+
+```
+Multiple review artifacts found for PR #123:
+
+  [1] pr-123-review-codex.md    (codex)         modified: 2026-02-27 14:30
+  [2] pr-123-review-gemini.md   (gemini)        modified: 2026-02-27 10:15
+  [3] pr-123-agents-review.md   (agents)        modified: 2026-02-26 09:00
+
+Which review should be fixed? Enter number (or press Enter for [1] most recent):
+```
+
 Default: most recently modified. To skip prompt: pass artifact path directly.
 
-**If none found**: STOP — "Run `prp-review {NUMBER}` first."
+**Case C — No artifacts found:**
+```
+No review artifact found for PR #{NUMBER}.
 
-### 1.3 Parse Severity Filter
+Run `$prp-review {NUMBER}` first to generate the review.
+```
 
-- `--severity critical` → Critical only
-- `--severity critical,high` → Critical + High
-- `--severity critical,high,medium` → All except suggestions
-- No flag → all severities (default)
+### 1.4 Parse Severity Filter
 
-### 1.4 Parse Issues
+**From `--severity` flag (if provided):**
 
-Extract issues grouped by severity from the artifact.
+```
+--severity critical          -> fix only Critical
+--severity critical,high     -> fix Critical and High
+--severity all               -> fix all (default)
+```
+
+**Default**: Fix all severities (Critical -> High -> Medium -> Suggestion)
+
+### 1.5 Parse Issues from Artifact
+
+Extract all issues grouped by severity. Look for sections:
+
+**Standard review format:**
+```markdown
+### Critical Issues (X found)
+| Pass | Issue | Location |
+
+### Important Issues (X found)
+| Pass | Issue | Location |
+
+### Suggestions (X found)
+| Pass | Suggestion | Location |
+```
 
 **Severity mapping table:**
 
@@ -121,22 +200,34 @@ Extract issues grouped by severity from the artifact.
 | Medium Priority | **Medium** |
 | Suggestions / Low / Suggestions (nice to have) | **Suggestion** |
 
-> **Note**: The agents-review format does not use "Medium" — issues are either Critical, Important, or Suggestion. When parsing agents-review, treat Important as High. Codex/Gemini adapters use parenthetical labels (e.g., "Critical (block merge)") — match on the keyword before the parenthetical.
+> **Note**: The agents-review format does not use "Medium" — issues are either Critical, Important, or Suggestion. When parsing agents-review, treat Important as High. Codex adapters use parenthetical labels (e.g., "Critical (block merge)") — match on the keyword before the parenthetical.
 
-## Phase 2: Checkout PR Branch
+**PHASE_1_CHECKPOINT:**
+- [ ] Review artifact resolved (auto or user-selected)
+- [ ] PR number identified
+- [ ] Which artifact is being used — shown to user
+- [ ] Issues parsed and grouped by severity
+- [ ] Severity filter applied
 
-### 2.1 Check PR State
+---
+
+## Phase 2: CHECKOUT — Get on the PR Branch
+
+### 2.1 Get PR Branch Info
 
 ```bash
-gh pr view {NUMBER} --json headRefName,state
+gh pr view {NUMBER} --json headRefName,state -q '{headRefName: .headRefName, state: .state}'
 ```
 
 | State | Action |
 |-------|--------|
-| MERGED / CLOSED | STOP: "Cannot apply fixes" |
-| OPEN / DRAFT | PROCEED |
+| `MERGED` | STOP: "PR already merged. Cannot apply fixes." |
+| `CLOSED` | STOP: "PR is closed. Cannot apply fixes." |
+| `OPEN` or `DRAFT` | PROCEED |
 
-### 2.2 Checkout
+### 2.2 Checkout the Branch
+
+**Check if already on the correct branch first:**
 
 ```bash
 CURRENT=$(git branch --show-current)
@@ -144,74 +235,173 @@ PR_BRANCH=$(gh pr view {NUMBER} --json headRefName -q '.headRefName')
 
 if [ "$CURRENT" = "$PR_BRANCH" ]; then
   echo "Already on PR branch: $PR_BRANCH"
-  # Verify working directory is clean
+  # Verify working directory is clean before proceeding
   if [ -n "$(git status --porcelain)" ]; then
-    echo "⚠️ Working directory is dirty. Stash or commit changes first."
-    # STOP if dirty
+    echo "Working directory is dirty. Stash or commit changes first."
+    # STOP if dirty — don't mix pre-existing changes with review fixes
   fi
 else
   gh pr checkout {NUMBER}
 fi
 ```
 
-### 2.3 Sync
+### 2.3 Ensure Up-to-Date
 
 ```bash
 git pull --rebase origin $(git branch --show-current) 2>/dev/null || true
 ```
 
-## Phase 3: Triage — Print Fix Plan
+**PHASE_2_CHECKPOINT:**
+- [ ] PR is open/draft
+- [ ] On PR branch
+- [ ] Working directory is clean
 
-Before making any changes, print the fix plan:
-- Show issue counts per severity
-- Validation commands and their source (plan / auto-detected)
-- List each issue with file and description
-- Group by file for efficiency
-- Show which issues will be skipped (out of severity filter)
+---
 
-This gives visibility into what will be changed before any edits happen.
+## Phase 3: TRIAGE — Print Fix Plan
 
-## Phase 4: Fix — Apply Issues by Severity
+### 3.1 Print Fix Plan
 
-Process order: **Critical → High → Medium → Suggestion**
+Before making any changes, output the fix plan:
 
-For each issue:
-1. Read the target file at the flagged location
-2. Apply the recommended fix (exactly as stated in review)
-3. Don't refactor unrelated code
-4. If fix is ambiguous or risky → SKIP, add to skip log
+```
+## Fix Plan for PR #{NUMBER}
 
-### 4.1 Validate After Each Batch
+Severity filter: {all | critical | critical,high | ...}
+Validation commands: {detected runner} ({source: plan / auto-detected})
 
-Run **detected validation commands** from Phase 0:
+### Issues to Fix
+
+#### Critical ({N})
+- `file.ts:42` - {description}
+- `file.ts:87` - {description}
+
+#### High ({N})
+- `file.ts:12` - {description}
+
+#### Medium ({N})
+- `util.ts:55` - {description}
+
+#### Suggestion ({N})
+- `service.ts:23` - {description}
+
+### Skipping (out of severity filter)
+- {N} issues will be skipped
+
+Proceeding with fixes...
+```
+
+### 3.2 Group by File
+
+For efficiency, group issues by file so each file is read once.
+
+**PHASE_3_CHECKPOINT:**
+- [ ] Fix plan printed
+- [ ] Issues grouped by severity
+- [ ] Files identified
+
+---
+
+## Phase 4: FIX — Apply Fixes
+
+Process severity batches in order: **Critical → High → Medium → Suggestion**
+
+### 4.1 Fix Loop (per severity batch)
+
+For each issue in the batch:
+
+1. **Read the file** — understand current context around the flagged line
+2. **Read similar files** — understand the pattern to follow
+3. **Apply the fix** — exactly what the review recommends
+4. **Note deviations** — if you must deviate, document why
+
+**Rules:**
+- Fix ONLY what the review flagged
+- Don't refactor surrounding code
+- Match existing code style
+- If a fix is ambiguous or risky → SKIP and add to skip log
+
+### 4.2 Skip Logic
+
+**Skip an issue if:**
+- The fix recommendation is unclear
+- The fix requires architectural changes beyond the issue scope
+- The code has changed since the review (drift detected)
+- The fix would break other things
+
+**When skipping:** Note the issue in the skip log with reason.
+
+### 4.3 Validate After Each Batch
+
+After fixing all issues in a severity batch, run the **detected validation commands** from Phase 0:
 
 ```bash
+# Type checking — use detected command
 {type_check_command}
+
+# Linting — use detected command
 {lint_command}
 ```
 
-If validation fails after a batch: identify the failing fix, revert it, add to skip log, re-validate.
+**If validation fails after a batch:**
+1. Identify which fix caused the failure
+2. Revert that specific fix
+3. Add it to skip log with reason: "Validation failed"
+4. Re-run validation
+5. Continue to next batch
 
-## Phase 5: Validate — Full Suite
+**PHASE_4_CHECKPOINT:**
+- [ ] Critical issues fixed (or skipped with reason)
+- [ ] High issues fixed (or skipped with reason)
+- [ ] Medium issues fixed (or skipped with reason)
+- [ ] Suggestions applied (or skipped with reason)
+- [ ] Validation passes after each batch
+
+---
+
+## Phase 5: VALIDATE — Full Validation Suite
+
+### 5.1 Run Complete Validation
 
 Run all **detected validation commands** from Phase 0:
 
 ```bash
+# Type check
 {type_check_command}
+
+# Linting
 {lint_command}
+
+# Tests
 {test_command}
+
+# Build
 {build_command}
 ```
 
-All checks must pass before committing. If a fix causes failures: revert and skip.
+### 5.2 Handle Failures
+
+**If any check fails:**
+1. Identify the root cause
+2. Fix the underlying issue (don't suppress)
+3. Re-run the specific check
+4. If unfixable → revert the causing fix and add to skip log
 
 **GATE**: Do NOT proceed to Phase 6 until all validation checks pass (or failing fixes are reverted and skipped).
 
-## Phase 6: Commit & Push
+**PHASE_5_CHECKPOINT:**
+- [ ] Type check passes
+- [ ] Lint passes
+- [ ] Tests pass
+- [ ] Build passes
+
+---
+
+## Phase 6: COMMIT — Save Changes
 
 ### 6.1 Stage Changes
 
-**Do NOT use `git add -A`** — stage only intentionally modified files:
+**Do NOT use `git add -A`** — this can stage unintended files (.env, build artifacts, editor files).
 
 ```bash
 # Stage modified tracked files
@@ -220,26 +410,72 @@ git diff --name-only | xargs -r git add
 # Stage new files created as part of fixes (untracked, non-ignored)
 git ls-files --others --exclude-standard | xargs -r git add
 
+# Review what's being staged
+git status
+
 # Verify no unexpected files are staged
 git diff --cached --name-only
 ```
 
-### 6.2 Commit
+**If unexpected files appear** (not related to review fixes): unstage them before committing.
+
+### 6.2 Commit Message
 
 ```bash
-git commit -m "fix: apply review fixes for PR #{NUMBER}
+git commit -m "$(cat <<'EOF'
+fix: apply review fixes for PR #{NUMBER}
 
-Address {N} issues: {N_critical} critical, {N_high} high, {N_medium} medium, {N_suggestion} suggestions
-Skipped {N_skipped} issues (see PR comment)"
+Address {N} issues from code review:
 
+Critical ({N_critical} fixed, {N_critical_skipped} skipped):
+- {brief description of critical fixes}
+
+High ({N_high} fixed, {N_high_skipped} skipped):
+- {brief description of high fixes}
+
+Medium ({N_medium} fixed, {N_medium_skipped} skipped):
+- {brief description}
+
+Suggestions ({N_suggestion} applied, {N_suggestion_skipped} skipped):
+- {brief description}
+
+Skipped ({N_total_skipped} issues - see PR comment for details)
+EOF
+)"
+```
+
+**If nothing to commit** (all issues were skipped):
+```
+No changes to commit. All fixable issues were already addressed or skipped.
+```
+
+**PHASE_6_CHECKPOINT:**
+- [ ] Only intentionally modified files staged
+- [ ] Commit created with descriptive message
+
+---
+
+## Phase 7: PUSH — Update PR Branch
+
+```bash
 git push origin $(git branch --show-current)
 ```
 
-If nothing to commit: report "No changes needed."
+**If push fails (branch protection or force needed):**
+```bash
+git push origin $(git branch --show-current) --force-with-lease
+```
 
-## Phase 7: Report — Post Summary and Update Artifacts
+**PHASE_7_CHECKPOINT:**
+- [ ] Changes pushed to PR branch
 
-### 7.1 Save Fix Summary Locally
+---
+
+## Phase 8: REPORT — Post Summary and Update Artifacts
+
+### 8.1 Save Fix Summary Locally
+
+**Artifact Naming (Timestamp Format)**:
 
 ```bash
 TIMESTAMP=$(date +%Y%m%d-%H%M)
@@ -247,51 +483,183 @@ SUMMARY_FILE=".prp-output/reviews/pr-${NUMBER}-fix-summary-${TIMESTAMP}.md"
 mkdir -p .prp-output/reviews
 ```
 
-Write summary to `$SUMMARY_FILE`:
-- Fix counts table: Severity | Fixed | Skipped
-- Validation results table
-- Skipped issues list with reasons (if any)
-- Commit hash reference
-
-### 7.2 Post to PR
+### 8.2 Post Summary Comment to PR
 
 ```bash
 gh pr comment ${NUMBER} --body-file "$SUMMARY_FILE"
 ```
 
-### 7.3 Update Review Artifact
+Summary content:
 
-Append "Fix Outcome" section to the review artifact with timestamp, commit hash, and counts.
+```markdown
+## Review Fix Summary
 
-## Phase 8: Output
+Applied fixes from review report: `{artifact filename}`
 
-Report: PR number, branch, commit hash, fixed/skipped counts per severity, validation results, artifacts (fix summary path, review artifact updated), next steps.
+### Fixed Issues
 
-- All critical/high fixed → "Ready for re-review. Run `prp-review {NUMBER}` to verify."
-- Critical still open → "⚠️ {N} critical issues require manual attention."
+| Severity | Fixed | Skipped | Total |
+|----------|-------|---------|-------|
+| Critical | {N} | {N} | {N} |
+| High | {N} | {N} | {N} |
+| Medium | {N} | {N} | {N} |
+| Suggestion | {N} | {N} | {N} |
+| **Total** | **{N}** | **{N}** | **{N}** |
+
+### Validation
+
+| Check | Status |
+|-------|--------|
+| Type Check | {PASS/FAIL} |
+| Lint | {PASS/FAIL} |
+| Tests | {PASS/FAIL} |
+| Build | {PASS/FAIL} |
+
+{If skipped issues exist:}
+### Skipped Issues (require manual attention)
+
+- `{file}:{line}` — {reason skipped}
+
+### Changes Made
+
+| File | Changes |
+|------|---------|
+| `{file.ts}` | {what was fixed} |
+
+---
+*Automated review fixes*
+*Commit: {commit-hash}*
+```
+
+### 8.3 Update Review Artifact
+
+Append a "Fix Outcome" section to the review artifact:
+
+```markdown
+
+---
+
+## Fix Outcome
+
+**Fixed**: {ISO_TIMESTAMP}
+**Commit**: {hash}
+**Branch**: {branch-name}
+
+| Severity | Fixed | Skipped |
+|----------|-------|---------|
+| Critical | {N} | {N} |
+| High | {N} | {N} |
+| Medium | {N} | {N} |
+| Suggestion | {N} | {N} |
+
+### Skipped Issues
+{List with reasons, or "None"}
+```
+
+**PHASE_8_CHECKPOINT:**
+- [ ] Fix summary saved to `.prp-output/reviews/pr-{NUMBER}-fix-summary-{TIMESTAMP}.md`
+- [ ] Summary comment posted to PR
+- [ ] Review artifact updated with Fix Outcome section
+
+---
+
+## Phase 9: OUTPUT — Report to User
+
+```markdown
+## Review Fixes Applied
+
+**PR**: #{NUMBER} - {TITLE}
+**Branch**: `{branch-name}`
+**Commit**: `{hash}`
+
+### Summary
+
+| Severity | Fixed | Skipped |
+|----------|-------|---------|
+| Critical | {N} | {N} |
+| High | {N} | {N} |
+| Medium | {N} | {N} |
+| Suggestion | {N} | {N} |
+
+### Validation
+
+| Check | Result |
+|-------|--------|
+| Type Check | ✅/❌ |
+| Lint | ✅/❌ |
+| Tests | ✅/❌ |
+| Build | ✅/❌ |
+
+{If skipped:}
+### Needs Manual Attention
+
+{N} issues were skipped and require manual review:
+- `{file}:{line}` — {reason}
+
+### Artifacts
+
+- Fix summary: `.prp-output/reviews/pr-{NUMBER}-fix-summary-{TIMESTAMP}.md`
+- Review artifact updated with Fix Outcome
+
+### Next Steps
+
+{If all critical/high fixed:} "Ready for re-review. Run `$prp-review {NUMBER}` to verify."
+{If critical still open:} "{N} critical issues require manual attention before merge."
+```
 
 > **Note for orchestrators**: The "Next Steps" above are for standalone usage only. If this command was invoked as part of run-all, the orchestrator should ignore these suggestions and proceed to its next step.
 
-## Failure Handling
+---
 
-| Failure | Action |
-|---------|--------|
-| No artifact found | STOP — run `prp-review` first |
-| PR merged/closed | STOP — cannot apply fixes |
-| PR branch has conflicts | Warn user to resolve: `git rebase origin/{base-branch}` |
-| Drift detected | Warn, attempt fix if context clear, otherwise skip |
-| Already fixed | Skip silently (mark "already fixed") |
-| All issues skipped | Report all skips, no commit |
-| Fix causes validation failure | Revert that fix, add to skip log |
+## Edge Cases
+
+### No review artifact exists
+
+Stop and tell user to run `$prp-review {NUMBER}` first.
+
+### PR branch has conflicts
+
+```
+Branch has conflicts with base. Resolve conflicts first:
+git rebase origin/{base-branch}
+```
+
+### Issue already fixed
+
+If code at flagged line already matches the recommendation: skip silently (mark as "already fixed").
+
+### Drift detected (code changed since review)
+
+If file content differs significantly from what review expected:
+- Warn: "Code has changed since review. Manual verification recommended."
+- Still attempt the fix if context is clear, otherwise skip.
+
+### All issues skipped
+
+```
+All {N} issues were skipped (unclear fixes or validation failures).
+Manual review required. See skip log above.
+```
+
+### Suggestion-only issues
+
+By default, suggestions are included. To skip suggestions:
+```
+$prp-review-fix {NUMBER} --severity critical,high,medium
+```
+
+---
 
 ## Usage Examples
 
 ```
-$prp-review-fix 163                           # Fix all issues
-$prp-review-fix 163 --severity critical,high  # Only critical and high
-$prp-review-fix                               # Current branch's PR, all issues
+$prp-review-fix 163                                    # Fix all issues
+$prp-review-fix 163 --severity critical,high           # Only critical and high
+$prp-review-fix                                        # Current branch's PR, all issues
 $prp-review-fix .prp-output/reviews/pr-42-review-codex.md  # By artifact path
 ```
+
+---
 
 ## Success Criteria
 
@@ -302,5 +670,5 @@ $prp-review-fix .prp-output/reviews/pr-42-review-codex.md  # By artifact path
 - VALIDATION_PASSES: All automated checks green (GATE passed)
 - CHANGES_PUSHED: Commit pushed to PR branch (only modified files staged)
 - PR_COMMENTED: Summary posted to GitHub
-- ARTIFACT_UPDATED: Fix outcome appended to review file
+- ARTIFACT_UPDATED: Review artifact has fix outcome appended
 - SUMMARY_SAVED: Fix summary saved with timestamp to `.prp-output/reviews/`

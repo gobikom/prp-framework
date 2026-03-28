@@ -63,6 +63,11 @@ Summarize findings:
 - ⚠️ Advisory: {warnings if any}
 ```
 
+**PHASE_0_CHECKPOINT:**
+- [ ] Staged files scanned
+- [ ] Debug artifacts reported (advisory)
+- [ ] Type safety checked (if TypeScript)
+
 ---
 
 ## Phase 1: ASSESS
@@ -71,7 +76,26 @@ Summarize findings:
 git status --short
 ```
 
-If nothing to commit, stop.
+If nothing to commit, STOP: "Working directory clean, nothing to commit."
+
+---
+
+## Phase 1.5: PLAN-AWARE CONTEXT (optional enrichment)
+
+Check for a completed plan matching the current branch to enrich the commit message:
+
+```bash
+BRANCH=$(git branch --show-current)
+PLAN_SLUG=$(echo "$BRANCH" | sed 's|^feature/||')
+PLAN=$(ls -t .prp-output/plans/completed/*${PLAN_SLUG}*.plan.md 2>/dev/null | head -1)
+```
+
+**If plan found**, extract:
+- **Summary** — what was planned
+- **Task list** — which tasks were completed
+- Use these to write a more descriptive commit message body
+
+**If not found**: Skip silently — git diff is sufficient for message derivation.
 
 ---
 
@@ -95,6 +119,10 @@ Stage the matching files. Show what will be committed:
 git diff --cached --name-only
 ```
 
+**PHASE_2_CHECKPOINT:**
+- [ ] Files staged matching target description
+- [ ] Staged file list shown to user
+
 ---
 
 ## Phase 3: COMMIT
@@ -110,6 +138,21 @@ Types: `feat`, `fix`, `refactor`, `docs`, `test`, `chore`
 ```bash
 git commit -m "{type}: {description}"
 ```
+
+**If plan context was loaded (Phase 1.5)**, include a body with plan reference:
+
+```bash
+git commit -m "{type}: {description}
+
+Plan: {plan-filename}
+Tasks: {N} completed
+{If deviations: brief note}"
+```
+
+**PHASE_3_CHECKPOINT:**
+- [ ] Message follows conventional format
+- [ ] Plan context included if available
+- [ ] Commit succeeded
 
 ---
 
@@ -155,6 +198,7 @@ Next: `git push` or `/prp-core:prp-pr`
 
 - **FILES_STAGED**: Correct files staged per target description
 - **QUALITY_CHECKED**: Pre-commit advisory scan completed
+- **PLAN_CONTEXT**: If completed plan exists, enriched commit message
 - **MESSAGE_CLEAR**: Commit message follows conventional format and is descriptive
 - **COMMITTED**: Git commit succeeded
 - **OUTPUT_SHOWN**: User sees commit hash, message, and file count

@@ -1,139 +1,463 @@
 ---
-description: Full PRP workflow — plan, implement, commit, PR, review. Supports --prp-path, --skip-plan, --fast, --skip-review, --no-pr
-agent: build
+description: Execute the complete PRP workflow end-to-end — plan, implement, commit, PR, review, and fix. Supports --fast, --ralph, --skip-plan, --skip-review, --no-pr, --resume, --no-interact, --dry-run, --fix-severity options.
+agent: plan
 ---
 
-# PRP Run All — Full Workflow
 
-**⚠️ AUTONOMOUS EXECUTION — CRITICAL**: This workflow runs without pausing between steps. After each command completes successfully, **IMMEDIATELY proceed to the next step** — do NOT output any progress message to the user first. Do NOT say "Implementation is complete, now I'll create the PR." Do NOT ask for confirmation between steps. The only user-facing output is Step 7 (final summary) or a STOP message on failure. Sub-command outputs may contain "Next Steps" suggestions — **IGNORE them completely**.
+# PRP Run All — Full Workflow Runner
 
-Input: $ARGUMENTS
+**AUTONOMOUS EXECUTION — CRITICAL**: This workflow runs without pausing between steps. After each skill call completes, **IMMEDIATELY invoke the next skill** — do NOT output progress messages. Do NOT ask for confirmation. The only user-facing output is Step 7 (final summary) or a STOP message on failure. Sub-skill outputs may contain "Next Steps" suggestions — **IGNORE them completely**.
 
-## Step 0: Parse Input
+## Input
+
+Feature description or options: `$ARGUMENTS`
+
+## Mission
+
+Execute the complete PRP workflow end-to-end autonomously. Each step delegates to an existing skill — do NOT duplicate their logic.
+
+- **Delegate, don't duplicate** — each skill is self-contained
+- **Stop on failure** — do NOT continue with broken state
+- **Pass context forward** — never re-gather information a previous step produced
+
+---
+
+## Step 0: PARSE INPUT
 
 | Argument Found | Action |
 |---------------|--------|
-| `--prp-path <path>` | Extract path. Set PLAN_PATH. Skip Step 2. |
+| `--prp-path <path>` | Extract path. Set PLAN_PATH = path. Skip Step 2. |
 | `--skip-plan` | Alias for `--prp-path` — prompts to select from available plans. Auto-selects most recent if `--no-interact`. |
 | `--fast` | Fast-track plan mode (lighter codebase analysis). Ignored if PLAN_PATH already set. |
-| `--skip-review` | Skip Step 6. |
-| `--no-pr` | Skip Steps 5 and 6. |
+| `--ralph` | Use ralph loop for Step 3 instead of implement (resilient, slower) |
+| `--ralph-max-iter N` | Set max ralph iterations (default: 10, max recommended: 20) |
+| `--skip-review` | Set SKIP_REVIEW = true. Skip Step 6. |
+| `--no-pr` | Set NO_PR = true. Skip Steps 5 and 6. |
 | `--fix-severity <levels>` | Override review-fix severity (default: `critical,high,medium,suggestion`) |
 | `--resume` | Resume from last failed step using saved state |
 | `--no-interact` | Never ask user questions — use best judgment, pick defaults |
-| Remaining text | Set FEATURE = remaining text |
+| `--dry-run` | Preview all steps without executing. Show estimated token cost. Exit after preview. |
+| Remaining text | Set FEATURE = text |
 
-**If `--prp-path` provided, validate file exists** — STOP if not found.
+**If `--prp-path` provided, validate file exists** — STOP if not found, show available plans.
 
-**Set variables:**
+**If `--skip-plan` provided (without `--prp-path`)**:
+```bash
+ls -t .prp-output/plans/*.plan.md 2>/dev/null | head -5
 ```
-FEATURE = "{text after removing flags}"
-PLAN_PATH = "{from --prp-path, or TBD}"
+If 1 plan → use it. If multiple → ask (or pick most recent in no-interact). If none → STOP.
+
+**Set workflow variables:**
+```
+FEATURE = "{remaining text after flags, or title from plan file}"
+PLAN_PATH = "{from --prp-path, or TBD — set in Step 2}"
 BRANCH = "{TBD — set in Step 1}"
 PR_NUMBER = "{TBD — set in Step 5}"
 REVIEW_ARTIFACT = "{TBD — set in Step 6.1}"
+USE_RALPH = {true if --ralph}
+RALPH_MAX_ITER = {N, default 10}
 SKIP_REVIEW = {true if --skip-review or --no-pr}
 NO_PR = {true if --no-pr}
 FIX_SEVERITY = "{from --fix-severity, default 'critical,high,medium,suggestion'}"
 FAST_PLAN = {true if --fast} (ignored if PLAN_PATH already set)
 NO_INTERACT = {true if --no-interact}
+DRY_RUN = {true if --dry-run}
 ```
 
-**State management**: `.claude/prp-run-all.state.md` — create on start, update per step, delete on completion. Supports `--resume` from last failed step.
+### Dry-Run Preview
 
-**Examples:**
-- `Add JWT auth` → full workflow
-- `--prp-path .prp-output/plans/jwt.plan.md` → skip plan
-- `Add JWT auth --skip-review` → skip review
-- `--prp-path plans/jwt.plan.md --no-pr` → implement + commit only
+**If `DRY_RUN = true`** — print preview and exit immediately:
 
-## Workflow (sequential, stop on failure)
+```
+DRY RUN — No changes will be made
 
-### Step 1: Branch
-`git checkout -b feature/{slug}` (skip if already on feature branch)
-Failure: dirty on main → STOP.
+Feature: {FEATURE}
+Mode:    {ralph (loop up to N iter) | default implement}
 
-### Step 2: Plan (skip if --prp-path or --skip-plan)
-`/prp:plan {FEATURE}` (append `--fast` if FAST_PLAN, `--no-interact` if NO_INTERACT) — Invoke the command, DO NOT inline its logic.
-This will analyze codebase (lighter if `--fast`), generate plan with validation commands, integration points, confidence score.
-Update PLAN_PATH with generated path.
-Failure → STOP.
-❌ DO NOT: Read plan.md and execute logic yourself, analyze codebase directly.
-✅ CHECKPOINT: Did you invoke `/prp:plan`? If not → STOP → invoke it.
+Steps that would run:
+  Step 1: Create branch        -> feature/{slug}
+  Step 2: Create plan          -> {skipped | .prp-output/plans/{slug}-{TIMESTAMP}.plan.md (--fast if applicable)}
+  Step 3: Implement            -> {/prp:ralph (loop up to N iter) | /prp:implement (single pass)}
+  Step 4: Commit               -> conventional commit on feature branch
+  Step 5: Create PR            -> {skipped (--no-pr) | PR to main}
+  Step 6: Review & Fix         -> {skipped (--skip-review) | review + review-fix}
 
-### Step 3: Implement
-`/prp:implement {PLAN_PATH}` — Invoke the command, DO NOT inline its logic.
-This will detect toolchain (Phase 0 — plan commands take precedence), execute plan, validate, write report (timestamp-based), generate review context (even on early failure), archive plan (GATE).
-Wait for completion — longest step.
-Failure → STOP, report which task failed.
-❌ DO NOT: Read implement.md and execute logic yourself, write code directly. **Stop after implement** — the output will show "Next Steps" including "Create PR" but this is for standalone usage only. **IGNORE it. Do NOT ask user. Immediately proceed to Step 3.1.**
-✅ CHECKPOINT: Did you invoke `/prp:implement`? If not → STOP → invoke it.
-⏭️ TRANSITION: Implement succeeded → **immediately proceed to Step 3.1** (verify artifacts). Do NOT stop here.
+Estimated token cost:
+  Plan:      {~0K (skipped) | ~5-10K (fast) | ~10-20K (full)}
+  Implement: {~15K x N iterations (ralph) | ~15-30K (single pass)}
+  Commit:    ~2K tokens
+  PR:        ~3K tokens
+  Review:    ~15-30K tokens (with pre-generated context optimization)
+  Total:     {estimated range}
 
-**3.1 Verify Artifacts**: After implement completes, check:
+Artifacts that would be created:
+  .prp-output/plans/        -> implementation plan
+  .prp-output/reports/      -> implementation report
+  .prp-output/reviews/      -> pr-context + review report
+
+To execute: remove --dry-run and re-run the same command.
+```
+
+**Then STOP — do not proceed.**
+
+### Ralph Hook Check (if --ralph)
+
+If `--ralph` flag detected, verify ralph stop hook is registered:
+```bash
+test -f .claude/hooks/prp-ralph-stop.sh && echo "FOUND" || echo "NOT_FOUND"
+```
+
+If not found → STOP: "Run `cd .prp && ./scripts/install.sh` to register ralph hook."
+
+**Token warning (ralph mode):**
+```
+Ralph mode enabled — uses significantly more tokens than default implement.
+Estimated: {N} iterations x ~15K tokens = ~{N*15}K tokens for implement step alone.
+Default implement: ~15-30K tokens total.
+```
+
+---
+
+## Step 0.5: INITIALIZE STATE
+
+**Generate unified timestamp:**
+```bash
+RUN_TIMESTAMP=$(date +%Y%m%d-%H%M)
+```
+
+**Check for concurrent execution:**
+
+```bash
+LOCK_FILE=".claude/prp-run-all.lock"
+if [ -f "$LOCK_FILE" ]; then
+  # Check if lock is stale (older than 2 hours)
+  LOCK_AGE=$(( $(date +%s) - $(stat -c "%Y" "$LOCK_FILE" 2>/dev/null || stat -f "%m" "$LOCK_FILE" 2>/dev/null) ))
+  if [ "$LOCK_AGE" -gt 7200 ]; then
+    echo "STALE_LOCK"
+  else
+    echo "LOCKED"
+  fi
+else
+  echo "UNLOCKED"
+fi
+```
+
+| Result | Action |
+|--------|--------|
+| UNLOCKED | Create lock: `echo "$$" > .claude/prp-run-all.lock` → proceed |
+| STALE_LOCK | Remove stale lock, create new one → proceed |
+| LOCKED | STOP: "Another run-all workflow is active. Wait or delete `.claude/prp-run-all.lock` to force." |
+
+**Check for existing state file:**
+
+| State File | `--resume`? | Action |
+|------------|-------------|--------|
+| EXISTS | Yes | Restore variables from state → skip completed steps |
+| EXISTS | No + `NO_INTERACT` | Auto-delete stale state, proceed fresh |
+| EXISTS | No + interactive | STOP: "Previous workflow interrupted. Use `--resume` or delete state file." |
+| NOT_FOUND | Yes | STOP: "No saved state found. Start fresh." |
+| NOT_FOUND | No | Create new state file → proceed |
+
+**Create new state file** (if not resuming):
+
+```bash
+mkdir -p .claude
+```
+
+Write `.claude/prp-run-all.state.md` with YAML frontmatter:
+- step, total_steps, feature, plan_path, branch, pr_number, review_artifact
+- use_ralph, ralph_max_iter, fix_severity, fast_plan, skip_review, no_pr, no_interact
+- started_at, updated_at
+- Completed Steps table, Artifacts section, Error Log
+
+**STATE UPDATE RULE**: After each step completes:
+1. Increment `step` to next step number
+2. Update `updated_at`
+3. Update new variable values (plan_path, branch, pr_number, review_artifact)
+4. Append completed step to table
+5. Append new artifacts
+
+---
+
+## Workflow
+
+Execute these steps in sequence. **Stop immediately on any failure.**
+
+### Step 1: CREATE BRANCH (skip if RESUME_FROM > 1)
+
+**Skip if**: already on a feature branch (not main/master).
+
+```bash
+CURRENT=$(git branch --show-current)
+git checkout -b feature/{slug-from-FEATURE}
+```
+
+**Variable update**: `BRANCH = feature/{slug}`
+**Failure**: dirty working dir on main → STOP, ask to stash/commit.
+
+---
+
+### Step 2: CREATE PLAN (skip if --prp-path or --skip-plan or RESUME_FROM > 2)
+
+Use `/prp:plan` with FEATURE (append `--fast` if FAST_PLAN, `--no-interact` if NO_INTERACT).
+
+This will: analyze codebase (lighter if --fast), generate plan with validation commands, integration points, confidence score. Save to `.prp-output/plans/`.
+
+**Variable update**: `PLAN_PATH = {generated plan path}`
+**Failure** → STOP.
+
+**DO NOT**: Read plan skill and execute logic yourself, analyze codebase directly.
+**CHECKPOINT**: Did you invoke `/prp:plan`? If not → STOP → invoke it.
+
+---
+
+### Step 3: IMPLEMENT (skip if RESUME_FROM > 3)
+
+**Choose path based on `USE_RALPH`:**
+
+#### 3A: Default Mode (USE_RALPH = false)
+
+Use `/prp:implement` with PLAN_PATH.
+
+This will: detect toolchain, execute plan, validate (typecheck, lint, test, build), write report (timestamp), generate review context (`pr-context-{branch}.md` — even on early failure), archive plan (GATE).
+
+**Wait for completion** — this is the longest step.
+
+#### 3B: Ralph Mode (USE_RALPH = true)
+
+Use `/prp:ralph` with `{PLAN_PATH} --max-iterations {RALPH_MAX_ITER}`.
+
+This will: loop iteratively until ALL validations pass, self-fix failures, write report, generate review context, archive plan.
+
+**Failure** → STOP, report which task/validation failed.
+
+**DO NOT**: Read implement/ralph skill and execute logic yourself, write code directly.
+**CHECKPOINT**: Did you invoke `/prp:implement` or `/prp:ralph`? If not → STOP → invoke it.
+**TRANSITION**: Implement succeeded → **immediately proceed to Step 3.1**.
+
+#### 3.1 Verify Artifacts
+
+After implement completes, check:
 ```bash
 ls -la .prp-output/reports/*-report*.md 2>/dev/null
 ls -la .prp-output/reviews/pr-context-*.md 2>/dev/null
 ```
 
-**3.2 Fallback**: If report missing, create minimal report. If pr-context missing, create minimal context with files changed from `git diff --name-only origin/main...HEAD`.
+Set: `REPORT_PATH`, `CONTEXT_PATH`
 
-### Step 4: Commit
-`/prp:commit` — Invoke the command, DO NOT inline its logic.
-❌ DO NOT: Run git add/commit directly, manually stage files, **stop after commit**. The commit output suggests "Next: git push or /prp:pr" — this is for standalone usage only. **IGNORE it and proceed to Step 5.**
-✅ CHECKPOINT: Did you invoke `/prp:commit`? If not → STOP → invoke it.
-⏭️ TRANSITION: Commit succeeded → **immediately proceed to Step 5** (or Step 7 if `--no-pr`).
+#### 3.2 Fallback: Create Missing Artifacts
 
-### Step 5: PR (skip if --no-pr)
-`/prp:pr` — Invoke the command, DO NOT inline its logic.
-Update PR_NUMBER.
-Failure → STOP.
-If `NO_INTERACT = true`, pass `--no-interact` to `/prp:pr`.
-❌ DO NOT: Run gh pr create directly, manually craft PR body.
-✅ CHECKPOINT: Did you invoke `/prp:pr`? If not → STOP → invoke it.
-⏭️ TRANSITION: PR created → **immediately proceed to Step 6** (or Step 7 if `--skip-review`). The PR output suggests "Next Steps" — this is for standalone usage only. **IGNORE it.**
+**If report missing**, create minimal report with:
+- Plan reference, branch, date, status
+- Files changed from `git diff --name-only origin/main...HEAD`
+- Validation command reminders
 
-### Step 6: Review (skip if --skip-review or --no-pr)
+Save to: `.prp-output/reports/{plan-slug}-report-{RUN_TIMESTAMP}.md`
 
-Set `REVIEW_CYCLE = 1`, `MAX_CYCLES = 2`.
+**If pr-context missing**, create minimal context with:
+- Branch name
+- Files changed from `git diff --name-only origin/main...HEAD`
+- Note: "Context was not pre-generated. Review will need to analyze files directly."
 
-**6.1** `/prp:review {PR_NUMBER}` — if `.prp-output/reviews/pr-context-{BRANCH}.md` exists, pass `--context` flag. DO NOT inline its logic.
-❌ DO NOT: Read code and review it yourself. ✅ CHECKPOINT: Did you invoke `/prp:review`?
+Save to: `.prp-output/reviews/pr-context-{BRANCH}.md`
 
-**6.2 Evaluate** (check for any issues matching `FIX_SEVERITY` — default: critical, high, medium, suggestion):
-- No issues matching FIX_SEVERITY → Step 7 ✓
-- Issues found + `REVIEW_CYCLE <= MAX_CYCLES` → Step 6.3
-- Issues found + `REVIEW_CYCLE > MAX_CYCLES` → report remaining → Step 7 (NEEDS MANUAL FIXES)
+---
 
-**6.3 Fix**: `/prp:review-fix {REVIEW_ARTIFACT} --severity {FIX_SEVERITY}` (detects toolchain, GATE before push, safe staging, timestamp fix summary) — DO NOT fix manually.
-Default severity: `critical,high,medium,suggestion` — override with `--severity critical,high` to fix only blocking issues.
-❌ DO NOT: Fix issues yourself, run validation separately. ✅ CHECKPOINT: Did you invoke `/prp:review-fix`?
+### Step 4: COMMIT (skip if RESUME_FROM > 4)
 
-**6.4 Re-verify**: Increment `REVIEW_CYCLE`. `/prp:review {PR_NUMBER} --since-last-review` to review only the delta from review-fix (saves tokens, faster). Note: `pr-context` was invalidated by review-fix, so review will re-extract fresh context automatically. → Return to Step 6.2.
+Use `/prp:commit`.
 
-### Step 7: Summary
-Report: feature, branch, status, steps executed table, artifacts, review verdict, next steps.
+**Failure**: pre-commit hook → fix and retry.
 
-**Clean up state file**: `rm -f .claude/prp-run-all.state.md` — only on successful completion. On failure, state file is preserved for `--resume`.
+**DO NOT**: Run git add/commit directly, manually stage files.
+**CHECKPOINT**: Did you invoke `/prp:commit`? If not → STOP → invoke it.
+**TRANSITION**: Commit succeeded → **immediately proceed to Step 5** (or Step 7 if NO_PR).
 
-## Rules
+---
 
-- **Delegate, don't duplicate** — each command handles its own logic
-- **Verify artifacts after implement** — check report and pr-context files exist, use fallback if missing
-- **Stop on failure** — never continue with broken state
-- **Pass context forward** — information flows from earlier to later steps
-- **No extra validation** — each command validates its own output
-- **One commit per implementation** — review fixes committed separately by `/prp:review-fix`
-- **Max 2 review cycles** — if still critical after 2 fix-and-re-verify cycles, stop and report
-- **Re-verify after fix** — always re-run `/prp:review` after `/prp:review-fix` to confirm resolution and catch regressions
-- **No-interact means ZERO questions** — when `NO_INTERACT = true`: NEVER ask the user questions at any point. Make autonomous decisions, pick defaults, use best judgment. Pass `--no-interact` to sub-commands that support it.
+### Step 5: CREATE PR (skip if NO_PR or RESUME_FROM > 5)
+
+Use `/prp:pr` (pass `--no-interact` if NO_INTERACT).
+
+**Variable update**: `PR_NUMBER = {created PR number}`
+**Failure** → STOP.
+
+**DO NOT**: Run gh pr create directly, manually craft PR body.
+**CHECKPOINT**: Did you invoke `/prp:pr`? If not → STOP → invoke it.
+**TRANSITION**: PR created → **immediately proceed to Step 6** (or Step 7 if SKIP_REVIEW).
+
+---
+
+### Step 6: REVIEW & FIX (skip if SKIP_REVIEW or NO_PR or RESUME_FROM > 6)
+
+Set: `REVIEW_CYCLE = 1`, `MAX_CYCLES = 2`
+
+#### 6.1 Run Review
+
+Use `/prp:review` with PR_NUMBER. If `.prp-output/reviews/pr-context-{BRANCH}.md` exists, pass `--context` flag for token optimization.
+
+**Variable update**: `REVIEW_ARTIFACT = .prp-output/reviews/pr-{PR_NUMBER}-review-opencode.md`
+
+**DO NOT**: Read code and review it yourself, skip the skill.
+**CHECKPOINT**: Did you invoke `/prp:review`? If not → STOP → invoke it.
+
+#### 6.2 Evaluate Results
+
+Check for issues matching `FIX_SEVERITY` (default: all levels):
+
+| Result | Action |
+|--------|--------|
+| No issues matching FIX_SEVERITY | → Step 7 ✓ |
+| Issues found + `REVIEW_CYCLE <= MAX_CYCLES` | → Step 6.3 |
+| Issues found + `REVIEW_CYCLE > MAX_CYCLES` | Report remaining issues → Step 7 (NEEDS MANUAL FIXES) |
+
+#### 6.3 Fix Issues
+
+Use `/prp:review-fix` with `{REVIEW_ARTIFACT} --severity {FIX_SEVERITY}`.
+
+This will: detect toolchain, load artifact directly, fix issues by severity, validate with GATE, commit and push, post summary to PR.
+
+**DO NOT**: Manually read and fix issues yourself, run validation separately.
+**CHECKPOINT**: Did you invoke `/prp:review-fix`? If not → STOP → invoke it.
+
+#### 6.4 Re-verify
+
+Increment: `REVIEW_CYCLE += 1`
+
+Re-run review to confirm fixes resolved issues and no regressions introduced:
+
+Use `/prp:review` with `{PR_NUMBER} --since-last-review` for **incremental review** (only reviews changes since last review — saves tokens).
+
+If `--since-last-review` not supported or fails, fall back to full review with `--context` flag.
+
+→ **Return to Step 6.2** to evaluate results.
+
+---
+
+### Step 7: SUMMARY REPORT
+
+**Cleanup state:**
+```bash
+rm -f .claude/prp-run-all.state.md
+rm -f .claude/prp-run-all.lock
+```
+
+Generate final report:
+
+```markdown
+## PRP Workflow Complete
+
+**Feature**: {FEATURE}
+**Branch**: {BRANCH}
+**Status**: {Complete | Needs Manual Fixes}
+
+### Steps Executed
+
+| Step | Command | Result |
+|------|---------|--------|
+| Plan | /prp:plan | {path or "skipped"} |
+| Implement | {/prp:implement or /prp:ralph} | {tasks completed} |
+| Commit | /prp:commit | {commit hash} |
+| PR | /prp:pr | {PR URL or "skipped"} |
+| Review | /prp:review | {verdict} |
+| Review Fix | /prp:review-fix | {N fixed, N skipped or "not needed"} |
+| Re-verify | /prp:review | {final verdict or "not needed"} |
+
+### Artifacts
+
+- Plan: `{PLAN_PATH}` (archived to `.prp-output/plans/completed/`)
+- Report: `.prp-output/reports/{name}-report-{RUN_TIMESTAMP}.md`
+- Review Context: `.prp-output/reviews/pr-context-{BRANCH}.md`
+- Review: `.prp-output/reviews/pr-{PR_NUMBER}-review-opencode.md`
+- Fix Summary: `.prp-output/reviews/pr-{PR_NUMBER}-fix-summary-*.md` (if fixes applied)
+- PR: {URL}
+
+### Review Verdict
+
+{READY TO MERGE / NEEDS MANUAL FIXES / NOT REVIEWED}
+
+{If NEEDS MANUAL FIXES: list remaining critical/high issues}
+
+### Next Steps
+
+1. {Based on review verdict}
+2. Merge when approved
+```
+
+---
+
+## Critical Rules
+
+1. **Delegate, don't duplicate** — each skill handles its own logic. Do NOT re-implement.
+2. **Verify artifacts after implement** — check report and pr-context files exist, use fallback if missing.
+3. **Stop on failure** — never continue with broken state.
+4. **Pass context forward** — information flows from earlier to later steps. Pass `--context` to review.
+5. **No extra validation** — each skill validates its own output. Adding more wastes tokens.
+6. **One commit per implementation** — review fixes committed separately by `/prp:review-fix`.
+7. **Max 2 review cycles** — if still critical after 2 fix-and-re-verify cycles, STOP and report.
+8. **Re-verify after fix** — always re-run `/prp:review` after fix. Use `--since-last-review` for token optimization.
+9. **No-interact means ZERO questions** — when `NO_INTERACT = true`: NEVER ask user questions. Make autonomous decisions, pick defaults. Pass `--no-interact` to sub-commands.
+10. **State management** — update state file after every step. Delete on completion. Support `--resume`.
+
+---
+
+## Token Budget
+
+### Default Mode (without --ralph)
+
+| Step | Token Cost | Notes |
+|------|-----------|-------|
+| Plan | ~10-20K | Codebase analysis (5-10K if --fast) |
+| Implement | ~15-30K | Code writing + validation |
+| Commit | ~2K | Small command |
+| PR | ~3K | Small command |
+| Review | ~15-30K | **Low** with pre-generated context (without: ~80-150K) |
+| Review Fix | ~5-10K | If issues found |
+| Re-verify | ~10-15K | **Low** with `--since-last-review` (incremental) |
+| **Total** | ~45-85K | ~40% less than without optimization |
+
+### Ralph Mode (with --ralph)
+
+| Step | Token Cost | Notes |
+|------|-----------|-------|
+| Plan | ~10-20K | Same as default |
+| Implement (ralph) | ~15K × N iter | Very high — N iterations |
+| Commit | ~2K | Same |
+| PR | ~3K | Same |
+| Review | ~15-30K | Same optimization |
+| **Total** | ~{50 + 15*N}K | Use for complex features with uncertain impl |
+
+---
+
+## Usage Examples
+
+```
+/prp:run-all Add JWT auth                             # Full workflow
+/prp:run-all Add JWT auth --fast                      # Fast-track plan
+/prp:run-all --prp-path plans/jwt.plan.md             # Skip plan creation
+/prp:run-all --skip-plan                              # Select from available plans
+/prp:run-all Add JWT auth --ralph                     # Ralph autonomous loop
+/prp:run-all Add JWT auth --ralph --ralph-max-iter 5  # Ralph with 5 iterations
+/prp:run-all Add JWT auth --skip-review               # Skip review step
+/prp:run-all --prp-path plans/jwt.plan.md --no-pr     # Implement + commit only
+/prp:run-all Add JWT auth --no-interact               # Fully autonomous
+/prp:run-all Add JWT auth --dry-run                   # Preview without executing
+/prp:run-all --resume                                 # Resume from last failure
+/prp:run-all Add JWT auth --fix-severity critical,high # Fix only blocking issues
+```
+
+---
 
 ## Success Criteria
 
-- Plan created (or provided)
-- Code implemented with passing validation
-- Report exists (created or fallback)
-- Review context exists (created or fallback)
-- Committed on feature branch
-- PR created (unless --no-pr)
-- Reviewed with verdict (unless --skip-review)
+- PLAN_CREATED: Plan exists and is valid
+- CODE_IMPLEMENTED: All tasks complete, validation passing (including coverage >= 90%)
+- REPORT_EXISTS: Implementation report exists (created or fallback)
+- CONTEXT_GENERATED: Review context file exists (created or fallback)
+- CONTEXT_PASSED: Review context passed to review via `--context` flag
+- COMMITTED: Clean commit on feature branch
+- PR_CREATED: PR exists (unless --no-pr)
+- REVIEWED: Review posted with verdict (unless --skip-review)
+- INCREMENTAL_REVIEW: Re-verify uses `--since-last-review` for token optimization
+- STATE_CLEANED: State and lock files deleted after completion
+- SUMMARY_REPORTED: User has clear next steps

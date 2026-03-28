@@ -1,73 +1,97 @@
 ---
 name: prp-cleanup
-description: Clean up branches and verify PR status after merge. Supports single branch, batch mode (--all), and dry-run preview.
+description: Post-merge cleanup — verify PR merged, archive artifacts, delete local/remote branches. Supports --all for batch cleanup, --dry-run for preview.
 metadata:
-  short-description: Post-merge branch cleanup
+  short-description: Post-merge cleanup
 ---
 
-# PRP Cleanup — Post-Merge Branch Cleanup
+# PRP Cleanup — Post-Merge Branch & Artifact Cleanup
 
 ## Input
 
-Branch name and optional flags: `$ARGUMENTS`
+Branch name or flags: `$ARGUMENTS`
 
 Format: `[branch-name] [--all] [--dry-run]`
 
 ## Mission
 
-Clean up local and remote branches after PR merge. Verify PR is actually merged before deleting anything. Safety first — never delete unmerged branches.
+Clean up after a PR is merged: verify merge status, archive artifacts, delete local and remote branches. Prevent orphaned branches and stale artifacts.
+
+**Golden Rule**: Never delete a branch whose PR hasn't been merged. Always verify first.
+
+---
 
 ## Phase 1: PARSE & VALIDATE
 
-### Parse Flags
+### 1.1 Parse Flags
 
 ```
-DRY_RUN = true if "--dry-run" found
-ALL_MODE = true if "--all" found
-BRANCH = first non-flag argument (if any)
+DRY_RUN = true if "--dry-run" found in $ARGUMENTS
+ALL_MODE = true if "--all" found in $ARGUMENTS
+TARGET_BRANCH = remaining argument (if any)
 ```
 
-### Determine Targets
+### 1.2 Determine Targets
 
-**Single mode:**
+**Single branch mode** (default):
 
-| Input | Target |
+| Input | Action |
 |-------|--------|
-| Branch name provided | Use that branch |
-| No name + not on main | Use current branch |
-| No name + on main | STOP: "Specify a branch or use --all" |
+| Branch name provided | Use it as target |
+| No branch, on feature branch | Use current branch |
+| No branch, on main | STOP: "Specify a branch or use --all" |
 
-**Batch mode (`--all`):**
+**Batch mode** (`--all`):
 
 ```bash
-git fetch --prune origin
-git branch --merged main | grep -v -E '^\*?\s*(main|master)$'
+# Find all local branches except main/master/develop
+git branch --format='%(refname:short)' | grep -v -E '^(main|master|develop)$'
 ```
 
-If no branches found: STOP: "No merged branches. Nothing to clean up."
+### 1.3 Switch Off Branch (if needed)
 
-If currently on target branch: `git checkout main && git pull origin main` first.
+If currently on a branch that will be deleted:
 
-## Phase 2: VERIFY PR STATUS
+```bash
+git checkout main
+git pull origin main
+```
+
+**PHASE_1_CHECKPOINT:**
+- [ ] Flags parsed (DRY_RUN, ALL_MODE, TARGET_BRANCH)
+- [ ] Target branches identified
+- [ ] Not on a branch that will be deleted
+
+---
+
+## Phase 2: VERIFY — Check PR Merge Status
+
+### 2.1 Find Associated PR
 
 For each target branch:
 
 ```bash
-gh pr list --head {branch} --state all --json number,title,state,mergedAt,url --limit 1
+gh pr list --head {branch} --state all --json number,title,state,mergedAt
 ```
 
-| PR State | Action |
-|----------|--------|
-| MERGED | Proceed to cleanup |
-| OPEN | SKIP: "PR still open" |
-| CLOSED (not merged) | SKIP |
-| No PR found | WARN, ask user to confirm or skip (batch: auto-skip) |
+### 2.2 Check Merge Status
 
-`--dry-run`: record status but don't stop — show what would happen.
+| State | Action |
+|-------|--------|
+| `MERGED` | PROCEED — safe to clean up |
+| `OPEN` | SKIP — "PR #{N} is still open. Merge or close before cleanup." |
+| `CLOSED` (not merged) | WARN — "PR #{N} was closed without merging. Delete anyway?" In batch/dry-run: auto-skip. |
+| No PR found | WARN — "No PR found for branch. Delete anyway?" In batch: auto-skip. |
 
-## Phase 3: ARCHIVE ARTIFACTS
+**If `DRY_RUN`**: Record status but don't stop — show what would happen.
 
-Commit PR-related artifacts to main before deleting branches.
+**PHASE_2_CHECKPOINT:**
+- [ ] PR status verified for each target branch
+- [ ] Only merged branches proceed to cleanup
+
+---
+
+## Phase 3: ARCHIVE — Save Artifacts Before Deletion
 
 ### 3.1 Switch to Main
 
@@ -76,109 +100,198 @@ git checkout main
 git pull origin main
 ```
 
-### 3.2 Collect & Commit (for each verified branch)
+### 3.2 Collect Artifacts
 
-Find related artifacts:
+For each verified branch, collect related artifacts.
+
+**Prefer manifest** (precise discovery):
+
 ```bash
-NUMBER={pr-number}
-BRANCH={branch-name}
+# Check for manifest with exact artifact paths
+MANIFEST=".prp-output/manifests/${BRANCH}.json"
+if [ -f "$MANIFEST" ]; then
+  # Read exact paths from manifest — plan, report, context, reviews, fixes
+  cat "$MANIFEST"
+fi
+```
 
-# Review artifacts, context files, fix summaries
+**Fallback to glob** (if no manifest found):
+
+```bash
+# Review artifacts
 ls .prp-output/reviews/pr-${NUMBER}-*.md 2>/dev/null
+
+# Review context
 ls .prp-output/reviews/pr-context-${BRANCH}.md 2>/dev/null
 
 # Implementation reports
-grep -rl "PR.*#${NUMBER}\|Branch.*${BRANCH}" .prp-output/reports/ 2>/dev/null
+ls .prp-output/reports/*-report*.md 2>/dev/null
+
+# Fix summaries
+ls .prp-output/reviews/pr-${NUMBER}-fix-summary*.md 2>/dev/null
 
 # Completed plans
-ls .prp-output/plans/completed/ 2>/dev/null
+ls .prp-output/plans/completed/*.plan.md 2>/dev/null
+
+# Issue investigations
+ls .prp-output/issues/issue-*.md 2>/dev/null
 ```
 
-Stage and commit:
+### 3.3 Stage & Commit Artifacts
+
 ```bash
-git add .prp-output/reviews/pr-${NUMBER}-*.md 2>/dev/null
-git add .prp-output/reviews/pr-context-${BRANCH}.md 2>/dev/null
-git add .prp-output/reports/*-report*.md 2>/dev/null
-git add .prp-output/plans/completed/ 2>/dev/null
-
-git diff --cached --quiet || git commit -m "chore: archive artifacts for PR #${NUMBER} (${BRANCH})"
+git add {collected artifacts}
+git commit -m "chore: archive artifacts for PR #${NUMBER} (${BRANCH})"
 ```
 
-- `--dry-run`: list artifacts that would be committed, don't commit
-- No artifacts found: skip — "No artifacts to archive"
+### 3.4 Remove Manifest
 
-## Phase 4: CLEANUP
+```bash
+rm -f .prp-output/manifests/${BRANCH}.json
+```
 
-For each verified branch:
+**If `DRY_RUN`**: List artifacts that would be committed, don't commit.
+**If no artifacts found**: Skip — record "No artifacts to archive."
 
-1. **Preview** (always): show branch, PR number, title, merged date, artifacts archived
-2. **If `--dry-run`**: show preview only, skip to output
-3. **Delete local**: `git branch -d {branch}` (force `-D` if PR confirmed merged but git says not fully merged)
-4. **Delete remote**: `git push origin --delete {branch}`
-5. **Prune refs**: `git remote prune origin`
+**PHASE_3_CHECKPOINT:**
+- [ ] Artifacts collected (manifest-first, glob fallback)
+- [ ] Artifacts committed to main (or dry-run listed)
+- [ ] Manifest removed (if existed)
 
-## Phase 5: OUTPUT
+---
 
-### Summary Table
+## Phase 4: CLEANUP — Delete Branches
+
+### 4.1 Preview
+
+For each branch, show:
+```
+Branch: {branch}
+PR: #{number} - {title}
+Merged: {date}
+Artifacts: {count} archived
+Action: Delete local + remote
+```
+
+**If `DRY_RUN`**: Show preview only, skip deletion.
+
+### 4.2 Delete Local Branch
+
+```bash
+git branch -d {branch}
+```
+
+**If fails** (unmerged changes warning):
+```bash
+# Force delete — safe because we verified PR was merged
+git branch -D {branch}
+```
+
+**If still fails** (branch doesn't exist locally): Skip — already deleted.
+
+### 4.3 Delete Remote Branch
+
+```bash
+git push origin --delete {branch}
+```
+
+**If fails** (already deleted): Skip — already cleaned up.
+**If fails** (permission denied): WARN — "Cannot delete remote branch. Check permissions."
+
+### 4.4 Prune Remote References
+
+```bash
+git remote prune origin
+```
+
+### 4.5 Remove Orphaned State Files
+
+```bash
+# Remove run-all state file if it refers to the cleaned branch
+if grep -q "${BRANCH}" .claude/prp-run-all.state.md 2>/dev/null; then
+  rm -f .claude/prp-run-all.state.md
+fi
+```
+
+**PHASE_4_CHECKPOINT:**
+- [ ] Local branch deleted (or dry-run previewed)
+- [ ] Remote branch deleted (or dry-run previewed)
+- [ ] Remote refs pruned
+- [ ] Orphaned state files removed
+
+---
+
+## Phase 5: OUTPUT — Report Results
+
+### 5.1 Summary Table
 
 ```markdown
 ## Cleanup Summary
 
 | Branch | PR | Status | Artifacts | Local | Remote |
-|--------|-----|--------|-----------|-------|--------|
-| {branch} | #{number} | Merged | Committed | Deleted | Deleted |
-| {branch2} | #{number} | Open | Skipped | Skipped | Skipped |
-
-**Cleaned**: {N} branch(es)
-**Skipped**: {M} branch(es)
+|--------|----|--------|-----------|-------|--------|
+| `feat/auth` | #42 | Merged | 3 archived | Deleted | Deleted |
+| `fix/typo` | #45 | Merged | 0 | Deleted | Deleted |
+| `feat/old` | — | No PR | — | Skipped | Skipped |
 ```
 
-### Dry Run Output
+**Cleaned**: {N} branches
+**Skipped**: {M} branches (open/no PR/unmerged)
+
+### 5.2 Dry Run Output
 
 ```markdown
 ## Dry Run Preview (no changes made)
 
-Would archive artifacts:
-- .prp-output/reviews/pr-{NUMBER}-review.md
-- .prp-output/reviews/pr-context-{BRANCH}.md
-
-Would clean up:
-- {branch} (PR #{number}, merged {date})
-
-Would skip:
-- {branch2} (PR #{number}, still open)
-
-Run without --dry-run to execute.
+| Branch | PR | Would Do |
+|--------|----|----------|
+| `feat/auth` | #42 (Merged) | Archive 3 artifacts, delete local + remote |
+| `fix/typo` | #45 (Merged) | No artifacts, delete local + remote |
+| `feat/wip` | #50 (Open) | Skip — PR still open |
 ```
+
+### 5.3 Tips
+
+```
+Tip: To clean old artifacts, run: ./scripts/cleanup-artifacts.sh 30
+Tip: To see all branches: git branch -a
+```
+
+---
 
 ## Edge Cases
 
 | Situation | Action |
 |-----------|--------|
-| On target branch | Auto-switch to main first |
-| Branch not fully merged (git) | Force delete if PR confirmed merged |
-| Remote already deleted | Skip gracefully |
-| No PR found | Ask or auto-skip in batch |
-| No merged branches (`--all`) | Exit: "Nothing to clean up" |
-| Protected branches (main/master) | Never included |
-| Network error on `gh` | Report, continue with next branch |
-| Detached HEAD | Require explicit branch name |
+| Branch not found locally | Skip local delete, try remote only |
+| Remote branch already gone | Skip remote delete, prune refs |
+| PR not found for branch | Warn user, skip in batch mode |
+| Detached HEAD state | Require explicit branch name |
+| Protected branch (main/master/develop) | STOP — never delete |
+| Branch has unmerged commits | Warn — only force delete if PR confirmed merged |
+| Artifacts span multiple branches | Archive only artifacts matching the specific branch/PR |
+| `--all` with no feature branches | "No feature branches to clean up." |
+
+---
 
 ## Usage Examples
 
 ```
-$prp-cleanup                        # Current branch
-$prp-cleanup feat/user-auth         # Specific branch
-$prp-cleanup --all                  # All merged branches
-$prp-cleanup --all --dry-run        # Preview batch cleanup
+$prp-cleanup                           # Current branch
+$prp-cleanup feat/auth                 # Specific branch
+$prp-cleanup --all                     # All merged branches
+$prp-cleanup --all --dry-run           # Preview batch cleanup
+$prp-cleanup feat/login --dry-run      # Preview single branch
 ```
+
+---
 
 ## Success Criteria
 
-- PR_VERIFIED: Merge status confirmed before deletion
-- ARTIFACTS_ARCHIVED: Related artifacts committed to main
-- LOCAL_DELETED: Local branch removed (or confirmed gone)
-- REMOTE_DELETED: Remote branch removed (or confirmed gone)
-- REFS_PRUNED: Stale remote tracking references cleaned
-- DRY_RUN_SAFE: --dry-run never deletes anything
-- PROTECTED_BRANCHES: main/master never targeted
+- FLAGS_PARSED: --all, --dry-run, target branch correctly identified
+- PR_VERIFIED: Merge status confirmed before any deletion
+- ARTIFACTS_ARCHIVED: Related PRP artifacts committed to main
+- MANIFEST_USED: Manifest-first discovery attempted before glob fallback
+- LOCAL_DELETED: Local branch removed (or skipped with reason)
+- REMOTE_DELETED: Remote branch removed (or skipped with reason)
+- STATE_CLEANED: Orphaned state files removed

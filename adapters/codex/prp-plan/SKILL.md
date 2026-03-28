@@ -5,15 +5,6 @@ metadata:
   short-description: Create implementation plan
 ---
 
-# PRP Plan — Create Implementation Plan
-
-## Input
-
-Feature description or path to PRD file: `$ARGUMENTS`
-
-Format: `<feature description | path/to/prd.md> [--fast] [--no-interact]`
-
-
 ## Agent Mode Detection
 
 If your input context contains `[WORKSPACE CONTEXT]` (injected by a multi-agents framework),
@@ -23,7 +14,7 @@ you are running as a sub-agent. Apply these optimizations:
   block with runner/commands, use those directly instead of re-detecting.
 - **Skip CLAUDE.md reading** — the parent session already loaded project conventions
   into context. Do not re-read them.
-- **Skip Directory Discovery** in the Context section — the parent agent already explored
+- **Skip Directory Discovery** — the parent agent already explored
   the codebase. Focus on targeted file reads for pattern extraction instead.
 - **Proceed directly to Phase 1** with the feature description from context.
 
@@ -31,6 +22,14 @@ All other phases (codebase pattern extraction, research, plan generation) run un
 these are where quality comes from.
 
 ---
+
+# PRP Plan — Create Implementation Plan
+
+## Input
+
+Feature description or path to PRD file: `$ARGUMENTS`
+
+Format: `<feature description | path/to/prd.md> [--fast] [--no-interact]`
 
 ## Objective
 
@@ -41,14 +40,23 @@ Transform the input into a battle-tested implementation plan through systematic 
 - **Thorough Exploration** — deep codebase search before any external research
 - Read project conventions file (CLAUDE.md, AGENTS.md, .cursorrules, etc.)
 
+---
+
 ## Context: Directory Discovery
 
 Run these to understand project structure:
-- `ls -la` and `ls -la */ 2>/dev/null | head -50`
+
+```bash
+ls -la
+ls -la */ 2>/dev/null | head -50
+```
+
 - Identify project type from config files (package.json, pyproject.toml, Cargo.toml, go.mod, etc.)
 - Do NOT assume `src/` — alternatives: `app/`, `lib/`, `packages/`, `cmd/`, `internal/`, `pkg/`
 
-## Phase 0: Detect Input Type
+---
+
+## Phase 0: DETECT — Input Type Resolution
 
 | Input Pattern | Type | Action |
 |---------------|------|--------|
@@ -58,131 +66,449 @@ Run these to understand project structure:
 | Free-form text | Description | Use directly as feature input |
 | Empty/blank | Conversation | Use conversation context as input |
 
-### If PRD:
-1. Read PRD, parse Implementation Phases table
-2. Find `pending` phases with all dependencies `complete`
-3. Select next actionable phase (note parallelism if multiple candidates)
-4. Extract: PHASE, GOAL, SCOPE, SUCCESS SIGNAL, PRD CONTEXT
-5. Report selection to user (include parallel opportunity if applicable)
+### If PRD File Detected:
 
-**GATE**: If ambiguous → STOP and ASK for clarification.
-- **If `--no-interact` flag is set**: Do NOT ask. Use best judgment, state assumptions in an "## Assumptions" section, and proceed.
+1. **Read the PRD file**
+2. **Parse the Implementation Phases table** — find rows with `Status: pending`
+3. **Check dependencies** — only select phases whose dependencies are `complete`
+4. **Select the next actionable phase:**
+   - First pending phase with all dependencies complete
+   - If multiple candidates with same dependencies, note parallelism opportunity
+5. **Extract phase context:**
+   ```
+   PHASE: {phase number and name}
+   GOAL: {from phase details}
+   SCOPE: {from phase details}
+   SUCCESS SIGNAL: {from phase details}
+   PRD CONTEXT: {problem statement, user, hypothesis from PRD}
+   ```
+6. **Report selection to user:**
+   ```
+   PRD: {prd file path}
+   Selected Phase: #{number} - {name}
+   {If parallel phases available:}
+   Note: Phase {X} can also run in parallel (in separate worktree).
+   Proceeding with Phase #{number}...
+   ```
 
-## Phase 0.5: Detect Project Toolchain
+### If Free-form or Conversation Context:
 
-Check for lock files to determine runner: bun.lockb → bun, pnpm-lock.yaml → pnpm, yarn.lock → yarn, package-lock.json → npm, pyproject.toml → uv/pip, Cargo.toml → cargo, go.mod → go. Priority: bun > pnpm > yarn > npm.
+Proceed directly to Phase 1 with the input as feature description.
 
-Read package.json (or equivalent) for exact script names: type-check, lint, test, build. Store as plan metadata (Runner, Type Check, Lint, Test, Build).
+**GATE**: If requirements are AMBIGUOUS:
+- **Default**: STOP and ASK for clarification.
+- **If `--no-interact`**: Do NOT ask. Use best judgment, state assumptions in "## Assumptions" section.
 
-Fallback: If no lock file → placeholder with WARNING.
+**PHASE_0_CHECKPOINT:**
+- [ ] Input type determined
+- [ ] If PRD: next phase selected and dependencies verified
+- [ ] Feature description ready for Phase 1
 
-## Phase 1: Parse — Feature Understanding
+---
 
-Extract: core problem, user value, feature type (NEW_CAPABILITY | ENHANCEMENT | REFACTOR | BUG_FIX), complexity (LOW | MEDIUM | HIGH), affected systems.
+## Phase 0.5: DETECT — Project Toolchain
 
-Formulate user story: `As a <user> I want to <action> So that <benefit>`
+### 0.5.1 Identify Package Manager
 
-**Testing Decision Gates**: Set flags based on feature:
-- `NEEDS_INTEGRATION_TESTS`: Complexity ≥ MEDIUM AND crosses service boundary
-- `NEEDS_PERF_BENCH`: Involves DB queries, API endpoints, or data processing
-- `SECURITY_SENSITIVE`: Handles user input, auth, data storage
+| File Found | Package Manager | Runner |
+|------------|-----------------|--------|
+| `bun.lockb` | bun | `bun` / `bun run` |
+| `pnpm-lock.yaml` | pnpm | `pnpm` / `pnpm run` |
+| `yarn.lock` | yarn | `yarn` / `yarn run` |
+| `package-lock.json` | npm | `npm run` |
+| `pyproject.toml` | uv/pip | `uv run` / `python` |
+| `Cargo.toml` | cargo | `cargo` |
+| `go.mod` | go | `go` |
+
+**Priority**: bun > pnpm > yarn > npm.
+**Fallback**: If no lock file → placeholder with WARNING.
+
+### 0.5.2 Identify Validation Scripts
+
+Read `package.json` (or equivalent) for exact script names:
+
+| Category | Common Names | Example Command |
+|----------|-------------|-----------------|
+| Type checking | `type-check`, `typecheck`, `tsc` | `bun run type-check` |
+| Linting | `lint`, `lint:fix` | `bun run lint` |
+| Testing | `test`, `test:unit`, `test:integration` | `bun test` |
+| Building | `build`, `compile` | `bun run build` |
+
+### 0.5.3 Store as Plan Metadata
+
+```
+Runner: {detected runner}
+Type Check: {runner} run {script-name}
+Lint: {runner} run {script-name}
+Test: {runner} {test-command}
+Build: {runner} run {script-name}
+```
+
+**PHASE_0_5_CHECKPOINT:**
+- [ ] Package manager detected from lock file
+- [ ] Validation script names read from config
+- [ ] Runner and commands stored for plan generation
+
+---
+
+## Phase 1: PARSE — Feature Understanding
+
+**Extract from input:**
+- Core problem being solved
+- User value and business impact
+- Feature type: NEW_CAPABILITY | ENHANCEMENT | REFACTOR | BUG_FIX
+- Complexity: LOW | MEDIUM | HIGH
+- Affected systems list
+
+**Complexity Triggers** (determines conditional sections):
+- **LOW**: Skip Technical Design, skip expanded Testing Strategy
+- **MEDIUM**: Include Technical Design if API/DB changes; include Integration Tests
+- **HIGH**: Include ALL Technical Design sub-sections; include full Testing Strategy with perf benchmarks
+
+### Testing Decision Gates
+
+| Flag | Condition | Effect |
+|------|-----------|--------|
+| `NEEDS_INTEGRATION_TESTS` | Complexity ≥ MEDIUM AND crosses service boundary | Include Integration Tests section |
+| `NEEDS_PERF_BENCH` | Involves DB queries, API endpoints, or data processing | Include Performance Benchmarks |
+| `SECURITY_SENSITIVE` | Handles user input, auth, data storage | Include security edge cases |
+
+**Formulate user story:**
+```
+As a <user type>
+I want to <action/goal>
+So that <benefit/value>
+```
 
 ### Fast-track Mode (`--fast`)
 
-When `--fast` flag provided: Skip Phase 3 (Research), Phase 4.2 (Technical Design), Phase 5 (Design UX). Compact plan: Summary, Metadata, Files to Change, Integration Points, Tasks (max 5), Validation Commands, Confidence Score. WARN if complexity > LOW.
+When `--fast` flag provided:
+- **Skip**: Phase 3 (Research), Phase 4.2 (Technical Design), Phase 5 (Design UX)
+- **Compact plan**: Summary, Metadata (with runner), Files to Change (with Insert At), Integration Points, Tasks (max 5), Validation Commands (pre-filled), Confidence Score
+- **No**: UX diagrams, Mandatory Reading, Patterns to Mirror, expanded Testing Strategy, Risks table
+- Add plan metadata: `Mode: fast-track`
 
-**Checkpoint**: Problem specific/testable, user story correct format, complexity has rationale, systems identified.
+**Warning** (complexity mismatch): If complexity > LOW detected:
+```
+WARNING: Feature appears too complex for fast-track. Detected: {reason}.
+Consider running without --fast for full planning.
+Proceeding with fast-track anyway...
+```
 
-## Phase 2: Explore — Codebase Intelligence
+**PHASE_1_CHECKPOINT:**
+- [ ] Problem statement is specific and testable
+- [ ] User story follows correct format
+- [ ] Complexity assessment has rationale
+- [ ] Affected systems identified
 
-Thoroughly explore the codebase to find:
-1. Similar implementations with file:line references
-2. Naming conventions with actual examples
-3. Error handling patterns
-4. Logging patterns
-5. Type definitions
-6. Test patterns
-7. Integration points
-8. Dependencies with versions
-9. Integration wiring — where do similar features get called from?
-10. Insertion positions — for files that need UPDATE, where to insert?
+---
 
-Document in table: Category | File:Lines | Pattern | Code Snippet
+## Phase 2: EXPLORE — Codebase Intelligence
 
-**Explore Fallback** (when <3 codebase patterns found): Expand search: analogous patterns → official library docs → framework conventions. Tag sources: `SOURCE: codebase`, `SOURCE: analogous`, `SOURCE: external`, `SOURCE: convention`. Budget: 20K tokens.
+Thoroughly explore the codebase to discover:
 
-**Checkpoint**: 3+ pattern sources (codebase or fallback), code snippets are ACTUAL (not invented), integration points mapped, dependencies cataloged.
+1. **Similar implementations** with file:line references
+2. **Naming conventions** with actual examples
+3. **Error handling patterns** — how errors are created, thrown, caught
+4. **Logging patterns** — logger usage, message formats
+5. **Type definitions** — relevant interfaces and types
+6. **Test patterns** — test file structure, assertion styles
+7. **Integration points** — where new code connects to existing
+8. **Dependencies** — relevant libraries already in use with versions
+9. **Integration wiring** — where do similar features get called from? What imports/registers them?
+10. **Insertion positions** — for files that need UPDATE, where should new code be inserted? (line number, after which section)
 
-## Phase 3: Research — External Documentation
+**Document discoveries in table format:**
 
-ONLY AFTER Phase 2. Search for:
-- Official docs (match versions from package.json/config)
-- Gotchas, breaking changes, deprecations
-- Security best practices
+| Category | File:Lines | Pattern Description | Code Snippet |
+|----------|-----------|-------------------|-------------|
+| NAMING | `src/features/X/service.ts:10-15` | camelCase functions | `export function createThing()` |
+| ERRORS | `src/features/X/errors.ts:5-20` | Custom error classes | `class ThingNotFoundError` |
+| LOGGING | `src/core/logging/index.ts:1-10` | getLogger pattern | `const logger = getLogger("domain")` |
+| TESTS | `src/features/X/tests/service.test.ts:1-30` | describe/it blocks | `describe("service", () => {` |
+| TYPES | `src/features/X/models.ts:1-20` | Drizzle inference | `type Thing = typeof things.$inferSelect` |
 
-Format: URL with version + KEY_INSIGHT + APPLIES_TO + GOTCHA
+### Explore Fallback (when <3 codebase patterns found)
 
-## Phase 4: Architect — Strategic Design
+If fewer than 3 relevant patterns found, expand search:
 
-Analyze: ARCHITECTURE_FIT, EXECUTION_ORDER, FAILURE_MODES, PERFORMANCE, SECURITY, MAINTAINABILITY.
-Document: APPROACH_CHOSEN + RATIONALE, ALTERNATIVES_REJECTED, NOT_BUILDING (scope limits).
+1. **Analogous patterns**: Similar concepts in different domains within codebase
+2. **Official library examples**: Docs of libraries in package.json (match versions)
+3. **Framework conventions**: Framework-standard patterns
 
-**Design Doc Integration**: Check `.prp-output/designs/{feature}-design-*.md`. If found, incorporate (design doc takes precedence over explore findings).
+Tag each source:
+- `SOURCE: codebase (file:line)` — primary, highest trust
+- `SOURCE: analogous (file:line)` — similar concept, different domain
+- `SOURCE: external ({library} v{version} docs)` — official documentation
+- `SOURCE: convention ({framework} standard)` — framework convention
 
-**Phase 4.2: Technical Design (conditional)**: If complexity=HIGH or API/DB changes → include: API Contracts (request/response schemas, error codes), Database Schema (tables, indexes, migration + rollback), Sequence Diagrams (Mermaid), NFRs (p95/p99 targets, caching, security), Migration & Rollback plan.
+**Token Budget**: Max 20K tokens for exploration. If hitting limit, document "Exploration incomplete."
 
-## Phase 5: Design — UX Transformation
+**PHASE_2_CHECKPOINT:**
+- [ ] At least 3 similar implementations found with file:line refs
+- [ ] Code snippets are ACTUAL (copy-pasted, not invented)
+- [ ] Integration points mapped with specific file paths
+- [ ] Dependencies cataloged with versions
+- [ ] If <3 patterns: fallback sources documented
+
+---
+
+## Phase 3: RESEARCH — External Documentation
+
+**ONLY AFTER Phase 2 is complete.** Solutions must fit existing codebase patterns first.
+
+Search for:
+- Official documentation for involved libraries (match versions from package.json)
+- Known gotchas, breaking changes, deprecations
+- Security considerations and best practices
+
+**Format references:**
+```markdown
+- [Library Docs v{version}](url#specific-section)
+  - KEY_INSIGHT: {what we learned}
+  - APPLIES_TO: {which task/file}
+  - GOTCHA: {pitfall and mitigation}
+```
+
+**PHASE_3_CHECKPOINT:**
+- [ ] Documentation versions match package.json
+- [ ] URLs include specific section anchors
+- [ ] Gotchas documented with mitigations
+- [ ] No conflicts between external docs and codebase patterns
+
+---
+
+## Phase 4: ARCHITECT — Strategic Design
+
+**Analyze:**
+- ARCHITECTURE_FIT: How does this integrate with existing architecture?
+- EXECUTION_ORDER: What must happen first → second → third?
+- FAILURE_MODES: Edge cases, race conditions, error scenarios?
+- PERFORMANCE: Will this scale? Database queries optimized?
+- SECURITY: Attack vectors? Data exposure risks?
+- MAINTAINABILITY: Will future devs understand this?
+
+**Document:**
+```
+APPROACH_CHOSEN: {description}
+RATIONALE: {why this over alternatives — reference codebase patterns}
+
+ALTERNATIVES_REJECTED:
+- {Alt 1}: Rejected because {reason}
+- {Alt 2}: Rejected because {reason}
+
+NOT_BUILDING (explicit scope limits):
+- {Item 1 — out of scope and why}
+- {Item 2 — out of scope and why}
+```
+
+### Design Doc Integration
+
+```bash
+ls .prp-output/designs/{feature}-design-*.md 2>/dev/null
+```
+
+If found: incorporate API contracts, DB schema, NFRs. Design doc takes precedence over Explore findings.
+
+### Phase 4.2: TECHNICAL DESIGN (Conditional)
+
+> **Include if**: Complexity HIGH, OR new API endpoints, DB schema changes, multi-service integration.
+> **Skip if**: Complexity LOW, simple enhancement/bug fix.
+
+#### 4.2.1 API Contracts (if new/modified endpoints)
+- Endpoint path, method, auth requirement
+- Request/response schemas with types and validation
+- Error codes table (status, code, description)
+
+#### 4.2.2 Database Schema (if schema changes)
+- New/modified table definitions (SQL or ORM format)
+- Index strategy for query performance
+- Migration approach + rollback plan
+
+#### 4.2.3 Sequence Diagrams (if complex multi-component flow)
+- Critical path using Mermaid syntax
+- Error/failure path
+
+#### 4.2.4 Non-Functional Requirements (if HIGH complexity)
+- Performance targets: p50, p95, p99 latency
+- Caching strategy (what, TTL, invalidation)
+- Security considerations, monitoring
+
+#### 4.2.5 Migration & Rollback (if modifying existing behavior)
+- Data migration steps
+- Feature flag approach
+- Rollback triggers and steps
+
+**PHASE_4_CHECKPOINT:**
+- [ ] Approach aligns with existing architecture
+- [ ] Dependencies ordered correctly
+- [ ] Edge cases identified with mitigations
+- [ ] Scope boundaries explicit and justified
+- [ ] Technical Design sections included (if applicable)
+
+---
+
+## Phase 5: DESIGN — UX Transformation
 
 > Architecture constraints from Phase 4 should inform UX design decisions.
 
 Create Before/After ASCII diagrams showing:
 - User experience and data flow changes
-- Interaction changes table: Location | Before | After | User_Action | Impact
+- USER_FLOW, PAIN_POINT/VALUE_ADD, DATA_FLOW
 
-## Phase 6: Generate — Plan File
+**Interaction Changes table:**
 
-**Generate timestamp**: `TIMESTAMP=$(date +%Y%m%d-%H%M)`
+| Location | Before | After | User_Action | Impact |
+|----------|--------|-------|-------------|--------|
+| `/route` | State A | State B | Click X | Can now Y |
 
-**Complexity Validation**: Before saving, check: LOW ≤3 tasks no API/DB, MEDIUM 4-10 or API/DB, HIGH >10 or multi-service. WARN if mismatch.
+**PHASE_5_CHECKPOINT:**
+- [ ] Before state accurately reflects current system
+- [ ] After state shows ALL new capabilities
+- [ ] Data flows traceable from input to output
+- [ ] User value explicit and measurable
 
-Save to: `.prp-output/plans/{kebab-case-feature-name}-{TIMESTAMP}.plan.md`
+---
 
-Plan must include lifecycle frontmatter (`status: pending`, `runner`, `mode`) and ALL sections:
+## Phase 6: GENERATE — Plan File
+
+### Artifact Naming
+
+```bash
+TIMESTAMP=$(date +%Y%m%d-%H%M)
+ls .prp-output/plans/{kebab-case-feature-name}*.plan.md 2>/dev/null
+```
+
+**Path**: `.prp-output/plans/{kebab-case-feature-name}-{TIMESTAMP}.plan.md`
+
+Create directory: `mkdir -p .prp-output/plans`
+
+### Complexity Validation (Pre-save check)
+
+| Declared | Expected Scope | If Mismatch |
+|----------|---------------|-------------|
+| LOW | ≤3 tasks, no API/DB changes | WARN: "Consider MEDIUM" |
+| MEDIUM | 4-10 tasks, OR API/DB changes | WARN if >10 tasks |
+| HIGH | >10 tasks, OR multi-service | OK |
+
+### Plan Structure
+
+The plan file MUST include lifecycle frontmatter (`status: pending`, `runner`, `mode`) and ALL these sections:
+
 1. **Summary** — what we're building
 2. **User Story** — who, what, why
 3. **Problem/Solution Statements** — specific and testable
-4. **Metadata** — type, complexity, systems, dependencies, task count, **Runner, Type Check, Lint, Test, Build commands**
+4. **Metadata** — type, complexity, systems, dependencies, task count, **Runner + Type Check + Lint + Test + Build commands**
 5. **UX Design** — before/after ASCII diagrams + interaction changes table
-6. **Mandatory Reading** — P0/P1/P2 priority files the implementer MUST read first
-7. **Patterns to Mirror** — ACTUAL code snippets: naming, errors, logging, repository, service, tests
+6. **Mandatory Reading** — P0/P1/P2 priority files the implementer MUST read first, external docs with version
+7. **Patterns to Mirror** — ACTUAL code snippets with SOURCE tags: naming, errors, logging, repository, service, tests
 8. **Files to Change** — CREATE/UPDATE list with **Insert At** hints and justifications
 9. **Integration Points** — new code → existing code hook locations (file:line, wiring details)
 10. **NOT Building** — explicit scope limits
-11. **Step-by-Step Tasks** — ordered, atomic, each with ACTION/IMPLEMENT/MIRROR/IMPORTS/GOTCHA/VALIDATE
-12. **Testing Strategy** — unit tests + integration tests (conditional) + test data + performance benchmarks (conditional) + edge cases
-13. **Validation Commands** — 6 levels, **pre-filled with actual commands** (no `{runner}` placeholders)
-14. **Confidence Score** — 5×2=10 formula: Patterns + Gotchas + Integration + Validation + Testing
+11. **Step-by-Step Tasks** — ordered, atomic, each with:
+    - **ACTION**: What to do (CREATE/UPDATE)
+    - **IMPLEMENT**: Specific details
+    - **MIRROR**: Source file:lines to copy pattern from
+    - **IMPORTS**: Exact import statements
+    - **GOTCHA**: Known pitfalls to avoid
+    - **VALIDATE**: Exact command to verify (pre-filled, no placeholders)
+12. **Testing Strategy** — unit tests table + integration tests (conditional) + test data + performance benchmarks (conditional) + edge cases checklist
+13. **Validation Commands** — 6 levels (Static Analysis, Unit Tests, Full Suite, Database, Browser, Manual), **pre-filled with actual commands**
+14. **Confidence Score** — 5 dimensions × 2pts = 10 formula: Patterns + Gotchas + Integration + Validation + Testing
 15. **Acceptance Criteria** — definition of done
 16. **Completion Checklist** — all 6 validation levels
 17. **Risks and Mitigations** — likelihood, impact, strategy
 18. **Technical Design** (conditional, HIGH or API/DB) — API contracts, DB schema, sequence diagrams, NFRs, migration & rollback
 
+**IMPORTANT**: The saved plan file MUST NOT contain any unfilled `{...}` placeholders in Validation Commands section. Pre-fill with actual detected commands.
+
+---
+
 ## Output
 
-**If from PRD**: Update PRD status to `in-progress`, link plan file.
+**Save file to**: `.prp-output/plans/{kebab-case-feature-name}-{TIMESTAMP}.plan.md`
 
-Report to user: file path, summary, complexity, scope, key patterns, research, UX transformation, risks, **confidence score {X}/10 (P:{p} G:{g} I:{i} V:{v} T:{t})**, next step.
+**If from PRD**: Update PRD status to `in-progress`, link plan file path.
+
+**Report to user:**
+
+```markdown
+## Plan Created
+
+**File**: `.prp-output/plans/{feature-name}-{TIMESTAMP}.plan.md`
+
+{If from PRD:}
+**Source PRD**: `{prd-file-path}`
+**Phase**: #{number} - {phase name}
+**PRD Updated**: Status set to `in-progress`, plan linked
+
+{If parallel phases:}
+**Parallel Opportunity**: Phase {X} can run concurrently.
+
+**Summary**: {2-3 sentence overview}
+**Complexity**: {LOW/MEDIUM/HIGH} - {brief rationale}
+
+**Scope**:
+- {N} files to CREATE
+- {M} files to UPDATE
+- {K} total tasks
+
+**Key Patterns**:
+- {Pattern 1 from codebase with file:line}
+- {Pattern 2 from codebase with file:line}
+
+**External Research**:
+- {Key doc 1 with version}
+
+**UX Transformation**:
+- BEFORE: {one-line current state}
+- AFTER: {one-line new state}
+
+**Risks**:
+- {Primary risk}: {mitigation}
+
+**Confidence Score**: {X}/10 (P:{p} G:{g} I:{i} V:{v} T:{t})
+
+**Next Step**: `$prp-implement .prp-output/plans/{feature-name}-{TIMESTAMP}.plan.md`
+```
+
+---
 
 ## Verification
 
 Before saving, verify:
-- **Context**: All patterns documented with file:line, docs versioned, gotchas captured
-- **Readiness**: Tasks ordered by dependency, atomic, no placeholders, actual code snippets
-- **Faithfulness**: Mirrors existing style, naming, errors, logging, tests
-- **Validation**: Every task has executable command, all 6 levels defined, **no `{runner}` placeholders**
-- **UX**: Before/After diagrams accurate, data flows traceable
+
+**Context Completeness:**
+- [ ] All patterns documented with file:line references
+- [ ] External docs versioned to match package.json
+- [ ] Gotchas captured with mitigation strategies
+- [ ] Every task has at least one executable validation command
+
+**Implementation Readiness:**
+- [ ] Tasks ordered by dependency (can execute top-to-bottom)
+- [ ] Each task is atomic and independently testable
+- [ ] No placeholders — all content is specific and actionable
+- [ ] Pattern references include actual code snippets (copy-pasted, not invented)
+
+**Pattern Faithfulness:**
+- [ ] Every new file mirrors existing codebase style
+- [ ] Naming follows discovered conventions
+- [ ] Error/logging patterns match existing
+- [ ] Test structure matches existing tests
+
+**Validation Coverage:**
+- [ ] Every task has executable validation command
+- [ ] All 6 validation levels defined where applicable
+- [ ] Edge cases enumerated with test plans
+
+**UX Clarity:**
+- [ ] Before/After diagrams accurate
+- [ ] Data flows traceable
+- [ ] User value explicit and measurable
 
 **NO_PRIOR_KNOWLEDGE_TEST**: Could an agent unfamiliar with this codebase implement using ONLY the plan?
+
+---
 
 ## Success Criteria
 

@@ -112,7 +112,20 @@ git pull origin main
 
 ### 3.2 Collect Artifacts (for each verified branch)
 
-Find all artifacts related to this PR/branch:
+Find all artifacts related to this PR/branch.
+
+**Prefer manifest** (precise discovery):
+
+```bash
+# Check for manifest with exact artifact paths
+MANIFEST=".prp-output/manifests/${BRANCH}.json"
+if [ -f "$MANIFEST" ]; then
+  # Read exact paths from manifest — plan, report, context, reviews, fixes
+  cat "$MANIFEST"
+fi
+```
+
+**Fallback to glob** (if no manifest found):
 
 ```bash
 NUMBER={pr-number}
@@ -123,13 +136,16 @@ ls .prp-output/reviews/pr-${NUMBER}-*.md 2>/dev/null
 ls .prp-output/reviews/pr-context-${BRANCH}.md 2>/dev/null
 
 # Fix summaries
-ls .prp-output/reviews/pr-${NUMBER}-fix-summary.md 2>/dev/null
+ls .prp-output/reviews/pr-${NUMBER}-fix-summary*.md 2>/dev/null
 
-# Implementation reports (search for branch name or PR reference)
-grep -rl "PR.*#${NUMBER}\|Branch.*${BRANCH}" .prp-output/reports/ 2>/dev/null
+# Implementation reports
+ls .prp-output/reports/*-report*.md 2>/dev/null
 
 # Completed plans (already archived by implement step)
-ls .prp-output/plans/completed/ 2>/dev/null
+ls .prp-output/plans/completed/*.plan.md 2>/dev/null
+
+# Issue investigations
+ls .prp-output/issues/issue-*.md 2>/dev/null
 ```
 
 ### 3.3 Stage and Commit Artifacts
@@ -143,6 +159,12 @@ git add .prp-output/plans/completed/ 2>/dev/null
 
 # Only commit if there are staged changes
 git diff --cached --quiet || git commit -m "chore: archive artifacts for PR #${NUMBER} (${BRANCH})"
+```
+
+### 3.4 Remove Manifest
+
+```bash
+rm -f .prp-output/manifests/${BRANCH}.json
 ```
 
 **If `DRY_RUN`:** List artifacts that would be committed but don't commit.
@@ -200,10 +222,20 @@ git push origin --delete {branch}
 git remote prune origin
 ```
 
+### 4.5 Remove Orphaned State Files
+
+```bash
+# Remove run-all state file if it refers to the cleaned branch
+if grep -q "${BRANCH}" .claude/prp-run-all.state.md 2>/dev/null; then
+  rm -f .claude/prp-run-all.state.md
+fi
+```
+
 **PHASE_4_CHECKPOINT:**
 - [ ] Local branch deleted (or already gone)
 - [ ] Remote branch deleted (or already gone)
 - [ ] Stale refs pruned
+- [ ] Orphaned state files removed
 
 ---
 
@@ -284,8 +316,10 @@ Run without --dry-run to execute.
 
 - **PR_VERIFIED**: PR merge status confirmed before any branch deletion
 - **ARTIFACTS_ARCHIVED**: Related artifacts committed to main before cleanup
+- **MANIFEST_USED**: Manifest-first discovery attempted before glob fallback
 - **LOCAL_DELETED**: Local branch removed (or confirmed already gone)
 - **REMOTE_DELETED**: Remote branch removed (or confirmed already gone)
 - **REFS_PRUNED**: Stale remote tracking references cleaned
+- **STATE_CLEANED**: Orphaned state files removed
 - **DRY_RUN_SAFE**: `--dry-run` never deletes anything, only previews
 - **PROTECTED_BRANCHES**: main/master never included as cleanup targets

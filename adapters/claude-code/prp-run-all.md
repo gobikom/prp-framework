@@ -640,13 +640,15 @@ Increment: `REVIEW_CYCLE = REVIEW_CYCLE + 1`
 
 Re-run review to confirm fixes resolved all critical/high issues and no regressions were introduced.
 
-**Pass the same context file** — it's still valid and saves tokens:
+**Use `--since-last-review` for incremental review** — only reviews changes since last review (saves tokens):
 
 ```
 Use Skill tool with:
   skill: "prp-core:prp-review-agents"
-  args: "{PR_NUMBER} --context .prp-output/reviews/pr-context-{BRANCH}.md"
+  args: "{PR_NUMBER} --since-last-review --context .prp-output/reviews/pr-context-{BRANCH}.md"
 ```
+
+If `--since-last-review` fails (e.g., no previous review artifact found), fall back to full review with `--context` only.
 
 → **Return to Step 6.2** to evaluate results.
 
@@ -773,5 +775,6 @@ With context file from implement step, review costs ~15-30K tokens.
 - **COMMITTED**: Clean commit on feature branch
 - **PR_CREATED**: PR exists on GitHub (unless --no-pr)
 - **REVIEWED**: Review posted with verdict (unless --skip-review)
+- **INCREMENTAL_REVIEW**: Re-verify uses `--since-last-review` for token optimization
 - **STATE_CLEANED**: `.claude/prp-run-all.state.md` and `.claude/prp-run-all.lock` deleted after completion
 - **SUMMARY_REPORTED**: User has clear next steps

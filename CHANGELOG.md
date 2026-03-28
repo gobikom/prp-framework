@@ -33,21 +33,47 @@ Every major version release MUST include a `docs/migration/vX.0-to-vY.0.md` file
 
 ## [Unreleased]
 
+_No unreleased changes._
+
+---
+
+## [2.1.0] — 2026-03-28
+
+**Cross-Adapter Parity Release** — All 8 core commands upgraded to feature parity across 5 adapters. +11,835 lines across 32 files. Every adapter now has phase checkpoints, full templates, failure diagnostics, and unique features ported across tools.
+
 ### Changed
-- **Upgrade all adapter `review` commands to multi-pass parity** — All 5 adapters (Claude Code, Codex, OpenCode, Gemini CLI, Antigravity) now have equivalent review depth:
-  - Phase 0.5: Incremental Review with finding merge logic (Resolved/Remaining/New)
-  - Phase 1.5: Large PR Strategy with 4-tier risk categorization and coverage map
-  - Conditional Pass Dispatch: auto-detect file types for accessibility and performance passes
-  - 11 review passes (added Performance + Accessibility) with detailed "Do NOT report" guidance
-  - Result Deduplication with before/after examples
-  - Review Metrics (JSONL + aggregate summary via `--metrics` flag)
-  - Context file template, Implementation Report update template, PRD update
-  - Workflow Integration, Critical Reminders, Success Criteria sections
-  - Claude Code `prp-review-agents.md`: added Per-File Checklist, Issue Severity Definitions, PRD Update, Critical Reminders, Success Criteria (775 → 846 lines)
-  - Codex `prp-review/SKILL.md`: full rewrite (307 → 876 lines)
-  - OpenCode `review.md`: full rewrite (205 → 874 lines)
-  - Antigravity `prp-review.md`: full rewrite (201 → 873 lines)
-  - Gemini `review.toml`: full rewrite (154 → 655 lines)
+
+- **`review`** — All adapters upgraded to 11-pass multi-pass review with incremental review, large PR strategy, conditional dispatch, dedup examples, metrics, per-file checklist, PRD update, critical reminders, success criteria
+- **`implement`** — Full TDD approach (RED/GREEN), phase checkpoints, context file template, report template, PRD update with before/after examples, failure diagnostics per type, artifact fallback
+- **`review-fix`** — 9-phase workflow with artifact discovery (multi-tool support), fix plan output, skip logic, per-batch validation, detailed commit template, edge cases (drift, already-fixed, all-skipped), adapter-specific artifact suffix examples
+- **`pr`** — Phase checkpoints, implementation report enrichment (PR body includes validation results and deviations from plan), commit prefix table, full output template
+- **`commit`** — Plan-aware commit messages (Phase 1.5: loads completed plan context to enrich commit body), pre-commit quality check with bash commands, phase checkpoints
+- **`cleanup`** — Manifest-first artifact discovery (check `.prp-output/manifests/` before glob fallback), orphaned state file cleanup (`.claude/prp-run-all.state.md`), phase checkpoints, detailed error handling for branch deletion
+- **`run-all`** — Dry-run mode (preview with token estimate), Ralph mode support, full state/lock management with resume, artifact fallback templates, `--since-last-review` for incremental re-verify (token optimization), token budget tables, 10 critical rules, 12 usage examples
+- **`plan`** — Full PRD parsing (6 steps), toolchain detection with tables, complexity triggers, testing decision gates, fast-track mode, explore fallback with source tagging, technical design (5 sub-sections), UX diagrams, 18-section plan structure, 5-category verification checklist, confidence scoring
+
+### Added (new features across all adapters)
+
+- **Implementation Report Enrichment** (`pr`) — PR body automatically includes summary, deviations, and validation results from `.prp-output/reports/`
+- **Plan-Aware Commit** (`commit`) — Commit message enriched with completed plan context (summary, task count)
+- **Manifest-First Discovery** (`cleanup`) — Precise artifact lookup via `.prp-output/manifests/{BRANCH}.json` before glob fallback
+- **Orphaned State Cleanup** (`cleanup`) — Removes `.claude/prp-run-all.state.md` when cleaning branches
+- **Incremental Re-verify** (`run-all`) — Step 6.4 uses `--since-last-review` flag for token-efficient re-review after fixes
+- **Dry-Run Mode** (`run-all`) — Preview all steps with estimated token cost without executing
+- **Ralph Mode** (`run-all`) — Autonomous implementation loop support in all adapters
+
+### Line count changes (before → after)
+
+| Command | Codex | OpenCode | Antigravity | Gemini | Claude Code |
+|---------|-------|----------|-------------|--------|-------------|
+| review | 307→876 | 205→874 | 201→873 | 154→655 | 775→846 |
+| implement | 200→755 | 88→754 | 86→753 | 53→752 | 755 (baseline) |
+| review-fix | 307→674 | 259→673 | 246→672 | 90→671 | 696 (baseline) |
+| pr | 149→406 | 61→405 | 62→404 | 42→403 | 346→388 |
+| commit | 95→211 | 50→210 | 42→209 | 27→208 | 161→204 |
+| cleanup | 185→297 | 78→296 | 74→295 | 35→294 | 292→325 |
+| run-all | 170→464 | 139→463 | 133→462 | 87→461 | 777→780 |
+| plan | 197→522 | 72→521 | 80→520 | 38→519 | 1039 (baseline) |
 
 ---
 

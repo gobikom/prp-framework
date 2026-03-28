@@ -141,11 +141,27 @@ git diff --name-only origin/main..HEAD
 | `test:` | Adding tests |
 | `chore:` | Maintenance |
 
+### 2.5 Load Implementation Report (optional enrichment)
+
+```bash
+# Find the most recent implementation report
+ls -t .prp-output/reports/*-report*.md 2>/dev/null | head -1
+```
+
+**If report found**, extract:
+- **Summary** — use to enrich PR description's summary section
+- **Deviations from plan** — include as notable context for reviewers
+- **Validation results** — pre-fill testing section with actual results
+- **Test coverage** — include in testing section
+
+**If not found**: Skip silently — git log is sufficient for PR description.
+
 **PHASE_2_CHECKPOINT:**
 - [ ] PR template located (or confirmed none exists)
 - [ ] Commit messages extracted
 - [ ] Changed files listed
 - [ ] PR title determined
+- [ ] Implementation report loaded (if available)
 
 ---
 
@@ -209,8 +225,16 @@ gh pr create \
 
 </details>
 
+{If implementation report found:}
+## Implementation Notes
+
+{Deviations from plan, if any}
+{Notable decisions or trade-offs}
+
 ## Testing
 
+{If implementation report found: actual validation results}
+{Otherwise: checklist}
 - [ ] Type check passes
 - [ ] Tests pass
 - [ ] Manually verified
@@ -284,6 +308,13 @@ gh pr checks
 
 {List of changed files}
 
+{If implementation report was used:}
+### Implementation Context
+
+- Report: `.prp-output/reports/{name}-report-{TIMESTAMP}.md`
+- Validation: All checks passed
+- Deviations: {summary or "None"}
+
 ### Checks
 
 {Status of any CI checks, or "Pending"}
@@ -336,10 +367,22 @@ gh pr create --draft --title "{title}" --body "{body}"
 
 ---
 
+## Usage Examples
+
+```bash
+/prp-core:pr                    # Create PR to main
+/prp-core:pr develop            # Create PR to develop branch
+/prp-core:pr --no-interact      # Fully autonomous, no questions
+/prp-core:pr main --no-interact # Autonomous to main
+```
+
+---
+
 ## Success Criteria
 
 - **BRANCH_PUSHED**: Current branch exists on origin
 - **PR_CREATED**: PR successfully created via gh
 - **TEMPLATE_USED**: If template exists, it was used
+- **REPORT_ENRICHED**: If implementation report exists, PR body includes context from it
 - **ISSUES_LINKED**: Any referenced issues are linked
 - **URL_RETURNED**: User has the PR URL to share/review
