@@ -1,8 +1,7 @@
 ---
-description: "Design conversation flows - user journeys, dialog trees, handoff logic"
-argument-hint: "[--design 'flow-name'] [--analyze] [--visualize] [--optimize]"
+description: "Design conversation flows — user journeys, dialog trees, handoff logic."
+agent: plan
 ---
-<process>
 # Conversation Flow Design
 
 **Input**: $ARGUMENTS
@@ -681,5 +680,3 @@ graph TD
 - **DIAGRAM_CREATED**: Visual representation ready
 - **METRICS_DEFINED**: Success criteria established
 - **TESTS_CREATED**: Scenarios for validation
-
-</process>

@@ -1,11 +1,8 @@
----
-description: "Design and analyze chatbot/voicebot intents - intent architecture, utterances, entities"
-argument-hint: "[--design 'use-case'] [--analyze] [--optimize] [--export]"
----
-<process>
+description = "Design and analyze chatbot/voicebot intents — intent architecture, utterances, entities."
+prompt = """
 # Intent Design & Analysis
 
-**Input**: $ARGUMENTS
+**Input**: {{args}}
 
 ---
 
@@ -232,7 +229,7 @@ Fine-grained variations:
 ## Entity Patterns
 
 ### Order ID
-**Pattern**: `ORD-\d{5,8}` or `#\d{5,8}`
+**Pattern**: `ORD-\\d{5,8}` or `#\\d{5,8}`
 **Training Examples**:
 - "My order number is ORD-12345"
 - "Order #98765"
@@ -355,7 +352,7 @@ Fine-grained variations:
     {
       "name": "order_id",
       "type": "pattern",
-      "pattern": "ORD-\\d{5,8}|#\\d{5,8}"
+      "pattern": "ORD-\\\\d{5,8}|#\\\\d{5,8}"
     }
   ]
 }
@@ -448,4 +445,4 @@ Fine-grained variations:
 - **SCHEMA_EXPORTED**: Ready for import
 - **TESTS_CREATED**: Test cases for validation
 
-</process>
+"""

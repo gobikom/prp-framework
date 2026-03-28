@@ -1,8 +1,6 @@
 ---
-description: "Generate pitch materials - deck, one-pager, email templates, proposals"
-argument-hint: "[--deck] [--one-pager] [--email] [--proposal] [--target 'audience/industry']"
+description: "Generate pitch materials — deck, one-pager, email templates, proposals."
 ---
-<process>
 # Pitch Materials Generator
 
 **Input**: $ARGUMENTS
@@ -694,5 +692,3 @@ Based on X inquiries/month at $Y current cost:
 - **EMAILS_GENERATED**: Outreach templates created
 - **PROPOSAL_GENERATED**: Proposal template created
 - **FILES_SAVED**: All materials saved to appropriate paths
-
-</process>

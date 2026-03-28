@@ -11,12 +11,20 @@ FRAMEWORK_DIR="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)"
 # ─────────────────────────────────────────────
 # 1. Core command existence per adapter
 # ─────────────────────────────────────────────
-@test "all 5 adapters have 19 commands each" {
+@test "all 5 adapters have 19 core commands each" {
     [ "$(ls "$FRAMEWORK_DIR/adapters/claude-code"/prp-*.md | wc -l)" -eq 19 ]
-    [ "$(ls -d "$FRAMEWORK_DIR/adapters/codex"/prp-*/ | wc -l)" -eq 19 ]
-    [ "$(ls "$FRAMEWORK_DIR/adapters/opencode"/*.md | wc -l)" -eq 19 ]
-    [ "$(ls "$FRAMEWORK_DIR/adapters/antigravity"/prp-*.md | wc -l)" -eq 19 ]
-    [ "$(ls "$FRAMEWORK_DIR/adapters/gemini"/*.toml | wc -l)" -eq 19 ]
+    [ "$(ls -d "$FRAMEWORK_DIR/adapters/codex"/prp-*/ | wc -l)" -eq 28 ]
+    [ "$(ls "$FRAMEWORK_DIR/adapters/opencode"/*.md | wc -l)" -eq 28 ]
+    [ "$(ls "$FRAMEWORK_DIR/adapters/antigravity"/prp-*.md | wc -l)" -eq 28 ]
+    [ "$(ls "$FRAMEWORK_DIR/adapters/gemini"/*.toml | wc -l)" -eq 28 ]
+}
+
+@test "claude-code has 4 marketing commands in separate dir" {
+    [ "$(ls "$FRAMEWORK_DIR/adapters/claude-code-marketing"/prp-*.md | wc -l)" -eq 4 ]
+}
+
+@test "claude-code has 5 bot commands in separate dir" {
+    [ "$(ls "$FRAMEWORK_DIR/adapters/claude-code-bot"/prp-*.md | wc -l)" -eq 5 ]
 }
 
 @test "codex has review-agents and feature-review-agents aliases" {
@@ -536,9 +544,9 @@ print(len(c['adapters']) * len(c['commands']))
     [ "$COUNT" -eq "$EXPECTED" ]
 }
 
-@test "adapters.yml defines all 19 commands" {
+@test "adapters.yml defines all 28 commands (19 core + 4 mkt + 5 bot)" {
     COUNT=$(python3 -c "import yaml; c=yaml.safe_load(open('$FRAMEWORK_DIR/adapters.yml')); print(len(c['commands']))")
-    [ "$COUNT" -eq 19 ]
+    [ "$COUNT" -eq 28 ]
 }
 
 @test "adapters.yml defines all 5 adapters" {
@@ -550,10 +558,10 @@ print(len(c['adapters']) * len(c['commands']))
     [ -f "$FRAMEWORK_DIR/prompts/overlays/claude-code/plan.md" ]
 }
 
-@test "generate-adapters.py --adapter gemini --dry-run lists 19 files" {
+@test "generate-adapters.py --adapter gemini --dry-run lists 28 files" {
     OUTPUT=$(python3 "$FRAMEWORK_DIR/scripts/generate-adapters.py" --adapter gemini --dry-run 2>&1)
     COUNT=$(echo "$OUTPUT" | grep -c "DRY RUN")
-    [ "$COUNT" -eq 19 ]
+    [ "$COUNT" -eq 28 ]
     # All should be gemini paths
     ! echo "$OUTPUT" | grep "DRY RUN" | grep -qv "gemini"
 }

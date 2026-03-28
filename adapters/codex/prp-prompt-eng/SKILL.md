@@ -1,8 +1,9 @@
 ---
-description: "Prompt engineering workflow - design, test, and optimize AI prompts for chatbot/voice"
-argument-hint: "[--design 'use-case'] [--test] [--optimize] [--ab-test]"
+name: prp-prompt-eng
+description: "Prompt engineering workflow — design, test, and optimize AI prompts for chatbot/voice."
+metadata:
+  short-description: Prompt engineering
 ---
-<process>
 # Prompt Engineering Workflow
 
 **Input**: $ARGUMENTS
@@ -594,5 +595,3 @@ If issues occur, revert to previous version:
 - **TESTS_CREATED**: Comprehensive test suite
 - **TESTS_PASSED**: >90% pass rate
 - **DOCUMENTED**: Version controlled in library
-
-</process>

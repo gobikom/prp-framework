@@ -1,8 +1,7 @@
 ---
-description: "Design and analyze chatbot/voicebot intents - intent architecture, utterances, entities"
-argument-hint: "[--design 'use-case'] [--analyze] [--optimize] [--export]"
+description: "Design and analyze chatbot/voicebot intents — intent architecture, utterances, entities."
+agent: plan
 ---
-<process>
 # Intent Design & Analysis
 
 **Input**: $ARGUMENTS
@@ -447,5 +446,3 @@ Fine-grained variations:
 - **OVERLAPS_RESOLVED**: No conflicting intents
 - **SCHEMA_EXPORTED**: Ready for import
 - **TESTS_CREATED**: Test cases for validation
-
-</process>

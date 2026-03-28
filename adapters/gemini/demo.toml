@@ -1,11 +1,8 @@
----
-description: "Prepare demo environment for customer presentations - setup, sample data, scripts"
-argument-hint: "[--setup] [--reset] [--scenario 'customer-name'] [--checklist]"
----
-<process>
+description = "Prepare demo environment for customer presentations — setup, sample data, scripts."
+prompt = """
 # Demo Environment Manager
 
-**Input**: $ARGUMENTS
+**Input**: {{args}}
 
 ---
 
@@ -495,9 +492,9 @@ status: READY | ISSUES
 
 ### Quick Actions
 
-- `/prp-core:prp-demo --reset` - Reset to clean state
-- `/prp-core:prp-demo --scenario "CompanyName"` - Customize for prospect
-- `/prp-core:prp-demo --checklist` - Pre-demo checklist
+- `/demo --reset` - Reset to clean state
+- `/demo --scenario "CompanyName"` - Customize for prospect
+- `/demo --checklist` - Pre-demo checklist
 
 ### Artifacts
 
@@ -522,4 +519,4 @@ status: READY | ISSUES
 - **CHECKLIST_GENERATED**: Pre-demo checklist ready
 - **FALLBACKS_READY**: Backup plans documented
 
-</process>
+"""
