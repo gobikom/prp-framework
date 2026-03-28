@@ -102,7 +102,7 @@ Include in handoff context:
 - `ralph-cancel` - Cancel loop
 - `rollback` - Safely undo implementation changes (--soft / --hard with stash backup / --restore)
 - `cleanup` - Post-merge cleanup (delete local/remote branches, verify PR merged, `--all` / `--dry-run`)
-- `run-all` - Full workflow (supports `--fast` / `--skip-plan` / `--ralph` / `--ralph-max-iter N` / `--resume` / `--fix-severity` / `--no-interact` / `--dry-run` flags)
+- `run-all` - Full workflow (supports `--fast` / `--skip-plan` / `--ralph` / `--ralph-max-iter N` / `--review-single-agent` / `--resume` / `--fix-severity` / `--no-interact` / `--dry-run` flags)
 
 ### Marketing Commands (`/prp-mkt:`)
 - `landing` - Landing page analysis & optimization

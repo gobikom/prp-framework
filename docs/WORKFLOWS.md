@@ -607,9 +607,9 @@ run-all creates a state file at `.claude/prp-run-all.state.md` to track progress
 ### Review-Fix Loop (Step 6)
 
 After PR creation, the review step runs a fix loop:
-1. Run `/prp:review-agents` on the PR
+1. Run `/prp:review-agents` on the PR (default; use `--review-single-agent` for single-agent review)
 2. If any issues matching `FIX_SEVERITY` found (default: critical, high, medium, suggestion) and cycle <= 2: run `/prp:review-fix` with `--severity {FIX_SEVERITY}`
-3. Re-verify with another `/prp:review-agents` to confirm fixes and catch regressions
+3. Re-verify with `/prp:review` (always single-agent — multi-agent re-verify is wasteful for incremental changes)
 4. Max 2 cycles — if issues remain after 2 rounds, report remaining issues for manual fix
 
 ### Context Handoff

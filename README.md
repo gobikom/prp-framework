@@ -99,7 +99,7 @@ cp -r prp-framework/* my-project/
 | **PR** | Create pull request | Ready to push |
 | **Rollback** | Safely undo implementation changes (--soft / --hard with stash backup / --restore) | Implementation went wrong |
 | **Cleanup** | Post-merge cleanup (delete local/remote branches, verify PR merged, `--all` / `--dry-run`) | After PR merged |
-| **Run All** | Full workflow end-to-end (supports `--fast`, `--skip-plan`, `--ralph`, `--resume`, `--fix-severity`, `--no-interact`, `--dry-run`) | Complete automation |
+| **Run All** | Full workflow end-to-end (supports `--fast`, `--skip-plan`, `--ralph`, `--review-single-agent`, `--resume`, `--fix-severity`, `--no-interact`, `--dry-run`) | Complete automation |
 
 ## Tool Support
 
@@ -123,6 +123,7 @@ cp -r prp-framework/* my-project/
 /prp-core:run-all --skip-plan                              # Select existing plan, then implement
 /prp-core:run-all Add JWT auth --ralph                     # Full workflow using ralph loop
 /prp-core:run-all Add JWT auth --resume                    # Resume from last failed step
+/prp-core:run-all Add JWT auth --review-single-agent        # Single-agent review (saves tokens)
 /prp-core:run-all Add JWT auth --fix-severity critical     # Override review-fix severity
 /prp-core:run-all Add JWT auth --no-interact               # Fully unattended (no questions asked)
 /prp-core:run-all Add JWT auth --dry-run                   # Preview steps + token estimate (no execution)

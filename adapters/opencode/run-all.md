@@ -36,6 +36,7 @@ Execute the complete PRP workflow end-to-end autonomously. Each step delegates t
 | `--ralph` | Use ralph loop for Step 3 instead of implement (resilient, slower) |
 | `--ralph-max-iter N` | Set max ralph iterations (default: 10, max recommended: 20) |
 | `--skip-review` | Set SKIP_REVIEW = true. Skip Step 6. |
+| `--review-single-agent` | Use `/prp:review` (single agent) instead of default `/prp:review-agents` (multi-agent). Saves tokens. |
 | `--no-pr` | Set NO_PR = true. Skip Steps 5 and 6. |
 | `--fix-severity <levels>` | Override review-fix severity (default: `critical,high,medium,suggestion`) |
 | `--resume` | Resume from last failed step using saved state |
@@ -62,6 +63,7 @@ REVIEW_ARTIFACT = "{TBD — set in Step 6.1}"
 USE_RALPH = {true if --ralph}
 RALPH_MAX_ITER = {N, default 10}
 SKIP_REVIEW = {true if --skip-review or --no-pr}
+REVIEW_SINGLE_AGENT = {true if --review-single-agent}
 NO_PR = {true if --no-pr}
 FIX_SEVERITY = "{from --fix-severity, default 'critical,high,medium,suggestion'}"
 FAST_PLAN = {true if --fast} (ignored if PLAN_PATH already set)
@@ -300,12 +302,19 @@ Set: `REVIEW_CYCLE = 1`, `MAX_CYCLES = 2`
 
 #### 6.1 Run Review
 
-Use `/prp:review` with PR_NUMBER. If `.prp-output/reviews/pr-context-{BRANCH}.md` exists, pass `--context` flag for token optimization.
+**Choose review command based on `REVIEW_SINGLE_AGENT`:**
+
+| REVIEW_SINGLE_AGENT | Command | Description |
+|---------------------|---------|-------------|
+| false (default) | `/prp:review-agents` | Multi-agent review (specialized agents in parallel) |
+| true | `/prp:review` | Single-agent review (faster, saves tokens) |
+
+Pass PR_NUMBER to the chosen command. If `.prp-output/reviews/pr-context-{BRANCH}.md` exists, pass `--context` flag for token optimization.
 
 **Variable update**: `REVIEW_ARTIFACT = .prp-output/reviews/pr-{PR_NUMBER}-review-opencode.md`
 
 **DO NOT**: Read code and review it yourself, skip the skill.
-**CHECKPOINT**: Did you invoke `/prp:review`? If not → STOP → invoke it.
+**CHECKPOINT**: Did you invoke the review command? If not → STOP → invoke it.
 
 #### 6.2 Evaluate Results
 
@@ -330,7 +339,9 @@ This will: detect toolchain, load artifact directly, fix issues by severity, val
 
 Increment: `REVIEW_CYCLE += 1`
 
-Re-run review to confirm fixes resolved issues and no regressions introduced:
+Re-run review to confirm fixes resolved issues and no regressions introduced.
+
+**Re-verify always uses single-agent review** (`/prp:review`) regardless of `REVIEW_SINGLE_AGENT` setting — multi-agent re-verify is wasteful for incremental changes.
 
 Use `/prp:review` with `{PR_NUMBER} --since-last-review` for **incremental review** (only reviews changes since last review — saves tokens).
 
