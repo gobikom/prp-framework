@@ -1,8 +1,9 @@
 ---
-description: "Plan and design integrations - CRM, ticketing, telephony, and custom APIs"
-argument-hint: "[--plan 'system-name'] [--design] [--document] [--troubleshoot]"
+name: prp-integration
+description: "Plan and design integrations — CRM, ticketing, telephony, and custom APIs."
+metadata:
+  short-description: Integration planning
 ---
-<process>
 # Integration Planning & Design
 
 **Input**: $ARGUMENTS
@@ -660,5 +661,3 @@ SYSTEM_WEBHOOK_SECRET=zzzz
 - **ERRORS_HANDLED**: Error scenarios planned
 - **TESTS_CREATED**: Test plan ready
 - **DOCUMENTATION_COMPLETE**: Ready for implementation
-
-</process>

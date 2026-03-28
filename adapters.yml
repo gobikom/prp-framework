@@ -16,6 +16,10 @@ adapters:
       fields: [description, argument-hint]
     wrapper: xml  # Wrap content in <objective>, <context>, <process> tags
     overlays: true  # Load from prompts/overlays/claude-code/
+    # Marketing/bot commands live in separate adapter directories
+    group_dirs:
+      marketing: "claude-code-marketing"
+      bot: "claude-code-bot"
 
   codex:
     file_pattern: "prp-{name}/SKILL.md"
@@ -227,4 +231,93 @@ commands:
       default: "Execute the complete PRP workflow end-to-end — plan, implement, commit, PR, review, and fix. Supports --fast, --ralph, --skip-plan, --skip-review, --no-pr, --resume, --no-interact, --dry-run, --fix-severity options."
     argument-hint: "\"<feature-description>\" or --prp-path <path/to/plan.md> [--fast] [--ralph] [--ralph-max-iter N] [--skip-review] [--no-pr] [--fix-severity <levels>] [--resume] [--no-interact] [--dry-run]"
     codex-short-description: "Full PRP workflow"
+    opencode-agent: "plan"
+
+  # ─────────────────────────────────────────────
+  # Marketing Commands (group: marketing)
+  # ─────────────────────────────────────────────
+
+  landing:
+    group: marketing
+    description:
+      claude-code: "Analyze and improve landing page for conversion - copy, CTA, trust signals, SEO"
+      default: "Analyze and improve landing page for conversion — copy, CTA, trust signals, SEO."
+    argument-hint: "[--analyze URL] [--generate] [--improve 'suggestions'] [--target 'audience']"
+    codex-short-description: "Landing page optimization"
+    opencode-agent: "plan"
+
+  demo:
+    group: marketing
+    description:
+      claude-code: "Prepare demo environment for customer presentations - setup, sample data, scripts"
+      default: "Prepare demo environment for customer presentations — setup, sample data, scripts."
+    argument-hint: "[--setup] [--reset] [--scenario 'customer-name'] [--checklist]"
+    codex-short-description: "Demo environment setup"
+    opencode-agent: "plan"
+
+  pitch:
+    group: marketing
+    description:
+      claude-code: "Generate pitch materials - deck, one-pager, email templates, proposals"
+      default: "Generate pitch materials — deck, one-pager, email templates, proposals."
+    argument-hint: "[--deck] [--one-pager] [--email] [--proposal] [--target 'audience/industry']"
+    codex-short-description: "Pitch materials generation"
+    opencode-agent: "plan"
+
+  competitor:
+    group: marketing
+    description:
+      claude-code: "Competitive analysis - research competitors, compare features, identify positioning"
+      default: "Competitive analysis — research competitors, compare features, identify positioning."
+    argument-hint: "[--analyze 'competitor1, competitor2'] [--compare] [--positioning] [--battlecard]"
+    codex-short-description: "Competitive analysis"
+    opencode-agent: "plan"
+
+  # ─────────────────────────────────────────────
+  # AI Bot Commands (group: bot)
+  # ─────────────────────────────────────────────
+
+  intent:
+    group: bot
+    description:
+      claude-code: "Design and analyze chatbot/voicebot intents - intent architecture, utterances, entities"
+      default: "Design and analyze chatbot/voicebot intents — intent architecture, utterances, entities."
+    argument-hint: "[--design 'use-case'] [--analyze] [--optimize] [--export]"
+    codex-short-description: "Chatbot intent design"
+    opencode-agent: "plan"
+
+  flow:
+    group: bot
+    description:
+      claude-code: "Design conversation flows - user journeys, dialog trees, handoff logic"
+      default: "Design conversation flows — user journeys, dialog trees, handoff logic."
+    argument-hint: "[--design 'flow-name'] [--analyze] [--visualize] [--optimize]"
+    codex-short-description: "Conversation flow design"
+    opencode-agent: "plan"
+
+  prompt-eng:
+    group: bot
+    description:
+      claude-code: "Prompt engineering workflow - design, test, and optimize AI prompts for chatbot/voice"
+      default: "Prompt engineering workflow — design, test, and optimize AI prompts for chatbot/voice."
+    argument-hint: "[--design 'use-case'] [--test] [--optimize] [--ab-test]"
+    codex-short-description: "Prompt engineering"
+    opencode-agent: "plan"
+
+  voice-ux:
+    group: bot
+    description:
+      claude-code: "Voice UX design and analysis - call flows, speech patterns, IVR optimization"
+      default: "Voice UX design and analysis — call flows, speech patterns, IVR optimization."
+    argument-hint: "[--design 'flow'] [--analyze] [--optimize] [--script]"
+    codex-short-description: "Voice UX design"
+    opencode-agent: "plan"
+
+  integration:
+    group: bot
+    description:
+      claude-code: "Plan and design integrations - CRM, ticketing, telephony, and custom APIs"
+      default: "Plan and design integrations — CRM, ticketing, telephony, and custom APIs."
+    argument-hint: "[--plan 'system-name'] [--design] [--document] [--troubleshoot]"
+    codex-short-description: "Integration planning"
     opencode-agent: "plan"

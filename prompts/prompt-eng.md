@@ -1,11 +1,6 @@
----
-description: "Prompt engineering workflow - design, test, and optimize AI prompts for chatbot/voice"
-argument-hint: "[--design 'use-case'] [--test] [--optimize] [--ab-test]"
----
-<process>
 # Prompt Engineering Workflow
 
-**Input**: $ARGUMENTS
+**Input**: {ARGS}
 
 ---
 
@@ -594,5 +589,3 @@ If issues occur, revert to previous version:
 - **TESTS_CREATED**: Comprehensive test suite
 - **TESTS_PASSED**: >90% pass rate
 - **DOCUMENTED**: Version controlled in library
-
-</process>

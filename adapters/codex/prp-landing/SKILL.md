@@ -1,8 +1,9 @@
 ---
-description: "Analyze and improve landing page for conversion - copy, CTA, trust signals, SEO"
-argument-hint: "[--analyze URL] [--generate] [--improve 'suggestions'] [--target 'audience']"
+name: prp-landing
+description: "Analyze and improve landing page for conversion — copy, CTA, trust signals, SEO."
+metadata:
+  short-description: Landing page optimization
 ---
-<process>
 # Landing Page Optimizer
 
 **Input**: $ARGUMENTS
@@ -441,5 +442,3 @@ A: {answer}
 - **SOLUTIONS_PROVIDED**: Specific copy and changes suggested
 - **REPORT_SAVED**: Analysis/content saved to file
 - **ACTIONABLE**: Clear next steps for implementation
-
-</process>

@@ -1,11 +1,8 @@
----
-description: "Plan and design integrations - CRM, ticketing, telephony, and custom APIs"
-argument-hint: "[--plan 'system-name'] [--design] [--document] [--troubleshoot]"
----
-<process>
+description = "Plan and design integrations — CRM, ticketing, telephony, and custom APIs."
+prompt = """
 # Integration Planning & Design
 
-**Input**: $ARGUMENTS
+**Input**: {{args}}
 
 ---
 
@@ -347,7 +344,7 @@ Create these custom fields in Salesforce:
     "ticket": {
       "subject": "AI: Order return request",
       "comment": {
-        "body": "Customer transcript:\n\n...",
+        "body": "Customer transcript:\\n\\n...",
         "public": false
       },
       "requester": {
@@ -661,4 +658,4 @@ SYSTEM_WEBHOOK_SECRET=zzzz
 - **TESTS_CREATED**: Test plan ready
 - **DOCUMENTATION_COMPLETE**: Ready for implementation
 
-</process>
+"""

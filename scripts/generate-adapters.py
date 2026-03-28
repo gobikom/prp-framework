@@ -436,18 +436,27 @@ def generate_all(config: dict, adapter_filter: str | None = None,
     commands = config["commands"]
 
     for adapter_name, adapter_cfg in adapters_to_gen.items():
-        adapter_dir = ADAPTERS_DIR / adapter_name
+        default_adapter_dir = ADAPTERS_DIR / adapter_name
+        group_dirs = adapter_cfg.get("group_dirs", {})
 
         print(f"\n{'='*60}")
         print(f"Adapter: {adapter_name}")
         print(f"{'='*60}")
 
         for cmd_name in commands:
+            cmd_cfg = commands[cmd_name]
             rel_path, content = generate_adapter_file(adapter_name, cmd_name, config)
 
             if not content:
                 stats["skipped"] += 1
                 continue
+
+            # Determine output directory (may differ for grouped commands)
+            cmd_group = cmd_cfg.get("group")
+            if cmd_group and cmd_group in group_dirs:
+                adapter_dir = ADAPTERS_DIR / group_dirs[cmd_group]
+            else:
+                adapter_dir = default_adapter_dir
 
             out_path = adapter_dir / rel_path
 

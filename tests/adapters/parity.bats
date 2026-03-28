@@ -11,12 +11,71 @@ FRAMEWORK_DIR="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)"
 # ─────────────────────────────────────────────
 # 1. Core command existence per adapter
 # ─────────────────────────────────────────────
-@test "all 5 adapters have 19 commands each" {
+@test "claude-code has 19 core commands" {
     [ "$(ls "$FRAMEWORK_DIR/adapters/claude-code"/prp-*.md | wc -l)" -eq 19 ]
-    [ "$(ls -d "$FRAMEWORK_DIR/adapters/codex"/prp-*/ | wc -l)" -eq 19 ]
-    [ "$(ls "$FRAMEWORK_DIR/adapters/opencode"/*.md | wc -l)" -eq 19 ]
-    [ "$(ls "$FRAMEWORK_DIR/adapters/antigravity"/prp-*.md | wc -l)" -eq 19 ]
-    [ "$(ls "$FRAMEWORK_DIR/adapters/gemini"/*.toml | wc -l)" -eq 19 ]
+}
+
+@test "claude-code has 4 marketing commands in separate dir" {
+    [ "$(ls "$FRAMEWORK_DIR/adapters/claude-code-marketing"/prp-*.md | wc -l)" -eq 4 ]
+    # Verify specific commands exist
+    [ -f "$FRAMEWORK_DIR/adapters/claude-code-marketing/prp-landing.md" ]
+    [ -f "$FRAMEWORK_DIR/adapters/claude-code-marketing/prp-demo.md" ]
+    [ -f "$FRAMEWORK_DIR/adapters/claude-code-marketing/prp-pitch.md" ]
+    [ -f "$FRAMEWORK_DIR/adapters/claude-code-marketing/prp-competitor.md" ]
+}
+
+@test "claude-code has 5 bot commands in separate dir" {
+    [ "$(ls "$FRAMEWORK_DIR/adapters/claude-code-bot"/prp-*.md | wc -l)" -eq 5 ]
+    # Verify specific commands exist
+    [ -f "$FRAMEWORK_DIR/adapters/claude-code-bot/prp-intent.md" ]
+    [ -f "$FRAMEWORK_DIR/adapters/claude-code-bot/prp-flow.md" ]
+    [ -f "$FRAMEWORK_DIR/adapters/claude-code-bot/prp-prompt-eng.md" ]
+    [ -f "$FRAMEWORK_DIR/adapters/claude-code-bot/prp-voice-ux.md" ]
+    [ -f "$FRAMEWORK_DIR/adapters/claude-code-bot/prp-integration.md" ]
+}
+
+@test "claude-code total commands across all dirs equals 28" {
+    CC_CORE=$(ls "$FRAMEWORK_DIR/adapters/claude-code"/prp-*.md | wc -l)
+    CC_MKT=$(ls "$FRAMEWORK_DIR/adapters/claude-code-marketing"/prp-*.md | wc -l)
+    CC_BOT=$(ls "$FRAMEWORK_DIR/adapters/claude-code-bot"/prp-*.md | wc -l)
+    TOTAL=$((CC_CORE + CC_MKT + CC_BOT))
+    [ "$TOTAL" -eq 28 ]
+}
+
+@test "codex/opencode/gemini/antigravity have 28 commands each" {
+    [ "$(ls -d "$FRAMEWORK_DIR/adapters/codex"/prp-*/ | wc -l)" -eq 28 ]
+    [ "$(ls "$FRAMEWORK_DIR/adapters/opencode"/*.md | wc -l)" -eq 28 ]
+    [ "$(ls "$FRAMEWORK_DIR/adapters/antigravity"/prp-*.md | wc -l)" -eq 28 ]
+    [ "$(ls "$FRAMEWORK_DIR/adapters/gemini"/*.toml | wc -l)" -eq 28 ]
+}
+
+@test "all 9 mkt+bot commands exist in cross-adapters by name" {
+    for cmd in landing demo pitch competitor intent flow prompt-eng voice-ux integration; do
+        [ -d "$FRAMEWORK_DIR/adapters/codex/prp-$cmd" ]
+        [ -f "$FRAMEWORK_DIR/adapters/opencode/$cmd.md" ]
+        [ -f "$FRAMEWORK_DIR/adapters/gemini/$cmd.toml" ]
+        [ -f "$FRAMEWORK_DIR/adapters/antigravity/prp-$cmd.md" ]
+    done
+}
+
+@test "marketing commands route to claude-code-marketing not claude-code" {
+    for cmd in landing demo pitch competitor; do
+        [ -f "$FRAMEWORK_DIR/adapters/claude-code-marketing/prp-$cmd.md" ]
+        [ ! -f "$FRAMEWORK_DIR/adapters/claude-code/prp-$cmd.md" ]
+    done
+}
+
+@test "bot commands route to claude-code-bot not claude-code" {
+    for cmd in intent flow prompt-eng voice-ux integration; do
+        [ -f "$FRAMEWORK_DIR/adapters/claude-code-bot/prp-$cmd.md" ]
+        [ ! -f "$FRAMEWORK_DIR/adapters/claude-code/prp-$cmd.md" ]
+    done
+}
+
+@test "prompts/ has all 9 mkt+bot canonical prompt files" {
+    for cmd in landing demo pitch competitor intent flow prompt-eng voice-ux integration; do
+        [ -f "$FRAMEWORK_DIR/prompts/$cmd.md" ]
+    done
 }
 
 @test "codex has review-agents and feature-review-agents aliases" {
@@ -536,9 +595,9 @@ print(len(c['adapters']) * len(c['commands']))
     [ "$COUNT" -eq "$EXPECTED" ]
 }
 
-@test "adapters.yml defines all 19 commands" {
+@test "adapters.yml defines all 28 commands (19 core + 4 mkt + 5 bot)" {
     COUNT=$(python3 -c "import yaml; c=yaml.safe_load(open('$FRAMEWORK_DIR/adapters.yml')); print(len(c['commands']))")
-    [ "$COUNT" -eq 19 ]
+    [ "$COUNT" -eq 28 ]
 }
 
 @test "adapters.yml defines all 5 adapters" {
@@ -550,10 +609,10 @@ print(len(c['adapters']) * len(c['commands']))
     [ -f "$FRAMEWORK_DIR/prompts/overlays/claude-code/plan.md" ]
 }
 
-@test "generate-adapters.py --adapter gemini --dry-run lists 19 files" {
+@test "generate-adapters.py --adapter gemini --dry-run lists 28 files" {
     OUTPUT=$(python3 "$FRAMEWORK_DIR/scripts/generate-adapters.py" --adapter gemini --dry-run 2>&1)
     COUNT=$(echo "$OUTPUT" | grep -c "DRY RUN")
-    [ "$COUNT" -eq 19 ]
+    [ "$COUNT" -eq 28 ]
     # All should be gemini paths
     ! echo "$OUTPUT" | grep "DRY RUN" | grep -qv "gemini"
 }

@@ -1,11 +1,6 @@
----
-description: "Plan and design integrations - CRM, ticketing, telephony, and custom APIs"
-argument-hint: "[--plan 'system-name'] [--design] [--document] [--troubleshoot]"
----
-<process>
 # Integration Planning & Design
 
-**Input**: $ARGUMENTS
+**Input**: {ARGS}
 
 ---
 
@@ -660,5 +655,3 @@ SYSTEM_WEBHOOK_SECRET=zzzz
 - **ERRORS_HANDLED**: Error scenarios planned
 - **TESTS_CREATED**: Test plan ready
 - **DOCUMENTATION_COMPLETE**: Ready for implementation
-
-</process>

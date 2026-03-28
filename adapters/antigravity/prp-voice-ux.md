@@ -1,8 +1,6 @@
 ---
-description: "Voice UX design and analysis - call flows, speech patterns, IVR optimization"
-argument-hint: "[--design 'flow'] [--analyze] [--optimize] [--script]"
+description: "Voice UX design and analysis — call flows, speech patterns, IVR optimization."
 ---
-<process>
 # Voice UX Design
 
 **Input**: $ARGUMENTS
@@ -616,5 +614,3 @@ version: "1.0"
 - **METRICS_DEFINED**: Success criteria set
 - **TESTS_CREATED**: Scenarios for QA
 - **VOICE_OPTIMIZED**: Natural, conversational language
-
-</process>

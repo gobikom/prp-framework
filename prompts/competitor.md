@@ -1,11 +1,6 @@
----
-description: "Competitive analysis - research competitors, compare features, identify positioning"
-argument-hint: "[--analyze 'competitor1, competitor2'] [--compare] [--positioning] [--battlecard]"
----
-<process>
 # Competitive Analysis
 
-**Input**: $ARGUMENTS
+**Input**: {ARGS}
 
 ---
 
@@ -502,5 +497,3 @@ our voice AI handled 60% more calls without human intervention."
 - **POSITIONING_DEFINED**: Market position clarified
 - **BATTLE_CARDS_GENERATED**: Sales ammunition ready
 - **OBJECTIONS_HANDLED**: Responses for common pushback
-
-</process>

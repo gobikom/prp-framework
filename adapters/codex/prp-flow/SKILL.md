@@ -1,8 +1,9 @@
 ---
-description: "Design conversation flows - user journeys, dialog trees, handoff logic"
-argument-hint: "[--design 'flow-name'] [--analyze] [--visualize] [--optimize]"
+name: prp-flow
+description: "Design conversation flows — user journeys, dialog trees, handoff logic."
+metadata:
+  short-description: Conversation flow design
 ---
-<process>
 # Conversation Flow Design
 
 **Input**: $ARGUMENTS
@@ -681,5 +682,3 @@ graph TD
 - **DIAGRAM_CREATED**: Visual representation ready
 - **METRICS_DEFINED**: Success criteria established
 - **TESTS_CREATED**: Scenarios for validation
-
-</process>
