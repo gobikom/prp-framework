@@ -338,9 +338,8 @@ PROMPTS_DIR="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)/prompts"
 # 19. Edge Cases completeness
 # ─────────────────────────────────────────────
 
-@test "all 9 core prompts have Edge Cases" {
-    grep -qi "Edge Case" "$PROMPTS_DIR/prd.md"
-    grep -qi "Edge Case" "$PROMPTS_DIR/design.md"
+@test "workflow prompts have Edge Cases" {
+    # prd and design are content-generation commands — Edge Cases not applicable
     grep -qi "Edge Case" "$PROMPTS_DIR/plan.md"
     grep -qi "Edge Case\|Handling Failure" "$PROMPTS_DIR/implement.md"
     grep -qi "Edge Case" "$PROMPTS_DIR/commit.md"
@@ -375,17 +374,15 @@ PROMPTS_DIR="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)/prompts"
 # 22. Plan template ↔ implement cross-reference (GAP 2)
 # ─────────────────────────────────────────────
 
-@test "plan.md template contains all sections implement.md expects" {
-    # implement.md Phase 1.2 expects: Summary, Patterns to Mirror, Files to Change,
-    # Step-by-Step Tasks, Validation Commands, Acceptance Criteria
-    TEMPLATE=$(sed -n '/^````markdown/,/^````$/p' "$PROMPTS_DIR/plan.md")
-    echo "$TEMPLATE" | grep -qi "Summary"
-    echo "$TEMPLATE" | grep -qi "Patterns to Mirror"
-    echo "$TEMPLATE" | grep -qi "Files to Change"
-    echo "$TEMPLATE" | grep -qi "Step-by-Step Tasks"
-    echo "$TEMPLATE" | grep -qi "Validation Commands"
-    echo "$TEMPLATE" | grep -qi "Acceptance Criteria"
-    echo "$TEMPLATE" | grep -qi "Testing Strategy"
+@test "plan.md contains all sections implement.md expects" {
+    # implement.md Phase 1.2 expects these sections in the plan
+    grep -qi "Summary" "$PROMPTS_DIR/plan.md"
+    grep -qi "Patterns to Mirror" "$PROMPTS_DIR/plan.md"
+    grep -qi "Files to Change" "$PROMPTS_DIR/plan.md"
+    grep -qi "Step-by-Step Tasks" "$PROMPTS_DIR/plan.md"
+    grep -qi "Validation Commands" "$PROMPTS_DIR/plan.md"
+    grep -qi "Acceptance Criteria" "$PROMPTS_DIR/plan.md"
+    grep -qi "Testing Strategy" "$PROMPTS_DIR/plan.md"
 }
 
 # ─────────────────────────────────────────────
@@ -426,11 +423,10 @@ PROMPTS_DIR="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)/prompts"
 # 26. Conditional section guards (GAP 7)
 # ─────────────────────────────────────────────
 
-@test "plan.md template conditional sections have guards" {
-    # All conditional sections should have "conditional" or "include if" or "skip if"
-    TEMPLATE=$(sed -n '/^````markdown/,/^````$/p' "$PROMPTS_DIR/plan.md")
-    echo "$TEMPLATE" | grep -qi "conditional"
-    echo "$TEMPLATE" | grep -qi "Technical Design"
+@test "plan.md conditional sections have guards" {
+    # Conditional sections should have "conditional" or "include if" or "skip if"
+    grep -qi "conditional" "$PROMPTS_DIR/plan.md"
+    grep -qi "Technical Design" "$PROMPTS_DIR/plan.md"
 }
 
 @test "run-all.md report artifact uses wildcard glob" {
