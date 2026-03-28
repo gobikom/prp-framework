@@ -1,25 +1,4 @@
-# PRP Feature Review — Comprehensive Feature and Code Review
 
-## Input
-
-Package path and optional focus: `{ARGS}`
-
-Format: `<package-path> [--focus code|product|performance|security|all]`
-
-## Mission
-
-Perform a comprehensive, senior-engineer-level review of a package or folder to:
-
-1. **Understand** the codebase structure and purpose
-2. **Analyze** code quality, patterns, and architecture
-3. **Suggest** product improvements and new feature ideas
-4. **Identify** performance optimization opportunities
-5. **Review** security concerns and best practices
-6. **Generate** actionable markdown report
-
-**Golden Rule**: Be constructive, creative, and actionable. Think like a product-minded engineer who cares about both code quality AND user value.
-
----
 
 ## Agent Mode Detection
 
@@ -34,6 +13,27 @@ All review passes and analysis phases run unchanged — these are where quality 
 
 ---
 
+
+# Feature & Code Review
+
+**Input**: {ARGS}
+
+---
+
+## Your Mission
+
+Perform a comprehensive, senior-engineer-level review of a package or folder to:
+
+1. **Understand** the codebase structure and purpose
+2. **Analyze** code quality, patterns, and architecture
+3. **Suggest** product improvements and new feature ideas
+4. **Identify** performance optimization opportunities
+5. **Review** security concerns and best practices
+6. **Generate** actionable markdown report
+
+**Golden Rule**: Be constructive, creative, and actionable. Think like a product-minded engineer who cares about both code quality AND user value.
+
+---
 
 ## Phase 1: PARSE - Understand Input
 
@@ -314,10 +314,10 @@ For each area, consider:
 
 | Priority | Criteria |
 |----------|----------|
-| Critical | Security vulnerabilities, data loss risks, breaking bugs |
-| High | Significant improvements, important missing features |
-| Medium | Nice-to-have improvements, optimization opportunities |
-| Low | Minor suggestions, future considerations |
+| 🔴 Critical | Security vulnerabilities, data loss risks, breaking bugs |
+| 🟠 High | Significant improvements, important missing features |
+| 🟡 Medium | Nice-to-have improvements, optimization opportunities |
+| 🔵 Low | Minor suggestions, future considerations |
 
 ### 4.2 Estimate Effort
 
@@ -385,7 +385,7 @@ reviewer: "AI Feature Review"
 
 ---
 
-## Code Quality Analysis
+## 🎨 Code Quality Analysis
 
 ### Strengths
 {What's done well}
@@ -398,7 +398,7 @@ reviewer: "AI Feature Review"
 
 ---
 
-## Product & Feature Ideas
+## 💡 Product & Feature Ideas
 
 ### Quick Wins
 {Features that can be added quickly with high impact}
@@ -414,7 +414,7 @@ reviewer: "AI Feature Review"
 
 ---
 
-## Performance Recommendations
+## ⚡ Performance Recommendations
 
 ### Immediate Optimizations
 {Quick performance fixes}
@@ -427,7 +427,7 @@ reviewer: "AI Feature Review"
 
 ---
 
-## Security Findings
+## 🔐 Security Findings
 
 ### Critical Issues
 {Must fix immediately}
@@ -440,34 +440,34 @@ reviewer: "AI Feature Review"
 
 ---
 
-## Prioritized Action Items
+## 📋 Prioritized Action Items
 
-### Critical (Do Now)
+### 🔴 Critical (Do Now)
 | Item | Type | Effort | Impact |
 |------|------|--------|--------|
 | {description} | {code/product/perf/security} | {effort} | {impact} |
 
-### High Priority (This Sprint)
+### 🟠 High Priority (This Sprint)
 | Item | Type | Effort | Impact |
 |------|------|--------|--------|
 
-### Medium Priority (Backlog)
+### 🟡 Medium Priority (Backlog)
 | Item | Type | Effort | Impact |
 |------|------|--------|--------|
 
-### Future Considerations
+### 🔵 Future Considerations
 | Item | Type | Effort | Impact |
 |------|------|--------|--------|
 
 ---
 
-## Metrics to Track
+## 📊 Metrics to Track
 
 {Suggested metrics to measure improvement}
 
 ---
 
-## Suggested Roadmap
+## 🗺️ Suggested Roadmap
 
 ### Phase 1: Foundation (1-2 weeks)
 {Critical fixes and quick wins}
@@ -495,7 +495,7 @@ reviewer: "AI Feature Review"
 ## Phase 6: OUTPUT - Present to User
 
 ```markdown
-## Feature Review Complete
+## ✅ Feature Review Complete
 
 **Package**: `{PACKAGE_PATH}`
 **Files Analyzed**: {count}
@@ -509,22 +509,22 @@ reviewer: "AI Feature Review"
 
 | Area | Score | Top Finding |
 |------|-------|-------------|
-| Code Quality | {N}/10 | {one-liner} |
-| Product Ideas | {N}/10 | {one-liner} |
-| Performance | {N}/10 | {one-liner} |
-| Security | {N}/10 | {one-liner} |
+| 🎨 Code Quality | {N}/10 | {one-liner} |
+| 💡 Product Ideas | {N}/10 | {one-liner} |
+| ⚡ Performance | {N}/10 | {one-liner} |
+| 🔐 Security | {N}/10 | {one-liner} |
 
 ### Action Items Summary
 
-- Critical: {count} items
-- High: {count} items
-- Medium: {count} items
-- Low: {count} items
+- 🔴 Critical: {count} items
+- 🟠 High: {count} items
+- 🟡 Medium: {count} items
+- 🔵 Low: {count} items
 
 ### Artifacts
 
-**Full Report**: `.prp-output/reviews/feature-review-{package-name}-{date}.md`
-**Context File**: `.prp-output/reviews/feature-context-{package-name}.md`
+📄 **Full Report**: `.prp-output/reviews/feature-review-{package-name}-{date}.md`
+📋 **Context File**: `.prp-output/reviews/feature-context-{package-name}.md`
 
 ### Next Steps
 
@@ -561,7 +561,7 @@ The context file (`.prp-output/reviews/feature-context-{package-name}.md`) serve
 
 1. **Avoid redundant reads** - Package structure, guidelines, and file inventory extracted once
 2. **Enable re-runs** - If context is recent, skip Phase 2 entirely
-3. **Support multi-agent** - Same context file used by the multi-agent feature review workflow
+3. **Support multi-agent** - Same context file used by `{TOOL}:feature-review-agents`
 
 ### Selective File Reading
 

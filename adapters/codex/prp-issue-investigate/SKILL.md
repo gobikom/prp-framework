@@ -1,118 +1,181 @@
+---\nname: prp-issue-investigate\ndescription: Investigate a GitHub issue or problem - analyze codebase, create plan, post to GitHub
+argument-hint: <issue-number|url|"description">\nmetadata:\n  short-description: issue investigate\n---\n
+
+# Investigate Issue
+
+**Input**: $ARGUMENTS
+
 ---
-name: prp-issue-investigate
-description: Analyze a GitHub issue or problem description — produces a comprehensive investigation artifact with root cause analysis, implementation plan, and assessment that can be executed by prp-issue-fix.
-metadata:
-  short-description: Investigate issue and create implementation plan
----
 
-# PRP Issue Investigate — Analyze Issue and Create Implementation Plan
+## Your Mission
 
-## Input
+Investigate the issue/problem and produce a comprehensive implementation plan that:
 
-Issue number, URL, or description: `$ARGUMENTS`
-
-Format: `<issue-number|github-url|free-form-description>`
-
-## Mission
-
-Investigate the issue and produce a comprehensive implementation plan that:
 1. Can be executed by `$prp-issue-fix`
 2. Is posted as a GitHub comment (if GH issue provided)
 3. Captures all context needed for one-pass implementation
 
 **Golden Rule**: The artifact you produce IS the specification. The implementing agent should be able to work from it without asking questions.
 
-## Phase 1: PARSE — Understand Input
+---
+
+## Phase 1: PARSE - Understand Input
 
 ### 1.1 Determine Input Type
 
-| Input Format | Interpretation |
-|-------------|----------------|
-| Number (`123`, `#123`) | GitHub issue number |
-| Starts with `http` | GitHub URL (extract issue number) |
-| Anything else | Free-form description (no GitHub posting) |
+**Check the input format:**
+
+- Looks like a number (`123`, `#123`) → GitHub issue number
+- Starts with `http` → GitHub URL (extract issue number)
+- Anything else → Free-form description
 
 ```bash
-# If GitHub issue:
+# If GitHub issue, fetch it:
 gh issue view {number} --json title,body,labels,comments,state,url,author
 ```
 
-### 1.2 Classify Issue Type
+### 1.2 Extract Context
 
-| Type | Indicators |
-|------|-----------|
-| BUG | "broken", "error", "crash", "doesn't work", stack trace |
-| ENHANCEMENT | "add", "support", "feature", "would be nice" |
-| REFACTOR | "clean up", "improve", "simplify", "reorganize" |
-| CHORE | "update", "upgrade", "maintenance", "dependency" |
-| DOCUMENTATION | "docs", "readme", "clarify", "example" |
+**If GitHub issue:**
 
-### 1.3 Assess Severity/Priority, Complexity, and Confidence
+- Title: What's the reported problem?
+- Body: Details, reproduction steps, expected vs actual
+- Labels: bug? enhancement? documentation?
+- Comments: Additional context from discussion
+- State: Is it still open?
 
-Each assessment requires a **one-sentence reasoning** based on concrete investigation findings.
+**If free-form:**
 
-**For BUG — Severity:**
+- Parse as problem description
+- Note: No GitHub posting (artifact only)
 
-| Severity | Criteria |
-|----------|----------|
-| CRITICAL | System down, data loss, security vulnerability, no workaround |
-| HIGH | Major feature broken, significant user impact, difficult workaround |
-| MEDIUM | Feature partially broken, moderate impact, workaround exists |
-| LOW | Minor issue, cosmetic, edge case, easy workaround |
+### 1.3 Classify Issue Type
 
-**For non-BUG — Priority:** HIGH / MEDIUM / LOW
+| Type          | Indicators                                              |
+| ------------- | ------------------------------------------------------- |
+| BUG           | "broken", "error", "crash", "doesn't work", stack trace |
+| ENHANCEMENT   | "add", "support", "feature", "would be nice"            |
+| REFACTOR      | "clean up", "improve", "simplify", "reorganize"         |
+| CHORE         | "update", "upgrade", "maintenance", "dependency"        |
+| DOCUMENTATION | "docs", "readme", "clarify", "example"                  |
 
-**Complexity:** HIGH (5+ files, architectural) / MEDIUM (2-4 files) / LOW (1-2 files, isolated)
+### 1.4 Assess Severity/Priority, Complexity, and Confidence
 
-**Confidence:** HIGH (clear root cause, strong evidence) / MEDIUM (likely cause, some assumptions) / LOW (uncertain, many unknowns)
+Each assessment requires a **one-sentence reasoning** explaining WHY you chose that value. This reasoning must be based on concrete findings from your investigation (codebase exploration, git history, integration analysis).
+
+**For BUG issues - Severity:**
+
+| Severity | Criteria                                                            |
+| -------- | ------------------------------------------------------------------- |
+| CRITICAL | System down, data loss, security vulnerability, no workaround       |
+| HIGH     | Major feature broken, significant user impact, difficult workaround |
+| MEDIUM   | Feature partially broken, moderate impact, workaround exists        |
+| LOW      | Minor issue, cosmetic, edge case, easy workaround                   |
+
+**For ENHANCEMENT/REFACTOR/CHORE/DOCUMENTATION - Priority:**
+
+| Priority | Criteria                                                   |
+| -------- | ---------------------------------------------------------- |
+| HIGH     | Blocking other work, frequently requested, high user value |
+| MEDIUM   | Important but not urgent, moderate user value              |
+| LOW      | Nice to have, low urgency, minimal user impact             |
+
+**Complexity** (based on codebase findings):
+
+| Complexity | Criteria                                                                |
+| ---------- | ----------------------------------------------------------------------- |
+| HIGH       | 5+ files, multiple integration points, architectural changes, high risk |
+| MEDIUM     | 2-4 files, some integration points, moderate risk                       |
+| LOW        | 1-2 files, isolated change, low risk                                    |
+
+**Confidence** (based on evidence quality):
+
+| Confidence | Criteria                                                     |
+| ---------- | ------------------------------------------------------------ |
+| HIGH       | Clear root cause, strong evidence, well-understood code path |
+| MEDIUM     | Likely root cause, some assumptions, partially understood    |
+| LOW        | Uncertain root cause, limited evidence, many unknowns        |
 
 **PHASE_1_CHECKPOINT:**
+
 - [ ] Input type identified (GH issue or free-form)
 - [ ] Issue content extracted
 - [ ] Type classified
-- [ ] Severity/Priority assessed with reasoning
+- [ ] Severity (bug) or Priority (other) assessed with reasoning
+- [ ] Complexity assessed with reasoning (after Phase 2)
+- [ ] Confidence assessed with reasoning (after Phase 3)
+- [ ] If GH issue: confirmed it's open and not already has PR
 
-## Phase 2: EXPLORE — Codebase Intelligence
+---
+
+## Phase 2: EXPLORE - Codebase Intelligence
 
 ### 2.1 Search for Relevant Code
 
-Explore the codebase to understand:
+Use task with subagent_type="Explore":
+
+```
+Explore the codebase to understand the issue:
+
+ISSUE: {title/description}
+
+DISCOVER:
 1. Files directly related to this functionality
 2. How the current implementation works
-3. Integration points — what calls this, what it calls
+3. Integration points - what calls this, what it calls
 4. Similar patterns elsewhere to mirror
 5. Existing test patterns for this area
+6. Error handling patterns used
+
+Return:
+- File paths with specific line numbers
+- Actual code snippets (not summaries)
+- Dependencies and data flow
+```
 
 ### 2.2 Document Findings
 
-| Area | File:Lines | Notes |
-|------|-----------|-------|
-| Core logic | `src/x.ts:10-50` | Main function affected |
-| Callers | `src/y.ts:20-30` | Uses the core function |
-| Types | `src/types/x.ts:5-15` | Relevant interfaces |
-| Tests | `src/x.test.ts:1-100` | Existing test patterns |
-| Similar | `src/z.ts:40-60` | Pattern to mirror |
+| Area       | File:Lines            | Notes                  |
+| ---------- | --------------------- | ---------------------- |
+| Core logic | `src/x.ts:10-50`      | Main function affected |
+| Callers    | `src/y.ts:20-30`      | Uses the core function |
+| Types      | `src/types/x.ts:5-15` | Relevant interfaces    |
+| Tests      | `src/x.test.ts:1-100` | Existing test patterns |
+| Similar    | `src/z.ts:40-60`      | Pattern to mirror      |
 
 **PHASE_2_CHECKPOINT:**
+
+- [ ] Explore agent completed successfully
 - [ ] Core files identified with line numbers
 - [ ] Integration points mapped
 - [ ] Similar patterns found to mirror
 - [ ] Test patterns documented
 
-## Phase 3: ANALYZE — Form Approach
+---
 
-### 3.1 For BUG Issues — Root Cause Analysis
+## Phase 3: ANALYZE - Form Approach
 
-Apply the 5 Whys with evidence at each step:
+### 3.1 For BUG Issues - Root Cause Analysis
+
+Apply the 5 Whys:
 
 ```
 WHY 1: Why does [symptom] occur?
 → Because [cause A]
 → Evidence: `file.ts:123` - {code snippet}
-...continue until root cause...
+
+WHY 2: Why does [cause A] happen?
+→ Because [cause B]
+→ Evidence: {proof}
+
+... continue until you reach fixable code ...
+
+ROOT CAUSE: [the specific code/logic to change]
+Evidence: `source.ts:456` - {the problematic code}
 ```
 
-Check git history:
+**Check git history:**
+
 ```bash
 git log --oneline -10 -- {affected-file}
 git blame -L {start},{end} {affected-file}
@@ -120,51 +183,244 @@ git blame -L {start},{end} {affected-file}
 
 ### 3.2 For ENHANCEMENT/REFACTOR Issues
 
-Identify: What needs to be added/changed, where it integrates, scope boundaries, what should NOT be changed.
+**Identify:**
+
+- What needs to be added/changed?
+- Where does it integrate?
+- What are the scope boundaries?
+- What should NOT be changed?
 
 ### 3.3 For All Issues
 
-Determine:
-- Files to CREATE / UPDATE / DELETE
+**Determine:**
+
+- Files to CREATE (new files)
+- Files to UPDATE (existing files)
+- Files to DELETE (if any)
 - Dependencies and order of changes
 - Edge cases and risks
 - Validation strategy
 
 **PHASE_3_CHECKPOINT:**
-- [ ] Root cause identified (bugs) OR change rationale clear (enhancements)
-- [ ] All affected files listed with specific changes
-- [ ] Scope boundaries defined
-- [ ] Risks and edge cases identified
 
-## Phase 4: GENERATE — Create Artifact
+- [ ] Root cause identified (for bugs) OR change rationale clear (for enhancements)
+- [ ] All affected files listed with specific changes
+- [ ] Scope boundaries defined (what NOT to change)
+- [ ] Risks and edge cases identified
+- [ ] Validation approach defined
+
+---
+
+## Phase 4: GENERATE - Create Artifact
 
 ### 4.1 Artifact Path
 
 ```bash
 mkdir -p .prp-output/issues
 TIMESTAMP=$(date +%Y%m%d-%H%M)
+# Check for existing files with same base name
+ls .prp-output/issues/issue-{number}*.md 2>/dev/null
 ```
 
-**With issue number:** `.prp-output/issues/issue-{number}-{TIMESTAMP}.md`
-**Free-form:** `.prp-output/issues/investigation-{TIMESTAMP}.md`
+**Path (with issue number):** `.prp-output/issues/issue-{number}-{TIMESTAMP}.md`
 
-### 4.2 Artifact Structure
+Example: `issue-123-20260210-1430.md`
 
-Write the artifact with these sections:
+**Path (free-form, no issue number):** `.prp-output/issues/investigation-{TIMESTAMP}.md`
 
-1. **Header**: Issue reference, Type, Timestamp
-2. **Assessment Table**: Severity/Priority + Complexity + Confidence (each with reasoning)
-3. **Problem Statement**: 2-3 sentences
-4. **Analysis**: Root Cause / Change Rationale, Evidence Chain with file:line references
-5. **Affected Files Table**: File, Lines, Action, Description
-6. **Integration Points**: What calls this, what it calls
-7. **Git History**: Introduced by, last modified, type (regression/original/long-standing)
-8. **Implementation Plan**: Step-by-step with current code, required change, rationale per step
-9. **Tests to Add**: Specific test cases with code
-10. **Patterns to Follow**: Actual code snippets from codebase to mirror
-11. **Edge Cases & Risks Table**: Risk, Mitigation
-12. **Validation Commands**: Adapted to project toolchain
-13. **Scope Boundaries**: IN SCOPE / OUT OF SCOPE
+Example: `investigation-20260210-1430.md`
+
+### 4.2 Artifact Template
+
+Write this structure to the artifact file.
+
+**Note on Severity vs Priority:**
+
+- Use **Severity** for BUG type (CRITICAL, HIGH, MEDIUM, LOW)
+- Use **Priority** for all other types (HIGH, MEDIUM, LOW)
+
+**Important:** Each assessment must include a one-sentence reasoning based on your investigation findings.
+
+````markdown
+# Investigation: {Title}
+
+**Issue**: #{number} ({url})
+**Type**: {BUG|ENHANCEMENT|REFACTOR|CHORE|DOCUMENTATION}
+**Investigated**: {ISO timestamp}
+
+### Assessment
+
+| Metric     | Value                         | Reasoning                                                                |
+| ---------- | ----------------------------- | ------------------------------------------------------------------------ |
+| Severity   | {CRITICAL\|HIGH\|MEDIUM\|LOW} | {Why this severity? Based on user impact, workarounds, scope of failure} |
+| Complexity | {LOW\|MEDIUM\|HIGH}           | {Why this complexity? Based on files affected, integration points, risk} |
+| Confidence | {HIGH\|MEDIUM\|LOW}           | {Why this confidence? Based on evidence quality, unknowns, assumptions}  |
+
+<!-- For non-BUG types, replace Severity row with Priority:
+| Priority | {HIGH\|MEDIUM\|LOW} | {Why this priority? Based on user value, blocking status, frequency} |
+-->
+
+---
+
+## Problem Statement
+
+{Clear 2-3 sentence description of what's wrong or what's needed}
+
+---
+
+## Analysis
+
+### Root Cause / Change Rationale
+
+{For BUG: The 5 Whys chain with evidence}
+{For ENHANCEMENT: Why this change and what it enables}
+
+### Evidence Chain
+
+WHY: {symptom}
+↓ BECAUSE: {cause 1}
+Evidence: `file.ts:123` - `{code snippet}`
+
+↓ BECAUSE: {cause 2}
+Evidence: `file.ts:456` - `{code snippet}`
+
+↓ ROOT CAUSE: {the fixable thing}
+Evidence: `file.ts:789` - `{problematic code}`
+
+### Affected Files
+
+| File            | Lines | Action | Description    |
+| --------------- | ----- | ------ | -------------- |
+| `src/x.ts`      | 45-60 | UPDATE | {what changes} |
+| `src/x.test.ts` | NEW   | CREATE | {test to add}  |
+
+### Integration Points
+
+- `src/y.ts:20` calls this function
+- `src/z.ts:30` depends on this behavior
+- {other dependencies}
+
+### Git History
+
+- **Introduced**: {commit} - {date} - "{message}"
+- **Last modified**: {commit} - {date}
+- **Implication**: {regression? original bug? long-standing?}
+
+---
+
+## Implementation Plan
+
+### Step 1: {First change description}
+
+**File**: `src/x.ts`
+**Lines**: 45-60
+**Action**: UPDATE
+
+**Current code:**
+
+```typescript
+// Line 45-50
+{actual current code}
+```
+````
+
+**Required change:**
+
+```typescript
+// What it should become
+{the fix/change}
+```
+
+**Why**: {brief rationale}
+
+---
+
+### Step 2: {Second change description}
+
+{Same structure...}
+
+---
+
+### Step N: Add/Update Tests
+
+**File**: `src/x.test.ts`
+**Action**: {CREATE|UPDATE}
+
+**Test cases to add:**
+
+```typescript
+describe("{feature}", () => {
+  it("should {expected behavior}", () => {
+    // Test the fix
+  });
+
+  it("should handle {edge case}", () => {
+    // Test edge case
+  });
+});
+```
+
+---
+
+## Patterns to Follow
+
+**From codebase - mirror these exactly:**
+
+```typescript
+// SOURCE: src/similar.ts:20-30
+// Pattern for {what this demonstrates}
+{actual code snippet from codebase}
+```
+
+---
+
+## Edge Cases & Risks
+
+| Risk/Edge Case | Mitigation      |
+| -------------- | --------------- |
+| {risk 1}       | {how to handle} |
+| {edge case}    | {how to handle} |
+
+---
+
+## Validation
+
+### Automated Checks
+
+```bash
+# Adapt to project's toolchain (npm, pnpm, yarn, cargo, go, etc.)
+{runner} run type-check   # or: mypy ., cargo check, go build ./...
+{runner} test {relevant-pattern}  # or: pytest, cargo test, go test
+{runner} run lint         # or: ruff check ., cargo clippy
+```
+
+### Manual Verification
+
+1. {Step to verify the fix/feature works}
+2. {Step to verify no regression}
+
+---
+
+## Scope Boundaries
+
+**IN SCOPE:**
+
+- {what we're changing}
+
+**OUT OF SCOPE (do not touch):**
+
+- {what to leave alone}
+- {future improvements to defer}
+
+---
+
+## Metadata
+
+- **Investigated by**: Claude
+- **Timestamp**: {ISO timestamp}
+- **Artifact**: `.prp-output/issues/issue-{number}-{TIMESTAMP}.md`
+
+````
 
 **PHASE_4_CHECKPOINT:**
 - [ ] Artifact file created
@@ -172,56 +428,179 @@ Write the artifact with these sections:
 - [ ] Code snippets are actual (not invented)
 - [ ] Steps are actionable without clarification
 
-## Phase 5: COMMIT — Save Artifact
+---
+
+## Phase 5: COMMIT - Save Artifact
 
 ```bash
-git add ".prp-output/issues/issue-{number}-${TIMESTAMP}.md"
+git add .prp-output/issues/
+git status
+````
+
+**If changes to commit:**
+
+```bash
 git commit -m "Investigate issue #{number}: {brief title}"
 ```
 
 **PHASE_5_CHECKPOINT:**
+
 - [ ] Artifact committed to git
 
-## Phase 6: POST — GitHub Comment
+---
 
-**Only if input was a GitHub issue:**
+## Phase 6: POST - GitHub Comment
 
-Post a formatted comment with: Assessment table, Problem Statement, Root Cause Analysis, Implementation Plan summary table, Validation commands, Next step (`$prp-issue-fix {number}`).
+**Only if input was a GitHub issue (not free-form):**
+
+Format the artifact for GitHub and post:
+
+````bash
+gh issue comment {number} --body "$(cat <<'EOF'
+## 🔍 Investigation: {Title}
+
+**Type**: `{TYPE}`
+
+### Assessment
+
+| Metric | Value | Reasoning |
+|--------|-------|-----------|
+| {Severity or Priority} | `{VALUE}` | {one-sentence why} |
+| Complexity | `{COMPLEXITY}` | {one-sentence why} |
+| Confidence | `{CONFIDENCE}` | {one-sentence why} |
+
+---
+
+### Problem Statement
+
+{problem statement from artifact}
+
+---
+
+### Root Cause Analysis
+
+{evidence chain, formatted for GitHub}
+
+---
+
+### Implementation Plan
+
+| Step | File | Change |
+|------|------|--------|
+| 1 | `src/x.ts:45` | {description} |
+| 2 | `src/x.test.ts` | Add test for {case} |
+
+<details>
+<summary>📋 Detailed Implementation Steps</summary>
+
+{detailed steps from artifact}
+
+</details>
+
+---
+
+### Validation
 
 ```bash
-gh issue comment {number} --body-file "$ARTIFACT_PATH"
-```
+# Run project's validation commands (adapt to toolchain)
+{type-check-cmd} && {test-cmd} {pattern} && {lint-cmd}
+````
 
-> Alternatively format a condensed version for the comment and post via `--body`.
+---
+
+### Next Step
+
+To implement: `$prp-issue-fix {number}`
+
+---
+
+_Investigated by Claude • {timestamp}_
+EOF
+)"
+
+````
 
 **PHASE_6_CHECKPOINT:**
 - [ ] Comment posted to GitHub (if GH issue)
+- [ ] Formatting renders correctly
 
-## Phase 7: REPORT — Output to User
+---
 
-Present: Issue reference, Type, Assessment table, Key Findings (root cause, files affected, estimated changes), Files to Modify table, Artifact path, GitHub status, Next step (`$prp-issue-fix {number}`).
+## Phase 7: REPORT - Output to User
+
+```markdown
+## Investigation Complete
+
+**Issue**: #{number} - {title}
+**Type**: {BUG|ENHANCEMENT|REFACTOR|...}
+
+### Assessment
+
+| Metric | Value | Reasoning |
+|--------|-------|-----------|
+| {Severity or Priority} | {value} | {why - based on investigation} |
+| Complexity | {LOW\|MEDIUM\|HIGH} | {why - based on files/integration/risk} |
+| Confidence | {HIGH\|MEDIUM\|LOW} | {why - based on evidence/unknowns} |
+
+### Key Findings
+
+- **Root Cause**: {one-line summary}
+- **Files Affected**: {count} files
+- **Estimated Changes**: {brief scope}
+
+### Files to Modify
+
+| File | Action |
+|------|--------|
+| `src/x.ts` | UPDATE |
+| `src/x.test.ts` | CREATE |
+
+### Artifact
+
+`.prp-output/issues/issue-{number}-{TIMESTAMP}.md`
+
+### GitHub
+
+{Posted to issue | Skipped (free-form input)}
+
+### Next Step
+
+Run `$prp-issue-fix {number}` to execute the plan.
+````
+
+---
 
 ## Handling Edge Cases
 
-| Scenario | Action |
-|----------|--------|
-| Issue already closed | Report, still create artifact if user wants |
-| Issue has linked PR | Warn, ask if continue anyway |
-| Can't determine root cause | Set confidence LOW, proceed with best hypothesis |
-| Very large scope | Suggest breaking into smaller issues, focus on core first |
+### Issue is already closed
 
-## Usage Examples
+- Report: "Issue #{number} is already closed"
+- Still create artifact if user wants analysis
 
-```
-$prp-issue-investigate 123
-$prp-issue-investigate https://github.com/org/repo/issues/456
-$prp-issue-investigate "Login page shows blank screen after OAuth redirect"
-```
+### Issue already has linked PR
+
+- Warn: "PR #{pr} already addresses this issue"
+- Ask if user wants to continue anyway
+
+### Can't determine root cause
+
+- Document what you found
+- Set confidence to LOW
+- Note uncertainty in artifact
+- Proceed with best hypothesis
+
+### Very large scope
+
+- Suggest breaking into smaller issues
+- Focus on core problem first
+- Note deferred items in "Out of Scope"
+
+---
 
 ## Success Criteria
 
-- ARTIFACT_COMPLETE: All sections filled with specific, actionable content
-- EVIDENCE_BASED: Every claim has file:line reference or proof
-- IMPLEMENTABLE: Another agent can execute without questions
-- GITHUB_POSTED: Comment visible on issue (if GH issue)
-- COMMITTED: Artifact saved in git
+- **ARTIFACT_COMPLETE**: All sections filled with specific, actionable content
+- **EVIDENCE_BASED**: Every claim has file:line reference or proof
+- **IMPLEMENTABLE**: Another agent can execute without questions
+- **GITHUB_POSTED**: Comment visible on issue (if GH issue)
+- **COMMITTED**: Artifact saved in git

@@ -111,7 +111,17 @@ git log --oneline -3
 git status --short
 ```
 
-Display: Branch, reset-to commit hash, stash backup name, how to restore (`$prp-rollback --restore`).
+Display:
+
+```markdown
+## Hard Rollback Complete
+
+**Branch**: `{BRANCH}`
+**Reset to**: `{commit-hash}` (origin/main)
+**Stash backup**: `{stash-name}`
+
+To restore your work: `$prp-rollback --restore`
+```
 
 ## Step 5: CLEANUP (optional)
 

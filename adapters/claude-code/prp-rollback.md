@@ -172,6 +172,17 @@ Do NOT delete automatically.
 
 ---
 
+## Usage Examples
+
+```bash
+/prp-core:rollback                  # Interactive — choose mode
+/prp-core:rollback --soft           # Unstage changes, keep working dir
+/prp-core:rollback --hard           # Reset to origin/main (stash backup first)
+/prp-core:rollback --restore        # Restore from rollback stash
+```
+
+---
+
 ## Success Criteria
 
 - `STASH_CREATED`: Backup stash exists before any --hard operation

@@ -1,7 +1,3 @@
-# Product Requirements Document Generator
-
-**Input**: `{ARGS}`
-
 ---
 
 ## Your Role
@@ -73,7 +69,7 @@ After foundation answers, conduct research:
 - Common patterns and anti-patterns
 - Recent trends or changes in this space
 
-**Use codebase exploration (if codebase exists) to find:**
+**Use Explore agent (if codebase exists) to find:**
 - Related existing functionality
 - Patterns that could be leveraged
 - Technical constraints or opportunities
@@ -113,7 +109,7 @@ Based on foundation + research, ask:
 
 ## Phase 5: GROUNDING - Technical Feasibility
 
-**If codebase exists, explore it:**
+**If codebase exists, use Explore agent:**
 
 ```
 Explore the codebase to assess feasibility for: {product/feature}
@@ -166,13 +162,26 @@ Ask final clarifying questions:
 
 ## Phase 7: GENERATE - Write PRD
 
-**Output path**: `.prp-output/prds/drafts/{name}-prd-other.md`
+### Artifact Naming (Timestamp Format)
 
-> `{name}` = kebab-case feature name derived from user input (e.g., `user-auth`, `payment-flow`)
+**Generate timestamp**:
+```bash
+TIMESTAMP=$(date +%Y%m%d-%H%M)
+```
+
+**Check for existing files**:
+```bash
+# Look for existing files with same base name
+ls .prp-output/prds/drafts/{kebab-case-name}-prd-agents*.md 2>/dev/null
+```
+
+**Output path**: `.prp-output/prds/drafts/{kebab-case-name}-prd-agents-{TIMESTAMP}.md`
+
+Example: `auth-feature-prd-agents-20260210-1430.md`
 
 Create directory if needed: `mkdir -p .prp-output/prds/drafts`
 
-> **Note**: Uses `-other` suffix to identify generic/Kimi PRD drafts. Multiple tools can create draft PRDs in `drafts/` subdirectory for comparison. User manually merges best sections to final version at `.prp-output/prds/{name}-prd.md` (no suffix, root level) which Plan command will reference.
+> **Note**: Uses `-agents` suffix to identify Claude Code PRD drafts (consistent with multi-agent review naming). Multiple tools can create draft PRDs in `drafts/` subdirectory for comparison. User manually merges best sections to final version at `.prp-output/prds/{name}-prd.md` (no suffix, root level) which Plan command will reference.
 
 ### PRD Template
 
@@ -414,7 +423,7 @@ After generating, report:
 ```markdown
 ## PRD Created
 
-**File**: `.prp-output/prds/drafts/{name}-prd-other.md` (DRAFT)
+**File**: `.prp-output/prds/drafts/{name}-prd-agents-{TIMESTAMP}.md` (DRAFT)
 
 ### Summary
 
@@ -449,7 +458,7 @@ After generating, report:
 
 1. Manually compare draft PRDs from different tools (in `drafts/` subdirectory)
 2. Merge best sections to final PRD: `.prp-output/prds/{name}-prd.md` (no suffix)
-3. Run Plan workflow with final PRD path
+3. Run: `{TOOL}:plan .prp-output/prds/{name}-prd.md`
 
 Plan command references final merged PRD only (not drafts).
 ```
@@ -484,22 +493,9 @@ Plan command references final merged PRD only (not drafts).
 └─────────────────────────────────────────────────────────┘
                           ↓
 ┌─────────────────────────────────────────────────────────┐
-│  GENERATE: Write PRD to drafts/ (tool-specific suffix)  │
+│  GENERATE: Write PRD to .prp-output/prds/              │
 └─────────────────────────────────────────────────────────┘
 ```
-
----
-
-## Edge Cases
-
-| Situation | Action |
-|-----------|--------|
-| Vague feature description | Ask clarifying questions before proceeding |
-| No existing codebase (greenfield) | Skip codebase exploration, focus on problem/user definition |
-| Feature overlaps existing functionality | Note overlap, recommend extending vs. replacing |
-| Multiple conflicting stakeholders | Document conflicting requirements, propose prioritization |
-| Compliance-sensitive domain (healthcare, finance) | Always include Privacy & Compliance section |
-| User provides full PRD text | Review and restructure to template, don't start from scratch |
 
 ---
 

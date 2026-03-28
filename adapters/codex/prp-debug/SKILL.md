@@ -167,35 +167,119 @@ For deep mode, document why other hypotheses were rejected:
 
 ## Phase 5: REPORT — Generate Output
 
-### 5.1 Create Report
+### 5.1 Create Report Directory
 
 ```bash
 mkdir -p .prp-output/debug
+```
+
+### 5.2 Generate Report
+
+**Artifact Naming (Timestamp Format)**:
+
+```bash
 TIMESTAMP=$(date +%Y%m%d-%H%M)
+ls .prp-output/debug/rca-{issue-slug}*.md 2>/dev/null
 ```
 
 **Path**: `.prp-output/debug/rca-{issue-slug}-{TIMESTAMP}.md`
 
-Report structure:
-- **Header**: Issue, Root Cause, Severity, Confidence
-- **Evidence Chain**: Full 5 Whys with file:line references and code snippets
-- **Git History**: Introduced by, author, recent changes, type (regression/original/long-standing)
-- **Fix Specification**: What needs to change, implementation guidance (current vs required code), files to modify, verification steps
+Example: `rca-login-failure-20260210-1430.md`
+
+```markdown
+# Root Cause Analysis
+
+**Issue**: {One-line symptom description}
+**Root Cause**: {One-line actual cause}
+**Severity**: {Critical/High/Medium/Low}
+**Confidence**: {High/Medium/Low}
+
+---
+
+## Evidence Chain
+
+WHY: {Symptom occurs}
+↓ BECAUSE: {First level cause}
+  Evidence: `file.ts:123` - {code snippet}
+
+WHY: {First level cause}
+↓ BECAUSE: {Second level cause}
+  Evidence: `file.ts:456` - {code snippet}
+
+{...continue...}
+
+↓ ROOT CAUSE: {The fixable thing}
+  Evidence: `source.ts:789` - {problematic code}
+
+---
+
+## Git History
+
+- **Introduced**: {commit hash} - {message} - {date}
+- **Author**: {who}
+- **Recent changes**: {yes/no, when}
+- **Type**: {regression / original bug / long-standing}
+
+---
+
+## Fix Specification
+
+### What Needs to Change
+
+{Which files, what logic, what the correct behavior should be}
+
+### Implementation Guidance
+
+{language}
+// Current (problematic):
+{simplified example}
+
+// Required (fixed):
+{simplified example}
+
+### Files to Modify
+
+- `path/to/file.ts:LINE` - {why}
+
+### Verification
+
+1. {Test to run}
+2. {Expected outcome}
+3. {How to reproduce original issue}
+```
 
 **PHASE_5_CHECKPOINT:**
-- [ ] Report created
-- [ ] All sections filled
+- [ ] Report created at `.prp-output/debug/rca-{slug}-{TIMESTAMP}.md`
+- [ ] All sections filled with actual evidence
 - [ ] Fix specification is actionable
+
+---
 
 ## Phase 6: OUTPUT — Report to User
 
-Present summary:
-- Issue and root cause (one-liners)
-- Confidence level
-- Report path
-- 2-3 sentence explanation of what was found
-- 1-2 sentence description of the fix
-- Next steps: review report, implement fix, run verification
+```markdown
+## Root Cause Analysis Complete
+
+**Issue**: {symptom}
+**Root Cause**: {cause}
+**Confidence**: {High/Medium/Low}
+
+**Report**: `.prp-output/debug/rca-{issue-slug}-{TIMESTAMP}.md`
+
+### Summary
+
+{2-3 sentence explanation of what was found}
+
+### The Fix
+
+{1-2 sentence description of what needs to change}
+
+### Next Steps
+
+- Review the report for full evidence chain
+- Implement the fix following the specification
+- Run verification steps to confirm resolution
+```
 
 ## Critical Reminders
 

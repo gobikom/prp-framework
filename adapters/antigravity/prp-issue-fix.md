@@ -1,93 +1,320 @@
+---\ndescription: Implement a fix from investigation artifact — code changes, PR, and self-review.\n---\n
+
+
+# Implement Issue
+
+**Input**: $ARGUMENTS
+
 ---
-description: Implement a fix from investigation artifact - code changes, PR, and self-review
+
+## Your Mission
+
+Execute the implementation plan from `/prp-issue-investigate`:
+
+1. Load and validate the artifact
+2. Ensure git state is correct
+3. Implement the changes exactly as specified
+4. Run validation
+5. Create PR linked to issue
+6. Run self-review and post findings
+7. Archive the artifact
+
+**Golden Rule**: Follow the artifact. If something seems wrong, validate it first - don't silently deviate.
+
 ---
 
-# PRP Issue Fix — Implement from Investigation Artifact
+## Phase 1: LOAD - Get the Artifact
 
-Target: $ARGUMENTS
+### 1.1 Determine Input Type
 
-Format: `<issue-number|artifact-path>`
+**If input looks like a number** (`123`, `#123`):
 
-## Mission
-
-Execute the implementation plan from `/prp-issue-investigate`: load artifact, implement changes, validate, create PR linked to issue, self-review, and archive.
-
-**Golden Rule**: Follow the artifact. If something seems wrong, validate first — don't silently deviate.
-
-## Step 1: LOAD — Get Artifact
-
-**If input is a number** (`123`, `#123`):
 ```bash
+# Look for artifact (may have timestamp suffix)
+# Find the most recent artifact for this issue
 ls -t .prp-output/issues/issue-{number}*.md 2>/dev/null | head -1
 ```
 
-**If input is a path**: use directly.
+**Note**: Artifact files now include timestamps (e.g., `issue-123-20260210-1430.md`). Use the most recent one.
 
-Parse artifact: issue number/title, type, files to modify (with lines), implementation steps, validation commands, test cases.
+**If input is a path**:
 
-If not found: STOP — "Run `/prp-issue-investigate {number}` first."
+- Use the path directly
 
-## Step 2: VALIDATE — Drift Detection
-
-For each file in the artifact:
-1. Read actual current code
-2. Compare to what artifact expects ("current code" snippets)
-3. Check if code has changed since investigation
-
-**If significant drift**: warn user, suggest re-running `/prp-issue-investigate`, or proceed with caution if changes are minor.
-
-**If approach seems wrong**: STOP, explain, suggest re-investigation.
-
-## Step 3: GIT-CHECK — Ensure Correct State
+### 1.2 Load and Parse Artifact
 
 ```bash
+cat {artifact-path}
+```
+
+**Extract from artifact:**
+
+- Issue number and title
+- Type (BUG/ENHANCEMENT/etc)
+- Files to modify (with line numbers)
+- Implementation steps
+- Validation commands
+- Test cases to add
+
+### 1.3 Validate Artifact Exists
+
+**If artifact not found:**
+
+```
+❌ No artifact found for issue #{number} at .prp-output/issues/issue-{number}*.md
+
+Run `/prp-issue-investigate {number}` first to create the implementation plan.
+```
+
+**PHASE_1_CHECKPOINT:**
+
+- [ ] Artifact found and loaded
+- [ ] Key sections parsed (files, steps, validation)
+- [ ] Issue number extracted (if applicable)
+
+---
+
+## Phase 2: VALIDATE - Sanity Check
+
+### 2.1 Verify Plan Accuracy
+
+For each file mentioned in the artifact:
+
+- Read the actual current code
+- Compare to what artifact expects
+- Check if the "current code" snippets match reality
+
+**If significant drift detected:**
+
+```
+⚠️ Code has changed since investigation:
+
+File: src/x.ts:45
+- Artifact expected: {snippet}
+- Actual code: {different snippet}
+
+Options:
+1. Re-run /prp-issue-investigate to get fresh analysis
+2. Proceed carefully with manual adjustments
+```
+
+### 2.2 Confirm Approach Makes Sense
+
+Ask yourself:
+
+- Does the proposed fix actually address the root cause?
+- Are there obvious problems with the approach?
+- Has something changed that invalidates the plan?
+
+**If plan seems wrong:**
+
+- STOP
+- Explain what's wrong
+- Suggest re-investigation
+
+**PHASE_2_CHECKPOINT:**
+
+- [ ] Artifact matches current codebase state
+- [ ] Approach still makes sense
+- [ ] No blocking issues identified
+
+---
+
+## Phase 3: GIT-CHECK - Ensure Correct State
+
+### 3.1 Check Current Git State
+
+```bash
+# What branch are we on?
 git branch --show-current
+
+# Are we in a worktree?
+git rev-parse --show-toplevel
+git worktree list
+
+# Is working directory clean?
 git status --porcelain
+
+# Are we up to date with remote?
 git fetch origin
+git status
 ```
 
-| State | Action |
-|-------|--------|
-| On main, clean | Create branch: `git checkout -b fix/issue-{number}-{slug}` |
-| On main, dirty | STOP: "Commit or stash changes first" |
-| On feature/fix branch | Use it (warn if name doesn't match issue) |
-| In worktree | Use as-is |
+### 3.2 Decision Tree
 
-Ensure up-to-date: `git pull --rebase origin main`
-
-## Step 4: IMPLEMENT — Make Changes
-
-For each step in artifact's Implementation Plan:
-1. Read target file, understand current state
-2. Make change exactly as specified
-3. Verify types compile
-
-**DO**: Follow artifact order, match code style, copy patterns from "Patterns to Follow", add specified tests.
-
-**DON'T**: Refactor unrelated code, add unplanned improvements, change formatting of untouched lines, deviate without noting it.
-
-Track any deviations for PR description.
-
-## Step 5: VERIFY — Run Validation
-
-Run all validation commands from artifact (adapt to project toolchain):
-```bash
-{type_check_command}
-{test_command}
-{lint_command}
+```
+┌─ IN WORKTREE?
+│  └─ YES → Use it (assume it's for this work)
+│           Log: "Using worktree at {path}"
+│
+├─ ON MAIN/MASTER?
+│  └─ Q: Working directory clean?
+│     ├─ YES → Create branch: fix/issue-{number}-{slug}
+│     │        git checkout -b fix/issue-{number}-{slug}
+│     └─ NO  → Warn user:
+│              "Working directory has uncommitted changes.
+│               Please commit or stash before proceeding."
+│              STOP
+│
+├─ ON FEATURE/FIX BRANCH?
+│  └─ Use it (assume it's for this work)
+│     If branch name doesn't contain issue number:
+│       Warn: "Branch '{name}' may not be for issue #{number}"
+│
+└─ DIRTY STATE?
+   └─ Warn and suggest: git stash or git commit
+      STOP
 ```
 
-**All must pass.** If failures: analyze, fix, re-validate, note fixes in PR. Execute manual verification steps if specified.
-
-**GATE**: Do NOT proceed until all validation passes.
-
-## Step 6: COMMIT — Safe Staging
+### 3.3 Ensure Up-to-Date
 
 ```bash
-git diff --name-only | xargs -r git add
-git ls-files --others --exclude-standard | xargs -r git add
-git diff --cached --name-only  # verify no unexpected files
+# If branch tracks remote
+git pull --rebase origin main 2>/dev/null || git pull origin main
+```
 
+**PHASE_3_CHECKPOINT:**
+
+- [ ] Git state is clean and correct
+- [ ] On appropriate branch (created or existing)
+- [ ] Up to date with main
+
+---
+
+## Phase 4: IMPLEMENT - Make Changes
+
+### 4.1 Execute Each Step
+
+For each step in the artifact's Implementation Plan:
+
+1. **Read the target file** - understand current state
+2. **Make the change** - exactly as specified
+3. **Verify types compile** - run the project's type-check command
+
+### 4.2 Implementation Rules
+
+**DO:**
+
+- Follow artifact steps in order
+- Match existing code style exactly
+- Copy patterns from "Patterns to Follow" section
+- Add tests as specified
+
+**DON'T:**
+
+- Refactor unrelated code
+- Add "improvements" not in the plan
+- Change formatting of untouched lines
+- Deviate from the artifact without noting it
+
+### 4.3 Handle Each File Type
+
+**For UPDATE files:**
+
+- Read current content
+- Find the exact lines mentioned
+- Make the specified change
+- Preserve surrounding code
+
+**For CREATE files:**
+
+- Use patterns from artifact
+- Follow existing file structure conventions
+- Include all specified content
+
+**For test files:**
+
+- Add test cases as specified
+- Follow existing test patterns
+- Ensure tests actually test the fix
+
+### 4.4 Track Deviations
+
+If you must deviate from the artifact:
+
+- Note what changed and why
+- Include in PR description
+
+**PHASE_4_CHECKPOINT:**
+
+- [ ] All steps from artifact executed
+- [ ] Types compile after each change
+- [ ] Tests added as specified
+- [ ] Any deviations documented
+
+---
+
+## Phase 5: VERIFY - Run Validation
+
+### 5.1 Run Artifact Validation Commands
+
+Execute each command from the artifact's Validation section.
+
+Common patterns (adapt to project's toolchain):
+```bash
+# Type check
+{runner} run type-check  # or: mypy ., cargo check, go build ./...
+
+# Tests
+{runner} test {pattern-from-artifact}  # or: pytest, cargo test, go test
+
+# Lint
+{runner} run lint  # or: ruff check ., cargo clippy
+```
+
+### 5.2 Check Results
+
+**All must pass before proceeding.**
+
+If failures:
+
+1. Analyze what's wrong
+2. Fix the issue
+3. Re-run validation
+4. Note any fixes in PR description
+
+### 5.3 Manual Verification (if specified)
+
+Execute any manual verification steps from the artifact.
+
+**PHASE_5_CHECKPOINT:**
+
+- [ ] Type check passes
+- [ ] Tests pass
+- [ ] Lint passes
+- [ ] Manual verification complete (if applicable)
+
+---
+
+## Phase 6: COMMIT - Save Changes
+
+### 6.1 Stage Changes
+
+```bash
+git add -A
+git status  # Review what's being committed
+```
+
+### 6.2 Write Commit Message
+
+**Format:**
+
+```
+Fix: {brief description} (#{issue-number})
+
+{Problem statement from artifact - 1-2 sentences}
+
+Changes:
+- {Change 1 from artifact}
+- {Change 2 from artifact}
+- Added test for {case}
+
+Fixes #{issue-number}
+```
+
+**Commit:**
+
+```bash
 git commit -m "$(cat <<'EOF'
 Fix: {title} (#{number})
 
@@ -102,83 +329,276 @@ EOF
 )"
 ```
 
-## Step 7: PR — Create Pull Request
+**PHASE_6_CHECKPOINT:**
+
+- [ ] All changes committed
+- [ ] Commit message references issue
+
+---
+
+## Phase 7: PR - Create Pull Request
+
+### 7.1 Push to Remote
 
 ```bash
 git push -u origin HEAD
+```
 
+If branch was rebased:
+
+```bash
+git push -u origin HEAD --force-with-lease
+```
+
+### 7.2 Create PR
+
+````bash
 gh pr create --title "Fix: {title} (#{number})" --body "$(cat <<'EOF'
 ## Summary
-{problem statement}
+
+{Problem statement from artifact}
 
 ## Root Cause
-{root cause from artifact}
+
+{Root cause summary from artifact}
 
 ## Changes
+
 | File | Change |
 |------|--------|
 | `src/x.ts` | {description} |
+| `src/x.test.ts` | Added test for {case} |
 
 ## Testing
+
 - [x] Type check passes
-- [x] Tests pass
+- [x] Unit tests pass
 - [x] Lint passes
+- [x] {Manual verification from artifact}
+
+## Validation
+
+```bash
+# Run project's validation commands (adapt to toolchain)
+{type-check-cmd} && {test-cmd} {pattern} && {lint-cmd}
+````
+
+## Issue
 
 Fixes #{number}
 
-_Implementation from artifact: `.prp-output/issues/issue-{number}-{TIMESTAMP}.md`_
+---
+
+<details>
+<summary>📋 Implementation Details</summary>
+
+### Implementation followed artifact:
+
+`.prp-output/issues/issue-{number}-{TIMESTAMP}.md`
+
+### Deviations from plan:
+
+{None | List any deviations}
+
+</details>
+
+---
+
+_Automated implementation from investigation artifact_
 EOF
 )"
+
+````
+
+### 7.3 Get PR Number
+
+```bash
+PR_URL=$(gh pr view --json url -q '.url')
+PR_NUMBER=$(gh pr view --json number -q '.number')
+````
+
+**PHASE_7_CHECKPOINT:**
+
+- [ ] Changes pushed to remote
+- [ ] PR created
+- [ ] PR linked to issue with "Fixes #{number}"
+
+---
+
+## Phase 8: REVIEW - Self Code Review
+
+### 8.1 Run Code Review
+
+Use code review pass:
+
+```
+Review the changes in this PR for issue #{number}.
+
+Focus on:
+1. Does the fix address the root cause from the investigation?
+2. Code quality - matches codebase patterns?
+3. Test coverage - are the new tests sufficient?
+4. Edge cases - are they handled?
+5. Security - any concerns?
+6. Potential bugs - anything that could break?
+
+Review only the diff, not the entire codebase.
 ```
 
-## Step 8: REVIEW — Self Code Review
+### 8.2 Post Review to PR
 
-Review the diff focusing on: root cause addressed, code quality, test coverage, edge cases, security, potential bugs.
-
-Post review as PR comment:
 ```bash
 gh pr comment --body "$(cat <<'EOF'
-## Automated Code Review
-{assessment, strengths, suggestions, security check, checklist}
-*Self-reviewed by AI*
+## 🔍 Automated Code Review
+
+### Summary
+
+{1-2 sentence assessment}
+
+### Findings
+
+#### ✅ Strengths
+- {Good thing 1}
+- {Good thing 2}
+
+#### ⚠️ Suggestions (non-blocking)
+- `{file}:{line}` - {suggestion}
+- {other suggestions}
+
+#### 🔒 Security
+- {Any concerns or "No security concerns identified"}
+
+### Checklist
+
+- [x] Fix addresses root cause from investigation
+- [x] Code follows codebase patterns
+- [x] Tests cover the change
+- [x] No obvious bugs introduced
+
+---
+*Self-reviewed by Claude • Ready for human review*
 EOF
 )"
 ```
 
-## Step 9: ARCHIVE — Clean Up
+**PHASE_8_CHECKPOINT:**
+
+- [ ] Code review completed
+- [ ] Review posted to PR
+
+---
+
+## Phase 9: ARCHIVE - Clean Up
+
+### 9.1 Move Artifact to Completed
 
 ```bash
 mkdir -p .prp-output/issues/completed
+# Move the artifact that was used (has timestamp suffix)
 mv .prp-output/issues/issue-{number}-{TIMESTAMP}.md .prp-output/issues/completed/
+```
+
+### 9.2 Commit and Push Archive
+
+```bash
 git add .prp-output/issues/
 git commit -m "Archive investigation for issue #{number}"
 git push
 ```
 
-## Step 10: REPORT — Output to User
+**PHASE_9_CHECKPOINT:**
 
-Display: issue number/title, branch, PR number/URL, changes table, validation results, self-review summary, archived artifact path, next steps (human review, merge).
+- [ ] Artifact moved to completed folder
+- [ ] Archive committed and pushed
 
-## Edge Cases
+---
 
-- **Artifact outdated**: warn drift, suggest re-investigation
-- **Tests fail**: debug failure, fix code (not test unless test is wrong), re-validate
-- **Merge conflicts**: resolve, re-validate, note in PR
-- **PR creation fails**: check existing PR for branch, provide manual command
-- **Branch with changes**: use existing, warn if name mismatch
+## Phase 10: REPORT - Output to User
 
-## Usage
+```markdown
+## Implementation Complete
 
+**Issue**: #{number} - {title}
+**Branch**: `{branch-name}`
+**PR**: #{pr-number} - {pr-url}
+
+### Changes Made
+
+| File            | Change        |
+| --------------- | ------------- |
+| `src/x.ts`      | {description} |
+| `src/x.test.ts` | Added test    |
+
+### Validation
+
+| Check      | Result  |
+| ---------- | ------- |
+| Type check | ✅ Pass |
+| Tests      | ✅ Pass |
+| Lint       | ✅ Pass |
+
+### Self-Review
+
+{Summary of review findings}
+
+### Artifact
+
+📄 Archived to `.prp-output/issues/completed/issue-{number}-{TIMESTAMP}.md`
+
+### Next Steps
+
+- Human review of PR #{pr-number}
+- Merge when approved
 ```
-/prp-issue-fix 123
-/prp-issue-fix .prp-output/issues/issue-123-20260315-1430.md
-```
+
+---
+
+## Handling Edge Cases
+
+### Artifact is outdated
+
+- Warn user about drift
+- Suggest re-running `/prp-issue-investigate`
+- Can proceed with caution if changes are minor
+
+### Tests fail after implementation
+
+- Debug the failure
+- Fix the code (not the test, unless test is wrong)
+- Re-run validation
+- Note the additional fix in PR
+
+### Merge conflicts during rebase
+
+- Resolve conflicts
+- Re-run full validation
+- Note conflict resolution in PR
+
+### PR creation fails
+
+- Check if PR already exists for branch
+- Check for permission issues
+- Provide manual gh command
+
+### Already on a branch with changes
+
+- Use the existing branch
+- Warn if branch name doesn't match issue
+- Don't create a new branch
+
+### In a worktree
+
+- Use it as-is
+- Assume it was created for this purpose
+- Log that worktree is being used
+
+---
 
 ## Success Criteria
 
-- PLAN_EXECUTED: All artifact steps completed
-- VALIDATION_PASSED: All checks green
-- PR_CREATED: PR exists and linked to issue with "Fixes #{number}"
-- REVIEW_POSTED: Self-review comment on PR
-- ARTIFACT_ARCHIVED: Moved to completed folder
-- AUDIT_TRAIL: Full history in git and GitHub
+- **PLAN_EXECUTED**: All artifact steps completed
+- **VALIDATION_PASSED**: All checks green
+- **PR_CREATED**: PR exists and linked to issue
+- **REVIEW_POSTED**: Self-review comment on PR
+- **ARTIFACT_ARCHIVED**: Moved to completed folder
+- **AUDIT_TRAIL**: Full history in git and GitHub

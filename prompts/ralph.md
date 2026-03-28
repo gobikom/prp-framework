@@ -1,18 +1,22 @@
-# PRP Ralph Loop — Autonomous Implementation Until All Validations Pass
 
-## Input
 
-Plan or PRD file: `{ARGS}`
+# PRP Ralph Loop
 
-## Mission
+**Input**: {ARGS}
+
+---
+
+## Your Mission
 
 Start an autonomous Ralph loop that executes a PRP plan iteratively until all validations pass.
 
 **Core Philosophy**: Self-referential feedback loop. Each iteration, you see your previous work in files and git history. You implement, validate, fix, repeat - until complete.
 
+**Skill Reference**: The `prp-ralph-loop` skill provides detailed execution guidance. It will be automatically available during loop iterations.
+
 ---
 
-## Phase 1: PARSE — Validate Input
+## Phase 1: PARSE - Validate Input
 
 ### 1.1 Parse Arguments
 
@@ -33,7 +37,12 @@ Extract from input:
 ```
 Ralph requires a PRP plan or PRD file.
 
-Create one first using the plan or PRD workflow, then run Ralph with the output file path and optional --max-iterations N.
+Create one first:
+  {TOOL}:plan "your feature description"   # Creates plan from description
+  /prp-prd "your product idea"           # Creates PRD with phases
+
+Then run:
+  /prp-ralph .prp-output/plans/your-feature.plan.md --max-iterations 20
 ```
 
 ### 1.3 Verify File Exists
@@ -44,7 +53,7 @@ test -f "{file_path}" && echo "EXISTS" || echo "NOT_FOUND"
 
 **If NOT_FOUND**: Stop with error message.
 
-### 1.4 If PRD File — Select Next Phase
+### 1.4 If PRD File - Select Next Phase
 
 If input is a `.prd.md` file:
 1. Read the PRD
@@ -60,27 +69,9 @@ If input is a `.prd.md` file:
 
 ---
 
-## Phase 2: SETUP — Initialize Ralph Loop
+## Phase 2: SETUP - Initialize Ralph Loop
 
-### 2.1 Detect Project Toolchain
-
-Check for these files to determine the project's runner:
-
-| File Found | Package Manager | Runner |
-|------------|-----------------|--------|
-| `bun.lockb` | bun | `bun` / `bun run` |
-| `pnpm-lock.yaml` | pnpm | `pnpm` / `pnpm run` |
-| `yarn.lock` | yarn | `yarn` / `yarn run` |
-| `package-lock.json` | npm | `npm run` |
-| `pyproject.toml` | uv/pip | `uv run` / `python` |
-| `Cargo.toml` | cargo | `cargo` |
-| `go.mod` | go | `go` |
-
-**Store the detected runner** — use it for all subsequent commands.
-
-> **Plan-provided commands take precedence**: If the plan contains a Metadata table with Runner/Type Check/Lint/Test/Build commands, use those directly instead of auto-detecting.
-
-### 2.2 Create State File
+### 2.1 Create State File
 
 Create `.claude/prp-ralph.state.md`:
 
@@ -125,7 +116,7 @@ Execute PRP plan and iterate until all validations pass.
 ---
 ```
 
-### 2.3 Display Startup Message
+### 2.2 Display Startup Message
 
 ```markdown
 ## PRP Ralph Loop Activated
@@ -139,7 +130,7 @@ The stop hook is now active. When you try to exit:
 - If all validations pass → loop exits
 
 To monitor: `cat .claude/prp-ralph.state.md`
-To cancel: run the ralph-cancel workflow
+To cancel: `/prp-ralph-cancel`
 
 ---
 
@@ -156,14 +147,13 @@ Starting iteration 1...
 ```
 
 **PHASE_2_CHECKPOINT:**
-- [ ] Toolchain detected and runner stored
 - [ ] State file created
 - [ ] Archive directory exists
 - [ ] Startup message displayed
 
 ---
 
-## Phase 3: EXECUTE — Work on Plan
+## Phase 3: EXECUTE - Work on Plan
 
 ### 3.1 Read Context First
 
@@ -190,16 +180,15 @@ For each incomplete task:
 
 ### 3.4 Validate
 
-Run ALL validation commands from the plan. Use the detected runner or plan-provided commands.
+Run ALL validation commands from the plan:
 
-**Auto-detect validation commands by ecosystem:**
-
-| Ecosystem | Type Check | Lint | Test | Build |
-|-----------|-----------|------|------|-------|
-| JS/TS | `{runner} run type-check` | `{runner} run lint` | `{runner} test` | `{runner} run build` |
-| Python | `mypy .` | `ruff check .` | `pytest` | N/A |
-| Rust | `cargo check` | `cargo clippy` | `cargo test` | `cargo build` |
-| Go | `go vet ./...` | `golangci-lint run` | `go test ./...` | `go build ./...` |
+```bash
+# Typical validation levels (adapt to plan)
+bun run type-check || npm run type-check
+bun run lint || npm run lint
+bun test || npm test
+bun run build || npm run build
+```
 
 ### 3.4.1 Coverage Check
 
@@ -210,15 +199,7 @@ Run ALL validation commands from the plan. Use the detected runner or plan-provi
 CHANGED_FILES=$(git diff --name-only origin/main...HEAD | grep -E '\.(ts|tsx|js|jsx|py|rs|go)$' | grep -v -E '(test|spec|__test__)')
 ```
 
-Run coverage tool (auto-detect by ecosystem):
-
-| Ecosystem | Coverage Command |
-|-----------|-----------------|
-| JS/TS (jest) | `{runner} test --coverage` |
-| JS/TS (vitest) | `{runner} run test --coverage` |
-| Python | `pytest --cov=. --cov-report=term-missing` |
-| Rust | `cargo tarpaulin` or `cargo llvm-cov` |
-| Go | `go test -coverprofile=coverage.out ./... && go tool cover -func=coverage.out` |
+Run coverage tool (auto-detect: jest `--coverage`, vitest `--coverage`, pytest `--cov`, `go test -cover`, `cargo tarpaulin`).
 
 | Result | Action |
 |--------|--------|
@@ -315,7 +296,7 @@ ALL of these must be true:
 - [ ] Build succeeds
 - [ ] All acceptance criteria met
 
-### 4.2 If ALL Pass — Complete the Loop
+### 4.2 If ALL Pass - Complete the Loop
 
 1. **Generate Implementation Report**
 
@@ -372,11 +353,11 @@ ALL of these must be true:
    cp .prp-output/reports/{plan-name}-report.md "$ARCHIVE_DIR/learnings.md"
    ```
 
-3. **Update Project Config with Permanent Patterns (if applicable)**
+3. **Update CLAUDE.md with Permanent Patterns (if applicable)**
 
    If any patterns from "Codebase Patterns" section are significant enough to be permanent project knowledge:
 
-   - Read the project's configuration file (e.g., CLAUDE.md, .codex/instructions.md, etc.)
+   - Read the project's CLAUDE.md
    - Add new patterns to appropriate section
    - Avoid duplicating existing patterns
 
@@ -393,7 +374,7 @@ ALL of these must be true:
    mv {plan_path} .prp-output/plans/completed/
    ```
 
-5. **Generate Review Context File** (enables token optimization when used via the run-all workflow)
+5. **Generate Review Context File** (enables token optimization when used via `/prp-run-all --ralph`)
 
    ```bash
    BRANCH=$(git branch --show-current)
@@ -433,10 +414,10 @@ ALL of these must be true:
 
    | Check | Result |
    |-------|--------|
-   | Type check | PASS |
-   | Lint | PASS |
-   | Tests | PASS ({N} passed) |
-   | Build | PASS |
+   | Type check | ✅ |
+   | Lint | ✅ |
+   | Tests | ✅ ({N} passed) |
+   | Build | ✅ |
 
    ---
 
@@ -471,7 +452,7 @@ ALL of these must be true:
    <promise>COMPLETE</promise>
    ```
 
-### 4.3 If NOT All Pass — End Iteration
+### 4.3 If NOT All Pass - End Iteration
 
 If validations are not all passing:
 - Document current state in progress log
@@ -521,7 +502,7 @@ The Ralph loop captures learnings that can improve the system:
 ### After Completion
 - **Archive**: Full state preserved in `.prp-output/ralph-archives/`
 - **Report**: Consolidated learnings in report file
-- **Project Config Updates**: Permanent patterns added to project config
+- **CLAUDE.md Updates**: Permanent patterns added to project config
 
 ### Using Archives for Improvement
 
@@ -529,7 +510,7 @@ Archives can be used to:
 1. Train better PRP plan generation
 2. Identify common failure patterns
 3. Improve validation command suggestions
-4. Update workflow documentation with real examples
+4. Update skill documentation with real examples
 
 ```bash
 # List all Ralph archives
