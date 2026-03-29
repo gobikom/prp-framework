@@ -23,12 +23,18 @@ Design Doc = Architecture blueprint for complex features. Simple features can sk
 
 ---
 
-## Phase 2: Explore Codebase
+## Phase 2+3: Explore Codebase & Research (Parallel)
 
-**Use task with subagent_type="Explore"** to find existing patterns:
+**Spawn exploration and research agents in parallel** using the Agent tool. These phases are independent — codebase patterns and external research can run simultaneously.
 
+**If Agent tool is available**, spawn ALL agents in a **SINGLE message**:
+
+**Agent 1 — Codebase Architecture** (explore existing patterns):
 ```
-Explore the codebase to find patterns relevant to: {feature from PRD}
+Agent(
+  subagent_type="codebase-explorer",
+  description="Explore architecture for {feature}",
+  prompt="Explore the codebase to find patterns relevant to: {feature from PRD}
 
 DISCOVER:
 1. Architecture Patterns - project structure, module organization, dependency injection
@@ -37,24 +43,54 @@ DISCOVER:
 4. Component Patterns (if frontend) - component hierarchy, state management, routing
 5. Integration Points - external services, message queues, caching, storage
 
-Return actual code examples with file:line references.
+Return actual code examples with file:line references."
+)
 ```
 
-Document findings with **file:line references** to actual code.
+**Agent 2 — Technical Research** (external documentation and best practices):
+```
+Agent(
+  subagent_type="web-researcher",
+  description="Research tech stack for {feature}",
+  prompt="Research technical documentation and best practices for: {feature from PRD}
 
----
+Search for:
+1. Official documentation for technologies mentioned in PRD (match project versions)
+2. Architecture patterns: industry best practices for similar problems
+3. Trade-offs: performance vs maintainability, complexity vs flexibility
+4. Security considerations: OWASP guidelines, auth/authz patterns, data validation
+5. Scalability: caching strategies, database indexing, async processing
 
-## Phase 3: Research
+For each finding, format as: [URL] - KEY_INSIGHT - TRADE_OFF
+Include version-specific gotchas and deprecation warnings."
+)
+```
 
-**Use WebSearch for technical research:**
+**Agent 3 — Security Research** (if PRD involves auth, user input, or data storage):
+```
+Agent(
+  subagent_type="web-researcher",
+  description="Research security for {feature}",
+  prompt="Research security best practices for: {feature from PRD}
 
-1. **Official Documentation**: For technologies mentioned in PRD (match project versions)
-2. **Architecture Patterns**: Industry best practices for similar problems
-3. **Trade-offs**: Performance vs maintainability, complexity vs flexibility
-4. **Security Considerations**: OWASP guidelines, auth/authz patterns, data validation
-5. **Scalability**: Caching strategies, database indexing, async processing
+Focus on:
+- OWASP Top 10 relevant to this feature
+- Auth/authz patterns for the project's tech stack
+- Data validation and sanitization approaches
+- Encryption and secrets management
 
-Format: `[URL] - KEY_INSIGHT - TRADE_OFF`
+Return actionable recommendations with references."
+)
+```
+
+After all agents complete, merge their findings:
+- Codebase patterns with **file:line references** to actual code
+- External research with **URLs and version numbers**
+- Security research with **OWASP references**
+
+**If Agent tool is NOT available**, fall back to sequential:
+1. Use single Explore agent for codebase patterns
+2. Use WebSearch sequentially for each research category
 
 ---
 
