@@ -220,6 +220,10 @@ Extract all issues grouped by severity. Look for sections:
 - [ ] Issues parsed and grouped by severity
 - [ ] Severity filter applied
 
+**Early exit check**: If after parsing and severity filtering, **zero issues remain** to fix:
+- Display: "No issues to fix — {reason: 'review found 0 issues' | 'no issues match --severity {filter}'}"
+- EXIT without creating commits, posting comments, or producing artifacts.
+
 ---
 
 ## Phase 2: CHECKOUT — Get on the PR Branch
@@ -361,12 +365,15 @@ After fixing all issues in a severity batch, run validation based on batch sever
 
 Running tests after critical/high batches catches regressions early — a test failure after all 4 batches is much harder to bisect.
 
+**If test run is slow** (>2 minutes for critical/high quick-check): fall back to type-check + lint only for that batch. Note in the fix summary: "Tests skipped in quick-check (slow project) — deferred to Phase 5 full suite."
+
 **If quick check fails after a batch:**
 1. Identify which fix caused the failure
 2. If single fix in batch → revert it, add to skip log with reason: "Validation failed"
-3. If multiple fixes in batch and cause is unclear → **bisect**: revert fixes one at a time (last-to-first) and re-run the failing check after each revert until it passes. The last reverted fix is the cause — add it to skip log, re-apply the others.
-4. Re-run quick check to confirm clean state
-5. Continue to next batch
+3. If multiple fixes in batch and cause is unclear → **bisect**: revert fixes one at a time (last-to-first) using `git checkout HEAD -- {file}` for each fix's file(s), and re-run the failing check after each revert until it passes. The last reverted fix is the cause — add it to skip log, re-apply the others.
+4. If bisection completes with ALL fixes reverted (i.e., the fixes interact and only fail together) → skip the entire batch, add all fixes to skip log with reason: "Multi-fix interaction — fixes pass individually but fail together. Requires manual resolution."
+5. Re-run quick check to confirm clean state
+6. Continue to next batch
 
 **PHASE_4_CHECKPOINT:**
 - [ ] Critical issues fixed (or skipped with reason)
@@ -517,12 +524,12 @@ Applied fixes from review report: `{artifact filename}`
 ### Fixed Issues
 
 | Severity | Fixed | Skipped | Already Fixed | Total |
-|----------|-------|---------|-------|
-| Critical | {N} | {N} | {N} |
-| High | {N} | {N} | {N} |
-| Medium | {N} | {N} | {N} |
-| Suggestion | {N} | {N} | {N} |
-| **Total** | **{N}** | **{N}** | **{N}** |
+|----------|-------|---------|---------------|-------|
+| Critical | {N} | {N} | {N} | {N} |
+| High | {N} | {N} | {N} | {N} |
+| Medium | {N} | {N} | {N} | {N} |
+| Suggestion | {N} | {N} | {N} | {N} |
+| **Total** | **{N}** | **{N}** | **{N}** | **{N}** |
 
 ### Validation
 
@@ -565,10 +572,10 @@ Append a "Fix Outcome" section to the review artifact:
 
 | Severity | Fixed | Skipped | Already Fixed |
 |----------|-------|---------|---------------|
-| Critical | {N} | {N} |
-| High | {N} | {N} |
-| Medium | {N} | {N} |
-| Suggestion | {N} | {N} |
+| Critical | {N} | {N} | {N} |
+| High | {N} | {N} | {N} |
+| Medium | {N} | {N} | {N} |
+| Suggestion | {N} | {N} | {N} |
 
 ### Skipped Issues
 {List with reasons, or "None"}
@@ -596,10 +603,10 @@ Append a "Fix Outcome" section to the review artifact:
 
 | Severity | Fixed | Skipped | Already Fixed |
 |----------|-------|---------|---------------|
-| Critical | {N} | {N} |
-| High | {N} | {N} |
-| Medium | {N} | {N} |
-| Suggestion | {N} | {N} |
+| Critical | {N} | {N} | {N} |
+| High | {N} | {N} | {N} |
+| Medium | {N} | {N} | {N} |
+| Suggestion | {N} | {N} | {N} |
 
 ### Validation
 
