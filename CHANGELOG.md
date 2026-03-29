@@ -50,6 +50,10 @@ Every major version release MUST include a `docs/migration/vX.0-to-vY.0.md` file
 - **Metrics `review_type` field** — JSONL records now distinguish `"agents"` vs `"single"` review type
 - **Review artifact frontmatter** — YAML frontmatter with `agents:` field listing which agents ran
 
+### Fixed
+
+- **`prp-review` error handling backport** — backported all 10 error handling improvements to single-session `prp-review` (#40): `--context` path validation, context file verification, no-PR detection, `gh pr review` permission error handling, metrics append error handling, `gh pr diff` empty diagnostic, Phase 0.5 PR number resolution, `review_type:"single"` metrics field, `--metrics` with PR number edge case, `--context` with empty diff edge case
+
 ### Changed
 
 - **`silent-failure-hunter`** promoted from conditional to **core agent** (always-run, 3rd alongside code-reviewer and security-reviewer)
