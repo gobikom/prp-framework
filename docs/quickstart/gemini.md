@@ -125,7 +125,7 @@ content = "..."   # Canonical prompt content
 | Feature | Claude Code | Gemini CLI |
 |---------|------------|------------|
 | Commands | 19 | 17 |
-| Parallel agents | review-agents, feature-review-agents | ไม่มี |
+| Parallel agents | review-agents, feature-review-agents | review-agents, feature-review-agents (if Agent tool supported) |
 | Command format | `/prp-core:command` | `/prp:command` |
 | Storage | `.claude/commands/` | `.gemini/commands/prp/` |
 | File format | `.md` | `.toml` |

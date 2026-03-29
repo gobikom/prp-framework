@@ -35,7 +35,7 @@ Every major version release MUST include a `docs/migration/vX.0-to-vY.0.md` file
 
 ## [2.3.0] — 2026-03-29
 
-**Parallel Agent Review Release** — `prp-review-agents` restored from alias to standalone command that spawns actual parallel Agent subprocesses via the Agent tool. Each agent gets a fresh context window for deep file exploration beyond the diff.
+**Parallel Agent Release** — Three commands now spawn parallel Agent subprocesses: `prp-review-agents`, `prp-feature-review-agents`, and `prp-design`. Each agent gets a fresh context window for deep exploration. Also includes token optimization, error handling improvements, and review quality enhancements.
 
 ### Added
 
@@ -49,24 +49,34 @@ Every major version release MUST include a `docs/migration/vX.0-to-vY.0.md` file
 - **`gh pr review` error handling** — logs actual error, displays WARNING, then falls back to comment
 - **Metrics `review_type` field** — JSONL records now distinguish `"agents"` vs `"single"` review type
 - **Review artifact frontmatter** — YAML frontmatter with `agents:` field listing which agents ran
+- **`prompts/feature-review-agents.md`** (618 lines) — new canonical prompt for multi-agent parallel feature review. Spawns `code-reviewer`, `security-reviewer`, `product-ideas-agent`, `performance-analyzer` as core agents, with conditional dispatch for `accessibility-reviewer`, `dependency-analyzer`, `silent-failure-hunter`, `observability-reviewer` (#48)
+- **`design` parallel exploration** — Phase 2 (codebase explore) and Phase 3 (web research) now spawn as parallel agents: `codebase-explorer` + `web-researcher` × 2. Phase 4+ synthesis unchanged. (#49)
+- **TDD for UPDATE** — `implement.md` TDD spec now covers UPDATE of existing business logic functions, not just CREATE (#44)
+- **Per-task focused tests** — `implement.md` runs focused tests after each task that modifies existing code (#44)
+- **Fix bisection** — `review-fix.md` quick-check includes tests for critical/high batches; bisection instruction for unclear batch regressions (#44)
 
 ### Fixed
 
-- **`prp-review` error handling backport** — backported all 10 error handling improvements to single-session `prp-review` (#40): `--context` path validation, context file verification, no-PR detection, `gh pr review` permission error handling, metrics append error handling, `gh pr diff` empty diagnostic, Phase 0.5 PR number resolution, `review_type:"single"` metrics field, `--metrics` with PR number edge case, `--context` with empty diff edge case
+- **`prp-review` error handling backport** — backported all 10 error handling improvements to single-session `prp-review` (#40)
+- **Missing error paths** — PRD file-not-found, plan write verification, circular dependency detection in `plan.md`; PARTIAL status format in `implement.md`; fix-summary input validation and "already fixed" tracking in `review-fix.md` (#43)
+- **Token optimization** — skip redundant Phase 0 in `implement.md`/`review-fix.md` when plan provides commands; remove 4 duplicate "common patterns" tables; skip output phases in sub-command mode; scope "read similar files" in `review-fix.md` (~12-21K tokens saved per workflow) (#42)
+- **`run-all` REVIEW_ARTIFACT path** — correct path for review-agents output (`-agents-review.md` vs `-review-{TOOL}.md`)
 
 ### Changed
 
 - **`silent-failure-hunter`** promoted from conditional to **core agent** (always-run, 3rd alongside code-reviewer and security-reviewer)
 - **`dependency-analyzer`** demoted from always-run to conditional (triggers on package file changes)
-- **`adapters.yml`** — `review-agents` changed from `alias: true` to standalone command config
-- **All 5 adapter variants** regenerated from new canonical prompt (9-line alias → 1141+ lines)
+- **`adapters.yml`** — `review-agents` and `feature-review-agents` changed from `alias: true` to standalone command config
+- **All adapter variants** regenerated from new canonical prompts
 - **Review summary format** — adds "Agents Dispatched" table and "(Multi-Agent)" heading
 
 ### Migration
 
 - No breaking changes — `run-all` and all existing flags work identically
-- `prp-review-agents` now spawns actual Agent subprocesses instead of redirecting to `prp-review`
-- Use `--review-single-agent` flag in `run-all` to get the old single-session behavior
+- `prp-review-agents` and `prp-feature-review-agents` now spawn parallel Agent subprocesses instead of aliasing to single-session commands
+- `design` now parallelizes Phase 2+3 (explore+research) — synthesis unchanged
+- Use `--review-single-agent` flag in `run-all` for single-session review behavior
+- Use `feature-review` or `review` for single-session sequential alternatives
 
 ---
 

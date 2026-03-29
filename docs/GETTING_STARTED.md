@@ -152,7 +152,7 @@ Debug/Issue:  debug, issue-investigate, issue-fix
 Automation:   ralph, ralph-cancel, rollback, cleanup, run-all
 ```
 
-> \* `review-agents` และ `feature-review-agents` เป็น Claude Code exclusive (ใช้ multi-agent dispatch via Task tool) — adapters อื่นใช้ `review` ซึ่งเป็น multi-pass sequential ที่มี feature parity เทียบเท่า
+> \* `review-agents` และ `feature-review-agents` spawn parallel Agent subprocesses สำหรับ deep review — available across all 5 adapters (v2.3.0+). ใช้ `review` หรือ `feature-review` สำหรับ single-session sequential แทนได้
 
 **Claude Code:**
 ```bash

@@ -108,7 +108,7 @@ cd .prp && ./scripts/install.sh && cd ..
 | Feature | Claude Code | OpenCode |
 |---------|------------|----------|
 | Commands | 19 | 17 |
-| Parallel agents | review-agents, feature-review-agents | ไม่มี |
+| Parallel agents | review-agents, feature-review-agents | review-agents, feature-review-agents (if Agent tool supported) |
 | Command format | `/prp-core:command` | `/prp:command` |
 | Storage | `.claude/commands/` | `.opencode/commands/prp/` |
 | File format | `.md` | `.md` |
