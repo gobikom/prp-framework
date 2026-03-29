@@ -76,12 +76,13 @@ ls -la */ 2>/dev/null | head -50
 
 ### If PRD File Detected:
 
-1. **Read the PRD file**
+1. **Read the PRD file** — if file does not exist, STOP: "PRD file not found at `{path}`. Verify the path and try again."
 2. **Parse the Implementation Phases table** — find rows with `Status: pending`
 3. **Check dependencies** — only select phases whose dependencies are `complete`
 4. **Select the next actionable phase:**
    - First pending phase with all dependencies complete
    - If multiple candidates with same dependencies, note parallelism opportunity
+   - If NO phases are actionable (all pending phases have incomplete dependencies): STOP — "No actionable phases found. All pending phases have unmet dependencies. Check the PRD phases table for circular or unresolvable dependencies."
 5. **Extract phase context:**
    ```
    PHASE: {phase number and name}
@@ -519,7 +520,13 @@ The plan file MUST include lifecycle frontmatter (`status: pending`, `runner`, `
 
 **Save file to**: `.prp-output/plans/{kebab-case-feature-name}-{TIMESTAMP}.plan.md`
 
-**If from PRD**: Update PRD status to `in-progress`, link plan file path.
+**After saving, verify the file was written:**
+```bash
+test -f ".prp-output/plans/{filename}" || echo "FATAL: Plan file write failed"
+```
+If verification fails, STOP — do not report success.
+
+**If from PRD**: Update PRD status to `in-progress`, link plan file path. After update, verify the PRD file was modified (re-read and confirm status changed). If update fails, WARN: "Could not update PRD status. Manually update the phase status to `in-progress`."
 
 **Report to user:**
 
