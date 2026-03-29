@@ -33,7 +33,36 @@ Every major version release MUST include a `docs/migration/vX.0-to-vY.0.md` file
 
 ## [Unreleased]
 
-_No unreleased changes._
+## [2.3.0] — 2026-03-29
+
+**Parallel Agent Review Release** — `prp-review-agents` restored from alias to standalone command that spawns actual parallel Agent subprocesses via the Agent tool. Each agent gets a fresh context window for deep file exploration beyond the diff.
+
+### Added
+
+- **`prompts/review-agents.md`** (1141 lines) — new canonical prompt for multi-agent parallel PR review. Spawns `code-reviewer`, `security-reviewer`, `silent-failure-hunter` as core agents in parallel, with conditional dispatch for `dependency-analyzer`, `accessibility-reviewer`, `performance-analyzer`, `type-design-analyzer`, `docs-impact-agent`, `comment-analyzer`, `pr-test-analyzer` (#38)
+- **Full `Agent()` dispatch blocks** — explicit `Agent(subagent_type=..., prompt="...")` call blocks for all 10 agents with 20-30 line prompts each (replacing v2.1.0's 1-3 sentence hints)
+- **Sequential fallback** — graceful fallback to `{TOOL}:review` (single-session) when Agent tool is unavailable
+- **Core agent failure handling** — if any core agent fails, verdict forced to minimum NEEDS FIXES
+- **`--context` path validation** — rejects absolute paths and `..` traversal, validates non-empty diff section
+- **Context file verification** — STOP if context file fails to create before spawning agents
+- **No-PR detection** — explicit STOP with diagnostic when no PR exists for current branch
+- **`gh pr review` error handling** — logs actual error, displays WARNING, then falls back to comment
+- **Metrics `review_type` field** — JSONL records now distinguish `"agents"` vs `"single"` review type
+- **Review artifact frontmatter** — YAML frontmatter with `agents:` field listing which agents ran
+
+### Changed
+
+- **`silent-failure-hunter`** promoted from conditional to **core agent** (always-run, 3rd alongside code-reviewer and security-reviewer)
+- **`dependency-analyzer`** demoted from always-run to conditional (triggers on package file changes)
+- **`adapters.yml`** — `review-agents` changed from `alias: true` to standalone command config
+- **All 5 adapter variants** regenerated from new canonical prompt (9-line alias → 1141+ lines)
+- **Review summary format** — adds "Agents Dispatched" table and "(Multi-Agent)" heading
+
+### Migration
+
+- No breaking changes — `run-all` and all existing flags work identically
+- `prp-review-agents` now spawns actual Agent subprocesses instead of redirecting to `prp-review`
+- Use `--review-single-agent` flag in `run-all` to get the old single-session behavior
 
 ---
 
