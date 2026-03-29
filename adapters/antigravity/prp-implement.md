@@ -173,6 +173,12 @@ git pull --rebase origin main 2>/dev/null || true
 | **CREATE** new functions/modules | Write tests first (RED → GREEN) |
 | **UPDATE** existing business logic (services, handlers, algorithms) | Write/update tests first for the changed behavior (RED → GREEN) |
 | **UPDATE** configuration, schema, wiring, or imports | Skip to 3.3 (no test-first needed) |
+| **DELETE** functions/modules | Update dependent tests first — remove or update tests that reference deleted code, verify callers still pass |
+
+**Finding the test file:**
+- Check plan's Testing Strategy for test file paths
+- Look for co-located tests: `{filename}.test.ts`, `{filename}.spec.ts`, `__tests__/{filename}.ts`
+- If no test file exists for UPDATE tasks: **create one** in the project's test directory following the existing test file naming convention. If no convention is clear, use `{filename}.test.{ext}` co-located with the source file.
 
 1. Create the test file for this task (or add test cases to existing test file)
 2. Write test cases based on the plan's Testing Strategy section:
@@ -198,6 +204,8 @@ git pull --rebase origin main 2>/dev/null || true
 ```
 {test command from plan} -- {relevant-test-file-or-pattern}
 ```
+
+**To find the relevant test pattern**: look for co-located `{filename}.test.*` or `{filename}.spec.*`, check `__tests__/` directory, or search: `grep -rl "{function-or-class-name}" --include="*.test.*" --include="*.spec.*"`. If no matching test file found, skip focused tests for this task (full suite in Phase 4 will still catch regressions).
 
 This catches regressions early — a broken test discovered after 5 more tasks is much harder to fix than one caught immediately. Skip focused tests only for CREATE tasks (no existing tests to break) and pure config/wiring tasks.
 
@@ -548,10 +556,13 @@ ls -la .prp-output/plans/completed/$(basename "$ARGUMENTS")
 test ! -f "$ARGUMENTS" || echo "WARNING: Plan still exists at original location"
 ```
 
-**If move fails** (e.g., file already exists), use a timestamped name:
-```bash
-mv "$ARGUMENTS" ".prp-output/plans/completed/$(basename $ARGUMENTS .md)-$(date +%Y%m%d).md"
-```
+**If move fails:**
+
+| Failure | Action |
+|---------|--------|
+| Name collision (file exists in `completed/`) | Use timestamped name: `mv "$ARGUMENTS" ".prp-output/plans/completed/$(basename $ARGUMENTS .plan.md)-$(date +%Y%m%d-%H%M).plan.md"` |
+| Permission denied (read-only file/filesystem) | WARN: "Could not archive plan (permission denied). Plan remains at original location. Manually move it after fixing permissions." Skip the GATE — proceed to Phase 6. |
+| Other error | WARN with the actual error message. Proceed to Phase 6. |
 
 ### 5.5 Generate Review Context File (for run-all workflow)
 

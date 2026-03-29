@@ -53,7 +53,7 @@ Discover the actual structure before proceeding.
 ### If PRD File Detected:
 
 1. **Read the PRD file** — if file does not exist, STOP: "PRD file not found at `{path}`. Verify the path and try again."
-2. **Parse the Implementation Phases table** — find rows with `Status: pending`
+2. **Parse the Implementation Phases table** — find rows with `Status: pending`. If the PRD has no "Implementation Phases" table (no table with Status/Phase columns), STOP: "PRD file has no Implementation Phases table. Add a phases table with Status column, or use free-form text input instead."
 3. **Check dependencies** — only select phases whose dependencies are `complete`
 4. **Select the next actionable phase:**
    - First pending phase with all dependencies complete
