@@ -95,11 +95,23 @@ Then detect validation commands from `package.json` or equivalent.
 gh pr view --json number -q '.number'
 ```
 
-**When path is provided — extract PR number from filename:**
+**When path is provided — validate it is a review artifact (not a fix-summary):**
+
+```bash
+ARTIFACT_PATH="{provided path}"
+# Reject fix-summary artifacts — these are outputs of review-fix, not inputs
+if echo "$ARTIFACT_PATH" | grep -q "fix-summary"; then
+  echo "ERROR: Input appears to be a fix-summary artifact, not a review artifact."
+  echo "Expected: pr-{N}-review-*.md or pr-{N}-agents-review.md"
+fi
+```
+
+If the input is a fix-summary artifact: STOP — "Cannot fix a fix-summary. Pass a review artifact instead (e.g., `pr-{N}-review-gemini.md` or `pr-{N}-agents-review.md`)."
+
+**Extract PR number from filename:**
 
 ```bash
 # Artifact name format: pr-{NUMBER}-*.md (e.g. pr-123-review-gemini.md)
-ARTIFACT_PATH="{provided path}"
 NUMBER=$(basename "$ARTIFACT_PATH" | grep -oE 'pr-([0-9]+)-' | grep -oE '[0-9]+')
 
 # Fallback: get from current branch if filename doesn't match pattern
@@ -188,14 +200,17 @@ Extract all issues grouped by severity. Look for sections:
 
 **Severity mapping table:**
 
-| Review Section | Maps To |
-|----------------|---------|
-| Critical / Critical Issues / Critical (block merge) | **Critical** |
-| High Priority / Important / Important Issues / Important (address before merge) | **High** |
-| Medium Priority | **Medium** |
-| Suggestions / Low / Suggestions (nice to have) | **Suggestion** |
+| Review Section | Maps To | Formats |
+|----------------|---------|---------|
+| Critical / Critical Issues / Critical (block merge) | **Critical** | All |
+| High Priority / Important / Important Issues / Important (address before merge) | **High** | All |
+| Medium Priority / Medium | **Medium** | Standard review |
+| Suggestions / Low / Suggestions (nice to have) | **Suggestion** | All |
 
-> **Note**: The agents-review format does not use "Medium" — issues are either Critical, Important, or Suggestion. When parsing agents-review, treat Important as High. Codex adapters use parenthetical labels (e.g., "Critical (block merge)") — match on the keyword before the parenthetical.
+**Format-specific notes:**
+- **agents-review**: Does not use "Medium" — issues are Critical, Important, or Suggestion. Treat Important as High.
+- **Codex adapters**: Use parenthetical labels (e.g., "Critical (block merge)"). Match on the keyword before the parenthetical.
+- **Standard review**: Uses "Pass" column (pass name). Agents-review uses "Agent" column (agent name). Both are valid source identifiers.
 
 **PHASE_1_CHECKPOINT:**
 - [ ] Review artifact resolved (auto or user-selected)
@@ -495,7 +510,7 @@ Applied fixes from review report: `{artifact filename}`
 
 ### Fixed Issues
 
-| Severity | Fixed | Skipped | Total |
+| Severity | Fixed | Skipped | Already Fixed | Total |
 |----------|-------|---------|-------|
 | Critical | {N} | {N} | {N} |
 | High | {N} | {N} | {N} |
@@ -542,8 +557,8 @@ Append a "Fix Outcome" section to the review artifact:
 **Commit**: {hash}
 **Branch**: {branch-name}
 
-| Severity | Fixed | Skipped |
-|----------|-------|---------|
+| Severity | Fixed | Skipped | Already Fixed |
+|----------|-------|---------|---------------|
 | Critical | {N} | {N} |
 | High | {N} | {N} |
 | Medium | {N} | {N} |
@@ -573,8 +588,8 @@ Append a "Fix Outcome" section to the review artifact:
 
 ### Summary
 
-| Severity | Fixed | Skipped |
-|----------|-------|---------|
+| Severity | Fixed | Skipped | Already Fixed |
+|----------|-------|---------|---------------|
 | Critical | {N} | {N} |
 | High | {N} | {N} |
 | Medium | {N} | {N} |
@@ -625,7 +640,13 @@ git rebase origin/{base-branch}
 
 ### Issue already fixed
 
-If code at flagged line already matches the recommendation: skip silently (mark as "already fixed").
+If code at flagged line already matches the recommendation: skip and track as "already fixed" (distinct from "skipped"). Include in the fix summary:
+
+```
+| Severity | Fixed | Skipped | Already Fixed |
+```
+
+This prevents discrepancy between parsed issue count and reported totals.
 
 ### Drift detected (code changed since review)
 

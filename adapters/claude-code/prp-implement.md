@@ -405,6 +405,8 @@ ls .prp-output/reports/{name}-report*.md 2>/dev/null
 **Date**: {YYYY-MM-DD}
 **Status**: {COMPLETE | PARTIAL}
 
+> **If PARTIAL**: Explain why — which tasks were completed and which remain. Mark incomplete tasks with ❌ and include the failure reason. This enables review-agents to provide partial feedback on completed work.
+
 ---
 
 ## Summary
@@ -430,10 +432,11 @@ Compare the original plan's assessment with what actually happened:
 
 ## Tasks Completed
 
-| # | Task | File | Status |
-|---|------|------|--------|
-| 1 | {task description} | `src/x.ts` | ✅ |
-| 2 | {task description} | `src/y.ts` | ✅ |
+| # | Task | File | Status | Notes |
+|---|------|------|--------|-------|
+| 1 | {task description} | `src/x.ts` | ✅ | |
+| 2 | {task description} | `src/y.ts` | ✅ | |
+| 3 | {if partial: task description} | `src/z.ts` | ❌ | {failure reason} |
 
 ---
 
@@ -525,9 +528,12 @@ mkdir -p .prp-output/plans/completed
 mv "$ARGUMENTS" .prp-output/plans/completed/
 ```
 
-**Verify the move:**
+**Verify both destination AND source removal:**
 ```bash
-ls -la .prp-output/plans/completed/
+# Verify plan exists in completed/
+ls -la .prp-output/plans/completed/$(basename "$ARGUMENTS")
+# Verify plan no longer exists at original location
+test ! -f "$ARGUMENTS" || echo "WARNING: Plan still exists at original location"
 ```
 
 **If move fails** (e.g., file already exists), use a timestamped name:
