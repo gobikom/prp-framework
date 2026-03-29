@@ -127,20 +127,17 @@ commands:
     opencode-agent: "plan"
 
   review-agents:
-    alias: true
-    alias-of: review
     description:
       claude-code: "Comprehensive PR review using specialized agents - security, dependencies, code quality, tests, errors, types, docs, and simplification"
-      default: "Multi-pass PR review — alias for prp-review which already includes all 11 review passes with equivalent quality."
+      default: "Multi-agent PR review — spawns parallel specialized agents for deep code review."
     argument-hint: "\"<pr-number> [aspects: comments|tests|errors|types|code|security|deps|docs|perf|a11y|simplify|all] [--since-last-review] [--metrics]\""
-    codex-short-description: "Multi-pass PR review (alias)"
+    codex-short-description: "Multi-agent PR review"
     opencode-agent: "plan"
-    # Antigravity uses "prp-review" in description, others use just "review"
     description-overrides:
-      codex: "Multi-pass PR review — alias for prp-review which already includes all 11 review passes with equivalent quality."
-      opencode: "Multi-pass PR review — alias for review which already includes all 11 review passes with equivalent quality."
-      gemini: "Multi-pass PR review — alias for review which already includes all 11 review passes with equivalent quality."
-      antigravity: "Multi-pass PR review — alias for prp-review which already includes all 11 review passes with equivalent quality."
+      codex: "Multi-agent PR review — spawns parallel specialized agents for deep code review."
+      opencode: "Multi-agent PR review — spawns parallel specialized agents for deep code review."
+      gemini: "Multi-agent PR review — spawns parallel specialized agents for deep code review."
+      antigravity: "Multi-agent PR review — spawns parallel specialized agents for deep code review."
 
   feature-review:
     description:
