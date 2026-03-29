@@ -42,7 +42,25 @@ Apply fixes for all issues found by `prp-review`:
 
 ## Phase 0: DETECT — Project Toolchain
 
-### 0.1 Identify Package Manager
+### 0.1 Check for Plan-Provided Commands (fast path)
+
+First, check for a completed plan matching the PR branch:
+
+```bash
+PR_BRANCH=$(gh pr view {NUMBER} --json headRefName -q '.headRefName' 2>/dev/null)
+PLAN_SLUG=$(echo "$PR_BRANCH" | sed 's|^feature/||')
+ls -t .prp-output/plans/completed/*${PLAN_SLUG}*.plan.md 2>/dev/null | head -1
+```
+
+**If a matching plan exists with a Metadata table** containing Runner/Type Check/Lint/Test/Build commands: use those directly and **skip the rest of Phase 0**.
+
+Display: "Using toolchain from completed plan — skipping detection."
+
+### 0.2 Fallback — Auto-Detect (only when no plan found)
+
+**Only run this section if no matching completed plan was found.**
+
+Identify package manager from lock files:
 
 | File Found | Package Manager | Runner |
 |------------|-----------------|--------|
@@ -54,26 +72,7 @@ Apply fixes for all issues found by `prp-review`:
 | `Cargo.toml` | cargo | `cargo` |
 | `go.mod` | go | `go` |
 
-### 0.2 Identify Validation Commands
-
-Check for a completed plan matching the PR branch:
-
-```bash
-PR_BRANCH=$(gh pr view {NUMBER} --json headRefName -q '.headRefName' 2>/dev/null)
-PLAN_SLUG=$(echo "$PR_BRANCH" | sed 's|^feature/||')
-ls -t .prp-output/plans/completed/*${PLAN_SLUG}*.plan.md 2>/dev/null | head -1
-```
-
-> **Plan-provided commands take precedence — but only if the plan matches the PR branch**. If a matching completed plan exists with a Metadata table containing Runner/Type Check/Lint/Test/Build commands, use those directly. Otherwise fall back to auto-detection.
-
-**Fallback — auto-detect from project config:**
-
-| Ecosystem | Type Check | Lint | Test | Build |
-|-----------|-----------|------|------|-------|
-| JS/TS | `{runner} run type-check` | `{runner} run lint` | `{runner} test` | `{runner} run build` |
-| Python | `mypy .` | `ruff check .` | `pytest` | N/A |
-| Rust | `cargo check` | `cargo clippy` | `cargo test` | `cargo build` |
-| Go | `go vet ./...` | `golangci-lint run` | `go test ./...` | `go build ./...` |
+Then detect validation commands from `package.json` or equivalent.
 
 **Store detected commands** — use consistently for all validation steps.
 
@@ -307,8 +306,8 @@ Process severity batches in order: **Critical → High → Medium → Suggestion
 For each issue in the batch:
 
 1. **Read the file** — understand current context around the flagged line
-2. **Read similar files** — understand the pattern to follow
-3. **Apply the fix** — exactly what the review recommends
+2. **Apply the fix** — exactly what the review recommends, using the review's suggestion and the file's existing patterns
+3. **Read additional files only if needed** — only if the fix requires understanding an import, caller, or type defined elsewhere. Do NOT speculatively read "similar files" for pattern discovery — the review artifact already analyzed the patterns.
 4. **Note deviations** — if you must deviate, document why
 
 **Rules:**
@@ -562,6 +561,8 @@ Append a "Fix Outcome" section to the review artifact:
 ---
 
 ## Phase 9: OUTPUT — Report to User
+
+**Skip this phase** if invoked as part of `/run-all` (detected by: `.claude/prp-run-all.state.md` exists, or `[WORKSPACE CONTEXT]` present). The orchestrator produces its own summary in Step 7.
 
 ```markdown
 ## Review Fixes Applied
