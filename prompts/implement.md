@@ -163,13 +163,19 @@ git pull --rebase origin main 2>/dev/null || true
 
 ### 3.2 Write Test First (RED)
 
-> **Test-first applies to tasks that CREATE new functions/modules.**
-> For tasks that UPDATE configuration, schema, or wiring — skip to 3.3.
+**When to write tests first:**
+
+| Task Type | Action |
+|-----------|--------|
+| **CREATE** new functions/modules | Write tests first (RED → GREEN) |
+| **UPDATE** existing business logic (services, handlers, algorithms) | Write/update tests first for the changed behavior (RED → GREEN) |
+| **UPDATE** configuration, schema, wiring, or imports | Skip to 3.3 (no test-first needed) |
 
 1. Create the test file for this task (or add test cases to existing test file)
 2. Write test cases based on the plan's Testing Strategy section:
    - Happy path tests
    - Error/edge case tests from the plan's Edge Cases Checklist
+   - For UPDATE tasks: test the NEW expected behavior (should fail against current code)
 3. Run tests — they SHOULD FAIL (RED) because implementation doesn't exist yet
 4. If tests pass without implementation — tests are not testing the right thing, rewrite
 
@@ -184,11 +190,19 @@ git pull --rebase origin main 2>/dev/null || true
 
 **After EVERY file change, run the type-check command from the plan's Validation Commands section.**
 
-**If types fail:**
+**If the task modifies existing code** (UPDATE, not CREATE), also run focused tests:
+
+```
+{test command from plan} -- {relevant-test-file-or-pattern}
+```
+
+This catches regressions early — a broken test discovered after 5 more tasks is much harder to fix than one caught immediately. Skip focused tests only for CREATE tasks (no existing tests to break) and pure config/wiring tasks.
+
+**If types or tests fail:**
 
 1. Read the error
 2. Fix the issue
-3. Re-run type-check
+3. Re-run type-check (and focused tests if applicable)
 4. Only proceed when passing
 
 ### 3.5 Track Progress

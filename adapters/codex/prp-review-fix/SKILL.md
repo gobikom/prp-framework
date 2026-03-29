@@ -305,9 +305,9 @@ Validation commands: {detected runner} ({source: plan / auto-detected})
 Proceeding with fixes...
 ```
 
-### 3.2 Group by File
+### 3.2 Group by File (Within Each Batch)
 
-For efficiency, group issues by file so each file is read once.
+For efficiency, group issues by file **within each severity batch** so each file is read once per batch. If the same file appears in multiple severity batches (e.g., Critical and High), it will be read again in the later batch — this is acceptable because the file content may have changed from earlier fixes.
 
 **PHASE_3_CHECKPOINT:**
 - [ ] Fix plan printed
@@ -347,23 +347,28 @@ For each issue in the batch:
 
 ### 4.3 Quick Check After Each Batch
 
-After fixing all issues in a severity batch, run **only type-check + lint** (fast feedback):
+After fixing all issues in a severity batch, run validation based on batch severity:
 
+**For Critical and High batches** — run type-check + lint + tests:
 ```bash
-# Type checking — use detected command
 {type_check_command}
+{lint_command}
+{test_command}
+```
 
-# Linting — use detected command
+**For Medium and Suggestion batches** — run type-check + lint only (fast feedback):
+```bash
+{type_check_command}
 {lint_command}
 ```
 
-**Do NOT run tests or build here** — save the full suite for Phase 5 (once, after all batches).
+Running tests after critical/high batches catches regressions early — a test failure after all 4 batches is much harder to bisect.
 
 **If quick check fails after a batch:**
 1. Identify which fix caused the failure
-2. Revert that specific fix
-3. Add it to skip log with reason: "Validation failed"
-4. Re-run quick check
+2. If single fix in batch → revert it, add to skip log with reason: "Validation failed"
+3. If multiple fixes in batch and cause is unclear → **bisect**: revert fixes one at a time (last-to-first) and re-run the failing check after each revert until it passes. The last reverted fix is the cause — add it to skip log, re-apply the others.
+4. Re-run quick check to confirm clean state
 5. Continue to next batch
 
 **PHASE_4_CHECKPOINT:**
@@ -377,7 +382,7 @@ After fixing all issues in a severity batch, run **only type-check + lint** (fas
 
 ## Phase 5: VALIDATE — Full Validation Suite (Once)
 
-Run the full suite **once** after all batches are complete. This saves significant tokens compared to running tests + build after every batch.
+Run the full suite **once** after all batches are complete. Tests may have already passed during critical/high batch quick-checks — this final run confirms no cross-batch regressions and adds the build check.
 
 ### 5.1 Run Complete Validation
 
@@ -398,9 +403,9 @@ Run the full suite **once** after all batches are complete. This saves significa
 ### 5.2 Handle Failures
 
 **If any check fails:**
-1. Identify the root cause
-2. Fix the underlying issue (don't suppress)
-3. Re-run the specific check
+1. Identify the root cause — check which file/test fails and correlate with fixes applied
+2. If the cause is clear → fix the underlying issue, re-run the specific check
+3. If the cause is unclear (multiple batches may interact) → **bisect by batch**: revert the last severity batch entirely, re-run. If it passes, the last batch caused the regression — investigate its fixes individually. If it still fails, revert the next-to-last batch, and so on.
 4. If unfixable → revert the causing fix and add to skip log
 
 **GATE**: Do NOT proceed to Phase 6 until all validation checks pass (or failing fixes are reverted and skipped).
