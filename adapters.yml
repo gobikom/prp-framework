@@ -148,19 +148,17 @@ commands:
     opencode-agent: "plan"
 
   feature-review-agents:
-    alias: true
-    alias-of: feature-review
     description:
       claude-code: "Comprehensive feature review using specialized agents - code quality, product ideas, performance, security, accessibility, dependencies, and observability"
-      default: "Multi-pass feature review — alias for prp-feature-review which already includes comprehensive quality, security, performance, and product analysis."
+      default: "Multi-agent feature review — spawns parallel specialized agents for deep package analysis."
     argument-hint: "\"<package-path> [--focus code|product|perf|security|a11y|deps|obs|all] [--quick]\""
-    codex-short-description: "Multi-pass feature review (alias)"
+    codex-short-description: "Multi-agent feature review"
     opencode-agent: "plan"
     description-overrides:
-      codex: "Multi-pass feature review — alias for prp-feature-review which already includes comprehensive quality, security, performance, and product analysis."
-      opencode: "Multi-pass feature review — alias for feature-review which already includes comprehensive quality, security, performance, and product analysis."
-      gemini: "Multi-pass feature review — alias for feature-review which already includes comprehensive quality, security, performance, and product analysis."
-      antigravity: "Multi-pass feature review — alias for prp-feature-review which already includes comprehensive quality, security, performance, and product analysis."
+      codex: "Multi-agent feature review — spawns parallel specialized agents for deep package analysis."
+      opencode: "Multi-agent feature review — spawns parallel specialized agents for deep package analysis."
+      gemini: "Multi-agent feature review — spawns parallel specialized agents for deep package analysis."
+      antigravity: "Multi-agent feature review — spawns parallel specialized agents for deep package analysis."
 
   debug:
     description:

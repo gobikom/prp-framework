@@ -1,7 +1,3 @@
----
-description: Multi-agent feature review — spawns parallel specialized agents for deep package analysis.
-agent: plan
----
 
 
 ## Agent Mode Detection
@@ -20,13 +16,13 @@ these are where quality comes from.
 
 # Feature Review Agents — Parallel Multi-Agent Feature & Code Review
 
-**Input**: $ARGUMENTS
+**Input**: {ARGS}
 
 ## Mission
 
 Perform a comprehensive, senior-engineer-level review of a package or folder by **spawning specialized Agent subprocesses in parallel**. Each agent runs in its own isolated context window with fresh memory, enabling deep file exploration.
 
-**This command differs from `/prp:feature-review`** (single-session sequential analysis) by spawning actual Agent subprocesses via the Agent tool. Each agent gets:
+**This command differs from `{TOOL}:feature-review`** (single-session sequential analysis) by spawning actual Agent subprocesses via the Agent tool. Each agent gets:
 - **Fresh context window** — no context pollution from other analysis areas
 - **Deep exploration** — agents can read all files in the package, not just prioritized ones
 - **Specialized focus** — each agent type has purpose-built instructions
@@ -153,7 +149,7 @@ If verification fails, STOP — do not spawn agents without a context file.
 
 ## Phase 3: Spawn Parallel Agent Subprocesses
 
-**CRITICAL**: You MUST use the `Agent` tool to spawn these as separate subprocesses. Each agent runs in its own context window with fresh memory. Do NOT attempt to run these as sequential analysis passes in this session — that defeats the purpose of this command. If you want single-session sequential analysis, use `/prp:feature-review` instead.
+**CRITICAL**: You MUST use the `Agent` tool to spawn these as separate subprocesses. Each agent runs in its own context window with fresh memory. Do NOT attempt to run these as sequential analysis passes in this session — that defeats the purpose of this command. If you want single-session sequential analysis, use `{TOOL}:feature-review` instead.
 
 ### 3.1 Prepare Agent Context
 
@@ -393,12 +389,12 @@ Score: Observability {N}/10"
 
 **If the Agent tool is NOT available** (e.g., running in a tool that doesn't support subagent spawning):
 
-Fall back to `/prp:feature-review` which performs all analysis sequentially in a single session. Display:
+Fall back to `{TOOL}:feature-review` which performs all analysis sequentially in a single session. Display:
 
 ```
 Agent tool not available — falling back to single-session sequential review.
 For parallel agent review, use Claude Code or another tool that supports the Agent tool.
-Running: /prp:feature-review {PACKAGE_PATH}
+Running: {TOOL}:feature-review {PACKAGE_PATH}
 ```
 
 ---
@@ -589,7 +585,7 @@ agents: [{list of agents that ran}]
 | Empty package (no source files) | STOP — "No source files found in `{path}`" |
 | Very large package (>500 files) | Focus on entry points and core logic; note "partial scan" in report |
 | Context file write fails | STOP — do not spawn agents without context |
-| Agent tool not available | Fall back to `/prp:feature-review` |
+| Agent tool not available | Fall back to `{TOOL}:feature-review` |
 | Agent fails or times out | WARN, proceed with available results |
 | `--quick` flag | Core agents only (code-reviewer, security-reviewer) |
 
@@ -619,4 +615,4 @@ agents: [{list of agents that ran}]
 - SCORES_AGGREGATED: Per-area scores calculated
 - ACTIONS_PRIORITIZED: Clear next steps with effort/impact
 - REPORT_CREATED: Comprehensive report saved
-- FALLBACK_AVAILABLE: Graceful fallback to /prp:feature-review
+- FALLBACK_AVAILABLE: Graceful fallback to {TOOL}:feature-review
