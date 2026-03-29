@@ -36,9 +36,13 @@ Execute the plan end-to-end with rigorous self-validation. You are autonomous.
 
 ## Phase 0: DETECT - Project Environment
 
-### 0.1 Identify Package Manager
+**Skip this phase entirely** if the plan's Metadata table contains Runner/Type Check/Lint/Test/Build commands. These were verified during planning and are more reliable than re-detection.
 
-Check for these files to determine the project's toolchain:
+Display: "Using toolchain from plan Metadata — skipping detection."
+
+**Only run Phase 0 when plan has NO Metadata table** (e.g., manually created plan or legacy format):
+
+### 0.1 Identify Package Manager
 
 | File Found | Package Manager | Runner |
 |------------|-----------------|--------|
@@ -50,10 +54,6 @@ Check for these files to determine the project's toolchain:
 | `Cargo.toml` | cargo | `cargo` |
 | `go.mod` | go | `go` |
 
-**Store the detected runner** — use it for all subsequent commands.
-
-> **Plan-provided commands take precedence**: If the plan contains a Metadata table with Runner/Type Check/Lint/Test/Build commands, use those directly instead of auto-detecting. Plan commands were verified during planning and are more reliable.
-
 ### 0.2 Identify Validation Scripts
 
 Check `package.json` (or equivalent) for available scripts:
@@ -62,11 +62,9 @@ Check `package.json` (or equivalent) for available scripts:
 - Testing: `test`, `test:unit`, `test:integration`
 - Building: `build`, `compile`
 
-**Use the plan's "Validation Commands" section** — it should specify exact commands for this project.
+### 0.3 Detect Monorepo
 
-### 0.3 Detect Monorepo (if not in plan)
-
-If the plan Metadata contains `Monorepo` and `Package` fields, use those directly to scope commands. Otherwise auto-detect:
+If the plan Metadata contains `Monorepo` and `Package` fields, use those directly. Otherwise auto-detect:
 
 | File Found | Monorepo Type |
 |------------|---------------|
@@ -76,22 +74,7 @@ If the plan Metadata contains `Monorepo` and `Package` fields, use those directl
 | `lerna.json` | Lerna |
 | root `package.json` with `"workspaces"` field | yarn/npm workspaces |
 
-**If monorepo detected and plan has `Package` field:**
-- Set `MONOREPO_PACKAGE` from plan Metadata
-- Scope validation commands using the correct tool syntax:
-
-  | Monorepo Type | Scoped Command Pattern | Example (pkg: api, script: lint) |
-  |---------------|------------------------|----------------------------------|
-  | pnpm workspaces | `pnpm --filter {pkg} run {script}` | `pnpm --filter api run lint` |
-  | Turborepo | `turbo run {script} --filter={pkg}` | `turbo run lint --filter=api` |
-  | Nx | `nx run {pkg}:{script}` | `nx run api:lint` |
-  | Lerna | `lerna run {script} --scope={pkg}` | `lerna run lint --scope=api` |
-  | yarn workspaces | `yarn workspace {pkg} run {script}` | `yarn workspace api run lint` |
-  | npm workspaces | `npm run {script} -w {pkg}` | `npm run lint -w api` |
-
-- If plan already has scoped Validation Commands (from `/prp-plan --package`), use those directly.
-
-**If monorepo detected but no package specified**: Run validation at root level (default behavior, no scoping).
+If monorepo detected and plan has `Package` field, scope commands using appropriate tool syntax (`pnpm --filter`, `turbo --filter=`, `nx run pkg:`, `lerna --scope=`, `yarn workspace`, `npm -w`).
 
 ---
 
@@ -204,12 +187,6 @@ git pull --rebase origin main 2>/dev/null || true
 
 **After EVERY file change, run the type-check command from the plan's Validation Commands section.**
 
-Common patterns:
-- `{runner} run type-check` (JS/TS projects)
-- `mypy .` (Python)
-- `cargo check` (Rust)
-- `go build ./...` (Go)
-
 **If types fail:**
 
 1. Read the error
@@ -249,12 +226,6 @@ If you must deviate from the plan:
 
 **Run the type-check and lint commands from the plan's Validation Commands section.**
 
-Common patterns:
-- JS/TS: `{runner} run type-check && {runner} run lint`
-- Python: `ruff check . && mypy .`
-- Rust: `cargo check && cargo clippy`
-- Go: `go vet ./...`
-
 **Must pass with zero errors.**
 
 If lint errors:
@@ -273,13 +244,7 @@ If lint errors:
 2. Edge cases identified in the plan need tests
 3. Update existing tests if behavior changed
 
-**Write tests**, then run the test command from the plan.
-
-Common patterns:
-- JS/TS: `{runner} test` or `{runner} run test`
-- Python: `pytest` or `uv run pytest`
-- Rust: `cargo test`
-- Go: `go test ./...`
+**Write tests**, then run the test command from the plan's Validation Commands section.
 
 **If tests fail:**
 
@@ -338,12 +303,6 @@ CHANGED_FILES=$(git diff --name-only origin/main...HEAD | grep -E '\.(ts|tsx|js|
 ### 4.3 Build Check
 
 **Run the build command from the plan's Validation Commands section.**
-
-Common patterns:
-- JS/TS: `{runner} run build`
-- Python: N/A (interpreted) or `uv build`
-- Rust: `cargo build --release`
-- Go: `go build ./...`
 
 **Must complete without errors.**
 
@@ -666,6 +625,8 @@ Based on implementation:
 ---
 
 ## Phase 6: OUTPUT - Report to User
+
+**Skip this phase** if invoked as part of `/prp-run-all` (detected by: `.claude/prp-run-all.state.md` exists, or `[WORKSPACE CONTEXT]` present). The orchestrator produces its own summary in Step 7.
 
 ```markdown
 ## Implementation Complete
