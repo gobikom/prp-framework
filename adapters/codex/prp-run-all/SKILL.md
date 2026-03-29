@@ -313,7 +313,12 @@ Set: `REVIEW_CYCLE = 1`, `MAX_CYCLES = 2`
 
 Pass PR_NUMBER to the chosen command. If `.prp-output/reviews/pr-context-{BRANCH}.md` exists, pass `--context` flag for token optimization.
 
-**Variable update**: `REVIEW_ARTIFACT = .prp-output/reviews/pr-{PR_NUMBER}-review-codex.md`
+**Variable update** (depends on which review command ran):
+
+| Command | REVIEW_ARTIFACT path |
+|---------|---------------------|
+| `$prp-review-agents` | `.prp-output/reviews/pr-{PR_NUMBER}-agents-review.md` |
+| `$prp-review` | `.prp-output/reviews/pr-{PR_NUMBER}-review-codex.md` |
 
 **DO NOT**: Read code and review it yourself, skip the skill.
 **CHECKPOINT**: Did you invoke the review command? If not → STOP → invoke it.
