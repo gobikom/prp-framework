@@ -1,6 +1,6 @@
 # PRP Framework Workflows
 
-Detailed documentation for all workflows in PRP Framework.
+**Prompt-Run-Perfect** — Detailed documentation for all workflows in PRP Framework.
 
 ## Workflow: PRD (Product Requirements Document)
 

@@ -1,4 +1,4 @@
-# PRP Framework - คู่มือการใช้งาน
+# PRP Framework (Prompt-Run-Perfect) - คู่มือการใช้งาน
 
 ## สารบัญ
 

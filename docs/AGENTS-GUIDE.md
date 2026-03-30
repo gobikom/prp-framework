@@ -1,6 +1,6 @@
 # Agents Guide - คู่มือการใช้งาน Agents
 
-คู่มือนี้อธิบายวิธีใช้งาน 31 agents ใน PRP Framework พร้อม strategy สำหรับ solopreneurs และ startups
+คู่มือนี้อธิบายวิธีใช้งาน 31 agents ใน PRP (Prompt-Run-Perfect) Framework พร้อม strategy สำหรับ solopreneurs และ startups
 
 ---
 

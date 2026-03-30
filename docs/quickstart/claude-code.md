@@ -1,6 +1,6 @@
 # Quick Start: PRP Framework with Claude Code
 
-Claude Code เป็น primary tool ของ PRP Framework -- รองรับครบทุก feature: 19 core commands, 30 agents, hooks, skills, และ multi-agent parallel execution
+Claude Code เป็น primary tool ของ PRP (Prompt-Run-Perfect) Framework -- รองรับครบทุก feature: 19 core commands, 31 agents, hooks, skills, และ multi-agent parallel execution
 
 ## Setup
 

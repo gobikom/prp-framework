@@ -1,6 +1,6 @@
 # Getting Started with PRP Framework
 
-This guide will help you set up PRP Framework in your project.
+**Prompt-Run-Perfect** — This guide will help you set up PRP Framework in your project.
 
 ## Prerequisites
 

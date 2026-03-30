@@ -1,6 +1,6 @@
 # Contributing to PRP Framework
 
-Thank you for considering contributing to PRP Framework! This document provides guidelines for contributing.
+Thank you for considering contributing to PRP (Prompt-Run-Perfect) Framework! This document provides guidelines for contributing.
 
 ## Ways to Contribute
 

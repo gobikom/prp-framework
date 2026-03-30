@@ -1,10 +1,14 @@
 # PRP Framework
 
-Cross-tool AI coding workflow framework that works with Claude Code, Codex, OpenCode, Gemini CLI, Google Antigravity, Kimi, and any other AI coding tool.
+**Prompt-Run-Perfect** — Cross-tool AI workflow framework for development, marketing, and business operations.
+
+> **Prompt** your intent. **Run** it with any AI tool. **Perfect** the results through automated review loops.
 
 ## Overview
 
-PRP (Plan-Review-PR) Framework is a portable, tool-agnostic workflow system for AI-assisted software development. It provides structured prompts and adapters for multiple AI coding tools, enabling consistent workflows across different platforms.
+PRP (Prompt-Run-Perfect) is a portable, tool-agnostic workflow framework that turns AI coding tools into structured, quality-driven pipelines. It works with Claude Code, Codex, OpenCode, Gemini CLI, Google Antigravity, Kimi, and any other AI tool — providing consistent workflows across platforms for software development, marketing, sales, and business strategy.
+
+The core philosophy: every task follows the same loop — **prompt** the AI with structured commands, **run** the workflow through automated stages, and **perfect** the output via iterative review-fix cycles until quality gates pass.
 
 ### Key Features
 
@@ -12,13 +16,13 @@ PRP (Plan-Review-PR) Framework is a portable, tool-agnostic workflow system for 
 ✅ **Portable Design** - Use as Git submodule or template
 ✅ **Tool-Specific Naming** - Parallel artifact creation for comparison
 ✅ **Complete Workflows** - PRD → Design → Plan → Implement → Review → Commit → PR
-✅ **Resilient Automation** - State management with `--resume`, review-fix loops, coverage enforcement (90%)
+✅ **Iterative Perfection** - Ralph autonomous loop, review-fix cycles, and multi-agent validation until all quality gates pass
 ✅ **Quality Built-in** - TDD approach, conditional design docs, pre-commit checks, security/performance validation
 ✅ **100% Workflow Parity** - 28 commands across all 5 adapters (19 core + 4 marketing + 5 bot), auto-generated from canonical prompts to guarantee zero drift
 ✅ **Auto-Generation** - Single source of truth in `prompts/` — edit once, generate all 5 adapters with `scripts/generate-adapters.py`
 ✅ **Monorepo Support** - Auto-detects pnpm workspaces, Turborepo, Nx, Lerna. `--package` flag scopes plan/implement/run-all to a specific package
-✅ **Claude Code Advanced** - 30 specialized agents, skills, hooks for enhanced workflows
-✅ **Domain Extensions** - Marketing automation and AI Bot development command packs in all adapters
+✅ **31 Specialized Agents** - Development, security, marketing, sales, strategy, and business operations agents
+✅ **Beyond Code** - Marketing automation, AI Bot design, sales enablement, and business strategy command packs
 
 ## Quick Start
 

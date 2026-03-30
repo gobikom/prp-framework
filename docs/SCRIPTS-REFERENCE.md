@@ -1,6 +1,6 @@
 # Scripts Reference
 
-The PRP Framework ships with five utility scripts in the `scripts/` directory. These handle installation, syncing, migration, state management, and artifact cleanup.
+The PRP (Prompt-Run-Perfect) Framework ships with five utility scripts in the `scripts/` directory. These handle installation, syncing, migration, state management, and artifact cleanup.
 
 ## Quick Reference
 

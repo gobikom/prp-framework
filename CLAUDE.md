@@ -2,7 +2,9 @@
 
 ## Project Overview
 
-PRP (Plan-Review-PR) Framework เป็น cross-tool AI coding workflow framework ที่ออกแบบมาเพื่อให้ทำงานกับ AI coding tools หลายตัว ได้แก่ Claude Code, Codex, OpenCode, Gemini CLI, Kimi และอื่นๆ
+PRP (Prompt-Run-Perfect) Framework เป็น cross-tool AI workflow framework สำหรับ development, marketing, และ business operations ทำงานกับ AI coding tools หลายตัว ได้แก่ Claude Code, Codex, OpenCode, Gemini CLI, Kimi และอื่นๆ
+
+> **Prompt** your intent. **Run** it with any AI tool. **Perfect** the results through automated review loops.
 
 ## Session Protocol (PSak Soul MCP)
 
