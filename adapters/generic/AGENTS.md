@@ -227,7 +227,7 @@ Include Documentation Updates and Verdict: READY TO MERGE / NEEDS FIXES / CRITIC
 > **Note**: Uses `-other` suffix to identify generic/Kimi reviews and prevent overwriting reviews from other tools (each tool uses its own suffix for parallel review capability).
 
 **Post to GitHub**: `gh pr comment <number> --body-file .prp-output/reviews/pr-{NUMBER}-review-other.md`
-**Update Implementation Report**: After posting, find implementation report (`.prp-output/reports/*-report.md`). If exists, append "Review Outcome" section with review date, verdict, and issue counts. If not found, skip silently.
+**Update Implementation Report**: After posting, find implementation report (`.prp-output/reports/*-report.md`). If exists, append "Review Outcome" section with review date, verdict, and issue counts. If not found, note in review output: "Implementation report not found — skipped update."
 
 ### Usage
 
@@ -300,7 +300,7 @@ Report: fixed/skipped per severity, validation status, next steps.
 
 - No artifact → STOP, instruct to run Review workflow first
 - Drift detected → warn, attempt if context clear, else skip
-- Already fixed → skip silently
+- Already fixed → skip and log in fix summary as "Already fixed"
 - All skipped → no commit, report reasons
 
 ### Usage

@@ -436,12 +436,6 @@ A bug is 'recurring' if you observe 2+ instances of the same structural defect.
 List every occurrence — not just the ones you noticed first. This prevents
 whack-a-mole re-review cycles where the same pattern is found piecemeal.
 
-After your Findings table, add a Pattern Sweep Results section:
-## Pattern Sweep Results
-| Pattern | Files Swept | Instances Found |
-|---------|-------------|-----------------|
-If no recurring patterns detected, state: 'No recurring patterns detected — sweeps not performed.'
-
 Report findings as structured markdown:
 ## Findings
 | Severity | Issue | File:Line | Suggestion |
@@ -449,7 +443,14 @@ Report findings as structured markdown:
 
 Use severity levels: Critical, High, Medium, Low
 Only report issues with 80%+ confidence.
-Also note Strengths — what is done well."
+Also note Strengths — what is done well.
+
+After your Findings table, add a Pattern Sweep Results section:
+## Pattern Sweep Results
+| Pattern | Files Swept | Instances Found |
+|---------|-------------|-----------------|
+If sweep performed but 0 additional instances found, still include the row with '0 additional instances'.
+If no recurring patterns detected, state: 'No recurring patterns detected — sweeps not performed.'"
 )
 ```
 
@@ -521,18 +522,19 @@ A pattern is 'recurring' if you observe 2+ instances of the same structural defe
 List every occurrence — not just the ones you noticed first. This prevents
 whack-a-mole re-review cycles where the same pattern is found piecemeal.
 
-After your Findings table, add a Pattern Sweep Results section:
-## Pattern Sweep Results
-| Pattern | Files Swept | Instances Found |
-|---------|-------------|-----------------|
-If no recurring patterns detected, state: 'No recurring patterns detected — sweeps not performed.'
-
 Report findings as structured markdown:
 ## Findings
 | Severity | Issue | File:Line | Error Path | Fix |
 |----------|-------|-----------|------------|-----|
 
-Use severity levels: Critical, High, Medium, Low"
+Use severity levels: Critical, High, Medium, Low
+
+After your Findings table, add a Pattern Sweep Results section:
+## Pattern Sweep Results
+| Pattern | Files Swept | Instances Found |
+|---------|-------------|-----------------|
+If sweep performed but 0 additional instances found, still include the row with '0 additional instances'.
+If no recurring patterns detected, state: 'No recurring patterns detected — sweeps not performed.'"
 )
 ```
 
