@@ -430,10 +430,16 @@ Focus areas:
 - Per-file checklist: Correctness, Type Safety, Pattern Compliance, Completeness, Maintainability
 
 EXHAUSTIVE PATTERN SWEEP: When you identify a recurring bug class (e.g., missing
-type guard, falsy-value blind spot, unguarded interpolation), grep/search the
-entire affected file(s) for ALL instances of that pattern before reporting.
+type guard, falsy-value blind spot, unguarded interpolation), grep/search ALL
+files changed in this PR for ALL instances of that pattern before reporting.
+A bug is 'recurring' if you observe 2+ instances of the same structural defect.
 List every occurrence — not just the ones you noticed first. This prevents
 whack-a-mole re-review cycles where the same pattern is found piecemeal.
+
+After your Findings table, add a Pattern Sweep Results section:
+## Pattern Sweep Results
+| Pattern | Files Swept | Instances Found |
+If no recurring patterns detected, state: 'No recurring patterns detected — sweeps not performed.'
 
 Report findings as structured markdown:
 ## Findings
@@ -509,9 +515,15 @@ Zero tolerance for:
 
 EXHAUSTIVE PATTERN SWEEP: When you identify a recurring error-handling anti-pattern
 (e.g., silent fallback, swallowed exception, missing exit code check), grep/search
-the entire affected file(s) for ALL instances of that pattern before reporting.
+ALL files changed in this PR for ALL instances of that pattern before reporting.
+A pattern is 'recurring' if you observe 2+ instances of the same structural defect.
 List every occurrence — not just the ones you noticed first. This prevents
 whack-a-mole re-review cycles where the same pattern is found piecemeal.
+
+After your Findings table, add a Pattern Sweep Results section:
+## Pattern Sweep Results
+| Pattern | Files Swept | Instances Found |
+If no recurring patterns detected, state: 'No recurring patterns detected — sweeps not performed.'
 
 Report findings as structured markdown:
 ## Findings
