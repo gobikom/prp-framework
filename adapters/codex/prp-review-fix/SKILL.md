@@ -558,9 +558,9 @@ Applied fixes from review report: `{artifact filename}`
 
 | Pattern | File | Siblings Found | Action |
 |---------|------|----------------|--------|
-| {rows from Pattern Expansions log} |
-<!-- If log is empty, emit this single fallback row instead: -->
-<!-- | — | — | — | No pattern-class fixes applied | -->
+| {one row per entry from Pattern Expansions log, e.g.:} |
+| {Missing type guard | src/foo.ts | 3 | Fixed 3} |
+| {If log is empty, emit: — | — | — | No pattern-class fixes applied} |
 
 ### Changes Made
 

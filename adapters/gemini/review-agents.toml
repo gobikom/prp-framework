@@ -1091,7 +1091,7 @@ ls -t .prp-output/reports/*-report*.md 2>/dev/null | head -1
 {If NEEDS FIXES or CRITICAL ISSUES: list of top issues to address}
 ```
 
-**If no implementation report found**: Skip this step silently (PR may not have been created via PRP workflow).
+**If no implementation report found**: Note in review output: "Implementation report not found — skipped update." (PR may not have been created via PRP workflow.)
 
 ---
 
