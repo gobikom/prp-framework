@@ -431,6 +431,12 @@ Focus areas:
 - Pattern compliance with existing codebase
 - Per-file checklist: Correctness, Type Safety, Pattern Compliance, Completeness, Maintainability
 
+EXHAUSTIVE PATTERN SWEEP: When you identify a recurring bug class (e.g., missing
+type guard, falsy-value blind spot, unguarded interpolation), grep/search the
+entire affected file(s) for ALL instances of that pattern before reporting.
+List every occurrence — not just the ones you noticed first. This prevents
+whack-a-mole re-review cycles where the same pattern is found piecemeal.
+
 Report findings as structured markdown:
 ## Findings
 | Severity | Issue | File:Line | Suggestion |
@@ -502,6 +508,12 @@ Zero tolerance for:
 - Async operations without .catch() or try/catch
 - Shell scripts without set -e or proper exit code checking
 - Functions that return default values on error instead of propagating
+
+EXHAUSTIVE PATTERN SWEEP: When you identify a recurring error-handling anti-pattern
+(e.g., silent fallback, swallowed exception, missing exit code check), grep/search
+the entire affected file(s) for ALL instances of that pattern before reporting.
+List every occurrence — not just the ones you noticed first. This prevents
+whack-a-mole re-review cycles where the same pattern is found piecemeal.
 
 Report findings as structured markdown:
 ## Findings

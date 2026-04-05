@@ -40,7 +40,7 @@ Apply fixes for all issues found by `prp-review`:
 6. Commit and push fixes to the PR branch
 7. Post a summary comment on the PR
 
-**Golden Rule**: Fix what the review found. Don't refactor unrelated code. If a fix is unclear or risky, skip and note it.
+**Golden Rule**: Fix what the review found, plus same-pattern siblings in the same file(s). Don't refactor unrelated code. If a fix is unclear or risky, skip and note it.
 
 ---
 
@@ -330,12 +330,13 @@ For each issue in the batch:
 
 1. **Read the file** — understand current context around the flagged line
 2. **Apply the fix** — exactly what the review recommends, using the review's suggestion and the file's existing patterns
-3. **Read additional files only if needed** — only if the fix requires understanding an import, caller, or type defined elsewhere. Do NOT speculatively read "similar files" for pattern discovery — the review artifact already analyzed the patterns.
-4. **Note deviations** — if you must deviate, document why
+3. **Pattern Expansion** — if the fix addresses a recurring pattern-class bug (same type of bug at multiple locations, e.g., missing type guard, falsy-value blind spot), grep the affected file for ALL other instances of the same pattern and fix them in the same batch. This is NOT refactoring — it is completing the same fix class. If more than 10 sibling instances are found, fix them all but flag in the deviation log: "Large pattern expansion (N instances) — verify manually."
+4. **Read additional files only if needed** — only if the fix requires understanding an import, caller, or type defined elsewhere. Do NOT speculatively read unrelated files.
+5. **Note deviations** — if you must deviate, document why
 
 **Rules:**
-- Fix ONLY what the review flagged
-- Don't refactor surrounding code
+- Fix what the review flagged + same-pattern siblings in the same file(s)
+- Don't refactor surrounding code or fix unrelated issues
 - Match existing code style
 - If a fix is ambiguous or risky → SKIP and add to skip log
 
