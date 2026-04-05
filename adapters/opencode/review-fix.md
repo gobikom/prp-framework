@@ -38,7 +38,7 @@ Apply fixes for all issues found by `prp-review`:
 6. Commit and push fixes to the PR branch
 7. Post a summary comment on the PR
 
-**Golden Rule**: Fix what the review found. Don't refactor unrelated code. If a fix is unclear or risky, skip and note it.
+**Golden Rule**: Fix what the review found, plus same-pattern siblings across all files changed in this PR. Don't refactor unrelated code. If a fix is unclear or risky, skip and note it.
 
 ---
 
@@ -322,18 +322,24 @@ For efficiency, group issues by file **within each severity batch** so each file
 
 Process severity batches in order: **Critical → High → Medium → Suggestion**
 
+Before processing any issues, initialize an empty **Pattern Expansions log** (list of rows for the Phase 8 table). Append to it during step 3 of each fix. After all batches complete, this log populates the Phase 8 Pattern Expansions table.
+
 ### 4.1 Fix Loop (per severity batch)
 
 For each issue in the batch:
 
 1. **Read the file** — understand current context around the flagged line
 2. **Apply the fix** — exactly what the review recommends, using the review's suggestion and the file's existing patterns
-3. **Read additional files only if needed** — only if the fix requires understanding an import, caller, or type defined elsewhere. Do NOT speculatively read "similar files" for pattern discovery — the review artifact already analyzed the patterns.
-4. **Note deviations** — if you must deviate, document why
+3. **Pattern Expansion** — if the fix addresses a recurring pattern-class bug (same type of bug at 2+ locations, e.g., missing type guard, falsy-value blind spot), grep ALL files changed in this PR for other instances of the same pattern and fix them in the same batch. This is NOT refactoring — it is completing the same fix class. If more than 10 sibling instances are found, add ALL to the skip log with reason: "Large pattern expansion (N instances) — requires manual review" and continue without applying sibling fixes. Always log the result:
+   - Siblings found and fixed: add row to Phase 8 Pattern Expansions table — Action = "Fixed N"
+   - No siblings found: add row to Phase 8 Pattern Expansions table — Action = "No siblings found"
+   - Fix is not pattern-class: add row to Phase 8 Pattern Expansions table — Action = "Not pattern-class — sweep skipped"
+4. **Read additional files only if needed** — only if the fix requires understanding an import, caller, or type defined elsewhere. Do NOT speculatively read unrelated files.
+5. **Note deviations** — if you must deviate, document why
 
 **Rules:**
-- Fix ONLY what the review flagged
-- Don't refactor surrounding code
+- Fix what the review flagged + same-pattern siblings across all PR files
+- Don't refactor surrounding code or fix unrelated issues
 - Match existing code style
 - If a fix is ambiguous or risky → SKIP and add to skip log
 
@@ -546,6 +552,14 @@ Applied fixes from review report: `{artifact filename}`
 
 - `{file}:{line}` — {reason skipped}
 
+### Pattern Expansions
+
+| Pattern | File | Siblings Found | Action |
+|---------|------|----------------|--------|
+| {one row per entry from Pattern Expansions log, e.g.:} |
+| {Missing type guard | src/foo.ts | 3 | Fixed 3} |
+| {If log is empty, emit: — | — | — | No pattern-class fixes applied} |
+
 ### Changes Made
 
 | File | Changes |
@@ -580,6 +594,9 @@ Append a "Fix Outcome" section to the review artifact:
 
 ### Skipped Issues
 {List with reasons, or "None"}
+
+### Pattern Expansions
+{Table of pattern sweep results, or "None performed."}
 ```
 
 **PHASE_8_CHECKPOINT:**

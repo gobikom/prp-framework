@@ -429,6 +429,13 @@ Focus areas:
 - Pattern compliance with existing codebase
 - Per-file checklist: Correctness, Type Safety, Pattern Compliance, Completeness, Maintainability
 
+EXHAUSTIVE PATTERN SWEEP: When you identify a recurring bug class (e.g., missing
+type guard, falsy-value blind spot, unguarded interpolation), grep/search ALL
+files changed in this PR for ALL instances of that pattern before reporting.
+A bug is 'recurring' if you observe 2+ instances of the same structural defect.
+List every occurrence — not just the ones you noticed first. This prevents
+whack-a-mole re-review cycles where the same pattern is found piecemeal.
+
 Report findings as structured markdown:
 ## Findings
 | Severity | Issue | File:Line | Suggestion |
@@ -436,7 +443,14 @@ Report findings as structured markdown:
 
 Use severity levels: Critical, High, Medium, Low
 Only report issues with 80%+ confidence.
-Also note Strengths — what is done well."
+Also note Strengths — what is done well.
+
+After your Findings table, add a Pattern Sweep Results section:
+## Pattern Sweep Results
+| Pattern | Files Swept | Instances Found |
+|---------|-------------|-----------------|
+If sweep performed but 0 additional instances found, still include the row with '0 additional instances'.
+If no recurring patterns detected, state: 'No recurring patterns detected — sweeps not performed.'"
 )
 ```
 
@@ -501,12 +515,26 @@ Zero tolerance for:
 - Shell scripts without set -e or proper exit code checking
 - Functions that return default values on error instead of propagating
 
+EXHAUSTIVE PATTERN SWEEP: When you identify a recurring error-handling anti-pattern
+(e.g., silent fallback, swallowed exception, missing exit code check), grep/search
+ALL files changed in this PR for ALL instances of that pattern before reporting.
+A pattern is 'recurring' if you observe 2+ instances of the same structural defect.
+List every occurrence — not just the ones you noticed first. This prevents
+whack-a-mole re-review cycles where the same pattern is found piecemeal.
+
 Report findings as structured markdown:
 ## Findings
 | Severity | Issue | File:Line | Error Path | Fix |
 |----------|-------|-----------|------------|-----|
 
-Use severity levels: Critical, High, Medium, Low"
+Use severity levels: Critical, High, Medium, Low
+
+After your Findings table, add a Pattern Sweep Results section:
+## Pattern Sweep Results
+| Pattern | Files Swept | Instances Found |
+|---------|-------------|-----------------|
+If sweep performed but 0 additional instances found, still include the row with '0 additional instances'.
+If no recurring patterns detected, state: 'No recurring patterns detected — sweeps not performed.'"
 )
 ```
 
@@ -1065,7 +1093,7 @@ ls -t .prp-output/reports/*-report*.md 2>/dev/null | head -1
 {If NEEDS FIXES or CRITICAL ISSUES: list of top issues to address}
 ```
 
-**If no implementation report found**: Skip this step silently (PR may not have been created via PRP workflow).
+**If no implementation report found**: Note in review output: "Implementation report not found — skipped update." (PR may not have been created via PRP workflow.)
 
 ---
 
