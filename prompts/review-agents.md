@@ -435,6 +435,7 @@ whack-a-mole re-review cycles where the same pattern is found piecemeal.
 After your Findings table, add a Pattern Sweep Results section:
 ## Pattern Sweep Results
 | Pattern | Files Swept | Instances Found |
+|---------|-------------|-----------------|
 If no recurring patterns detected, state: 'No recurring patterns detected — sweeps not performed.'
 
 Report findings as structured markdown:
@@ -519,6 +520,7 @@ whack-a-mole re-review cycles where the same pattern is found piecemeal.
 After your Findings table, add a Pattern Sweep Results section:
 ## Pattern Sweep Results
 | Pattern | Files Swept | Instances Found |
+|---------|-------------|-----------------|
 If no recurring patterns detected, state: 'No recurring patterns detected — sweeps not performed.'
 
 Report findings as structured markdown:
