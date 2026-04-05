@@ -324,6 +324,8 @@ For efficiency, group issues by file **within each severity batch** so each file
 
 Process severity batches in order: **Critical → High → Medium → Suggestion**
 
+Before processing any issues, initialize an empty **Pattern Expansions log** (list of rows for the Phase 8 table). Append to it during step 3 of each fix. After all batches complete, this log populates the Phase 8 Pattern Expansions table.
+
 ### 4.1 Fix Loop (per severity batch)
 
 For each issue in the batch:
@@ -552,17 +554,11 @@ Applied fixes from review report: `{artifact filename}`
 
 - `{file}:{line}` — {reason skipped}
 
-{If any pattern expansions logged:}
 ### Pattern Expansions
 
 | Pattern | File | Siblings Found | Action |
 |---------|------|----------------|--------|
-| {pattern description} | `{file}` | {N} | {Fixed N / Skipped — >10 threshold / No siblings found} |
-
-{Otherwise:}
-### Pattern Expansions
-
-None performed.
+| {rows from Pattern Expansions log, or single row: "—" | "—" | "—" | "No pattern-class fixes applied"} |
 
 ### Changes Made
 
