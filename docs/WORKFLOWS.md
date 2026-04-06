@@ -551,6 +551,15 @@ Commit → PR → Review/Fix Loop → Summary
 ### Options
 
 ```bash
+# Issue-driven: fetch issue → smart plan → implement → PR → review loop → merge
+/prp-run-all --issue 87 --merge
+
+# Fully autonomous issue lifecycle
+/prp-run-all --issue 42 --merge --no-interact
+
+# Custom review-fix rounds (default: 5)
+/prp-run-all --issue 55 --max-review-rounds 3 --merge
+
 # Full workflow (default: one-shot implement)
 /prp-run-all Add JWT authentication
 
@@ -585,10 +594,14 @@ Commit → PR → Review/Fix Loop → Summary
 |------|-------------|
 | `--prp-path <path>` | Use existing plan, skip plan step. Validates file exists. |
 | `--skip-plan` | Alias for `--prp-path` — prompts to select from available plans in `.prp-output/plans/` |
+| `--issue <N>` | Fetch GitHub issue #N context. Smart plan detection (small: skip, medium: fast, large: full plan) |
+| `--merge` | Auto squash-merge PR after review passes (0 issues). Runs cleanup + issue close |
+| `--max-review-rounds <N>` | Max review-fix cycles (default: 5). Loop targets 0 issues all severities |
 | `--fast` | Use fast-track plan mode (lighter codebase analysis, good for simple features) |
 | `--ralph` | Use ralph loop instead of one-shot implement |
 | `--ralph-max-iter N` | Set ralph max iterations (default: 10) |
 | `--resume` | Resume from last failed step using saved state |
+| `--skip-plan` | Select from available plans instead of creating new one |
 | `--skip-review` | Skip review step |
 | `--no-pr` | Skip PR and review steps |
 | `--fix-severity <levels>` | Override review-fix severity (default: `critical,high,medium,suggestion`) |
@@ -606,10 +619,11 @@ run-all creates a state file at `.claude/prp-run-all.state.md` to track progress
 
 ### Review-Fix Loop (Step 6)
 
-After PR creation, the review step runs a fix loop:
+After PR creation, the review step runs a fix loop targeting 0 issues:
 1. Run `/prp:review-agents` on the PR (default; use `--review-single-agent` for single-agent review)
-2. If any issues matching `FIX_SEVERITY` found (default: critical, high, medium, suggestion) and cycle <= 2: run `/prp:review-fix` with `--severity {FIX_SEVERITY}`
+2. If any issues matching `FIX_SEVERITY` found (default: all severities) and cycle <= MAX_CYCLES (default 5): run `/prp:review-fix` with `--severity {FIX_SEVERITY}`
 3. Re-verify with `/prp:review` (always single-agent — multi-agent re-verify is wasteful for incremental changes)
+4. Loop until 0 issues or MAX_CYCLES reached. If `--merge` and 0 issues → proceed to merge + cleanup
 4. Max 2 cycles — if issues remain after 2 rounds, report remaining issues for manual fix
 
 ### Context Handoff
