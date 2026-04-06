@@ -289,7 +289,7 @@ mode: stub
 Run project's standard validation (type-check, lint, test, build).
 ```
 
-Save to `.prp-output/plans/issue-{ISSUE_NUMBER}-inline-{RUN_TIMESTAMP}.plan.md` (or `inline-{RUN_TIMESTAMP}.plan.md` if no issue).
+Save to `.prp-output/plans/issue-{ISSUE_NUMBER}-stub-{RUN_TIMESTAMP}.plan.md` (or `stub-{RUN_TIMESTAMP}.plan.md` if no issue).
 Set PLAN_PATH to the saved file path.
 
 If NOT skipping: Use `/prp:plan` with FEATURE (append `--fast` if FAST_PLAN, `--no-interact` if NO_INTERACT, `--package {MONOREPO_PACKAGE}` if set).
@@ -645,7 +645,7 @@ State and lock files are only deleted here — after merge and cleanup succeed. 
 | `--merge` but merge conflict | STOP — user must resolve conflict manually. |
 | `--merge` but review has remaining issues | Skip merge, report in summary. Do NOT merge with open issues. |
 | Smart plan detection says "small" but impl is complex | Plan was skipped, implement may struggle. User can re-run with `--prp-path` and explicit plan. |
-| `--issue N` + `--skip-plan` | `--skip-plan` overrides smart plan detection. If no existing plan files found, STOP before Step 0.8. To use issue-driven smart detection instead, omit `--skip-plan`. |
+| `--issue N` + `--skip-plan` | `--skip-plan` overrides smart plan detection. If no existing plan files found, falls through to stub plan generation in Step 2. To select from existing plans, ensure at least one `.plan.md` exists in `.prp-output/plans/`. |
 
 ---
 
