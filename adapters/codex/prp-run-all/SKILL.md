@@ -639,6 +639,7 @@ $prp-run-all --issue 55 --max-review-rounds 3 --merge # Custom review rounds
 | `--merge` but merge conflict | STOP — user must resolve conflict manually. |
 | `--merge` but review has remaining issues | Skip merge, report in summary. Do NOT merge with open issues. |
 | Smart plan detection says "small" but impl is complex | Plan was skipped, implement may struggle. User can re-run with `--prp-path` and explicit plan. |
+| `--issue N` + `--skip-plan` | `--skip-plan` overrides smart plan detection. If no existing plan files found, STOP before Step 0.8. To use issue-driven smart detection instead, omit `--skip-plan`. |
 
 ---
 
