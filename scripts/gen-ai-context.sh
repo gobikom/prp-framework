@@ -1,0 +1,395 @@
+#!/usr/bin/env bash
+# gen-ai-context.sh — Validate and auto-update PROJECT.md for AI + human consumption
+#
+# Modes:
+#   --check   Validate only (exit 0 if fresh, 1 if stale/missing)
+#   --update  Update AUTO-GEN sections in existing PROJECT.md
+#   --init    Create PROJECT.md from template (if not exists)
+#
+# Usage:
+#   gen-ai-context.sh [--check | --update | --init] [--quiet]
+#
+# Installed by prp-framework. Source: scripts/gen-ai-context.sh
+
+set -euo pipefail
+
+# Find project root (look for .git, fallback to cwd)
+find_project_root() {
+    local dir="$PWD"
+    while [ "$dir" != "/" ]; do
+        [ -d "$dir/.git" ] && echo "$dir" && return
+        dir=$(dirname "$dir")
+    done
+    echo "$PWD"
+}
+
+PROJECT_DIR=$(find_project_root)
+cd "$PROJECT_DIR"
+
+MODE="${1:---check}"
+QUIET=false
+[[ "${2:-}" == "--quiet" || "${1:-}" == "--quiet" ]] && QUIET=true
+[[ "$QUIET" == true && "$MODE" == "--quiet" ]] && MODE="--check"
+
+PROJECT_NAME=$(basename "$PROJECT_DIR")
+PROJECT_MD="$PROJECT_DIR/PROJECT.md"
+
+# Colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m'
+
+log() { $QUIET || echo -e "$@"; }
+log_ok() { log "  ${GREEN}✓${NC} $1"; }
+log_warn() { log "  ${YELLOW}⚠${NC} $1"; }
+log_err() { log "  ${RED}✗${NC} $1"; }
+
+# ─────────────────────────────────────────────────
+# Auto-detect: Stack
+# ─────────────────────────────────────────────────
+detect_stack() {
+    local stack=()
+    [ -f "package.json" ] && stack+=("Node.js $(jq -r '.engines.node // ""' package.json 2>/dev/null | head -1)")
+    [ -f "requirements.txt" ] || [ -f "pyproject.toml" ] || [ -f "setup.py" ] && stack+=("Python")
+    [ -f "go.mod" ] && stack+=("Go $(head -1 go.mod | grep -oP 'go \K[0-9.]+')")
+    [ -f "Cargo.toml" ] && stack+=("Rust")
+    [ -f "pom.xml" ] || [ -f "build.gradle" ] && stack+=("Java/Kotlin")
+
+    # Frameworks
+    [ -f "package.json" ] && grep -q '"react"' package.json 2>/dev/null && stack+=("React")
+    [ -f "package.json" ] && grep -q '"next"' package.json 2>/dev/null && stack+=("Next.js")
+    [ -f "package.json" ] && grep -q '"vue"' package.json 2>/dev/null && stack+=("Vue")
+    [ -f "package.json" ] && grep -q '"fastify"' package.json 2>/dev/null && stack+=("Fastify")
+    [ -f "package.json" ] && grep -q '"express"' package.json 2>/dev/null && stack+=("Express")
+    grep -rql "from fastapi" . --include="*.py" -m1 2>/dev/null && stack+=("FastAPI")
+    grep -rql "from flask" . --include="*.py" -m1 2>/dev/null && stack+=("Flask")
+    grep -rql "from django" . --include="*.py" -m1 2>/dev/null && stack+=("Django")
+
+    # Build tools
+    [ -f "package.json" ] && grep -q '"vite"' package.json 2>/dev/null && stack+=("Vite")
+    [ -f "tailwind.config" ] || [ -f "tailwind.config.js" ] || [ -f "tailwind.config.ts" ] && stack+=("Tailwind")
+
+    # DB
+    [ -d "prisma" ] && stack+=("Prisma")
+    grep -rql "chromadb\|from chromadb" . --include="*.py" -m1 2>/dev/null && stack+=("ChromaDB")
+    grep -rql "sqlite3\|aiosqlite" . --include="*.py" -m1 2>/dev/null && stack+=("SQLite")
+
+    # Clean up empty entries and join
+    local result=""
+    for s in "${stack[@]}"; do
+        s=$(echo "$s" | xargs)  # trim
+        [ -n "$s" ] && result="${result:+$result, }$s"
+    done
+    echo "${result:-Unknown}"
+}
+
+# ─────────────────────────────────────────────────
+# Auto-detect: Entry points
+# ─────────────────────────────────────────────────
+detect_entry_points() {
+    local entries=()
+    [ -f "package.json" ] && {
+        local main=$(jq -r '.main // ""' package.json 2>/dev/null)
+        [ -n "$main" ] && entries+=("$main")
+        local start=$(jq -r '.scripts.start // ""' package.json 2>/dev/null)
+        [ -n "$start" ] && entries+=("npm start → $start")
+    }
+    [ -f "main.py" ] && entries+=("main.py")
+    [ -f "app.py" ] && entries+=("app.py")
+    [ -f "server.py" ] && entries+=("server.py")
+    [ -f "src/index.ts" ] && entries+=("src/index.ts")
+    [ -f "src/index.js" ] && entries+=("src/index.js")
+    [ -f "src/main.py" ] && entries+=("src/main.py")
+    [ -d "bin" ] && {
+        for f in bin/*; do
+            [ -x "$f" ] && entries+=("$f")
+        done
+    }
+
+    local result=""
+    for e in "${entries[@]}"; do
+        result="${result:+$result, }$e"
+    done
+    echo "${result:-(none detected)}"
+}
+
+# ─────────────────────────────────────────────────
+# Auto-detect: Context Map
+# ─────────────────────────────────────────────────
+generate_context_map() {
+    echo "| Task Type | Read These First |"
+    echo "|-----------|-----------------|"
+
+    # Common directory patterns → task types
+    [ -d "src/routes" ] || [ -d "src/api" ] || [ -d "routes" ] && echo "| API/endpoints | \`$(ls -d src/routes src/api routes 2>/dev/null | head -1)/\` |"
+    [ -d "src/components" ] || [ -d "components" ] && echo "| Frontend components | \`$(ls -d src/components components 2>/dev/null | head -1)/\` |"
+    [ -d "src/services" ] || [ -d "services" ] && echo "| Business logic | \`$(ls -d src/services services 2>/dev/null | head -1)/\` |"
+    [ -d "src/models" ] || [ -d "models" ] && echo "| Data models | \`$(ls -d src/models models 2>/dev/null | head -1)/\` |"
+    [ -d "src/middleware" ] || [ -d "middleware" ] && echo "| Middleware | \`$(ls -d src/middleware middleware 2>/dev/null | head -1)/\` |"
+    [ -d "prisma" ] && echo "| Database schema | \`prisma/\` |"
+    [ -d "src/db" ] || [ -d "db" ] && echo "| Database | \`$(ls -d src/db db 2>/dev/null | head -1)/\` |"
+    [ -d "test" ] || [ -d "tests" ] || [ -d "__tests__" ] && echo "| Tests | \`$(ls -d test tests __tests__ 2>/dev/null | head -1)/\` |"
+    [ -d "docs" ] && echo "| Documentation | \`docs/\` |"
+    [ -d "scripts" ] && echo "| Scripts/CLI | \`scripts/\` |"
+    [ -d "bin" ] && echo "| CLI entry | \`bin/\` |"
+    [ -d "deploy" ] || [ -d ".github/workflows" ] && echo "| Deploy/CI | \`$(ls -d deploy .github/workflows 2>/dev/null | head -1)/\` |"
+    [ -d "config" ] || [ -d "conf" ] && echo "| Configuration | \`$(ls -d config conf 2>/dev/null | head -1)/\` |"
+
+    # Project-specific directories (any top-level dir with code)
+    for dir in */; do
+        dir="${dir%/}"
+        # Skip common non-code dirs
+        case "$dir" in
+            node_modules|.git|.prp|.prp-output|.claude|.codex|.opencode|.gemini|.agents|dist|build|__pycache__|.venv|venv|.env|coverage|.nyc_output|logs|output|tmp|temp) continue ;;
+            src|test|tests|docs|scripts|bin|deploy|config|conf|prisma|public|static|assets) continue ;;  # already handled above
+        esac
+        # Only include if it has code files
+        if find "$dir" -maxdepth 2 \( -name "*.py" -o -name "*.ts" -o -name "*.js" -o -name "*.go" -o -name "*.rs" -o -name "*.java" -o -name "*.yaml" -o -name "*.yml" -o -name "*.sh" \) -print -quit 2>/dev/null | grep -q .; then
+            echo "| ${dir} | \`${dir}/\` |"
+        fi
+    done
+}
+
+# ─────────────────────────────────────────────────
+# Auto-detect: Exports (API endpoints, CLI commands)
+# ─────────────────────────────────────────────────
+detect_exports() {
+    local found=false
+
+    # FastAPI routes
+    local fastapi_routes
+    fastapi_routes=$(grep -rn '@app\.\(get\|post\|put\|delete\|patch\)\|@router\.\(get\|post\|put\|delete\|patch\)' --include="*.py" . 2>/dev/null | head -20)
+    if [ -n "$fastapi_routes" ]; then
+        echo "### API Endpoints"
+        echo ""
+        echo '```'
+        echo "$fastapi_routes" | sed 's|^\./||' | while IFS= read -r line; do
+            echo "$line"
+        done
+        echo '```'
+        echo ""
+        found=true
+    fi
+
+    # Express routes
+    local express_routes
+    express_routes=$(grep -rn 'app\.\(get\|post\|put\|delete\|patch\)\|router\.\(get\|post\|put\|delete\|patch\)' --include="*.ts" --include="*.js" . 2>/dev/null | head -20)
+    if [ -n "$express_routes" ] && [ "$found" = false ]; then
+        echo "### API Endpoints"
+        echo ""
+        echo '```'
+        echo "$express_routes" | sed 's|^\./||'
+        echo '```'
+        echo ""
+        found=true
+    fi
+
+    # CLI commands (from bin/)
+    if [ -d "bin" ]; then
+        echo "### CLI Commands"
+        echo ""
+        for f in bin/*; do
+            [ -x "$f" ] && echo "- \`$(basename "$f")\`"
+        done
+        echo ""
+        found=true
+    fi
+
+    # Package.json scripts
+    if [ -f "package.json" ]; then
+        local scripts
+        scripts=$(jq -r '.scripts // {} | to_entries[] | "- `npm run \(.key)` → \(.value)"' package.json 2>/dev/null | head -10)
+        if [ -n "$scripts" ]; then
+            echo "### npm Scripts"
+            echo ""
+            echo "$scripts"
+            echo ""
+            found=true
+        fi
+    fi
+
+    $found || echo "(no exports detected — add manually)"
+}
+
+# ─────────────────────────────────────────────────
+# Mode: --init
+# ─────────────────────────────────────────────────
+do_init() {
+    if [ -f "$PROJECT_MD" ]; then
+        log "${YELLOW}PROJECT.md already exists. Use --update to refresh AUTO-GEN sections.${NC}"
+        exit 0
+    fi
+
+    # Find template
+    local tmpl=""
+    [ -f "$PROJECT_DIR/.prp/templates/PROJECT.md.tmpl" ] && tmpl="$PROJECT_DIR/.prp/templates/PROJECT.md.tmpl"
+    [ -f "$PROJECT_DIR/templates/PROJECT.md.tmpl" ] && tmpl="$PROJECT_DIR/templates/PROJECT.md.tmpl"
+
+    if [ -z "$tmpl" ]; then
+        log "${RED}Template not found. Expected .prp/templates/PROJECT.md.tmpl${NC}"
+        exit 1
+    fi
+
+    # Copy template and replace project name
+    sed "s/{PROJECT_NAME}/$PROJECT_NAME/g" "$tmpl" > "$PROJECT_MD"
+
+    # Now update AUTO-GEN sections
+    do_update
+
+    log ""
+    log "${GREEN}✅ Created PROJECT.md for $PROJECT_NAME${NC}"
+    log "   Review and edit the {TODO} sections (What & Why, Problem, Requirements, Key Decisions)"
+}
+
+# ─────────────────────────────────────────────────
+# Mode: --update
+# ─────────────────────────────────────────────────
+do_update() {
+    if [ ! -f "$PROJECT_MD" ]; then
+        log "${RED}PROJECT.md not found. Use --init to create it first.${NC}"
+        exit 1
+    fi
+
+    # Extract content before and after AUTO-GEN markers
+    local before after
+    before=$(sed '/<!-- AUTO-GEN:BEGIN/,$d' "$PROJECT_MD")
+    after=$(sed -n '/<!-- AUTO-GEN:END -->/,$p' "$PROJECT_MD" | tail -n +2)
+
+    if [ -z "$before" ]; then
+        log "${YELLOW}No AUTO-GEN markers found in PROJECT.md. Skipping update.${NC}"
+        exit 0
+    fi
+
+    # Generate new AUTO-GEN content
+    local stack entry_points context_map exports
+    stack=$(detect_stack)
+    entry_points=$(detect_entry_points)
+    context_map=$(generate_context_map)
+    exports=$(detect_exports)
+
+    # Rebuild PROJECT.md
+    {
+        echo "$before"
+        echo "<!-- AUTO-GEN:BEGIN — Do not edit manually. Run: gen-ai-context.sh --update -->"
+        echo "## Architecture (Brief)"
+        echo ""
+        echo "- **Stack:** $stack"
+        echo "- **Entry points:** $entry_points"
+        echo ""
+        echo "## Context Map"
+        echo ""
+        echo "$context_map"
+        echo ""
+        echo "## Exports"
+        echo ""
+        echo "$exports"
+        echo "<!-- AUTO-GEN:END -->"
+        echo "$after"
+    } > "$PROJECT_MD"
+
+    log "${GREEN}✅ Updated AUTO-GEN sections in PROJECT.md${NC}"
+}
+
+# ─────────────────────────────────────────────────
+# Mode: --check
+# ─────────────────────────────────────────────────
+do_check() {
+    local stale=0
+    local issues=0
+
+    log "=== PROJECT.md Health Check: $PROJECT_NAME ==="
+    log ""
+
+    # 1. Check PROJECT.md exists
+    if [ ! -f "$PROJECT_MD" ]; then
+        log_err "PROJECT.md does not exist (run: gen-ai-context.sh --init)"
+        exit 1
+    fi
+    log_ok "PROJECT.md exists ($(wc -l < "$PROJECT_MD") lines)"
+
+    # 2. Check required sections
+    for section in "What & Why" "Problem" "Requirements" "Key Decisions" "Constraints"; do
+        if grep -q "## $section" "$PROJECT_MD"; then
+            log_ok "$section section present"
+        else
+            log_warn "$section section MISSING"
+            issues=$((issues + 1))
+        fi
+    done
+
+    # 3. Check AUTO-GEN markers exist
+    if grep -q "AUTO-GEN:BEGIN" "$PROJECT_MD" && grep -q "AUTO-GEN:END" "$PROJECT_MD"; then
+        log_ok "AUTO-GEN markers present"
+    else
+        log_warn "AUTO-GEN markers missing (auto-update won't work)"
+        issues=$((issues + 1))
+    fi
+
+    # 4. Check for unfilled TODOs
+    local todo_count
+    todo_count=$(grep -c '{TODO' "$PROJECT_MD" 2>/dev/null || true)
+    if [ "$todo_count" -gt 0 ]; then
+        log_warn "$todo_count unfilled {TODO} placeholders"
+        issues=$((issues + 1))
+    else
+        log_ok "No unfilled {TODO} placeholders"
+    fi
+
+    # 5. Staleness check — compare current auto-gen vs what's in file
+    if grep -q "AUTO-GEN:BEGIN" "$PROJECT_MD"; then
+        local current_stack
+        current_stack=$(detect_stack)
+        if grep -q "$current_stack" "$PROJECT_MD" 2>/dev/null; then
+            log_ok "Stack is up-to-date"
+        else
+            log_warn "Stack may be outdated (current: $current_stack)"
+            stale=1
+        fi
+
+        # Check if new directories appeared that aren't in Context Map
+        for dir in */; do
+            dir="${dir%/}"
+            case "$dir" in
+                node_modules|.git|.prp|.prp-output|.claude|.codex|.opencode|.gemini|.agents|dist|build|__pycache__|.venv|venv|.env|coverage|.nyc_output|logs|output|tmp|temp|.claude-plugin|public|static|assets) continue ;;
+            esac
+            if find "$dir" -maxdepth 2 \( -name "*.py" -o -name "*.ts" -o -name "*.js" -o -name "*.go" -o -name "*.rs" -o -name "*.sh" -o -name "*.yaml" \) -print -quit 2>/dev/null | grep -q .; then
+                if ! grep -q "\`${dir}/\`\|${dir}/" "$PROJECT_MD" 2>/dev/null; then
+                    log_warn "Directory '$dir/' not in Context Map"
+                    stale=1
+                fi
+            fi
+        done
+    fi
+
+    # Summary
+    log ""
+    if [ "$stale" -eq 1 ]; then
+        log "${YELLOW}⚠ PROJECT.md is STALE — run: gen-ai-context.sh --update${NC}"
+        exit 1
+    elif [ "$issues" -gt 0 ]; then
+        log "${YELLOW}⚠ PROJECT.md has $issues issue(s) — review manually${NC}"
+        exit 0  # issues but not stale (human needs to fill TODOs)
+    else
+        log "${GREEN}✅ PROJECT.md is up-to-date${NC}"
+        exit 0
+    fi
+}
+
+# ─────────────────────────────────────────────────
+# Main
+# ─────────────────────────────────────────────────
+case "$MODE" in
+    --init)   do_init ;;
+    --update) do_update ;;
+    --check)  do_check ;;
+    *)
+        echo "Usage: gen-ai-context.sh [--check | --update | --init] [--quiet]"
+        echo ""
+        echo "  --check   Validate PROJECT.md (default)"
+        echo "  --update  Update AUTO-GEN sections"
+        echo "  --init    Create PROJECT.md from template"
+        echo "  --quiet   Suppress output (for CI/hooks)"
+        exit 1
+        ;;
+esac

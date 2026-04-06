@@ -212,6 +212,14 @@ commands:
     description-overrides:
       codex: "Safely undo implementation changes on the current branch with stash backup for recovery. Supports --soft (unstage), --hard (revert to origin/main), and --restore (recover from stash)."
 
+  project-context:
+    description:
+      claude-code: "Generate PROJECT.md — compact project context for AI + human"
+      default: "Generate PROJECT.md from code analysis, PRDs, and business context. Creates compact project documentation for AI token efficiency and human readability."
+    argument-hint: "[--from-prd <path>] [--from-business-context <path>]"
+    codex-short-description: "Generate PROJECT.md"
+    opencode-agent: "plan"
+
   cleanup:
     description:
       claude-code: "Clean up branches and verify PR status after merge"

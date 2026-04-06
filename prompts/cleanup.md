@@ -226,9 +226,61 @@ fi
 
 ---
 
-## Phase 5: OUTPUT — Report Results
+## Phase 5: DOCS UPDATE — Refresh PROJECT.md (if exists)
 
-### 5.1 Summary Table
+After cleanup is done, check if PROJECT.md needs updating.
+
+### 5.1 Check for gen-ai-context.sh
+
+```bash
+GEN_SCRIPT=""
+[ -x "scripts/gen-ai-context.sh" ] && GEN_SCRIPT="scripts/gen-ai-context.sh"
+[ -x ".prp/scripts/gen-ai-context.sh" ] && GEN_SCRIPT=".prp/scripts/gen-ai-context.sh"
+```
+
+If no script found OR no PROJECT.md exists: **skip this phase entirely**.
+
+### 5.2 Check Staleness
+
+```bash
+$GEN_SCRIPT --check --quiet
+```
+
+If exit code 0 (fresh): skip — nothing to do.
+If exit code 1 (stale): proceed to update.
+
+### 5.3 Update AUTO-GEN Sections
+
+```bash
+$GEN_SCRIPT --update
+```
+
+This updates ONLY the content between `<!-- AUTO-GEN:BEGIN -->` and `<!-- AUTO-GEN:END -->` markers.
+Human-written sections (What & Why, Problem, Requirements, Key Decisions, Constraints) are never touched.
+
+### 5.4 Commit Updated Docs
+
+```bash
+if ! git diff --quiet PROJECT.md 2>/dev/null; then
+    git add PROJECT.md
+    git commit -m "docs: update PROJECT.md auto-gen sections"
+fi
+```
+
+**If `DRY_RUN`**: Show what would change, don't commit.
+**If update fails**: Warn but do NOT stop cleanup — this is non-blocking.
+
+**PHASE_5_CHECKPOINT:**
+- [ ] gen-ai-context.sh found (or phase skipped)
+- [ ] Staleness checked
+- [ ] AUTO-GEN sections updated (if stale)
+- [ ] Changes committed (if any)
+
+---
+
+## Phase 6: OUTPUT — Report Results
+
+### 6.1 Summary Table
 
 ```markdown
 ## Cleanup Summary
@@ -243,7 +295,7 @@ fi
 **Cleaned**: {N} branches
 **Skipped**: {M} branches (open/no PR/unmerged)
 
-### 5.2 Dry Run Output
+### 6.2 Dry Run Output
 
 ```markdown
 ## Dry Run Preview (no changes made)
@@ -255,7 +307,7 @@ fi
 | `feat/wip` | #50 (Open) | Skip — PR still open |
 ```
 
-### 5.3 Tips
+### 6.3 Tips
 
 ```
 Tip: To clean old artifacts, run: ./scripts/cleanup-artifacts.sh 30
@@ -300,3 +352,5 @@ Tip: To see all branches: git branch -a
 - LOCAL_DELETED: Local branch removed (or skipped with reason)
 - REMOTE_DELETED: Remote branch removed (or skipped with reason)
 - STATE_CLEANED: Orphaned state files removed
+- DOCS_CHECKED: PROJECT.md staleness checked (if exists)
+- DOCS_UPDATED: AUTO-GEN sections refreshed and committed (if stale)

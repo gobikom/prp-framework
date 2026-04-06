@@ -343,6 +343,16 @@ else
     USED_COPY=true
 fi
 
+# Install gen-ai-context.sh (PROJECT.md validator/updater)
+echo "→ AI Context Generator (scripts/gen-ai-context.sh)"
+mkdir -p "$PROJECT_DIR/scripts"
+if install_file "$FRAMEWORK_DIR/scripts/gen-ai-context.sh" "$PROJECT_DIR/scripts/gen-ai-context.sh" "AI Context Generator"; then
+    USED_SYMLINKS=true
+else
+    USED_COPY=true
+fi
+chmod +x "$PROJECT_DIR/scripts/gen-ai-context.sh" 2>/dev/null || true
+
 echo ""
 echo "📁 Creating runtime artifact directories..."
 mkdir -p "$PROJECT_DIR/.prp-output"/{prds/drafts,designs,plans/completed,reports,reviews,debug,issues/completed,ralph-archives}

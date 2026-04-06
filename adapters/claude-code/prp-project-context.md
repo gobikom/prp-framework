@@ -1,0 +1,282 @@
+---
+description: Generate PROJECT.md — compact project context for AI + human
+argument-hint: "[--from-prd <path>] [--from-business-context <path>]"
+---
+<process>
+## Agent Mode Detection
+
+If your input context contains `[WORKSPACE CONTEXT]` (injected by a multi-agents framework),
+you are running as a sub-agent. Apply these optimizations:
+
+- **Skip CLAUDE.md reading** — already loaded by parent session.
+
+All other phases run unchanged.
+
+---
+
+# PRP Project Context — Generate PROJECT.md
+
+## Input
+
+Arguments: `$ARGUMENTS`
+
+Format: `[--from-prd <path>] [--from-business-context <path>]`
+
+## Mission
+
+Generate a `PROJECT.md` file that serves both AI and human readers. This is a compact project context document that answers: **what is this project, why does it exist, and how should I navigate it?**
+
+**Key Principles:**
+- Human writes "why" (problem, decisions, constraints) — AI maintains "what" (architecture, context map, exports)
+- AUTO-GEN sections are updated automatically by `gen-ai-context.sh`
+- Non-AUTO-GEN sections require human review
+- Prefer bullets over prose, paths over descriptions, commands over explanations
+
+---
+
+## Phase 1: GATHER — Collect Context from Existing Sources
+
+### 1.1 Read Existing Documentation
+
+Check and read these files if they exist:
+
+```bash
+# Project docs
+cat CLAUDE.md 2>/dev/null
+cat README.md 2>/dev/null
+cat ARCHITECTURE.md 2>/dev/null
+
+# PRP artifacts
+ls .prp-output/prds/*.md 2>/dev/null
+ls .prp-output/prds/drafts/*.md 2>/dev/null
+cat .prp-output/BUSINESS-CONTEXT.md 2>/dev/null
+
+# Other docs
+ls docs/*.md 2>/dev/null
+```
+
+### 1.2 Analyze Codebase
+
+```bash
+# Directory structure
+find . -maxdepth 2 -type d | grep -v node_modules | grep -v .git | grep -v __pycache__
+
+# Tech stack indicators
+ls package.json requirements.txt pyproject.toml go.mod Cargo.toml 2>/dev/null
+
+# Entry points
+ls main.py app.py server.py src/index.ts src/index.js bin/* 2>/dev/null
+
+# API routes (if any)
+grep -rn '@app\.\(get\|post\|put\|delete\)' --include="*.py" . 2>/dev/null | head -10
+grep -rn 'router\.\(get\|post\|put\|delete\)' --include="*.ts" --include="*.js" . 2>/dev/null | head -10
+
+# Test coverage
+ls test/ tests/ __tests__/ 2>/dev/null
+find . -name "test_*.py" -o -name "*.test.ts" -o -name "*.spec.ts" 2>/dev/null | wc -l
+```
+
+### 1.3 Extract from PRDs (if --from-prd provided or .prp-output/prds/ exists)
+
+From PRD, extract:
+- **Problem Statement** → PROJECT.md "Problem" section
+- **Users & Context** → PROJECT.md "Users" section
+- **MoSCoW priorities** → PROJECT.md "Requirements" section
+- **Key Hypothesis** → PROJECT.md "What & Why" one-liner context
+- **Decisions Log** → PROJECT.md "Key Decisions" section
+
+### 1.4 Extract from Business Context (if available)
+
+From BUSINESS-CONTEXT.md, extract:
+- **Product description** → "What & Why" section
+- **Target customer** → "Users" section
+- **Differentiation** → "Key Decisions" context
+- **Constraints** → "Constraints & Gotchas" section
+
+**PHASE_1_CHECKPOINT:**
+- [ ] CLAUDE.md read (if exists)
+- [ ] README.md read (if exists)
+- [ ] PRDs checked and extracted (if exist)
+- [ ] BUSINESS-CONTEXT checked (if exists)
+- [ ] Codebase structure analyzed
+- [ ] Tech stack identified
+
+---
+
+## Phase 2: SYNTHESIZE — Draft PROJECT.md Sections
+
+### 2.1 Draft Human Sections
+
+Write draft content for sections that need human review:
+
+| Section | Source Priority |
+|---------|---------------|
+| What & Why | PRD problem statement > README first paragraph > CLAUDE.md description |
+| Problem | PRD evidence + problem statement > README "why" section |
+| Users | PRD users & context > BUSINESS-CONTEXT target customer > CLAUDE.md |
+| Requirements | PRD MoSCoW > README features list > code analysis |
+| Key Decisions | CLAUDE.md architecture decisions > PRD decisions log > code patterns |
+| Constraints | PRD risks > CLAUDE.md gotchas > runtime observations |
+
+**Rules for drafting:**
+- Use bullets, not paragraphs
+- Include `{TODO: verify}` markers for anything you're unsure about
+- For Requirements: mark completed items as `[x]` based on code analysis
+- For Key Decisions: always include "ทำไม" (why) column — guess if needed but mark as `{TODO: verify}`
+
+### 2.2 Generate AUTO-GEN Sections
+
+Run the gen-ai-context.sh script to populate auto-generated sections:
+
+```bash
+# If gen-ai-context.sh is available (installed by prp-framework)
+if [ -x "scripts/gen-ai-context.sh" ] || [ -x ".prp/scripts/gen-ai-context.sh" ]; then
+    # Script handles: Architecture, Context Map, Exports
+    # These will be populated after --init or --update
+    echo "AUTO-GEN sections will be populated by gen-ai-context.sh"
+fi
+```
+
+If the script is not available, manually generate:
+- **Architecture:** Stack detection + entry points + brief diagram
+- **Context Map:** Directory → task type mapping
+- **Exports:** API endpoints, CLI commands, public functions
+
+**PHASE_2_CHECKPOINT:**
+- [ ] All human sections drafted with best-effort content
+- [ ] {TODO} markers placed for uncertain content
+- [ ] AUTO-GEN strategy determined
+
+---
+
+## Phase 3: GENERATE — Write PROJECT.md
+
+### 3.1 Template
+
+Use the template from `.prp/templates/PROJECT.md.tmpl` if available.
+Otherwise, use this structure:
+
+```markdown
+# PROJECT.md — {project-name}
+
+## What & Why
+**One-liner:** {synthesized from Phase 2}
+**Status:** {active | maintenance | archived}
+**Owner:** {from CLAUDE.md or {TODO}}
+
+## Problem
+{synthesized bullets}
+
+## Users
+{synthesized bullets}
+
+## Requirements (Living)
+
+### Must Have (P0)
+{from PRD or code analysis, [x] for implemented}
+
+### Should Have (P1)
+{from PRD or code analysis}
+
+### Nice to Have (P2)
+{from PRD or nice-to-have features}
+
+<!-- AUTO-GEN:BEGIN — Do not edit manually. Run: gen-ai-context.sh --update -->
+## Architecture (Brief)
+
+- **Stack:** {detected}
+- **Entry points:** {detected}
+
+## Context Map
+
+| Task Type | Read These First |
+|-----------|-----------------|
+{generated from directories}
+
+## Exports
+
+{generated from code}
+<!-- AUTO-GEN:END -->
+
+## Key Decisions
+
+| Decision | เลือก | ไม่เลือก | ทำไม |
+|----------|-------|---------|------|
+{from CLAUDE.md decisions or PRD}
+
+## Constraints & Gotchas
+
+{from PRD risks, CLAUDE.md, observations}
+```
+
+### 3.2 Write File
+
+Write the generated content to `PROJECT.md` in the project root.
+
+### 3.3 Run AUTO-GEN Update
+
+```bash
+# Populate AUTO-GEN sections with real data
+if [ -x "scripts/gen-ai-context.sh" ]; then
+    ./scripts/gen-ai-context.sh --update
+elif [ -x ".prp/scripts/gen-ai-context.sh" ]; then
+    .prp/scripts/gen-ai-context.sh --update
+fi
+```
+
+**PHASE_3_CHECKPOINT:**
+- [ ] PROJECT.md written to project root
+- [ ] AUTO-GEN sections populated
+- [ ] File is valid markdown
+
+---
+
+## Phase 4: OUTPUT — Summary & Next Steps
+
+### 4.1 Summary
+
+```markdown
+## PROJECT.md Generated
+
+**Project:** {name}
+**Lines:** {count}
+**Sections:** {list of sections}
+**Sources used:** {CLAUDE.md, README.md, PRD, BUSINESS-CONTEXT, code analysis}
+
+### Human Review Needed
+
+The following sections contain draft content that should be reviewed:
+
+- [ ] **What & Why** — verify one-liner captures the project's purpose
+- [ ] **Problem** — verify pain points are accurate
+- [ ] **Users** — verify user list is complete
+- [ ] **Requirements** — verify priorities (P0/P1/P2) and completion status
+- [ ] **Key Decisions** — verify "ทำไม" column is accurate
+- [ ] **Constraints** — add any runtime gotchas not captured
+
+### Auto-Maintained Sections
+
+These sections update automatically via `gen-ai-context.sh --update`:
+- Architecture (stack, entry points)
+- Context Map (directory → task mapping)
+- Exports (endpoints, CLI commands)
+
+### Keeping It Fresh
+
+- `gen-ai-context.sh --check` — validate freshness
+- `gen-ai-context.sh --update` — refresh auto-gen sections
+- Runs automatically after `/prp-core:prp-cleanup` (post-merge)
+```
+
+---
+
+## Success Criteria
+
+- PROJECT_MD_CREATED: PROJECT.md exists in project root
+- HUMAN_SECTIONS_DRAFTED: What & Why, Problem, Users, Requirements, Key Decisions, Constraints all have content
+- AUTO_GEN_MARKERS: AUTO-GEN:BEGIN and AUTO-GEN:END markers present
+- TODO_MARKERS: Uncertain content marked with {TODO}
+- COMPACT: Total file under 200 lines
+- NO_PROSE: Bullets and tables preferred over paragraphs
+
+</process>
