@@ -55,6 +55,9 @@ log_err() { log "  ${RED}✗${NC} $1"; }
 # ─────────────────────────────────────────────────
 detect_stack() {
     local stack=()
+    # Common exclude dirs for recursive grep (avoid scanning vendored/generated code)
+    local EXCL="--exclude-dir=node_modules --exclude-dir=.venv --exclude-dir=venv --exclude-dir=dist --exclude-dir=build --exclude-dir=__pycache__"
+
     [ -f "package.json" ] && stack+=("Node.js $(jq -r '.engines.node // ""' package.json 2>/dev/null | head -1)")
     [ -f "requirements.txt" ] || [ -f "pyproject.toml" ] || [ -f "setup.py" ] && stack+=("Python")
     if [ -f "go.mod" ]; then
@@ -71,9 +74,9 @@ detect_stack() {
     [ -f "package.json" ] && grep -q '"vue"' package.json 2>/dev/null && stack+=("Vue")
     [ -f "package.json" ] && grep -q '"fastify"' package.json 2>/dev/null && stack+=("Fastify")
     [ -f "package.json" ] && grep -q '"express"' package.json 2>/dev/null && stack+=("Express")
-    grep -rql "from fastapi" . --include="*.py" -m1 2>/dev/null && stack+=("FastAPI")
-    grep -rql "from flask" . --include="*.py" -m1 2>/dev/null && stack+=("Flask")
-    grep -rql "from django" . --include="*.py" -m1 2>/dev/null && stack+=("Django")
+    grep -rql $EXCL "from fastapi" . --include="*.py" -m1 2>/dev/null && stack+=("FastAPI")
+    grep -rql $EXCL "from flask" . --include="*.py" -m1 2>/dev/null && stack+=("Flask")
+    grep -rql $EXCL "from django" . --include="*.py" -m1 2>/dev/null && stack+=("Django")
 
     # Build tools
     [ -f "package.json" ] && grep -q '"vite"' package.json 2>/dev/null && stack+=("Vite")
@@ -81,8 +84,8 @@ detect_stack() {
 
     # DB
     [ -d "prisma" ] && stack+=("Prisma")
-    grep -rql "chromadb\|from chromadb" . --include="*.py" -m1 2>/dev/null && stack+=("ChromaDB")
-    grep -rql "sqlite3\|aiosqlite" . --include="*.py" -m1 2>/dev/null && stack+=("SQLite")
+    grep -rql $EXCL "chromadb\|from chromadb" . --include="*.py" -m1 2>/dev/null && stack+=("ChromaDB")
+    grep -rql $EXCL "sqlite3\|aiosqlite" . --include="*.py" -m1 2>/dev/null && stack+=("SQLite")
 
     # Clean up empty entries and join
     local result=""
@@ -183,10 +186,11 @@ generate_context_map() {
 # ─────────────────────────────────────────────────
 detect_exports() {
     local found=false
+    local EXCL="--exclude-dir=node_modules --exclude-dir=.venv --exclude-dir=venv --exclude-dir=dist --exclude-dir=build --exclude-dir=__pycache__"
 
     # FastAPI routes
     local fastapi_routes
-    fastapi_routes=$(grep -rn --exclude-dir=node_modules --exclude-dir=.venv --exclude-dir=venv '@app\.\(get\|post\|put\|delete\|patch\)\|@router\.\(get\|post\|put\|delete\|patch\)' --include="*.py" . 2>/dev/null | head -20)
+    fastapi_routes=$(grep -rn $EXCL '@app\.\(get\|post\|put\|delete\|patch\)\|@router\.\(get\|post\|put\|delete\|patch\)' --include="*.py" . 2>/dev/null | head -20)
     if [ -n "$fastapi_routes" ]; then
         echo "### API Endpoints"
         echo ""
@@ -201,7 +205,7 @@ detect_exports() {
 
     # Express routes
     local express_routes
-    express_routes=$(grep -rn --exclude-dir=node_modules --exclude-dir=dist --exclude-dir=build 'app\.\(get\|post\|put\|delete\|patch\)\|router\.\(get\|post\|put\|delete\|patch\)' --include="*.ts" --include="*.js" . 2>/dev/null | head -20)
+    express_routes=$(grep -rn $EXCL 'app\.\(get\|post\|put\|delete\|patch\)\|router\.\(get\|post\|put\|delete\|patch\)' --include="*.ts" --include="*.js" . 2>/dev/null | head -20)
     if [ -n "$express_routes" ] && [ "$found" = false ]; then
         echo "### API Endpoints"
         echo ""
