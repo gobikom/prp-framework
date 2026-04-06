@@ -33,6 +33,17 @@ Every major version release MUST include a `docs/migration/vX.0-to-vY.0.md` file
 
 ## [Unreleased]
 
+## [2.5.1] — 2026-04-06
+
+**gen-ai-context.sh hardening** — 4 bug fixes discovered during full 24-repo rollout testing.
+
+### Fixed
+
+- **Exclude vendored dirs from export detection** — Express/FastAPI route grep now excludes `node_modules`, `.venv`, `dist`, `build` via centralized `$EXCL` variable
+- **Exclude vendored dirs from stack detection** — `detect_stack()` was scanning `.venv` packages, causing false positives (e.g., Flask/Django detected from `.venv/lib/`)
+- **`src/` fallback in context map** — repos with `src/` containing non-standard subdirs (e.g., `src/tools/`, `src/vault/`) were missing from context map, triggering false staleness warnings
+- **Python detection from `requirements-*.txt`** — projects using `requirements-dashboard.txt` or similar variants were not detected as Python
+
 ## [2.5.0] — 2026-04-06
 
 **AI-Friendly Project Docs Release** — New `project-context` command generates `PROJECT.md` for AI + human consumption. `gen-ai-context.sh` script auto-validates and updates docs. `cleanup` enhanced with Phase 5 auto-docs-update after merge.
