@@ -33,6 +33,24 @@ Every major version release MUST include a `docs/migration/vX.0-to-vY.0.md` file
 
 ## [Unreleased]
 
+## [2.5.0] — 2026-04-06
+
+**AI-Friendly Project Docs Release** — New `project-context` command generates `PROJECT.md` for AI + human consumption. `gen-ai-context.sh` script auto-validates and updates docs. `cleanup` enhanced with Phase 5 auto-docs-update after merge.
+
+### Added
+
+- **`/prp-core:prp-project-context` command** — generates PROJECT.md from code analysis, PRDs, and business context. Human writes "why" once, AI maintains "what" continuously (#57)
+- **`gen-ai-context.sh` script** — validates (`--check`), updates (`--update`), and initializes (`--init`) PROJECT.md with AUTO-GEN markers. Detects stack, entry points, context map, and exports automatically (#57)
+- **`templates/PROJECT.md.tmpl`** — template with AUTO-GEN markers separating human vs auto-maintained sections (#57)
+- **Cleanup Phase 5: Docs Update** — auto-updates PROJECT.md after merge and commits changes. Non-blocking — warns but does not stop cleanup on failure (#57)
+- **`install.sh` gen-ai-context.sh deployment** — installs gen-ai-context.sh to all repos via symlink (#57)
+
+### Changed
+
+- **Cleanup prompt** — expanded from 5 phases to 6 (new Phase 5: Docs Update, old Phase 5 → Phase 6: Output) (#57)
+- **`install.sh` jq error handling** — TEMP_FILE leak fixed with proper if/else and cleanup on failure (#57)
+- **All 5 adapters regenerated** — claude-code, codex, opencode, gemini, antigravity (#57)
+
 ## [2.4.0] — 2026-04-06
 
 **Issue-Driven Lifecycle Release** — `run-all` now supports full issue-to-merge lifecycle with `--issue N` flag. Smart plan detection analyzes issue scope and auto-decides whether to skip plan, fast-track, or full plan. Review-fix loop targets 0 issues (configurable up to 5 rounds). `--merge` flag auto squash-merges and cleans up after review passes.

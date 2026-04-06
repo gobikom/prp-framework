@@ -267,12 +267,17 @@ else
         else
             # Merge into existing settings
             TEMP_FILE=$(mktemp)
-            jq --arg cmd "$HOOK_CMD" '
+            if jq --arg cmd "$HOOK_CMD" '
                 .hooks.Stop = ((.hooks.Stop // []) + [
                     {"hooks": [{"type": "command", "command": $cmd}]}
                 ])
-            ' "$SETTINGS_FILE" > "$TEMP_FILE" && mv "$TEMP_FILE" "$SETTINGS_FILE"
-            echo -e "${GREEN}  ✅ Registered ralph stop hook in settings.local.json${NC}"
+            ' "$SETTINGS_FILE" > "$TEMP_FILE"; then
+                mv "$TEMP_FILE" "$SETTINGS_FILE"
+                echo -e "${GREEN}  ✅ Registered ralph stop hook in settings.local.json${NC}"
+            else
+                rm -f "$TEMP_FILE"
+                echo -e "${YELLOW}  ⚠️  Failed to update settings.local.json — add ralph hook manually${NC}"
+            fi
         fi
     else
         # Create new settings file
@@ -341,6 +346,18 @@ if install_file "$FRAMEWORK_DIR/adapters/generic/AGENTS.md" "$PROJECT_DIR/AGENTS
     USED_SYMLINKS=true
 else
     USED_COPY=true
+fi
+
+# Install gen-ai-context.sh (PROJECT.md validator/updater)
+echo "→ AI Context Generator (scripts/gen-ai-context.sh)"
+mkdir -p "$PROJECT_DIR/scripts"
+if install_file "$FRAMEWORK_DIR/scripts/gen-ai-context.sh" "$PROJECT_DIR/scripts/gen-ai-context.sh" "AI Context Generator"; then
+    USED_SYMLINKS=true
+else
+    USED_COPY=true
+fi
+if ! chmod +x "$PROJECT_DIR/scripts/gen-ai-context.sh" 2>/dev/null; then
+    echo -e "${YELLOW}  ⚠️  Could not set executable permission on gen-ai-context.sh${NC}"
 fi
 
 echo ""

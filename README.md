@@ -18,7 +18,7 @@ The core philosophy: every task follows the same loop — **prompt** the AI with
 ✅ **Complete Workflows** - PRD → Design → Plan → Implement → Review → Commit → PR
 ✅ **Iterative Perfection** - Ralph autonomous loop, review-fix cycles, and multi-agent validation until all quality gates pass
 ✅ **Quality Built-in** - TDD approach, conditional design docs, pre-commit checks, security/performance validation
-✅ **100% Workflow Parity** - 28 commands across all 5 adapters (19 core + 4 marketing + 5 bot), auto-generated from canonical prompts to guarantee zero drift
+✅ **100% Workflow Parity** - 29 commands across all 5 adapters (20 core + 4 marketing + 5 bot), auto-generated from canonical prompts to guarantee zero drift
 ✅ **Auto-Generation** - Single source of truth in `prompts/` — edit once, generate all 5 adapters with `scripts/generate-adapters.py`
 ✅ **Monorepo Support** - Auto-detects pnpm workspaces, Turborepo, Nx, Lerna. `--package` flag scopes plan/implement/run-all to a specific package
 ✅ **31 Specialized Agents** - Development, security, marketing, sales, strategy, and business operations agents
@@ -102,7 +102,8 @@ cp -r prp-framework/* my-project/
 | **Commit** | Smart staging + conventional commit | Code ready to commit |
 | **PR** | Create pull request | Ready to push |
 | **Rollback** | Safely undo implementation changes (--soft / --hard with stash backup / --restore) | Implementation went wrong |
-| **Cleanup** | Post-merge cleanup (delete local/remote branches, verify PR merged, `--all` / `--dry-run`) | After PR merged |
+| **Project Context** | Generate PROJECT.md — compact project docs for AI + human | New project or missing docs |
+| **Cleanup** | Post-merge cleanup (delete branches, verify merge, auto-update PROJECT.md, `--all` / `--dry-run`) | After PR merged |
 | **Run All** | Full workflow end-to-end (supports `--fast`, `--skip-plan`, `--ralph`, `--review-single-agent`, `--resume`, `--fix-severity`, `--no-interact`, `--dry-run`) | Complete automation |
 
 ## Tool Support
@@ -120,7 +121,9 @@ cp -r prp-framework/* my-project/
 /prp-core:rollback                                         # Undo changes (interactive)
 /prp-core:rollback --hard                                  # Revert to origin/main (stash backup first)
 /prp-core:rollback --restore                               # Restore from rollback stash
-/prp-core:cleanup                                          # Clean up current branch after merge
+/prp-core:project-context                                   # Generate PROJECT.md from code + PRDs
+/prp-core:project-context --from-prd path/to/prd.md        # Generate from specific PRD
+/prp-core:cleanup                                          # Clean up branch + auto-update PROJECT.md
 /prp-core:cleanup --all --dry-run                          # Preview batch cleanup of all merged branches
 /prp-core:run-all Add JWT auth                             # Full workflow (plan→implement→commit→PR→review)
 /prp-core:run-all --issue 87 --merge                       # Issue-driven: fetch→implement→review→merge→cleanup
