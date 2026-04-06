@@ -166,6 +166,20 @@ generate_context_map() {
         echo "| Configuration | \`$(ls -d config conf 2>/dev/null | head -1)/\` |"
     fi
 
+    # Fallback: if src/ exists but no known sub-patterns matched, add generic src/ entry
+    if [ -d "src" ]; then
+        local src_in_map=false
+        for subdir in routes api components services models middleware db; do
+            if [ -d "src/$subdir" ]; then
+                src_in_map=true
+                break
+            fi
+        done
+        if [ "$src_in_map" = false ]; then
+            echo "| Source code | \`src/\` |"
+        fi
+    fi
+
     # Project-specific directories (any top-level dir with code)
     for dir in */; do
         dir="${dir%/}"
