@@ -330,9 +330,21 @@ PRD → Design → Plan → Implement → Commit → PR → Review
 
 ### 9. `/prp-core:run-all` - Full Workflow
 
-**เมื่อไหร่ใช้**: ต้องการ automate ทั้ง workflow (7 steps)
+**เมื่อไหร่ใช้**: ต้องการ automate ทั้ง workflow — ตั้งแต่ issue ถึง merge
 
 ```bash
+# Issue-driven: fetch issue → smart plan → implement → PR → review loop → merge → cleanup
+/prp-core:run-all --issue 87 --merge
+
+# Fully autonomous issue lifecycle (no questions asked)
+/prp-core:run-all --issue 42 --merge --no-interact
+
+# Issue-driven without auto-merge
+/prp-core:run-all --issue 100
+
+# Custom review-fix rounds (default: 5, target: 0 issues)
+/prp-core:run-all --issue 55 --max-review-rounds 3 --merge
+
 # Full workflow from feature description
 /prp-core:run-all "Add dark mode toggle"
 
@@ -357,16 +369,20 @@ PRD → Design → Plan → Implement → Commit → PR → Review
 # Fully unattended (no user questions, uses best judgment)
 /prp-core:run-all "Add dark mode" --no-interact
 
-# Combine flags: ralph + no-interact for full automation
-/prp-core:run-all "Add dark mode" --ralph --no-interact
-
 # Preview steps + estimated token cost (no execution)
 /prp-core:run-all "Add dark mode" --dry-run
 ```
 
-**Flow** (7 steps):
+**Smart Plan Detection** (เมื่อใช้ `--issue`):
+| Issue Scope | Action |
+|-------------|--------|
+| Small (score 0-1) | Skip plan — สร้าง stub plan อัตโนมัติ |
+| Medium (score 2-3) | Fast-track plan |
+| Large (score 4-5) | Full plan |
+
+**Flow**:
 ```
-Create Branch → Plan → Implement → Commit → PR → Review/Fix Loop → Summary
+[Issue] → Branch → [Smart Plan] → Implement → Commit → PR → Review/Fix Loop (→0 issues) → [Merge] → [Cleanup]
 ```
 
 **Supported Flags**:

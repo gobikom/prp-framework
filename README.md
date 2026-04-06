@@ -123,12 +123,15 @@ cp -r prp-framework/* my-project/
 /prp-core:cleanup                                          # Clean up current branch after merge
 /prp-core:cleanup --all --dry-run                          # Preview batch cleanup of all merged branches
 /prp-core:run-all Add JWT auth                             # Full workflow (plan→implement→commit→PR→review)
+/prp-core:run-all --issue 87 --merge                       # Issue-driven: fetch→implement→review→merge→cleanup
+/prp-core:run-all --issue 42 --merge --no-interact         # Fully autonomous issue lifecycle
 /prp-core:run-all Add JWT auth --fast                      # Full workflow with fast-track plan
 /prp-core:run-all --skip-plan                              # Select existing plan, then implement
 /prp-core:run-all Add JWT auth --ralph                     # Full workflow using ralph loop
 /prp-core:run-all Add JWT auth --resume                    # Resume from last failed step
 /prp-core:run-all Add JWT auth --review-single-agent        # Single-agent review (saves tokens)
 /prp-core:run-all Add JWT auth --fix-severity critical     # Override review-fix severity
+/prp-core:run-all --issue 55 --max-review-rounds 3 --merge # Custom review rounds + merge
 /prp-core:run-all Add JWT auth --no-interact               # Fully unattended (no questions asked)
 /prp-core:run-all Add JWT auth --dry-run                   # Preview steps + token estimate (no execution)
 /prp-core:review-agents 25                                 # Multi-agent PR review

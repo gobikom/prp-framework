@@ -33,6 +33,31 @@ Every major version release MUST include a `docs/migration/vX.0-to-vY.0.md` file
 
 ## [Unreleased]
 
+## [2.4.0] — 2026-04-06
+
+**Issue-Driven Lifecycle Release** — `run-all` now supports full issue-to-merge lifecycle with `--issue N` flag. Smart plan detection analyzes issue scope and auto-decides whether to skip plan, fast-track, or full plan. Review-fix loop targets 0 issues (configurable up to 5 rounds). `--merge` flag auto squash-merges and cleans up after review passes.
+
+### Added
+
+- **`--issue <N>` flag** — fetch GitHub issue context, extract feature description from title/body. Smart plan detection scores issue scope (0-1: skip plan, 2-3: fast plan, 4-5: full plan) (#56)
+- **`--merge` flag** — auto squash-merge PR after review passes (0 issues all severities). Runs `{TOOL}:cleanup` and closes issue if `--issue` was used (#56)
+- **`--max-review-rounds <N>` flag** — configurable review-fix loop limit (default: 5, was hardcoded 2) (#56)
+- **Step 0.8: Fetch Issue Context** — new workflow step with smart plan detection scoring table (#56)
+- **Step 8: Merge & Cleanup** — new workflow step with pre-check (mergeable state, already-merged), squash merge, cleanup, and issue close verification (#56)
+- **Stub plan generation** — when plan is skipped (small issue), generates minimal stub plan file instead of passing sentinel string (#56)
+- **Flag conflict validation** — `--merge` + `--skip-review` or `--no-pr` now STOP with clear error (#56)
+- **`mergeable=UNKNOWN` handler** — retry once after 5s, then STOP with actionable message (#56)
+- **Empty issue body guard** — warns user and defaults to fast plan instead of silently scoring 0 (#56)
+
+### Changed
+
+- **Review-fix loop** — target changed from "MAX_CYCLES reached" to "0 issues all severities OR MAX_CYCLES reached". Default MAX_CYCLES increased from 2 to 5 (#56)
+- **State file schema** — added `issue_number`, `auto_merge`, `max_cycles`, `review_verdict`, `review_cycle` fields for complete `--resume` support (#56)
+- **State cleanup timing** — moved from Step 7 to Step 8.4 (after merge succeeds), enabling `--resume` if merge fails (#56)
+- **`--since-last-review` fallback** — now displays visible warning when falling back to full review (#56)
+- **All 5 adapters regenerated** — claude-code, codex, opencode, gemini, antigravity (#56)
+- **prp-core-runner skill** — updated with new flags, step count, and issue-driven examples (#56)
+
 ## [2.3.0] — 2026-03-29
 
 **Parallel Agent Release** — Three commands now spawn parallel Agent subprocesses: `prp-review-agents`, `prp-feature-review-agents`, and `prp-design`. Each agent gets a fresh context window for deep exploration. Also includes token optimization, error handling improvements, and review quality enhancements.

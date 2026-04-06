@@ -1,4 +1,4 @@
-description = "Execute the complete PRP workflow end-to-end — plan, implement, commit, PR, review, and fix. Supports --fast, --ralph, --skip-plan, --skip-review, --no-pr, --resume, --no-interact, --dry-run, --fix-severity options."
+description = "Execute the complete PRP lifecycle end-to-end — issue context, smart plan, implement, commit, PR, review-fix loop (until 0 issues), merge, and cleanup. Supports --issue, --merge, --max-review-rounds, --fast, --ralph, --skip-plan, --skip-review, --no-pr, --resume, --no-interact, --dry-run, --fix-severity options."
 prompt = """
 ## Agent Mode Detection
 
@@ -40,6 +40,9 @@ Execute the complete PRP workflow end-to-end autonomously. Each step delegates t
 | `--resume` | Resume from last failed step using saved state |
 | `--no-interact` | Never ask user questions — use best judgment, pick defaults |
 | `--package <name>` | Scope to a specific monorepo package. Passed through to plan and implement steps. |
+| `--issue <N>` | Fetch GitHub issue #N context. Set ISSUE_NUMBER = N. Extracts title + body as FEATURE. |
+| `--merge` | Auto squash-merge PR after review passes (0 issues). Set AUTO_MERGE = true. |
+| `--max-review-rounds <N>` | Override max review-fix cycles (default: 5). |
 | `--dry-run` | Preview all steps without executing. Show estimated token cost. Exit after preview. |
 | Remaining text | Set FEATURE = text |
 
@@ -49,7 +52,7 @@ Execute the complete PRP workflow end-to-end autonomously. Each step delegates t
 ```bash
 ls -t .prp-output/plans/*.plan.md 2>/dev/null | head -5
 ```
-If 1 plan → use it. If multiple → ask (or pick most recent in no-interact). If none → STOP.
+If 1 plan → use it. If multiple → ask (or pick most recent in no-interact). If none AND no `--issue` → STOP. If none AND `--issue` is set → proceed (Step 2 will generate a stub plan).
 
 **Set workflow variables:**
 ```
@@ -68,7 +71,17 @@ FAST_PLAN = {true if --fast} (ignored if PLAN_PATH already set)
 NO_INTERACT = {true if --no-interact}
 MONOREPO_PACKAGE = "{from --package, or empty}"
 DRY_RUN = {true if --dry-run}
+ISSUE_NUMBER = "{from --issue, or empty}"
+AUTO_MERGE = {true if --merge}
+MAX_CYCLES = {from --max-review-rounds, default 5}
+SKIP_PLAN = {false by default — may be set by --skip-plan flag or smart plan detection in Step 0.8}
+RESUME_FROM = {0 by default — set from state file's step field if --resume}
+REVIEW_VERDICT = "{TBD — set in Step 6.2}"
+REVIEW_CYCLE = {1 — incremented after each fix cycle in Step 6.4}
 ```
+
+**Flag validation** (after parsing all flags):
+- If `AUTO_MERGE = true` AND (`SKIP_REVIEW = true` OR `NO_PR = true`): STOP — "`--merge` requires review to pass. Cannot use with `--skip-review` or `--no-pr`."
 
 ### Dry-Run Preview
 
@@ -81,12 +94,15 @@ Feature: {FEATURE}
 Mode:    {ralph (loop up to N iter) | default implement}
 
 Steps that would run:
+  Step 0.8: Fetch issue        -> {skipped (no --issue) | gh issue view N}
   Step 1: Create branch        -> feature/{slug}
-  Step 2: Create plan          -> {skipped | .prp-output/plans/{slug}-{TIMESTAMP}.plan.md (--fast if applicable)}
+  Step 2: Create plan          -> {skipped (small issue or --skip-plan) | --fast (medium) | full (large)}
   Step 3: Implement            -> {/ralph (loop up to N iter) | /implement (single pass)}
   Step 4: Commit               -> conventional commit on feature branch
-  Step 5: Create PR            -> {skipped (--no-pr) | PR to main}
-  Step 6: Review & Fix         -> {skipped (--skip-review) | review + review-fix}
+  Step 5: Create PR            -> {skipped (--no-pr) | PR to main, Fixes #N if --issue}
+  Step 6: Review & Fix         -> {skipped (--skip-review) | review-fix loop (max {MAX_CYCLES} rounds, target: 0 issues)}
+  Step 7: Summary              -> final report
+  Step 8: Merge & Cleanup      -> {skipped (no --merge) | squash merge + cleanup}
 
 Estimated token cost:
   Plan:      {~0K (skipped) | ~5-10K (fast) | ~10-20K (full)}
@@ -171,15 +187,18 @@ mkdir -p .claude
 ```
 
 Write `.claude/prp-run-all.state.md` with YAML frontmatter:
-- step, total_steps, feature, plan_path, branch, pr_number, review_artifact
-- use_ralph, ralph_max_iter, fix_severity, fast_plan, skip_review, no_pr, no_interact
+- step, total_steps, feature, plan_path, branch, pr_number, review_artifact, review_verdict, review_cycle
+- use_ralph, ralph_max_iter, fix_severity, fast_plan, skip_plan, skip_review, no_pr, no_interact
+- issue_number, auto_merge, max_cycles
 - started_at, updated_at
 - Completed Steps table, Artifacts section, Error Log
+
+On `--resume`: restore ALL variables from state file. Set `RESUME_FROM = step` from frontmatter.
 
 **STATE UPDATE RULE**: After each step completes:
 1. Increment `step` to next step number
 2. Update `updated_at`
-3. Update new variable values (plan_path, branch, pr_number, review_artifact)
+3. Update new variable values (plan_path, branch, pr_number, review_artifact, review_verdict, review_cycle)
 4. Append completed step to table
 5. Append new artifacts
 
@@ -188,6 +207,45 @@ Write `.claude/prp-run-all.state.md` with YAML frontmatter:
 ## Workflow
 
 Execute these steps in sequence. **Stop immediately on any failure.**
+
+### Step 0.8: FETCH ISSUE CONTEXT (skip if no --issue)
+
+If ISSUE_NUMBER is set:
+
+```bash
+gh issue view {ISSUE_NUMBER} --json title,body,labels,state
+```
+
+| Result | Action |
+|--------|--------|
+| Issue found, state=OPEN | Extract FEATURE from title. Set ISSUE_BODY from body. |
+| Issue found, state=CLOSED | WARN: "Issue #{ISSUE_NUMBER} is closed. Proceeding anyway." |
+| Issue not found | STOP: "Issue #{ISSUE_NUMBER} not found." |
+
+**Smart Plan Detection** — analyze issue scope to decide whether to plan:
+
+If `gh issue view` output cannot be parsed → STOP: "Failed to parse issue #{ISSUE_NUMBER}."
+If ISSUE_BODY is empty or null → WARN: "Issue #{N} has no body — cannot score scope. Defaulting to fast plan." Set FAST_PLAN = true, SKIP_PLAN = false. Skip scoring below.
+
+| Indicator | Score |
+|-----------|-------|
+| Body mentions > 3 files or paths | +1 |
+| Labels include `feature`, `enhancement`, `epic` | +1 |
+| Body > 500 characters | +1 |
+| Body mentions architecture, refactor, migration, redesign | +1 |
+| Body mentions multiple components, services, or packages | +1 |
+
+| Total Score | Action |
+|-------------|--------|
+| 0-1 | Small issue — set SKIP_PLAN = true, FAST_PLAN = false |
+| 2-3 | Medium issue — set SKIP_PLAN = false, FAST_PLAN = true |
+| 4-5 | Large issue — set SKIP_PLAN = false, FAST_PLAN = false (full plan) |
+
+Display: `"Issue #{N}: {title} — Scope: {small/medium/large} → {skip plan / fast plan / full plan}"`
+
+If `--prp-path` or `--skip-plan` already provided → skip smart detection (user explicitly controls planning).
+
+---
 
 ### Step 1: CREATE BRANCH (skip if RESUME_FROM > 1)
 
@@ -203,17 +261,44 @@ git checkout -b feature/{slug-from-FEATURE}
 
 ---
 
-### Step 2: CREATE PLAN (skip if --prp-path or --skip-plan or RESUME_FROM > 2)
+### Step 2: CREATE PLAN (skip if --prp-path or SKIP_PLAN or RESUME_FROM > 2)
 
-Use `/plan` with FEATURE (append `--fast` if FAST_PLAN, `--no-interact` if NO_INTERACT, `--package {MONOREPO_PACKAGE}` if set).
+**Skip conditions** (any of these):
+- `--prp-path` provided (explicit plan)
+- `--skip-plan` flag
+- SKIP_PLAN = true (from smart plan detection in Step 0.8 — small issue)
+
+If skipping and no PLAN_PATH: create a minimal stub plan file:
+
+```markdown
+---
+status: pending
+mode: stub
+---
+# {FEATURE}
+
+## Summary
+{FEATURE}. {First 500 chars of ISSUE_BODY if available.}
+
+## Tasks
+1. Implement the feature described above. Read the codebase to understand patterns, then make targeted changes.
+
+## Validation Commands
+Run project's standard validation (type-check, lint, test, build).
+```
+
+Save to `.prp-output/plans/issue-{ISSUE_NUMBER}-stub-{RUN_TIMESTAMP}.plan.md` (or `stub-{RUN_TIMESTAMP}.plan.md` if no issue).
+Set PLAN_PATH to the saved file path.
+
+If NOT skipping: Use `/plan` with FEATURE (append `--fast` if FAST_PLAN, `--no-interact` if NO_INTERACT, `--package {MONOREPO_PACKAGE}` if set).
 
 This will: analyze codebase (lighter if --fast), generate plan with validation commands, integration points, confidence score. Save to `.prp-output/plans/`.
 
-**Variable update**: `PLAN_PATH = {generated plan path}`
+**Variable update**: `PLAN_PATH = {generated plan path}` (always a real file — stub plan if skipping)
 **Failure** → STOP.
 
 **DO NOT**: Read plan skill and execute logic yourself, analyze codebase directly.
-**CHECKPOINT**: Did you invoke `/plan`? If not → STOP → invoke it.
+**CHECKPOINT**: If not skipping, did you invoke `/plan`? If not → STOP → invoke it.
 
 ---
 
@@ -285,6 +370,8 @@ Use `/commit`.
 
 Use `/pr` (pass `--no-interact` if NO_INTERACT).
 
+If ISSUE_NUMBER is set: ensure the PR body includes `Fixes #{ISSUE_NUMBER}` so the issue auto-closes on merge.
+
 **Variable update**: `PR_NUMBER = {created PR number}`
 **Failure** → STOP.
 
@@ -296,7 +383,7 @@ Use `/pr` (pass `--no-interact` if NO_INTERACT).
 
 ### Step 6: REVIEW & FIX (skip if SKIP_REVIEW or NO_PR or RESUME_FROM > 6)
 
-Set: `REVIEW_CYCLE = 1`, `MAX_CYCLES = 2`
+Set: `REVIEW_CYCLE = {from state file if --resume, otherwise 1}` (MAX_CYCLES already set from Step 0 — default 5)
 
 #### 6.1 Run Review
 
@@ -325,7 +412,7 @@ Check for issues matching `FIX_SEVERITY` (default: all levels):
 
 | Result | Action |
 |--------|--------|
-| No issues matching FIX_SEVERITY | → Step 7 ✓ |
+| 0 issues (all severities) | Set REVIEW_VERDICT = "0_issues". → Step 7 ✓ (or Step 8 if AUTO_MERGE) |
 | Issues found + `REVIEW_CYCLE <= MAX_CYCLES` | → Step 6.3 |
 | Issues found + `REVIEW_CYCLE > MAX_CYCLES` | Report remaining issues → Step 7 (NEEDS MANUAL FIXES) |
 
@@ -348,40 +435,39 @@ Re-run review to confirm fixes resolved issues and no regressions introduced.
 
 Use `/review` with `{PR_NUMBER} --since-last-review` for **incremental review** (only reviews changes since last review — saves tokens).
 
-If `--since-last-review` not supported or fails, fall back to full review with `--context` flag.
+If `--since-last-review` not supported or fails, fall back to full review with `--context` flag. Display: `"WARN: --since-last-review not supported — falling back to full review (higher token cost)."`
 
 → **Return to Step 6.2** to evaluate results.
 
 ---
 
-### Step 7: SUMMARY REPORT
+### Step 7: SUMMARY REPORT (skip if RESUME_FROM > 7)
 
-**Cleanup state:**
-```bash
-rm -f .claude/prp-run-all.state.md
-rm -f .claude/prp-run-all.lock
-```
-
-Generate final report:
+Generate final report (state cleanup deferred to after Step 8).
+**State update**: write `step: 7` to state file after generating report.
 
 ```markdown
 ## PRP Workflow Complete
 
 **Feature**: {FEATURE}
+**Issue**: {#{ISSUE_NUMBER} or "N/A"}
 **Branch**: {BRANCH}
-**Status**: {Complete | Needs Manual Fixes}
+**Status**: {Complete (will merge in Step 8) | Complete | Needs Manual Fixes}
 
 ### Steps Executed
 
 | Step | Command | Result |
 |------|---------|--------|
-| Plan | /plan | {path or "skipped"} |
+| Issue | gh issue view | {#{N} title or "N/A"} |
+| Plan | /plan | {path or "skipped (small issue)" or "skipped"} |
 | Implement | {/implement or /ralph} | {tasks completed} |
 | Commit | /commit | {commit hash} |
 | PR | /pr | {PR URL or "skipped"} |
 | Review | /review | {verdict} |
 | Review Fix | /review-fix | {N fixed, N skipped or "not needed"} |
-| Re-verify | /review | {final verdict or "not needed"} |
+| Re-verify | /review | {final verdict or "not needed"} ({REVIEW_CYCLE}/{MAX_CYCLES} rounds) |
+| Merge | gh pr merge --squash | {pending (Step 8) or "skipped (no --merge)"} |
+| Cleanup | /cleanup | {pending (Step 8) or "skipped"} |
 
 ### Artifacts
 
@@ -394,15 +480,81 @@ Generate final report:
 
 ### Review Verdict
 
-{READY TO MERGE / NEEDS MANUAL FIXES / NOT REVIEWED}
+{READY TO MERGE (auto-merge pending in Step 8) / READY TO MERGE / NEEDS MANUAL FIXES / NOT REVIEWED}
 
 {If NEEDS MANUAL FIXES: list remaining critical/high issues}
 
 ### Next Steps
 
 1. {Based on review verdict}
-2. Merge when approved
+{If not AUTO_MERGE: "2. Merge when approved"}
+{If AUTO_MERGE and REVIEW_VERDICT = "0_issues": "Proceeding to Step 8: merge + cleanup..."}
 ```
+
+**TRANSITION**: If AUTO_MERGE and review verdict is 0 issues → **immediately proceed to Step 8**.
+
+---
+
+### Step 8: MERGE & CLEANUP (skip if not AUTO_MERGE or REVIEW_VERDICT != "0_issues")
+
+**State update**: write `step: 8` to state file before executing 8.0. This enables `--resume` if Step 8 fails.
+
+**Prerequisites**:
+- AUTO_MERGE = true
+- REVIEW_VERDICT = "0_issues"
+
+#### 8.0 Pre-check
+
+```bash
+gh pr view {PR_NUMBER} --json state,mergeable --jq '{state: .state, mergeable: .mergeable}'
+```
+
+| Result | Action |
+|--------|--------|
+| state=MERGED | WARN: "PR #{PR_NUMBER} was already merged." → skip 8.1, proceed to 8.2 |
+| state=OPEN, mergeable=MERGEABLE | Proceed to 8.1 |
+| state=OPEN, mergeable=CONFLICTING | STOP: "Merge conflict. Resolve manually then run `--resume`." |
+| state=OPEN, mergeable=UNKNOWN | Wait 5 seconds, retry once. If still UNKNOWN → STOP: "GitHub merge check pending. Re-run with `--resume`." |
+| state=CLOSED | STOP: "PR was closed. Cannot merge." |
+
+#### 8.1 Merge
+
+```bash
+gh pr merge {PR_NUMBER} --squash --delete-branch
+```
+
+| Result | Action |
+|--------|--------|
+| Merged successfully | Proceed to 8.2 |
+| CI checks failing | STOP: "CI checks not passing. Fix before merge." |
+| Permission denied | STOP: "Cannot merge — check permissions." |
+
+#### 8.2 Cleanup
+
+Use `/cleanup`.
+
+This will: verify PR merged, delete local branch, switch to main, pull latest.
+
+#### 8.3 Close Issue (if --issue)
+
+If ISSUE_NUMBER is set, verify whether issue was auto-closed:
+```bash
+gh issue view {ISSUE_NUMBER} --json state --jq '.state'
+```
+
+| Result | Action |
+|--------|--------|
+| CLOSED | Already closed (by `Fixes #N` or manually). Skip. |
+| OPEN | `gh issue close {ISSUE_NUMBER} --comment "Closed by PR #{PR_NUMBER}"` |
+
+#### 8.4 Final Cleanup
+
+```bash
+rm -f .claude/prp-run-all.state.md
+rm -f .claude/prp-run-all.lock
+```
+
+State and lock files are only deleted here — after merge and cleanup succeed. This ensures `--resume` works if Step 8 fails.
 
 ---
 
@@ -414,7 +566,7 @@ Generate final report:
 4. **Pass context forward** — information flows from earlier to later steps. Pass `--context` to review.
 5. **No extra validation** — each skill validates its own output. Adding more wastes tokens.
 6. **One commit per implementation** — review fixes committed separately by `/review-fix`.
-7. **Max 2 review cycles** — if still critical after 2 fix-and-re-verify cycles, STOP and report.
+7. **Max review cycles** — configurable via `--max-review-rounds` (default 5). Target is 0 issues all severities. STOP and report if exceeded.
 8. **Re-verify after fix** — always re-run `/review` after fix. Use `--since-last-review` for token optimization.
 9. **No-interact means ZERO questions** — when `NO_INTERACT = true`: NEVER ask user questions. Make autonomous decisions, pick defaults. Pass `--no-interact` to sub-commands.
 10. **State management** — update state file after every step. Delete on completion. Support `--resume`.
@@ -453,6 +605,9 @@ Generate final report:
 
 ```
 /run-all Add JWT auth                             # Full workflow
+/run-all --issue 87 --merge                       # Issue-driven: fetch issue → implement → review → merge
+/run-all --issue 42 --merge --no-interact         # Fully autonomous issue lifecycle
+/run-all --issue 100                              # Issue-driven without auto-merge
 /run-all Add JWT auth --fast                      # Fast-track plan
 /run-all --prp-path plans/jwt.plan.md             # Skip plan creation
 /run-all --skip-plan                              # Select from available plans
@@ -464,6 +619,7 @@ Generate final report:
 /run-all Add JWT auth --dry-run                   # Preview without executing
 /run-all --resume                                 # Resume from last failure
 /run-all Add JWT auth --fix-severity critical,high # Fix only blocking issues
+/run-all --issue 55 --max-review-rounds 3 --merge # Custom review rounds
 ```
 
 ---
@@ -481,6 +637,13 @@ Generate final report:
 | `--ralph` but hook not registered | STOP with install instructions. |
 | Disk full during state write | STOP — state may be corrupted. Delete state file and restart. |
 | PR creation fails (auth/permission) | STOP — commit is safe on branch. User can manually create PR. |
+| `--issue N` but issue not found | STOP with clear error. |
+| `--issue N` but issue is closed | WARN and proceed — user may be implementing a closed issue intentionally. |
+| `--merge` but CI checks failing | STOP — do not force merge. Report CI status. |
+| `--merge` but merge conflict | STOP — user must resolve conflict manually. |
+| `--merge` but review has remaining issues | Skip merge, report in summary. Do NOT merge with open issues. |
+| Smart plan detection says "small" but impl is complex | Plan was skipped, implement may struggle. User can re-run with `--prp-path` and explicit plan. |
+| `--issue N` + `--skip-plan` | `--skip-plan` overrides smart plan detection. If no existing plan files found, falls through to stub plan generation in Step 2. To select from existing plans, ensure at least one `.plan.md` exists in `.prp-output/plans/`. |
 
 ---
 
@@ -495,6 +658,9 @@ Generate final report:
 - PR_CREATED: PR exists (unless --no-pr)
 - REVIEWED: Review posted with verdict (unless --skip-review)
 - INCREMENTAL_REVIEW: Re-verify uses `--since-last-review` for token optimization
+- ZERO_ISSUES_TARGET: Review-fix loop continues until 0 issues or MAX_CYCLES reached
+- MERGED: PR squash-merged if --merge and 0 issues (unless --no-pr or --skip-review)
+- CLEANED_UP: Branch deleted, main updated, issue closed if --issue
 - STATE_CLEANED: State and lock files deleted after completion
 - SUMMARY_REPORTED: User has clear next steps
 
