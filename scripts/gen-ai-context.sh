@@ -186,7 +186,7 @@ detect_exports() {
 
     # FastAPI routes
     local fastapi_routes
-    fastapi_routes=$(grep -rn '@app\.\(get\|post\|put\|delete\|patch\)\|@router\.\(get\|post\|put\|delete\|patch\)' --include="*.py" . 2>/dev/null | head -20)
+    fastapi_routes=$(grep -rn --exclude-dir=node_modules --exclude-dir=.venv --exclude-dir=venv '@app\.\(get\|post\|put\|delete\|patch\)\|@router\.\(get\|post\|put\|delete\|patch\)' --include="*.py" . 2>/dev/null | head -20)
     if [ -n "$fastapi_routes" ]; then
         echo "### API Endpoints"
         echo ""
@@ -201,7 +201,7 @@ detect_exports() {
 
     # Express routes
     local express_routes
-    express_routes=$(grep -rn 'app\.\(get\|post\|put\|delete\|patch\)\|router\.\(get\|post\|put\|delete\|patch\)' --include="*.ts" --include="*.js" . 2>/dev/null | head -20)
+    express_routes=$(grep -rn --exclude-dir=node_modules --exclude-dir=dist --exclude-dir=build 'app\.\(get\|post\|put\|delete\|patch\)\|router\.\(get\|post\|put\|delete\|patch\)' --include="*.ts" --include="*.js" . 2>/dev/null | head -20)
     if [ -n "$express_routes" ] && [ "$found" = false ]; then
         echo "### API Endpoints"
         echo ""
