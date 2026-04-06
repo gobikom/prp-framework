@@ -351,7 +351,9 @@ if install_file "$FRAMEWORK_DIR/scripts/gen-ai-context.sh" "$PROJECT_DIR/scripts
 else
     USED_COPY=true
 fi
-chmod +x "$PROJECT_DIR/scripts/gen-ai-context.sh" 2>/dev/null || true
+if ! chmod +x "$PROJECT_DIR/scripts/gen-ai-context.sh" 2>/dev/null; then
+    echo -e "${YELLOW}  ⚠️  Could not set executable permission on gen-ai-context.sh${NC}"
+fi
 
 echo ""
 echo "📁 Creating runtime artifact directories..."

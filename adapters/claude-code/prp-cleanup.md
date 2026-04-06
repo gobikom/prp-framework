@@ -235,29 +235,34 @@ fi
 
 After cleanup is done, check if PROJECT.md needs updating.
 
-### 5.1 Check for gen-ai-context.sh
+### 5.1 Check for gen-ai-context.sh and PROJECT.md
 
 ```bash
 GEN_SCRIPT=""
 [ -x "scripts/gen-ai-context.sh" ] && GEN_SCRIPT="scripts/gen-ai-context.sh"
 [ -x ".prp/scripts/gen-ai-context.sh" ] && GEN_SCRIPT=".prp/scripts/gen-ai-context.sh"
-```
 
-If no script found OR no PROJECT.md exists: **skip this phase entirely**.
+# Skip entire phase if no script or no PROJECT.md
+if [ -z "$GEN_SCRIPT" ] || [ ! -f "PROJECT.md" ]; then
+    echo "Skipping docs update — gen-ai-context.sh or PROJECT.md not found"
+    # skip to Phase 6
+fi
+```
 
 ### 5.2 Check Staleness
 
 ```bash
-$GEN_SCRIPT --check --quiet
+# Exit code 0 = fresh, exit code 1 = structurally stale (needs --update)
+"$GEN_SCRIPT" --check --quiet || STALE=true
 ```
 
-If exit code 0 (fresh): skip — nothing to do.
-If exit code 1 (stale): proceed to update.
+If not stale (`STALE` not set): skip — nothing to do.
+If stale: proceed to update.
 
 ### 5.3 Update AUTO-GEN Sections
 
 ```bash
-$GEN_SCRIPT --update
+"$GEN_SCRIPT" --update || echo "⚠ PROJECT.md update failed — cleanup continues. Run manually: gen-ai-context.sh --update"
 ```
 
 This updates ONLY the content between `<!-- AUTO-GEN:BEGIN -->` and `<!-- AUTO-GEN:END -->` markers.

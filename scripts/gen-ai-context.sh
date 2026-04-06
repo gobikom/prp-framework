@@ -26,10 +26,15 @@ find_project_root() {
 PROJECT_DIR=$(find_project_root)
 cd "$PROJECT_DIR"
 
-MODE="${1:---check}"
+# Parse flags (position-independent)
+MODE="--check"
 QUIET=false
-[[ "${2:-}" == "--quiet" || "${1:-}" == "--quiet" ]] && QUIET=true
-[[ "$QUIET" == true && "$MODE" == "--quiet" ]] && MODE="--check"
+for arg in "$@"; do
+    case "$arg" in
+        --quiet) QUIET=true ;;
+        --check|--update|--init) MODE="$arg" ;;
+    esac
+done
 
 PROJECT_NAME=$(basename "$PROJECT_DIR")
 PROJECT_MD="$PROJECT_DIR/PROJECT.md"
@@ -52,7 +57,11 @@ detect_stack() {
     local stack=()
     [ -f "package.json" ] && stack+=("Node.js $(jq -r '.engines.node // ""' package.json 2>/dev/null | head -1)")
     [ -f "requirements.txt" ] || [ -f "pyproject.toml" ] || [ -f "setup.py" ] && stack+=("Python")
-    [ -f "go.mod" ] && stack+=("Go $(head -1 go.mod | grep -oP 'go \K[0-9.]+')")
+    if [ -f "go.mod" ]; then
+        local go_ver
+        go_ver=$(grep -E '^go [0-9.]+' go.mod 2>/dev/null | head -1 | grep -oE '[0-9.]+' || true)
+        stack+=("Go${go_ver:+ $go_ver}")
+    fi
     [ -f "Cargo.toml" ] && stack+=("Rust")
     [ -f "pom.xml" ] || [ -f "build.gradle" ] && stack+=("Java/Kotlin")
 
@@ -231,8 +240,13 @@ do_init() {
         exit 1
     fi
 
-    # Copy template and replace project name
-    sed "s/{PROJECT_NAME}/$PROJECT_NAME/g" "$tmpl" > "$PROJECT_MD"
+    # Copy template and replace project name (escape sed metacharacters in name)
+    local safe_name
+    safe_name=$(printf '%s\n' "$PROJECT_NAME" | sed 's/[&/\\]/\\&/g')
+    sed "s/{PROJECT_NAME}/$safe_name/g" "$tmpl" > "$PROJECT_MD" || {
+        log "${RED}Failed to create PROJECT.md from template${NC}"
+        exit 1
+    }
 
     # Now update AUTO-GEN sections
     do_update
@@ -261,6 +275,12 @@ do_update() {
         exit 0
     fi
 
+    # Warn if AUTO-GEN:BEGIN exists but AUTO-GEN:END is missing (would lose content)
+    if grep -q "AUTO-GEN:BEGIN" "$PROJECT_MD" && ! grep -q "AUTO-GEN:END" "$PROJECT_MD"; then
+        log "${RED}AUTO-GEN:BEGIN found but AUTO-GEN:END missing — refusing to update (would lose content)${NC}"
+        exit 1
+    fi
+
     # Generate new AUTO-GEN content
     local stack entry_points context_map exports
     stack=$(detect_stack)
@@ -268,7 +288,9 @@ do_update() {
     context_map=$(generate_context_map)
     exports=$(detect_exports)
 
-    # Rebuild PROJECT.md
+    # Rebuild PROJECT.md atomically (write to temp, then move)
+    local tmp_md
+    tmp_md=$(mktemp "${PROJECT_MD}.tmp.XXXXXX")
     {
         echo "$before"
         echo "<!-- AUTO-GEN:BEGIN — Do not edit manually. Run: gen-ai-context.sh --update -->"
@@ -286,7 +308,11 @@ do_update() {
         echo "$exports"
         echo "<!-- AUTO-GEN:END -->"
         echo "$after"
-    } > "$PROJECT_MD"
+    } > "$tmp_md" && mv "$tmp_md" "$PROJECT_MD" || {
+        log "${RED}Failed to write PROJECT.md — original preserved${NC}"
+        rm -f "$tmp_md"
+        exit 1
+    }
 
     log "${GREEN}✅ Updated AUTO-GEN sections in PROJECT.md${NC}"
 }
