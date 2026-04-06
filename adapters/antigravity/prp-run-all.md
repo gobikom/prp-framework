@@ -244,7 +244,7 @@ If ISSUE_BODY is empty or null → WARN: "Issue #{N} has no body — cannot scor
 
 Display: `"Issue #{N}: {title} — Scope: {small/medium/large} → {skip plan / fast plan / full plan}"`
 
-If `--prp-path` already provided → skip smart detection (user explicitly supplied a plan).
+If `--prp-path` or `--skip-plan` already provided → skip smart detection (user explicitly controls planning).
 
 ---
 
