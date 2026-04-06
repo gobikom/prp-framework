@@ -130,20 +130,38 @@ generate_context_map() {
     echo "| Task Type | Read These First |"
     echo "|-----------|-----------------|"
 
-    # Common directory patterns → task types
-    [ -d "src/routes" ] || [ -d "src/api" ] || [ -d "routes" ] && echo "| API/endpoints | \`$(ls -d src/routes src/api routes 2>/dev/null | head -1)/\` |"
-    [ -d "src/components" ] || [ -d "components" ] && echo "| Frontend components | \`$(ls -d src/components components 2>/dev/null | head -1)/\` |"
-    [ -d "src/services" ] || [ -d "services" ] && echo "| Business logic | \`$(ls -d src/services services 2>/dev/null | head -1)/\` |"
-    [ -d "src/models" ] || [ -d "models" ] && echo "| Data models | \`$(ls -d src/models models 2>/dev/null | head -1)/\` |"
-    [ -d "src/middleware" ] || [ -d "middleware" ] && echo "| Middleware | \`$(ls -d src/middleware middleware 2>/dev/null | head -1)/\` |"
+    # Common directory patterns → task types (use if/then to avoid operator precedence issues)
+    if [ -d "src/routes" ] || [ -d "src/api" ] || [ -d "routes" ]; then
+        echo "| API/endpoints | \`$(ls -d src/routes src/api routes 2>/dev/null | head -1)/\` |"
+    fi
+    if [ -d "src/components" ] || [ -d "components" ]; then
+        echo "| Frontend components | \`$(ls -d src/components components 2>/dev/null | head -1)/\` |"
+    fi
+    if [ -d "src/services" ] || [ -d "services" ]; then
+        echo "| Business logic | \`$(ls -d src/services services 2>/dev/null | head -1)/\` |"
+    fi
+    if [ -d "src/models" ] || [ -d "models" ]; then
+        echo "| Data models | \`$(ls -d src/models models 2>/dev/null | head -1)/\` |"
+    fi
+    if [ -d "src/middleware" ] || [ -d "middleware" ]; then
+        echo "| Middleware | \`$(ls -d src/middleware middleware 2>/dev/null | head -1)/\` |"
+    fi
     [ -d "prisma" ] && echo "| Database schema | \`prisma/\` |"
-    [ -d "src/db" ] || [ -d "db" ] && echo "| Database | \`$(ls -d src/db db 2>/dev/null | head -1)/\` |"
-    [ -d "test" ] || [ -d "tests" ] || [ -d "__tests__" ] && echo "| Tests | \`$(ls -d test tests __tests__ 2>/dev/null | head -1)/\` |"
+    if [ -d "src/db" ] || [ -d "db" ]; then
+        echo "| Database | \`$(ls -d src/db db 2>/dev/null | head -1)/\` |"
+    fi
+    if [ -d "test" ] || [ -d "tests" ] || [ -d "__tests__" ]; then
+        echo "| Tests | \`$(ls -d test tests __tests__ 2>/dev/null | head -1)/\` |"
+    fi
     [ -d "docs" ] && echo "| Documentation | \`docs/\` |"
     [ -d "scripts" ] && echo "| Scripts/CLI | \`scripts/\` |"
     [ -d "bin" ] && echo "| CLI entry | \`bin/\` |"
-    [ -d "deploy" ] || [ -d ".github/workflows" ] && echo "| Deploy/CI | \`$(ls -d deploy .github/workflows 2>/dev/null | head -1)/\` |"
-    [ -d "config" ] || [ -d "conf" ] && echo "| Configuration | \`$(ls -d config conf 2>/dev/null | head -1)/\` |"
+    if [ -d "deploy" ] || [ -d ".github/workflows" ]; then
+        echo "| Deploy/CI | \`$(ls -d deploy .github/workflows 2>/dev/null | head -1)/\` |"
+    fi
+    if [ -d "config" ] || [ -d "conf" ]; then
+        echo "| Configuration | \`$(ls -d config conf 2>/dev/null | head -1)/\` |"
+    fi
 
     # Project-specific directories (any top-level dir with code)
     for dir in */; do
@@ -265,21 +283,21 @@ do_update() {
         exit 1
     fi
 
-    # Extract content before and after AUTO-GEN markers
-    local before after
-    before=$(sed '/<!-- AUTO-GEN:BEGIN/,$d' "$PROJECT_MD")
-    after=$(sed -n '/<!-- AUTO-GEN:END -->/,$p' "$PROJECT_MD" | tail -n +2)
-
-    if [ -z "$before" ]; then
+    # Check markers exist before attempting update
+    if ! grep -q "AUTO-GEN:BEGIN" "$PROJECT_MD"; then
         log "${YELLOW}No AUTO-GEN markers found in PROJECT.md. Skipping update.${NC}"
         exit 0
     fi
 
-    # Warn if AUTO-GEN:BEGIN exists but AUTO-GEN:END is missing (would lose content)
-    if grep -q "AUTO-GEN:BEGIN" "$PROJECT_MD" && ! grep -q "AUTO-GEN:END" "$PROJECT_MD"; then
+    if ! grep -q "AUTO-GEN:END" "$PROJECT_MD"; then
         log "${RED}AUTO-GEN:BEGIN found but AUTO-GEN:END missing — refusing to update (would lose content)${NC}"
         exit 1
     fi
+
+    # Extract content before and after AUTO-GEN markers
+    local before after
+    before=$(sed '/<!-- AUTO-GEN:BEGIN/,$d' "$PROJECT_MD")
+    after=$(sed -n '/<!-- AUTO-GEN:END -->/,$p' "$PROJECT_MD" | tail -n +2)
 
     # Generate new AUTO-GEN content
     local stack entry_points context_map exports
