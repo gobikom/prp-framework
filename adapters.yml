@@ -224,7 +224,7 @@ commands:
     description:
       claude-code: "Orchestrate complete PRP workflow from feature request to pull request. Run branch, plan, implement, commit, PR, review with fix loop, and summary in sequence. Use when implementing features using PRP methodology or when user requests full PRP workflow."
       default: "Execute the complete PRP lifecycle end-to-end — issue context, smart plan, implement, commit, PR, review-fix loop (until 0 issues), merge, and cleanup. Supports --issue, --merge, --max-review-rounds, --fast, --ralph, --skip-plan, --skip-review, --no-pr, --resume, --no-interact, --dry-run, --fix-severity options."
-    argument-hint: "\"<feature-description>\" or --issue <N> [--merge] [--max-review-rounds N] [--prp-path <path>] [--fast] [--ralph] [--ralph-max-iter N] [--skip-review] [--no-pr] [--fix-severity <levels>] [--resume] [--no-interact] [--dry-run]"
+    argument-hint: "\"<feature-description>\" or --issue <N> [--merge] [--max-review-rounds N] [--prp-path <path>] [--skip-plan] [--fast] [--ralph] [--ralph-max-iter N] [--skip-review] [--no-pr] [--fix-severity <levels>] [--resume] [--no-interact] [--dry-run]"
     codex-short-description: "Full PRP workflow"
     opencode-agent: "plan"
 
