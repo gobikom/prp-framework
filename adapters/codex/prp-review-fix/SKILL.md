@@ -216,6 +216,10 @@ Extract all issues grouped by severity. Look for sections:
 - **Codex adapters**: Use parenthetical labels (e.g., "Critical (block merge)"). Match on the keyword before the parenthetical.
 - **Standard review**: Uses "Pass" column (pass name). Agents-review uses "Agent" column (agent name). Both are valid source identifiers.
 
+**Severity promotion for test gaps:**
+- Test gaps flagged as "NOT TESTED" that cover **security guarantees** (auth, PKCE, token handling, encryption, access control, input validation) → promote to **Critical** regardless of original label.
+- Other test gaps → keep original severity but **do not skip** — write the missing tests as part of the fix.
+
 **PHASE_1_CHECKPOINT:**
 - [ ] Review artifact resolved (auto or user-selected)
 - [ ] PR number identified
@@ -341,6 +345,7 @@ For each issue in the batch:
 
 **Rules:**
 - Fix what the review flagged + same-pattern siblings across all PR files
+- **Test gaps are code fixes** — when the review flags missing tests (e.g., "NOT TESTED", "no test for X", "test gap"), write the missing tests as part of the fix. Test gaps covering security guarantees (auth, encryption, access control, input validation) should be treated as Critical regardless of how the review labeled them.
 - Don't refactor surrounding code or fix unrelated issues
 - Match existing code style
 - If a fix is ambiguous or risky → SKIP and add to skip log
