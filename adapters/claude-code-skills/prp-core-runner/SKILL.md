@@ -30,6 +30,9 @@ When the user requests to implement a feature using the PRP workflow or wants en
 
 | Flag | Effect |
 |------|--------|
+| `--issue <N>` | Fetch GitHub issue #N, use as feature context. Smart plan detection. |
+| `--merge` | Auto squash-merge PR after review passes (0 issues). Runs cleanup. |
+| `--max-review-rounds <N>` | Override max review-fix cycles (default: 5) |
 | `--prp-path <path>` | Skip plan creation, use existing plan |
 | `--ralph` | Use autonomous ralph loop for implementation |
 | `--ralph-max-iter N` | Set max ralph iterations (default: 10) |
