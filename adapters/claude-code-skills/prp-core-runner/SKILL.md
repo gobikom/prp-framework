@@ -12,7 +12,7 @@ When the user requests to implement a feature using the PRP workflow or wants en
 **Step-by-step execution:**
 
 1. **Invoke the workflow**: Use SlashCommand tool with `/prp-core:prp-run-all {feature-description}`
-2. **Monitor progress**: The workflow will execute 8 steps in sequence:
+2. **Monitor progress**: The workflow will execute these steps in sequence:
    - Fetch issue context (if `--issue` provided) with smart plan detection
    - Create a conventional git branch
    - Generate implementation plan (or skip for small issues)
