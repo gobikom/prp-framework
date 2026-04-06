@@ -59,7 +59,9 @@ detect_stack() {
     local EXCL="--exclude-dir=node_modules --exclude-dir=.venv --exclude-dir=venv --exclude-dir=dist --exclude-dir=build --exclude-dir=__pycache__"
 
     [ -f "package.json" ] && stack+=("Node.js $(jq -r '.engines.node // ""' package.json 2>/dev/null | head -1)")
-    [ -f "requirements.txt" ] || [ -f "pyproject.toml" ] || [ -f "setup.py" ] && stack+=("Python")
+    if [ -f "requirements.txt" ] || [ -f "pyproject.toml" ] || [ -f "setup.py" ] || ls requirements*.txt 1>/dev/null 2>&1; then
+        stack+=("Python")
+    fi
     if [ -f "go.mod" ]; then
         local go_ver
         go_ver=$(grep -E '^go [0-9.]+' go.mod 2>/dev/null | head -1 | grep -oE '[0-9.]+' || true)
