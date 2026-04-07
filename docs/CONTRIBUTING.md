@@ -375,7 +375,7 @@ We use [Semantic Versioning](https://semver.org/):
 
 See `CHANGELOG.md` → Breaking Change Policy for the full list of what constitutes a breaking change.
 
-**Key rule**: If an existing `.prp-output/` artifact or `.claude/prp-run-all.state.md` would stop working correctly after the update, it is a breaking change.
+**Key rule**: If an existing `.prp-output/` artifact or `.prp-output/state/run-all.state.md` would stop working correctly after the update, it is a breaking change.
 
 ### Migration Guide Requirement
 

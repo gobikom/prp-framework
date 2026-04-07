@@ -12,7 +12,7 @@ Cancel an active Ralph loop. Preserve all work done so far — only remove the s
 ## Step 1: Check Loop Status
 
 ```bash
-test -f .claude/prp-ralph.state.md && echo "ACTIVE" || echo "NOT_FOUND"
+test -f .prp-output/state/ralph.state.md && echo "ACTIVE" || echo "NOT_FOUND"
 ```
 
 | Result | Action |
@@ -23,7 +23,7 @@ test -f .claude/prp-ralph.state.md && echo "ACTIVE" || echo "NOT_FOUND"
 ## Step 2: Read Current State
 
 ```bash
-head -20 .claude/prp-ralph.state.md
+head -20 .prp-output/state/ralph.state.md
 ```
 
 Extract from YAML frontmatter:
@@ -33,7 +33,7 @@ Extract from YAML frontmatter:
 ## Step 3: Remove State File
 
 ```bash
-rm .claude/prp-ralph.state.md
+rm .prp-output/state/ralph.state.md
 ```
 
 ## Step 4: Report
@@ -56,7 +56,7 @@ To resume later:
 ## Success Criteria
 
 - LOOP_DETECTED: State file checked for existence
-- STATE_REMOVED: `.claude/prp-ralph.state.md` deleted (if existed)
+- STATE_REMOVED: `.prp-output/state/ralph.state.md` deleted (if existed)
 - WORK_PRESERVED: No code changes reverted — only state file removed
 
 </process>

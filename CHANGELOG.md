@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### What constitutes a breaking change (requires major version bump)
 
 - **Artifact format changes**: changes to frontmatter fields, section names, or required structure in `.prp-output/` files that would make existing artifacts unreadable by newer commands
-- **State file format changes**: changes to `.claude/prp-run-all.state.md` schema that break `--resume` for in-progress runs
+- **State file format changes**: changes to `.prp-output/state/run-all.state.md` schema that break `--resume` for in-progress runs
 - **Flag removal or rename**: removing or renaming flags that users depend on (e.g. `--ralph`, `--resume`, `--no-interact`)
 - **Install path changes**: moving adapter directories to different locations (breaks existing symlinks)
 - **Hook interface changes**: changing the stop hook output format that `prp-ralph-stop.sh` reads
@@ -32,6 +32,30 @@ Every major version release MUST include a `docs/migration/vX.0-to-vY.0.md` file
 4. Any adapter-specific differences
 
 ## [Unreleased]
+
+## [2.6.0] — 2026-04-07
+
+**State file migration to `.prp-output/state/`** — All state and lock files moved from `.claude/` to `.prp-output/state/` for tool-agnostic compatibility.
+
+### Changed
+
+- **State file location**: `.claude/prp-run-all.state.md` → `.prp-output/state/run-all.state.md`
+- **Lock file location**: `.claude/prp-run-all.lock` → `.prp-output/state/run-all.lock`
+- **Ralph state file location**: `.claude/prp-ralph.state.md` → `.prp-output/state/ralph.state.md`
+- **State file I/O**: prompts now instruct Bash heredoc for state writes (avoids permission prompts in Claude Code)
+- **Permission config simplified**: removed `"Bash(rm -f .claude/prp-*)"` — `.prp-output/*` rule covers state files
+
+### Why
+
+- `.claude/` is Claude Code-specific — Codex, OpenCode, Gemini, Antigravity adapters were writing to a path that doesn't belong to them
+- Write/Edit tool calls to `.claude/` trigger permission prompts, breaking autonomous `run-all` execution
+- `.prp-output/` is already the shared artifact directory across all tools
+
+### Migration
+
+- In-flight `--resume` from v2.5.x will report "No saved state found" — safe, just re-run without `--resume`
+- No data loss — state files are transient checkpoint data
+- Permission configs: replace `"Bash(rm -f .claude/prp-*)"` with `"Bash(rm -rf .prp-output/*)"` (or remove if already present)
 
 ## [2.5.1] — 2026-04-06
 

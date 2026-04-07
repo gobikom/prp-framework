@@ -225,11 +225,11 @@ State management helper for the `run-all` workflow. Manages a state file that tr
 
 ### How It Works
 
-1. **State file** is stored at `.claude/prp-run-all.state.md`. It uses YAML frontmatter for configuration variables and a markdown table to track completed steps.
+1. **State file** is stored at `.prp-output/state/run-all.state.md`. It uses YAML frontmatter for configuration variables and a markdown table to track completed steps.
 
 2. **YAML frontmatter** contains: `step`, `total_steps`, `feature`, `plan_path`, `branch`, `pr_number`, `review_artifact`, `use_ralph`, `ralph_max_iter`, `fix_severity`, `skip_review`, `no_pr`, `started_at`, `updated_at`.
 
-3. **Lock mechanism** uses a lock file at `.claude/prp-run-all.lock`:
+3. **Lock mechanism** uses a lock file at `.prp-output/state/run-all.lock`:
    - `lock` writes the current PID to the lock file.
    - If a lock file already exists, it checks the file's modification time.
    - Locks older than **2 hours (7200 seconds)** are considered stale and are automatically removed.

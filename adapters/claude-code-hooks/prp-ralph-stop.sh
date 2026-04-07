@@ -10,7 +10,7 @@ set -euo pipefail
 HOOK_INPUT=$(cat)
 
 # State file location
-STATE_FILE=".claude/prp-ralph.state.md"
+STATE_FILE=".prp-output/state/ralph.state.md"
 
 # Check if Ralph loop is active
 if [[ ! -f "$STATE_FILE" ]]; then
@@ -42,7 +42,7 @@ fi
 # Check if max iterations reached
 if [[ $MAX_ITERATIONS -gt 0 ]] && [[ $ITERATION -ge $MAX_ITERATIONS ]]; then
   echo "🛑 PRP Ralph: Max iterations ($MAX_ITERATIONS) reached."
-  echo "   Check .claude/prp-ralph.state.md for progress log."
+  echo "   Check .prp-output/state/ralph.state.md for progress log."
   rm "$STATE_FILE"
   exit 0
 fi
@@ -89,7 +89,7 @@ PROMPT="# PRP Ralph Loop - Iteration $NEXT_ITERATION
 Continue executing the PRP plan until ALL validations pass.
 
 **Plan file**: \`$PLAN_PATH\`
-**State file**: \`.claude/prp-ralph.state.md\`
+**State file**: \`.prp-output/state/ralph.state.md\`
 
 ## Instructions
 

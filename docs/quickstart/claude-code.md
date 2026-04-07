@@ -141,7 +141,7 @@ cd .prp && ./scripts/install.sh && cd ..
       "Bash(git *)", "Bash(gh *)", "Bash(ls *)", "Bash(mkdir *)",
       "Bash(mv *)", "Bash(cp *)", "Bash(cat *)",
       "Bash(npm *)", "Bash(npx *)", "Bash(bun *)",
-      "Bash(rm -f .claude/prp-*)", "Bash(rm -rf .prp-output/*)"
+      "Bash(rm -rf .prp-output/*)"
     ]
   }
 }

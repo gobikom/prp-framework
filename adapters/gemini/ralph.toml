@@ -75,14 +75,14 @@ If input is a `.prd.md` file:
 
 ### 2.1 Create State File
 
-Create `.claude/prp-ralph.state.md`:
+Create `.prp-output/state/ralph.state.md`:
 
 ```bash
-mkdir -p .claude
+mkdir -p .prp-output/state
 mkdir -p .prp-output/ralph-archives
 ```
 
-Write state file with this structure:
+Write state file using **Bash with heredoc** (`cat > file << 'EOF'`) — these are machine-generated tracking files, not source code:
 
 ```markdown
 ---
@@ -131,7 +131,7 @@ The stop hook is now active. When you try to exit:
 - If validations incomplete → same prompt fed back
 - If all validations pass → loop exits
 
-To monitor: `cat .claude/prp-ralph.state.md`
+To monitor: `cat .prp-output/state/ralph.state.md`
 To cancel: `/prp-ralph-cancel`
 
 ---
@@ -345,7 +345,7 @@ ALL of these must be true:
    mkdir -p "$ARCHIVE_DIR"
 
    # Copy state file (with all learnings)
-   cp .claude/prp-ralph.state.md "$ARCHIVE_DIR/state.md"
+   cp .prp-output/state/ralph.state.md "$ARCHIVE_DIR/state.md"
 
    # Copy the plan
    cp {plan_path} "$ARCHIVE_DIR/plan.md"
@@ -445,7 +445,7 @@ ALL of these must be true:
 6. **Clean Up State**
 
    ```bash
-   rm .claude/prp-ralph.state.md
+   rm .prp-output/state/ralph.state.md
    ```
 
 7. **Output Completion Promise**

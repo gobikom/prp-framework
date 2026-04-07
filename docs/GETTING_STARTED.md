@@ -132,7 +132,7 @@ cd .prp && ./scripts/install.sh
       "Bash(test *)", "Bash(find *)", "Bash(date *)", "Bash(head *)",
       "Bash(echo *)", "Bash(grep *)", "Bash(jq *)",
       "Bash(npm *)", "Bash(npx *)", "Bash(bun *)",
-      "Bash(rm -f .claude/prp-*)", "Bash(rm -rf .prp-output/*)",
+      "Bash(rm -rf .prp-output/*)",
       "Bash(sed -i* .prp-output/*)"
     ]
   }
@@ -400,15 +400,15 @@ gh auth refresh       # Refresh token
 **Lock File Stuck** ("Another workflow is active"):
 ```bash
 # Check if stale (>2 hours = safe to remove)
-cat .claude/prp-run-all.lock
+cat .prp-output/state/run-all.lock
 # Remove stale lock
-rm .claude/prp-run-all.lock
+rm .prp-output/state/run-all.lock
 ```
 
 **State File Corrupt** (--resume fails):
 ```bash
 # Delete state and start fresh
-rm .claude/prp-run-all.state.md
+rm .prp-output/state/run-all.state.md
 # Re-run without --resume
 ```
 

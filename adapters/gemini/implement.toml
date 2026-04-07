@@ -656,7 +656,7 @@ Based on implementation:
 
 ## Phase 6: OUTPUT - Report to User
 
-**Skip this phase** if invoked as part of `/run-all` (detected by: `.claude/prp-run-all.state.md` exists, or `[WORKSPACE CONTEXT]` present). The orchestrator produces its own summary in Step 7.
+**Skip this phase** if invoked as part of `/run-all` (detected by: `.prp-output/state/run-all.state.md` exists, or `[WORKSPACE CONTEXT]` present). The orchestrator produces its own summary in Step 7.
 
 ```markdown
 ## Implementation Complete

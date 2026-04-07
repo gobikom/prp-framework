@@ -517,7 +517,7 @@ ls -la .claude/hooks/prp-ralph-stop.sh
 - Implementation report: `.prp-output/reports/{plan}-report.md`
 - Review context: `.prp-output/reviews/pr-context-{branch}.md`
 - Ralph archive: `.prp-output/ralph-archives/{date}-{plan}/`
-- State file (during run): `.claude/prp-ralph.state.md`
+- State file (during run): `.prp-output/state/ralph.state.md`
 
 ### Usage
 
@@ -529,7 +529,7 @@ ls -la .claude/hooks/prp-ralph-stop.sh
 /prp-core:ralph .prp-output/plans/jwt-auth.plan.md --max-iterations 10
 
 # Monitor progress
-cat .claude/prp-ralph.state.md
+cat .prp-output/state/ralph.state.md
 
 # Cancel loop
 /prp-core:ralph-cancel
@@ -610,12 +610,12 @@ Commit → PR → Review/Fix Loop → Summary
 
 ### State Management
 
-run-all creates a state file at `.claude/prp-run-all.state.md` to track progress:
+run-all creates a state file at `.prp-output/state/run-all.state.md` to track progress:
 - Created at workflow start (Step 0.5)
 - Updated after each step completion
 - Supports `--resume` to continue from last failed step
 - Automatically cleaned up on successful completion
-- Lock file prevents concurrent execution (`.claude/prp-run-all.lock`)
+- Lock file prevents concurrent execution (`.prp-output/state/run-all.lock`)
 
 ### Review-Fix Loop (Step 6)
 
@@ -897,14 +897,14 @@ If ACTIVE: Read Iteration/Plan → Remove State File → Report
 
 ### Key Features
 
-- **Non-Destructive:** Only removes the state file (`.claude/prp-ralph.state.md`) — no code changes are reverted
+- **Non-Destructive:** Only removes the state file (`.prp-output/state/ralph.state.md`) — no code changes are reverted
 - **Work Preserved:** All modified files, git commits, and in-progress changes remain intact
 - **Iteration Reporting:** Shows which iteration Ralph was on and which plan was being executed
 - **Resume Path:** After cancelling, you can restart with the same plan or switch to manual implementation
 
 ### Output
 
-- State file removed: `.claude/prp-ralph.state.md`
+- State file removed: `.prp-output/state/ralph.state.md`
 - Report showing iteration number and plan path
 - All code changes preserved (check `git status`)
 
@@ -1112,8 +1112,8 @@ Skipped: 1 branch(es)
 | Shallow clone | `git fetch` fails | `git fetch --unshallow origin` |
 | gh CLI missing | PR/review commands fail | `brew install gh && gh auth login` |
 | gh auth expired | 401 errors on GitHub API | `gh auth refresh` |
-| Lock file stuck | "Another workflow is active" | Delete `.claude/prp-run-all.lock` if stale (>2hrs) |
-| State file corrupt | `--resume` fails | Delete `.claude/prp-run-all.state.md`, start fresh |
+| Lock file stuck | "Another workflow is active" | Delete `.prp-output/state/run-all.lock` if stale (>2hrs) |
+| State file corrupt | `--resume` fails | Delete `.prp-output/state/run-all.state.md`, start fresh |
 | No coverage tool | Coverage check skips | Expected — install jest/vitest/pytest for enforcement |
 | PR already exists | PR step fails | Use existing PR URL, skip to review |
 | `.prp` divergent branches | `git pull` fails with "Need to specify how to reconcile" | `cd .prp && git fetch origin && git reset --hard origin/main && cd ..` — then run `git config pull.rebase true` inside `.prp` to prevent recurrence |

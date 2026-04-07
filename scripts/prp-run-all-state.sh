@@ -1,7 +1,7 @@
 #!/bin/bash
 # PRP Run-All State Management Helper
 #
-# Manages the workflow state file at .claude/prp-run-all.state.md
+# Manages the workflow state file at .prp-output/state/run-all.state.md
 # Used by run-all workflow and tested via bats.
 #
 # Usage: prp-run-all-state.sh <command> [args]
@@ -17,8 +17,8 @@
 #   lock            — acquire lock, exit 1 if already locked
 #   unlock          — release lock
 
-STATE_FILE=".claude/prp-run-all.state.md"
-LOCK_FILE=".claude/prp-run-all.lock"
+STATE_FILE=".prp-output/state/run-all.state.md"
+LOCK_FILE=".prp-output/state/run-all.lock"
 
 # ─────────────────────────────────────────────
 # Parse YAML frontmatter value
@@ -59,7 +59,7 @@ case "$1" in
         local_no_pr="${7:-false}"
         local_timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
-        mkdir -p .claude
+        mkdir -p .prp-output/state
         cat > "$STATE_FILE" <<EOF
 ---
 step: 1
@@ -179,7 +179,7 @@ EOF
                 exit 1
             fi
         fi
-        mkdir -p .claude
+        mkdir -p .prp-output/state
         echo "$$" > "$LOCK_FILE"
         echo "Lock acquired"
         ;;

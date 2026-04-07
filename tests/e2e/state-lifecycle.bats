@@ -12,7 +12,7 @@ HELPER="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)/scripts/prp-run-al
 
 setup() {
     TEST_DIR="$(mktemp -d)"
-    mkdir -p "$TEST_DIR/.claude"
+    mkdir -p "$TEST_DIR/.prp-output/state"
     cd "$TEST_DIR"
 }
 
@@ -59,7 +59,7 @@ teardown() {
     bash "$HELPER" create "Feature with artifact"
     bash "$HELPER" add-artifact "Plan: .prp-output/plans/feature-20260301-1200.plan.md"
 
-    run grep "feature-20260301-1200.plan.md" .claude/prp-run-all.state.md
+    run grep "feature-20260301-1200.plan.md" .prp-output/state/run-all.state.md
     [ "$status" -eq 0 ]
 }
 
@@ -93,15 +93,15 @@ teardown() {
 @test "lifecycle: stale lock (old mtime) is cleared and new lock acquired" {
     bash "$HELPER" create "Stale lock test"
     # Create lock file manually with old timestamp (2024-01-01 = >7200s ago)
-    echo "99999" > .claude/prp-run-all.lock
-    touch -t 202401010000 .claude/prp-run-all.lock
+    echo "99999" > .prp-output/state/run-all.lock
+    touch -t 202401010000 .prp-output/state/run-all.lock
 
     run bash "$HELPER" lock
     [ "$status" -eq 0 ]
     [[ "$output" == *"stale"* ]] || [[ "$output" == *"Lock acquired"* ]]
-    [ -f ".claude/prp-run-all.lock" ]
+    [ -f ".prp-output/state/run-all.lock" ]
     # Lock should now contain current PID, not the stale 99999
-    LOCK_PID=$(cat .claude/prp-run-all.lock)
+    LOCK_PID=$(cat .prp-output/state/run-all.lock)
     [ "$LOCK_PID" != "99999" ]
 }
 
@@ -112,11 +112,11 @@ teardown() {
     bash "$HELPER" create "Cleanup test"
     bash "$HELPER" lock
 
-    [ -f ".claude/prp-run-all.state.md" ]
-    [ -f ".claude/prp-run-all.lock" ]
+    [ -f ".prp-output/state/run-all.state.md" ]
+    [ -f ".prp-output/state/run-all.lock" ]
 
     bash "$HELPER" cleanup
 
-    [ ! -f ".claude/prp-run-all.state.md" ]
-    [ ! -f ".claude/prp-run-all.lock" ]
+    [ ! -f ".prp-output/state/run-all.state.md" ]
+    [ ! -f ".prp-output/state/run-all.lock" ]
 }

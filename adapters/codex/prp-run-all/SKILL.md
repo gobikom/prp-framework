@@ -154,7 +154,7 @@ RUN_TIMESTAMP=$(date +%Y%m%d-%H%M)
 **Check for concurrent execution:**
 
 ```bash
-LOCK_FILE=".claude/prp-run-all.lock"
+LOCK_FILE=".prp-output/state/run-all.lock"
 if [ -f "$LOCK_FILE" ]; then
   # Check if lock is stale (older than 2 hours)
   LOCK_AGE=$(( $(date +%s) - $(stat -c "%Y" "$LOCK_FILE" 2>/dev/null || stat -f "%m" "$LOCK_FILE" 2>/dev/null) ))
@@ -170,9 +170,9 @@ fi
 
 | Result | Action |
 |--------|--------|
-| UNLOCKED | Create lock: `echo "$$" > .claude/prp-run-all.lock` → proceed |
+| UNLOCKED | Create lock: `echo "$$" > .prp-output/state/run-all.lock` → proceed |
 | STALE_LOCK | Remove stale lock, create new one → proceed |
-| LOCKED | STOP: "Another run-all workflow is active. Wait or delete `.claude/prp-run-all.lock` to force." |
+| LOCKED | STOP: "Another run-all workflow is active. Wait or delete `.prp-output/state/run-all.lock` to force." |
 
 **Check for existing state file:**
 
@@ -187,10 +187,10 @@ fi
 **Create new state file** (if not resuming):
 
 ```bash
-mkdir -p .claude
+mkdir -p .prp-output/state
 ```
 
-Write `.claude/prp-run-all.state.md` with YAML frontmatter:
+Write `.prp-output/state/run-all.state.md` using Bash heredoc with YAML frontmatter:
 - step, total_steps, feature, plan_path, branch, pr_number, review_artifact, review_verdict, review_cycle
 - use_ralph, ralph_max_iter, fix_severity, fast_plan, skip_plan, skip_review, no_pr, no_interact
 - issue_number, auto_merge, max_cycles
@@ -198,6 +198,8 @@ Write `.claude/prp-run-all.state.md` with YAML frontmatter:
 - Completed Steps table, Artifacts section, Error Log
 
 On `--resume`: restore ALL variables from state file. Set `RESUME_FROM = step` from frontmatter.
+
+**STATE FILE I/O RULE**: Always use **Bash with heredoc** (`cat > file << 'EOF'`) to create and update state and lock files in `.prp-output/state/`. These are machine-generated tracking files, not source code.
 
 **STATE UPDATE RULE**: After each step completes:
 1. Increment `step` to next step number
@@ -554,8 +556,8 @@ gh issue view {ISSUE_NUMBER} --json state --jq '.state'
 #### 8.4 Final Cleanup
 
 ```bash
-rm -f .claude/prp-run-all.state.md
-rm -f .claude/prp-run-all.lock
+rm -f .prp-output/state/run-all.state.md
+rm -f .prp-output/state/run-all.lock
 ```
 
 State and lock files are only deleted here — after merge and cleanup succeed. This ensures `--resume` works if Step 8 fails.

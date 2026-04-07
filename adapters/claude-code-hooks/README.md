@@ -63,7 +63,7 @@ Add to `~/.claude/settings.json`:
 
 ## How It Works
 
-1. When you run `/prp-ralph <plan>`, it creates `.claude/prp-ralph.state.md`
+1. When you run `/prp-ralph <plan>`, it creates `.prp-output/state/ralph.state.md`
 2. The stop hook (`prp-ralph-stop.sh`) checks for this state file on every exit attempt
 3. If the state file exists and completion promise not found:
    - Increments iteration counter
@@ -103,12 +103,12 @@ Add to `~/.claude/settings.json`:
 ### Loop not stopping
 
 1. Verify completion promise is exact: `<promise>COMPLETE</promise>`
-2. Check state file exists: `cat .claude/prp-ralph.state.md`
+2. Check state file exists: `cat .prp-output/state/ralph.state.md`
 3. Check iteration count hasn't reached max
 
 ### Manual cancellation
 
 Run `/prp-ralph-cancel` or:
 ```bash
-rm .claude/prp-ralph.state.md
+rm .prp-output/state/ralph.state.md
 ```

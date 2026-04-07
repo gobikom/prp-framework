@@ -217,8 +217,8 @@ git remote prune origin
 
 ```bash
 # Remove run-all state file if it refers to the cleaned branch
-if grep -q "${BRANCH}" .claude/prp-run-all.state.md 2>/dev/null; then
-  rm -f .claude/prp-run-all.state.md
+if grep -q "${BRANCH}" .prp-output/state/run-all.state.md 2>/dev/null; then
+  rm -f .prp-output/state/run-all.state.md
 fi
 ```
 

@@ -11,7 +11,7 @@ FIXTURES="$(cd "$(dirname "$BATS_TEST_FILENAME")" && pwd)/fixtures"
 setup() {
     # Each test gets an isolated temp directory
     TEST_DIR="$(mktemp -d)"
-    mkdir -p "$TEST_DIR/.claude"
+    mkdir -p "$TEST_DIR/.prp-output/state"
 
     # Run hook from inside the temp dir (state file path is relative to CWD)
     cd "$TEST_DIR"
@@ -29,7 +29,7 @@ create_state_file() {
     local max_iterations="${2:-20}"
     local plan_path="${3:-.prp-output/plans/feature.plan.md}"
 
-    cat > ".claude/prp-ralph.state.md" <<EOF
+    cat > ".prp-output/state/ralph.state.md" <<EOF
 ---
 iteration: $iteration
 max_iterations: $max_iterations
@@ -76,7 +76,7 @@ hook_input() {
 @test "complete promise on own line: removes state file" {
     create_state_file 3 20
     bash "$HOOK" <<< "$(hook_input "$FIXTURES/transcript-complete.jsonl")"
-    [ ! -f ".claude/prp-ralph.state.md" ]
+    [ ! -f ".prp-output/state/ralph.state.md" ]
 }
 
 @test "complete promise on own line: does not block" {
@@ -99,13 +99,13 @@ hook_input() {
 @test "no complete: increments iteration in state file" {
     create_state_file 1 20
     bash "$HOOK" <<< "$(hook_input "$FIXTURES/transcript-incomplete.jsonl")"
-    grep -q "^iteration: 2$" ".claude/prp-ralph.state.md"
+    grep -q "^iteration: 2$" ".prp-output/state/ralph.state.md"
 }
 
 @test "no complete: state file still exists" {
     create_state_file 1 20
     bash "$HOOK" <<< "$(hook_input "$FIXTURES/transcript-incomplete.jsonl")"
-    [ -f ".claude/prp-ralph.state.md" ]
+    [ -f ".prp-output/state/ralph.state.md" ]
 }
 
 @test "no complete: block reason contains plan path" {
@@ -126,14 +126,14 @@ hook_input() {
 @test "max iterations reached: removes state file" {
     create_state_file 20 20
     bash "$HOOK" <<< "$(hook_input "$FIXTURES/transcript-incomplete.jsonl")"
-    [ ! -f ".claude/prp-ralph.state.md" ]
+    [ ! -f ".prp-output/state/ralph.state.md" ]
 }
 
 @test "max iterations reached: iteration equals max" {
     create_state_file 5 5
     run bash "$HOOK" <<< "$(hook_input "$FIXTURES/transcript-incomplete.jsonl")"
     [ "$status" -eq 0 ]
-    [ ! -f ".claude/prp-ralph.state.md" ]
+    [ ! -f ".prp-output/state/ralph.state.md" ]
 }
 
 # ─────────────────────────────────────────────
@@ -149,14 +149,14 @@ hook_input() {
 @test "indented promise: state file still exists" {
     create_state_file 1 20
     bash "$HOOK" <<< "$(hook_input "$FIXTURES/transcript-false-positive.jsonl")"
-    [ -f ".claude/prp-ralph.state.md" ]
+    [ -f ".prp-output/state/ralph.state.md" ]
 }
 
 # ─────────────────────────────────────────────
 # 6. Corrupt state file → allow exit, delete state
 # ─────────────────────────────────────────────
 @test "corrupt state - invalid iteration: allows exit" {
-    cat > ".claude/prp-ralph.state.md" <<EOF
+    cat > ".prp-output/state/ralph.state.md" <<EOF
 ---
 iteration: not-a-number
 max_iterations: 20
@@ -168,7 +168,7 @@ EOF
 }
 
 @test "corrupt state - invalid iteration: removes state file" {
-    cat > ".claude/prp-ralph.state.md" <<EOF
+    cat > ".prp-output/state/ralph.state.md" <<EOF
 ---
 iteration: not-a-number
 max_iterations: 20
@@ -176,11 +176,11 @@ plan_path: "test.plan.md"
 ---
 EOF
     bash "$HOOK" <<< "$(hook_input "$FIXTURES/transcript-incomplete.jsonl")"
-    [ ! -f ".claude/prp-ralph.state.md" ]
+    [ ! -f ".prp-output/state/ralph.state.md" ]
 }
 
 @test "corrupt state - missing iteration: allows exit" {
-    cat > ".claude/prp-ralph.state.md" <<EOF
+    cat > ".prp-output/state/ralph.state.md" <<EOF
 ---
 max_iterations: 20
 plan_path: "test.plan.md"
@@ -202,7 +202,7 @@ EOF
 @test "transcript not found: removes state file" {
     create_state_file 1 20
     bash "$HOOK" <<< '{"transcript_path": "/tmp/nonexistent-transcript-12345.jsonl"}'
-    [ ! -f ".claude/prp-ralph.state.md" ]
+    [ ! -f ".prp-output/state/ralph.state.md" ]
 }
 
 # ─────────────────────────────────────────────

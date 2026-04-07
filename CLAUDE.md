@@ -175,7 +175,7 @@ Script ยัง auto-register Ralph stop hook ใน `.claude/settings.local.js
       "Bash(test *)", "Bash(find *)", "Bash(date *)", "Bash(head *)",
       "Bash(echo *)", "Bash(grep *)", "Bash(jq *)",
       "Bash(npm *)", "Bash(npx *)", "Bash(bun *)",
-      "Bash(rm -f .claude/prp-*)", "Bash(rm -rf .prp-output/*)",
+      "Bash(rm -rf .prp-output/*)",
       "Bash(sed -i* .prp-output/*)"
     ]
   }

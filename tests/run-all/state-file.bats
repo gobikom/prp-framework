@@ -9,7 +9,7 @@ HELPER="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)/scripts/prp-run-al
 
 setup() {
     TEST_DIR="$(mktemp -d)"
-    mkdir -p "$TEST_DIR/.claude"
+    mkdir -p "$TEST_DIR/.prp-output/state"
     cd "$TEST_DIR"
 }
 
@@ -23,12 +23,12 @@ teardown() {
 @test "create: generates state file with valid YAML frontmatter" {
     run bash "$HELPER" create "Add JWT authentication"
     [ "$status" -eq 0 ]
-    [ -f ".claude/prp-run-all.state.md" ]
+    [ -f ".prp-output/state/run-all.state.md" ]
 }
 
 @test "create: state file contains correct feature name" {
     bash "$HELPER" create "Add JWT authentication"
-    run grep 'feature: "Add JWT authentication"' .claude/prp-run-all.state.md
+    run grep 'feature: "Add JWT authentication"' .prp-output/state/run-all.state.md
     [ "$status" -eq 0 ]
 }
 
@@ -41,11 +41,11 @@ teardown() {
 
 @test "create: state file includes custom ralph settings" {
     bash "$HELPER" create "Test feature" true 15 "critical,high,medium" true false
-    run grep 'use_ralph: true' .claude/prp-run-all.state.md
+    run grep 'use_ralph: true' .prp-output/state/run-all.state.md
     [ "$status" -eq 0 ]
-    run grep 'ralph_max_iter: 15' .claude/prp-run-all.state.md
+    run grep 'ralph_max_iter: 15' .prp-output/state/run-all.state.md
     [ "$status" -eq 0 ]
-    run grep 'fix_severity: "critical,high,medium"' .claude/prp-run-all.state.md
+    run grep 'fix_severity: "critical,high,medium"' .prp-output/state/run-all.state.md
     [ "$status" -eq 0 ]
 }
 
@@ -63,7 +63,7 @@ teardown() {
 @test "update-step: appends to completed steps table" {
     bash "$HELPER" create "Test feature"
     bash "$HELPER" update-step 2 "Create Plan" "jwt-auth.plan.md"
-    run grep "Create Plan" .claude/prp-run-all.state.md
+    run grep "Create Plan" .prp-output/state/run-all.state.md
     [ "$status" -eq 0 ]
 }
 
@@ -101,10 +101,10 @@ teardown() {
 @test "add-artifact: replaces '(none yet)' with first artifact" {
     bash "$HELPER" create "Test"
     bash "$HELPER" add-artifact "Plan: .prp-output/plans/test.plan.md"
-    run grep "Plan: .prp-output/plans/test.plan.md" .claude/prp-run-all.state.md
+    run grep "Plan: .prp-output/plans/test.plan.md" .prp-output/state/run-all.state.md
     [ "$status" -eq 0 ]
     # "(none yet)" should be gone
-    run grep "(none yet)" .claude/prp-run-all.state.md
+    run grep "(none yet)" .prp-output/state/run-all.state.md
     [ "$status" -ne 0 ]
 }
 
@@ -113,12 +113,12 @@ teardown() {
 # ─────────────────────────────────────────────
 @test "cleanup: removes state and lock files" {
     bash "$HELPER" create "Test"
-    echo "$$" > .claude/prp-run-all.lock
-    [ -f ".claude/prp-run-all.state.md" ]
-    [ -f ".claude/prp-run-all.lock" ]
+    echo "$$" > .prp-output/state/run-all.lock
+    [ -f ".prp-output/state/run-all.state.md" ]
+    [ -f ".prp-output/state/run-all.lock" ]
     bash "$HELPER" cleanup
-    [ ! -f ".claude/prp-run-all.state.md" ]
-    [ ! -f ".claude/prp-run-all.lock" ]
+    [ ! -f ".prp-output/state/run-all.state.md" ]
+    [ ! -f ".prp-output/state/run-all.lock" ]
 }
 
 @test "cleanup: succeeds even if files don't exist" {
@@ -146,7 +146,7 @@ teardown() {
 @test "lock: creates lock file" {
     run bash "$HELPER" lock
     [ "$status" -eq 0 ]
-    [ -f ".claude/prp-run-all.lock" ]
+    [ -f ".prp-output/state/run-all.lock" ]
 }
 
 @test "lock: fails if already locked (non-stale)" {
@@ -158,9 +158,9 @@ teardown() {
 
 @test "lock: removes stale lock (>2 hours old)" {
     mkdir -p .claude
-    echo "12345" > .claude/prp-run-all.lock
+    echo "12345" > .prp-output/state/run-all.lock
     # Touch with old timestamp (3 hours ago)
-    touch -t "$(date -v-3H +%Y%m%d%H%M.%S 2>/dev/null || date -d '3 hours ago' +%Y%m%d%H%M.%S 2>/dev/null)" .claude/prp-run-all.lock
+    touch -t "$(date -v-3H +%Y%m%d%H%M.%S 2>/dev/null || date -d '3 hours ago' +%Y%m%d%H%M.%S 2>/dev/null)" .prp-output/state/run-all.lock
     run bash "$HELPER" lock
     [ "$status" -eq 0 ]
     [[ "$output" == *"stale"* ]]
@@ -168,9 +168,9 @@ teardown() {
 
 @test "unlock: removes lock file" {
     bash "$HELPER" lock
-    [ -f ".claude/prp-run-all.lock" ]
+    [ -f ".prp-output/state/run-all.lock" ]
     bash "$HELPER" unlock
-    [ ! -f ".claude/prp-run-all.lock" ]
+    [ ! -f ".prp-output/state/run-all.lock" ]
 }
 
 # ─────────────────────────────────────────────
