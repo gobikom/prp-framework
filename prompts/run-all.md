@@ -425,6 +425,16 @@ This will: detect toolchain, load artifact directly, fix issues by severity, val
 **DO NOT**: Manually read and fix issues yourself, run validation separately.
 **CHECKPOINT**: Did you invoke `{TOOL}:review-fix`? If not → STOP → invoke it.
 
+**Capture review-fix outcome** for Step 6.4:
+
+| review-fix result | Set |
+|-------------------|-----|
+| All issues fixed (skipped_count = 0) | `PENDING_SKIPPED = false` |
+| Some fixed, some skipped (skipped_count > 0) | `PENDING_SKIPPED = true`, `SKIPPED_COUNT = N` |
+| All issues skipped (fixed_count = 0, skipped_count > 0) | `PENDING_SKIPPED = true`, `ALL_SKIPPED = true` |
+
+**Zero-issues bar**: skipped issues are NOT resolved — they are deferred. Do not proceed to Step 7 as if done.
+
 #### 6.4 Re-verify
 
 Increment: `REVIEW_CYCLE += 1`
@@ -433,11 +443,22 @@ Re-run review to confirm fixes resolved issues and no regressions introduced.
 
 **Re-verify always uses single-agent review** (`{TOOL}:review`) regardless of `REVIEW_SINGLE_AGENT` setting — multi-agent re-verify is wasteful for incremental changes.
 
-Use `{TOOL}:review` with `{PR_NUMBER} --since-last-review` for **incremental review** (only reviews changes since last review — saves tokens).
+**Re-verify mode depends on `PENDING_SKIPPED`:**
+
+| PENDING_SKIPPED | Re-verify command | Why |
+|-----------------|-------------------|-----|
+| `false` (all fixed) | `{TOOL}:review {PR_NUMBER} --since-last-review` (incremental) | Only new code changed — delta review saves tokens |
+| `true` (some/all skipped) | `{TOOL}:review {PR_NUMBER} --context` (FULL review) | Skipped items did NOT change code but STILL need to re-surface — incremental delta would miss them and produce false "0 issues" |
 
 If `--since-last-review` not supported or fails, fall back to full review with `--context` flag. Display: `"WARN: --since-last-review not supported — falling back to full review (higher token cost)."`
 
 → **Return to Step 6.2** to evaluate results.
+
+**Escalation guard (NEW 2026-04-17):** before returning to 6.2, if `ALL_SKIPPED = true` AND `REVIEW_CYCLE >= 2` (i.e., we've run review-fix twice and it skipped everything both rounds), STOP the loop early:
+- Do NOT loop another round — review-fix has no additional tooling to resolve these.
+- Create escalation GH issue with the remaining items (title: `[escalation] prp-run-all: {SKIPPED_COUNT} issues need human judgment on PR #{PR_NUMBER}`, labels: `priority:P2-important` + `status:escalated`).
+- Set `REVIEW_VERDICT = "needs_manual_fix"`.
+- Proceed to Step 7 SUMMARY, do NOT merge (even with `--merge`).
 
 ---
 
@@ -633,7 +654,8 @@ State and lock files are only deleted here — after merge and cleanup succeed. 
 | State file exists but `--resume` not passed | Interactive: warn and ask. `--no-interact`: auto-delete stale state, start fresh. |
 | Lock file exists (concurrent run) | Check age — if >2 hours, treat as stale and remove. Otherwise STOP. |
 | Review finds no issues | Skip review-fix, proceed directly to summary. |
-| All review-fix issues skipped | Report skipped issues in summary. Still counts as "reviewed". |
+| All review-fix issues skipped (fixed_count=0) | Do NOT proceed to summary as "done". Set `ALL_SKIPPED = true` and follow Step 6.4 Escalation Guard: after round 2 with all-skipped, create escalation GH issue + set `REVIEW_VERDICT = needs_manual_fix` + skip merge. Zero-issues target is not satisfied by "we tried review-fix and it gave up". |
+| Some review-fix issues skipped | Re-verify with FULL review (`--context`, not `--since-last-review`) so skipped items re-surface in next 6.2 evaluation. See Step 6.4 table. |
 | `--ralph` but hook not registered | STOP with install instructions. |
 | Disk full during state write | STOP — state may be corrupted. Delete state file and restart. |
 | PR creation fails (auth/permission) | STOP — commit is safe on branch. User can manually create PR. |
@@ -658,7 +680,8 @@ State and lock files are only deleted here — after merge and cleanup succeed. 
 - PR_CREATED: PR exists (unless --no-pr)
 - REVIEWED: Review posted with verdict (unless --skip-review)
 - INCREMENTAL_REVIEW: Re-verify uses `--since-last-review` for token optimization
-- ZERO_ISSUES_TARGET: Review-fix loop continues until 0 issues or MAX_CYCLES reached
+- ZERO_ISSUES_TARGET: Review-fix loop continues until 0 issues (all severities in `FIX_SEVERITY`) or MAX_CYCLES reached. **Skipped issues count as remaining** — they are deferred, not resolved. Re-verify uses FULL review (not incremental) when any issues were skipped in the prior round, so skipped items re-surface in the next evaluation.
+- NO_SILENT_MERGE: `--merge` only executes when `REVIEW_VERDICT = "0_issues"`. `needs_manual_fix` (MAX_CYCLES hit OR 2 rounds all-skipped) blocks merge; escalation GH issue is created instead.
 - MERGED: PR squash-merged if --merge and 0 issues (unless --no-pr or --skip-review)
 - CLEANED_UP: Branch deleted, main updated, issue closed if --issue
 - STATE_CLEANED: State and lock files deleted after completion
