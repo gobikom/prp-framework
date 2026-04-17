@@ -685,7 +685,7 @@ Append a "Fix Outcome" section to the review artifact:
 {If critical still open:} "{N} critical issues require manual attention before merge."
 ```
 
-> **Note for orchestrators**: The "Next Steps" above are for standalone usage only. If this command was invoked as part of run-all, the orchestrator should ignore these suggestions and proceed to its next step. Also: orchestrators should pass `--single-pass` to prevent review-fix from launching its own Phase 7 loop (run-all's Step 6 is the outer loop).
+> **Note for orchestrators**: The "Next Steps" above are for standalone usage only. If this command was invoked as part of run-all, the orchestrator should ignore these suggestions and proceed to its next step. Also: orchestrators should pass `--single-pass` to prevent review-fix from launching its own Phase 10 loop (run-all's Step 6 is the outer loop).
 
 ---
 
@@ -751,7 +751,7 @@ On trigger:
 
 ### 10.5 Loop Invariants
 
-- Phase 7 only runs after Phase 6 (commit) succeeds. If commit fails, loop does not start.
+- Phase 10 only runs after Phase 6 (commit) succeeds. If commit fails, the loop does not start. (Phases 7–9 — PUSH/REPORT/OUTPUT — run whether or not the loop triggers.)
 - Each loop iteration runs Phases 1 → 6 in full for the new artifact. This is the existing single-pass pipeline, re-entered with a fresh artifact.
 - `ROUND` counts distinct (review, fix) pairs. Round 1 is the initial review-fix invocation; round 2 is the first re-review + fix; etc.
 - `MAX_ROUNDS` defaults to 5 (via `--max-rounds`). The escalation-after-2-all-skipped guard is narrower and catches the "review-fix cannot make progress" case earlier.
@@ -795,7 +795,7 @@ If file content differs significantly from what review expected:
 All {N} issues were skipped (unclear fixes or validation failures).
 ```
 
-If `LOOP_MODE = true`: Phase 7.4 Escalation Guard triggers after 2 consecutive all-skipped rounds — creates a tracked GH issue and exits. Do NOT silently return to caller as if done.
+If `LOOP_MODE = true`: Phase 10.4 Escalation Guard triggers after 2 consecutive all-skipped rounds — creates a tracked GH issue and exits. Do NOT silently return to caller as if done.
 
 If `LOOP_MODE = false` (single-pass): Display "Manual review required. See skip log above." and exit normally.
 
