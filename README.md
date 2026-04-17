@@ -138,7 +138,9 @@ cp -r prp-framework/* my-project/
 /prp-core:run-all Add JWT auth --no-interact               # Fully unattended (no questions asked)
 /prp-core:run-all Add JWT auth --dry-run                   # Preview steps + token estimate (no execution)
 /prp-core:review-agents 25                                 # Multi-agent PR review
-/prp-core:review-fix 25                                    # Fix all review issues
+/prp-core:review-fix 25                                    # Fix all — LOOP mode default (re-review + re-fix until 0 issues or MAX_ROUNDS=5)
+/prp-core:review-fix 25 --single-pass                      # Fix once, exit (pre-2026-04-17 behavior)
+/prp-core:review-fix 25 --severity critical,high           # Narrow severity (implicitly single-pass)
 /prp-core:commit                                           # Smart commit
 /prp-core:pr                                               # Create PR
 
