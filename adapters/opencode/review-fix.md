@@ -1,5 +1,5 @@
 ---
-description: "Fix all issues from a PR review artifact — applies critical, high, medium, and suggestion fixes to the PR branch with validation loops and automatic failure recovery."
+description: "Fix all issues from a PR review artifact — applies critical, high, medium, and suggestion fixes to the PR branch with validation loops and automatic failure recovery. Default LOOP mode: auto re-review + fix until 0 issues across all severities, matching run-all Step 6 semantics. Use --single-pass or explicit --severity to opt out of loop."
 agent: plan
 ---
 
@@ -22,13 +22,24 @@ All other phases (fix application, validation loops) run unchanged.
 
 ## Input
 
-PR number and optional severity filter: `$ARGUMENTS`
+PR number and optional flags: `$ARGUMENTS`
 
-Format: `<pr-number|review-artifact-path> [--severity critical,high,medium,suggestion]`
+Format: `<pr-number|review-artifact-path> [--severity critical,high,medium,suggestion] [--single-pass] [--max-rounds N]`
+
+**Flag semantics (2026-04-17):**
+
+| Flag combination | Mode | Description |
+|------------------|------|-------------|
+| No `--severity`, no `--single-pass` | **LOOP (default)** | Fix all severities, then auto-invoke `/prp:review`, loop until 0 issues or MAX_ROUNDS. Matches `prp-run-all` Step 6 semantics. |
+| `--severity <levels>` explicit | SINGLE-PASS | Fix only the named severities, exit after Phase 6. User knows what they want — no loop. |
+| `--single-pass` explicit | SINGLE-PASS | Explicit opt-out of loop even when no severity given. Equivalent to running the pre-2026-04-17 behavior. |
+| `--max-rounds N` | LOOP with N cap | Override default MAX_ROUNDS=5. Only meaningful in loop mode. |
+
+**Why default is LOOP**: agents and humans consistently forgot to run re-review after a single-pass fix, leaving suggestion-severity issues unresolved in merged PRs. Making LOOP the default satisfies the `~/.claude/CLAUDE.md` Post-Implement Hard Rule ("0 issues all severities before merge") without requiring the caller to remember the orchestration steps.
 
 ## Mission
 
-Apply fixes for all issues found by `prp-review`:
+Apply fixes for all issues found by `prp-review` or `prp-review-agents`:
 
 1. Load the review artifact and parse issues by severity
 2. Detect project toolchain and validation commands
@@ -37,6 +48,7 @@ Apply fixes for all issues found by `prp-review`:
 5. Run validation after each severity batch
 6. Commit and push fixes to the PR branch
 7. Post a summary comment on the PR
+8. **(Loop mode only)** Re-review → if issues remain, loop back to step 1 with the new artifact; if 0 issues, exit; if MAX_ROUNDS exceeded OR ALL_SKIPPED for 2 rounds, escalate.
 
 **Golden Rule**: Fix what the review found, plus same-pattern siblings across all files changed in this PR. Don't refactor unrelated code. If a fix is unclear or risky, skip and note it.
 
@@ -172,17 +184,31 @@ No review artifact found for PR #{NUMBER}.
 Run `/prp:review {NUMBER}` first to generate the review.
 ```
 
-### 1.4 Parse Severity Filter
+### 1.4 Parse Severity Filter + Loop Mode
 
 **From `--severity` flag (if provided):**
 
 ```
 --severity critical          -> fix only Critical
 --severity critical,high     -> fix Critical and High
---severity all               -> fix all (default)
+--severity all               -> fix all (equivalent to omitting the flag)
 ```
 
-**Default**: Fix all severities (Critical -> High -> Medium -> Suggestion)
+**Default severity**: Fix all (Critical -> High -> Medium -> Suggestion)
+
+**Determine loop mode:**
+
+```
+SEVERITY_EXPLICIT   = true if --severity flag was present in input
+SINGLE_PASS_EXPLICIT = true if --single-pass flag was present in input
+LOOP_MODE           = NOT (SEVERITY_EXPLICIT OR SINGLE_PASS_EXPLICIT)
+MAX_ROUNDS          = {from --max-rounds N, default 5}
+ROUND               = {from --resume state if present, else 1}
+```
+
+**Display to user**:
+- If LOOP_MODE: `"Loop mode: after fix, will auto re-review and loop until 0 issues (MAX_ROUNDS={MAX_ROUNDS}). Pass --single-pass to disable."`
+- If SINGLE_PASS: `"Single-pass mode: will exit after Phase 6. Re-verify manually with /prp:review {NUMBER} or enable loop by omitting --severity."`
 
 ### 1.5 Parse Issues from Artifact
 
@@ -653,11 +679,73 @@ Append a "Fix Outcome" section to the review artifact:
 
 ### Next Steps
 
-{If all critical/high fixed:} "Ready for re-review. Run `/prp:review {NUMBER}` to verify."
+{If LOOP_MODE and all critical/high fixed:} "Entering Phase 7 re-review loop (round {ROUND}/{MAX_ROUNDS})..."
+{If SINGLE_PASS and all critical/high fixed:} "Ready for re-review. Run `/prp:review {NUMBER}` to verify."
 {If critical still open:} "{N} critical issues require manual attention before merge."
 ```
 
-> **Note for orchestrators**: The "Next Steps" above are for standalone usage only. If this command was invoked as part of run-all, the orchestrator should ignore these suggestions and proceed to its next step.
+> **Note for orchestrators**: The "Next Steps" above are for standalone usage only. If this command was invoked as part of run-all, the orchestrator should ignore these suggestions and proceed to its next step. Also: orchestrators should pass `--single-pass` to prevent review-fix from launching its own Phase 7 loop (run-all's Step 6 is the outer loop).
+
+---
+
+## Phase 7: LOOP — Re-review and Repeat (LOOP_MODE only)
+
+**SKIP this entire phase if `LOOP_MODE = false`** (i.e., `--severity` or `--single-pass` was explicit, OR this is a nested review-fix invocation from run-all).
+
+### 7.1 Decide Re-review Mode
+
+Track which issues review-fix just skipped vs actually fixed, and choose the re-review command accordingly (mirrors `run-all` Step 6.4, post PR #59):
+
+| Fix outcome | `PENDING_SKIPPED` | Re-review mode |
+|-------------|-------------------|----------------|
+| All issues actually fixed | `false` | `/prp:review {NUMBER} --since-last-review` (incremental, cheap) |
+| Some issues skipped | `true`, `SKIPPED_COUNT = N` | `/prp:review {NUMBER} --context` (FULL review — skipped items need to re-surface, incremental would miss them) |
+| All issues skipped (no code change) | `true`, `ALL_SKIPPED = true` | `/prp:review {NUMBER} --context` (FULL review), then evaluate Escalation Guard below |
+
+### 7.2 Invoke Re-review
+
+Run the chosen review command. Wait for completion. Capture the new artifact path.
+
+**DO NOT**: Read the code and review it yourself, skip the skill.
+**CHECKPOINT**: Did you invoke `/prp:review`? If not → STOP → invoke it.
+
+### 7.3 Evaluate Result
+
+Parse the new artifact for issues at the full default severity set (`critical,high,medium,suggestion` — the LOOP_MODE default; no user-provided filter applies here since LOOP_MODE implies no `--severity`):
+
+| Result | Action |
+|--------|--------|
+| 0 issues (all severities) | Set `LOOP_VERDICT = "0_issues"`. Display `"All {ROUND} rounds converged on 0 issues — done."`. EXIT ✓. |
+| Issues found AND `ROUND < MAX_ROUNDS` | Increment `ROUND += 1`. Set ARTIFACT to the new path. **Return to Phase 1** with the new artifact, reusing `LOOP_MODE = true` and current `ROUND` value. |
+| Issues found AND `ROUND >= MAX_ROUNDS` | Go to 7.4 Escalation. |
+
+### 7.4 Escalation Guard
+
+Triggers when either:
+- `ROUND >= MAX_ROUNDS` AND issues remain, OR
+- `ALL_SKIPPED = true` has occurred in 2 consecutive rounds (review-fix cannot resolve these without human judgment).
+
+On trigger:
+
+1. Create GH issue documenting the remaining items:
+   ```
+   gh issue create \
+     --title "[escalation] review-fix: {N} issues need human judgment on PR #{NUMBER}" \
+     --label "priority:P2-important,status:escalated" \
+     --body "<summary of remaining issues + last review artifact path + round count + diagnosis>"
+   ```
+2. Set `LOOP_VERDICT = "needs_manual_fix"`.
+3. Post PR comment summarizing the escalation with a link to the new issue.
+4. EXIT with clear message: `"{N} issues require human review after {ROUND} rounds. Escalation issue: <url>. Do NOT merge until resolved."`
+
+### 7.5 Loop Invariants
+
+- Phase 7 only runs after Phase 6 (commit) succeeds. If commit fails, loop does not start.
+- Each loop iteration runs Phases 1 → 6 in full for the new artifact. This is the existing single-pass pipeline, re-entered with a fresh artifact.
+- `ROUND` counts distinct (review, fix) pairs. Round 1 is the initial review-fix invocation; round 2 is the first re-review + fix; etc.
+- `MAX_ROUNDS` defaults to 5 (via `--max-rounds`). The escalation-after-2-all-skipped guard is narrower and catches the "review-fix cannot make progress" case earlier.
+
+**Why this design**: matches `run-all` Step 6 behavior exactly (PR gobikom/prp-framework#59), so review-fix used standalone produces the same zero-issues guarantee as review-fix inside run-all. No divergence.
 
 ---
 
@@ -694,25 +782,32 @@ If file content differs significantly from what review expected:
 
 ```
 All {N} issues were skipped (unclear fixes or validation failures).
-Manual review required. See skip log above.
 ```
+
+If `LOOP_MODE = true`: Phase 7.4 Escalation Guard triggers after 2 consecutive all-skipped rounds — creates a tracked GH issue and exits. Do NOT silently return to caller as if done.
+
+If `LOOP_MODE = false` (single-pass): Display "Manual review required. See skip log above." and exit normally.
 
 ### Suggestion-only issues
 
-By default, suggestions are included. To skip suggestions:
+By default, suggestions are included AND the loop continues until they are resolved. To fix only critical/high and skip suggestion-severity entirely:
 ```
 /prp:review-fix {NUMBER} --severity critical,high,medium
 ```
+
+Note: passing `--severity` implicitly disables LOOP_MODE (see Input → Flag semantics). To fix Critical/High first with a loop but without Suggestions, run `--severity critical,high,medium` once, then run review-fix again without flags to enter loop mode for whatever remains.
 
 ---
 
 ## Usage Examples
 
 ```
-/prp:review-fix 163                                    # Fix all issues
-/prp:review-fix 163 --severity critical,high           # Only critical and high
-/prp:review-fix                                        # Current branch's PR, all issues
-/prp:review-fix .prp-output/reviews/pr-42-review-opencode.md  # By artifact path
+/prp:review-fix 163                                    # LOOP mode — fix all + re-review until 0 issues
+/prp:review-fix 163 --severity critical,high           # SINGLE-PASS — only critical and high
+/prp:review-fix 163 --single-pass                      # SINGLE-PASS explicit — fix all once, exit
+/prp:review-fix 163 --max-rounds 3                     # LOOP mode with custom cap (default 5)
+/prp:review-fix                                        # Current branch's PR, LOOP mode
+/prp:review-fix .prp-output/reviews/pr-42-review-opencode.md  # By artifact path, LOOP mode
 ```
 
 ---
@@ -728,3 +823,5 @@ By default, suggestions are included. To skip suggestions:
 - PR_COMMENTED: Summary posted to GitHub
 - ARTIFACT_UPDATED: Review artifact has fix outcome appended
 - SUMMARY_SAVED: Fix summary saved with timestamp to `.prp-output/reviews/`
+- LOOP_CONVERGED (LOOP_MODE only): Phase 7 re-review loop exited with `LOOP_VERDICT = "0_issues"` OR `"needs_manual_fix"` (escalation issue created). Never exit LOOP_MODE silently with issues remaining and no escalation.
+- NO_SILENT_EXIT (LOOP_MODE only): If ALL_SKIPPED for 2 consecutive rounds OR MAX_ROUNDS exceeded, escalation GH issue exists. Matches `run-all` Step 6.4 guarantee.
