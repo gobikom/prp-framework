@@ -681,7 +681,7 @@ Append a "Fix Outcome" section to the review artifact:
 
 ### Next Steps
 
-{If LOOP_MODE and all critical/high fixed:} "Entering Phase 7 re-review loop (round {ROUND}/{MAX_ROUNDS})..."
+{If LOOP_MODE and all critical/high fixed:} "Entering Phase 10 re-review loop (round {ROUND}/{MAX_ROUNDS})..."
 {If SINGLE_PASS and all critical/high fixed:} "Ready for re-review. Run `$prp-review {NUMBER}` to verify."
 {If critical still open:} "{N} critical issues require manual attention before merge."
 ```
@@ -690,11 +690,13 @@ Append a "Fix Outcome" section to the review artifact:
 
 ---
 
-## Phase 7: LOOP — Re-review and Repeat (LOOP_MODE only)
+## Phase 10: LOOP — Re-review and Repeat (LOOP_MODE only)
 
 **SKIP this entire phase if `LOOP_MODE = false`** (i.e., `--severity` or `--single-pass` was explicit, OR this is a nested review-fix invocation from run-all).
 
-### 7.1 Decide Re-review Mode
+> **Numbering note:** the document already has Phase 7: PUSH, Phase 8: REPORT, and Phase 9: OUTPUT. The loop runs AFTER all of those as the final optional stage, so it is numbered Phase 10 to avoid collision. Earlier drafts used "Phase 7: LOOP" which collided with "Phase 7: PUSH" — fixed 2026-04-17.
+
+### 10.1 Decide Re-review Mode
 
 Track which issues review-fix just skipped vs actually fixed, and choose the re-review command accordingly (mirrors `run-all` Step 6.4, post PR #59):
 
@@ -704,14 +706,14 @@ Track which issues review-fix just skipped vs actually fixed, and choose the re-
 | Some issues skipped | `true`, `SKIPPED_COUNT = N` | `$prp-review {NUMBER} --context` (FULL review — skipped items need to re-surface, incremental would miss them) |
 | All issues skipped (no code change) | `true`, `ALL_SKIPPED = true` | `$prp-review {NUMBER} --context` (FULL review), then evaluate Escalation Guard below |
 
-### 7.2 Invoke Re-review
+### 10.2 Invoke Re-review
 
 Run the chosen review command. Wait for completion. Capture the new artifact path.
 
 **DO NOT**: Read the code and review it yourself, skip the skill.
 **CHECKPOINT**: Did you invoke `$prp-review`? If not → STOP → invoke it.
 
-### 7.3 Evaluate Result
+### 10.3 Evaluate Result
 
 Parse the new artifact for issues at the full default severity set (`critical,high,medium,suggestion` — the LOOP_MODE default; no user-provided filter applies here since LOOP_MODE implies no `--severity`):
 
@@ -719,9 +721,9 @@ Parse the new artifact for issues at the full default severity set (`critical,hi
 |--------|--------|
 | 0 issues (all severities) | Set `LOOP_VERDICT = "0_issues"`. Display `"All {ROUND} rounds converged on 0 issues — done."`. EXIT ✓. |
 | Issues found AND `ROUND < MAX_ROUNDS` | Increment `ROUND += 1`. Set ARTIFACT to the new path. **Return to Phase 1** with the new artifact, reusing `LOOP_MODE = true` and current `ROUND` value. |
-| Issues found AND `ROUND >= MAX_ROUNDS` | Go to 7.4 Escalation. |
+| Issues found AND `ROUND >= MAX_ROUNDS` | Go to 10.4 Escalation. |
 
-### 7.4 Escalation Guard
+### 10.4 Escalation Guard
 
 Triggers when either:
 - `ROUND >= MAX_ROUNDS` AND issues remain, OR
@@ -729,18 +731,26 @@ Triggers when either:
 
 On trigger:
 
-1. Create GH issue documenting the remaining items:
-   ```
+1. Create GH issue documenting the remaining items. Label strategy: the `[escalation]` prefix in the title carries the signal; add repo-appropriate labels only if they exist (graceful fallback avoids hard-fail on repos with different label schemes):
+   ```bash
+   # Build --label args only for labels that exist in this repo
+   LABEL_ARGS=""
+   for LABEL in "priority:P2" "bug" "help wanted"; do
+     if gh label list -R "${REPO}" --json name -q ".[] | select(.name==\"$LABEL\") | .name" | grep -q .; then
+       LABEL_ARGS="${LABEL_ARGS:+$LABEL_ARGS,}$LABEL"
+     fi
+   done
    gh issue create \
      --title "[escalation] review-fix: {N} issues need human judgment on PR #{NUMBER}" \
-     --label "priority:P2-important,status:escalated" \
+     ${LABEL_ARGS:+--label "$LABEL_ARGS"} \
      --body "<summary of remaining issues + last review artifact path + round count + diagnosis>"
    ```
+   If all fallbacks miss (no recognized labels in the repo), `gh issue create` runs with NO `--label` flag — the issue is still created and the `[escalation]` title prefix makes it discoverable via search. Do NOT hard-fail the workflow on missing labels.
 2. Set `LOOP_VERDICT = "needs_manual_fix"`.
 3. Post PR comment summarizing the escalation with a link to the new issue.
 4. EXIT with clear message: `"{N} issues require human review after {ROUND} rounds. Escalation issue: <url>. Do NOT merge until resolved."`
 
-### 7.5 Loop Invariants
+### 10.5 Loop Invariants
 
 - Phase 7 only runs after Phase 6 (commit) succeeds. If commit fails, loop does not start.
 - Each loop iteration runs Phases 1 → 6 in full for the new artifact. This is the existing single-pass pipeline, re-entered with a fresh artifact.
@@ -825,5 +835,5 @@ $prp-review-fix .prp-output/reviews/pr-42-review-codex.md  # By artifact path, L
 - PR_COMMENTED: Summary posted to GitHub
 - ARTIFACT_UPDATED: Review artifact has fix outcome appended
 - SUMMARY_SAVED: Fix summary saved with timestamp to `.prp-output/reviews/`
-- LOOP_CONVERGED (LOOP_MODE only): Phase 7 re-review loop exited with `LOOP_VERDICT = "0_issues"` OR `"needs_manual_fix"` (escalation issue created). Never exit LOOP_MODE silently with issues remaining and no escalation.
+- LOOP_CONVERGED (LOOP_MODE only): Phase 10 re-review loop exited with `LOOP_VERDICT = "0_issues"` OR `"needs_manual_fix"` (escalation issue created). Never exit LOOP_MODE silently with issues remaining and no escalation.
 - NO_SILENT_EXIT (LOOP_MODE only): If ALL_SKIPPED for 2 consecutive rounds OR MAX_ROUNDS exceeded, escalation GH issue exists. Matches `run-all` Step 6.4 guarantee.
