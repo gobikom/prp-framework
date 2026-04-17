@@ -459,7 +459,19 @@ If `--since-last-review` not supported or fails, fall back to full review with `
 
 **Escalation guard (NEW 2026-04-17):** before returning to 6.2, if `ALL_SKIPPED = true` AND `REVIEW_CYCLE >= 2` (i.e., we've run review-fix twice and it skipped everything both rounds), STOP the loop early:
 - Do NOT loop another round — review-fix has no additional tooling to resolve these.
-- Create escalation GH issue with the remaining items (title: `[escalation] prp-run-all: {SKIPPED_COUNT} issues need human judgment on PR #{PR_NUMBER}`, labels: `priority:P2-important` + `status:escalated`).
+- Create escalation GH issue with the remaining items. Label strategy: the `[escalation]` title prefix carries the signal — add repo-appropriate labels only if they exist in the target repo (graceful fallback so different repos with different label schemes do not hard-fail the workflow):
+   ```bash
+   LABEL_ARGS=""
+   for LABEL in "priority:P2" "bug" "help wanted"; do
+     if gh label list -R "${REPO}" --json name -q ".[] | select(.name==\"$LABEL\") | .name" | grep -q .; then
+       LABEL_ARGS="${LABEL_ARGS:+$LABEL_ARGS,}$LABEL"
+     fi
+   done
+   gh issue create \
+     --title "[escalation] prp-run-all: {SKIPPED_COUNT} issues need human judgment on PR #{PR_NUMBER}" \
+     ${LABEL_ARGS:+--label "$LABEL_ARGS"} \
+     --body "<remaining-items summary + artifact path + round count>"
+   ```
 - Set `REVIEW_VERDICT = "needs_manual_fix"`.
 - Proceed to Step 7 SUMMARY, do NOT merge (even with `--merge`).
 
