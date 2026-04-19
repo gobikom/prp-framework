@@ -562,7 +562,7 @@ gh pr view {PR_NUMBER} --json state,mergeable --jq '{state: .state, mergeable: .
 gh pr merge {PR_NUMBER} --squash --delete-branch
 ```
 
-> **Tip (optional, workspace-dependent)**: If `safe-merge` is in `$PATH`, prefer it — it wraps `gh pr merge` with a CI-green gate (blocks FAIL/PENDING/UNKNOWN) and an audit log, useful on private repos where server-side branch protection is not available. It accepts all the same flags. Example: `safe-merge {PR_NUMBER} --squash --delete-branch`. If `safe-merge` is not installed, continue to use the default `gh pr merge` command above.
+> **Tip (optional, workspace-dependent)**: If `safe-merge` is in `$PATH`, prefer it — it wraps `gh pr merge` with a CI-green gate (blocks FAIL/PENDING/UNKNOWN), an audit log, AND default-on local cleanup (checkout default branch, pull, delete merged branch, prune stale remote-tracking refs). Useful on private repos where server-side branch protection is not available. It accepts all the same flags; add `--no-cleanup` to skip the local cleanup step. Example: `safe-merge {PR_NUMBER} --squash --delete-branch`. If `safe-merge` is not installed, continue to use the default `gh pr merge` command above.
 
 | Result | Action |
 |--------|--------|
