@@ -302,15 +302,14 @@ EOF
             echo "Usage: prp-run-all-state.sh get-var <name>" >&2
             exit 1
         fi
+        # Present-but-empty values (e.g. review_verdict: "") are valid:
+        # get_frontmatter_value succeeds with empty stdout, so we print "".
+        # Only fall back to defaults when the key is absent from frontmatter.
         if ! value=$(get_frontmatter_value "$var_name"); then
             if ! value=$(default_frontmatter_value "$var_name"); then
                 echo "Error: Variable '$var_name' not found" >&2
                 exit 1
             fi
-        fi
-        if [ -z "$value" ] && ! get_frontmatter_value "$var_name" >/dev/null 2>&1 && ! default_frontmatter_value "$var_name" >/dev/null 2>&1; then
-            echo "Error: Variable '$var_name' not found" >&2
-            exit 1
         fi
         echo "$value"
         ;;

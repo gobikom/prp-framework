@@ -307,6 +307,55 @@ teardown() {
     [ "$output" = "1" ]
 }
 
+@test "set-review-fix-state: persisted skipped tuple is written to disk and survives fresh reads" {
+    bash "$HELPER" create "Persistence regression"
+    bash "$HELPER" set-review-fix-state 0 4
+
+    # Inspect the raw state file directly — proves the helper writes to disk,
+    # not just to in-process state.
+    run grep -E '^pending_skipped: true' .prp-output/state/run-all.state.md
+    [ "$status" -eq 0 ]
+    run grep -E '^all_skipped: true' .prp-output/state/run-all.state.md
+    [ "$status" -eq 0 ]
+    run grep -E '^skipped_count: 4' .prp-output/state/run-all.state.md
+    [ "$status" -eq 0 ]
+    run grep -E '^all_skipped_rounds: 1' .prp-output/state/run-all.state.md
+    [ "$status" -eq 0 ]
+
+    # Each get-var is a fresh bash process; non-default values must round-trip.
+    run bash "$HELPER" get-var pending_skipped
+    [ "$status" -eq 0 ]
+    [ "$output" = "true" ]
+    run bash "$HELPER" get-var all_skipped
+    [ "$status" -eq 0 ]
+    [ "$output" = "true" ]
+    run bash "$HELPER" get-var skipped_count
+    [ "$status" -eq 0 ]
+    [ "$output" = "4" ]
+    run bash "$HELPER" get-var all_skipped_rounds
+    [ "$status" -eq 0 ]
+    [ "$output" = "1" ]
+}
+
+@test "set-review-fix-state: persisted skipped tuple survives interleaved update-step calls" {
+    bash "$HELPER" create "Interleave regression"
+    bash "$HELPER" set-review-fix-state 1 5
+
+    # update-step writes step + updated_at — it must NOT clobber the skipped tuple.
+    bash "$HELPER" update-step 6 "Review Fix" "partial"
+    bash "$HELPER" update-step 7 "Re-review" "OK"
+
+    run bash "$HELPER" get-var pending_skipped
+    [ "$status" -eq 0 ]
+    [ "$output" = "true" ]
+    run bash "$HELPER" get-var all_skipped
+    [ "$status" -eq 0 ]
+    [ "$output" = "false" ]
+    run bash "$HELPER" get-var skipped_count
+    [ "$status" -eq 0 ]
+    [ "$output" = "5" ]
+}
+
 @test "set-review-fix-state: rejects invalid counts" {
     bash "$HELPER" create "Test"
     run bash "$HELPER" set-review-fix-state -1 2
