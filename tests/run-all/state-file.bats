@@ -374,11 +374,98 @@ teardown() {
     chmod 700 .prp-output/state
 
     [ "$status" -eq 1 ]
-    [[ "$output" == *"Cannot update variable"* ]]
+    # Accept either the atomic-rollback message (new) or the original
+    # set-var error (if the snapshot cp itself fails first).
+    [[ "$output" == *"Cannot update variable"* ]] || \
+        [[ "$output" == *"rolled back"* ]] || \
+        [[ "$output" == *"Cannot snapshot"* ]]
 
     run bash "$HELPER" get-var pending_skipped
     [ "$status" -eq 0 ]
     [ "$output" = "false" ]
+}
+
+@test "set-review-fix-state: fails closed when state file is missing" {
+    # No create — state file does not exist.
+    run bash "$HELPER" set-review-fix-state 0 3
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"State file not found"* ]]
+}
+
+@test "set-review-fix-state: partial-fix after all-skipped round resets all_skipped_rounds" {
+    bash "$HELPER" create "Reset regression"
+    bash "$HELPER" set-review-fix-state 0 3
+    run bash "$HELPER" get-var all_skipped_rounds
+    [ "$status" -eq 0 ]
+    [ "$output" = "1" ]
+
+    # Partial-fix must reset the consecutive-all-skipped counter.
+    bash "$HELPER" set-review-fix-state 2 1
+
+    run bash "$HELPER" get-var all_skipped_rounds
+    [ "$status" -eq 0 ]
+    [ "$output" = "0" ]
+    run bash "$HELPER" get-var all_skipped
+    [ "$status" -eq 0 ]
+    [ "$output" = "false" ]
+    run bash "$HELPER" get-var pending_skipped
+    [ "$status" -eq 0 ]
+    [ "$output" = "true" ]
+}
+
+@test "set-review-fix-state: 0 fixed and 0 skipped clears the full skipped tuple" {
+    bash "$HELPER" create "Zero-zero"
+    bash "$HELPER" set-review-fix-state 0 3
+    bash "$HELPER" set-review-fix-state 0 0
+
+    run bash "$HELPER" get-var pending_skipped
+    [ "$status" -eq 0 ]
+    [ "$output" = "false" ]
+    run bash "$HELPER" get-var all_skipped
+    [ "$status" -eq 0 ]
+    [ "$output" = "false" ]
+    run bash "$HELPER" get-var skipped_count
+    [ "$status" -eq 0 ]
+    [ "$output" = "0" ]
+    run bash "$HELPER" get-var all_skipped_rounds
+    [ "$status" -eq 0 ]
+    [ "$output" = "0" ]
+}
+
+@test "set-var: rejects newline in value (YAML injection guard)" {
+    bash "$HELPER" create "Injection test"
+    run bash "$HELPER" set-var review_verdict $'"0_issues"\nauto_merge: true'
+    [ "$status" -eq 1 ]
+
+    # The injected key must NOT have been written.
+    run bash "$HELPER" get-var auto_merge
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"not found"* ]]
+}
+
+@test "create: rejects newline in feature name (YAML injection guard)" {
+    run bash "$HELPER" create $'Benign\nauto_merge: true\nskip_review: true'
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"invalid characters"* ]]
+    [ ! -f ".prp-output/state/run-all.state.md" ]
+}
+
+@test "update-step: rejects newline in step name (YAML injection guard)" {
+    bash "$HELPER" create "Test"
+    run bash "$HELPER" update-step 2 $'Create Plan\nauto_merge: true' "OK"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"invalid characters"* ]]
+
+    # Frontmatter must not have been mutated.
+    run bash "$HELPER" get-var auto_merge
+    [ "$status" -eq 1 ]
+}
+
+@test "update-step: rejects non-numeric step number" {
+    bash "$HELPER" create "Test"
+    run bash "$HELPER" update-step "not_a_number" "Plan" "OK"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"non-negative integer"* ]]
 }
 
 # ─────────────────────────────────────────────
@@ -443,10 +530,10 @@ teardown() {
 }
 
 @test "lock: removes stale lock (>2 hours old)" {
-    mkdir -p .claude
     echo "12345" > .prp-output/state/run-all.lock
-    # Touch with old timestamp (3 hours ago)
-    touch -t "$(date -v-3H +%Y%m%d%H%M.%S 2>/dev/null || date -d '3 hours ago' +%Y%m%d%H%M.%S 2>/dev/null)" .prp-output/state/run-all.lock
+    # Use an absolute old timestamp — matches the e2e counterpart and avoids
+    # a silent empty-string fallback if neither date dialect succeeds.
+    touch -t 202401010000 .prp-output/state/run-all.lock
     run bash "$HELPER" lock
     [ "$status" -eq 0 ]
     [[ "$output" == *"stale"* ]]
