@@ -254,6 +254,30 @@ teardown() {
     [[ "$output" == *"frontmatter is malformed"* ]]
 }
 
+@test "get-var: does not emit stale value when closing marker is missing" {
+    # Malformed state files must never leak a matched value on stdout —
+    # callers use command substitution and would treat a printed value as
+    # truth. The error path must be empty-stdout, nonzero-exit.
+    bash "$HELPER" create "Test"
+    awk '$0 == "---" { markers++; if (markers == 2) next } { print }' .prp-output/state/run-all.state.md > state.tmp
+    mv state.tmp .prp-output/state/run-all.state.md
+
+    run bash "$HELPER" get-var feature
+    [ "$status" -eq 1 ]
+    # stderr message is fine, but no matched value may appear on stdout.
+    [[ "$output" != *"Test"* ]]
+}
+
+@test "get-var: fails closed when opening marker is missing" {
+    bash "$HELPER" create "Test"
+    # Strip the first frontmatter delimiter — marker count never reaches 1.
+    sed -i '1d' .prp-output/state/run-all.state.md
+
+    run bash "$HELPER" get-var review_cycle
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"frontmatter is malformed"* ]]
+}
+
 @test "set-var: preserves literal backslash-n instead of decoding YAML injection" {
     bash "$HELPER" create "Test"
     bash "$HELPER" set-var review_verdict '"0_issues"\nskip_review: true'
@@ -266,6 +290,30 @@ teardown() {
     [ "$status" -eq 0 ]
     run grep '^skip_review: true' .prp-output/state/run-all.state.md
     [ "$status" -ne 0 ]
+}
+
+@test "set-var: preserves literal backslash-t without decoding to tab" {
+    # Awk's -v flag decodes C-style escapes — this helper must pass values
+    # through ENVIRON instead. Proves the same safety for \t, not just \n.
+    bash "$HELPER" create "Test"
+    bash "$HELPER" set-var review_verdict '"0_issues"\tskip_review: true'
+
+    run bash "$HELPER" get-var review_verdict
+    [ "$status" -eq 0 ]
+    [ "$output" = '0_issues"\tskip_review: true' ]
+
+    # No real tab character should have been written to disk.
+    run grep -P '\t' .prp-output/state/run-all.state.md
+    [ "$status" -ne 0 ]
+}
+
+@test "set-var: preserves literal backslash-backslash-n" {
+    bash "$HELPER" create "Test"
+    bash "$HELPER" set-var review_verdict '"0_issues"\\nskip_review: true'
+
+    run bash "$HELPER" get-var review_verdict
+    [ "$status" -eq 0 ]
+    [ "$output" = '0_issues"\\nskip_review: true' ]
 }
 
 @test "set-review-fix-state: persists all-fixed skipped tuple" {
@@ -442,6 +490,56 @@ teardown() {
     [ "$after" = "$before" ]
 }
 
+@test "set-review-fix-state: rolls back when first tuple key fails" {
+    bash "$HELPER" create "Test"
+    before="$(cat .prp-output/state/run-all.state.md)"
+
+    run env PRP_STATE_FAIL_KEY=pending_skipped bash "$HELPER" set-review-fix-state 2 4
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"rolled back"* ]]
+
+    after="$(cat .prp-output/state/run-all.state.md)"
+    [ "$after" = "$before" ]
+}
+
+@test "set-review-fix-state: rolls back when second tuple key fails" {
+    bash "$HELPER" create "Test"
+    before="$(cat .prp-output/state/run-all.state.md)"
+
+    run env PRP_STATE_FAIL_KEY=all_skipped bash "$HELPER" set-review-fix-state 2 4
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"rolled back"* ]]
+
+    after="$(cat .prp-output/state/run-all.state.md)"
+    [ "$after" = "$before" ]
+}
+
+@test "set-review-fix-state: rolls back when last tuple key fails" {
+    bash "$HELPER" create "Test"
+    before="$(cat .prp-output/state/run-all.state.md)"
+
+    run env PRP_STATE_FAIL_KEY=all_skipped_rounds bash "$HELPER" set-review-fix-state 0 3
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"rolled back"* ]]
+
+    after="$(cat .prp-output/state/run-all.state.md)"
+    [ "$after" = "$before" ]
+}
+
+@test "set-review-fix-state: rolls back when updated_at fails after tuple" {
+    bash "$HELPER" create "Test"
+    before="$(cat .prp-output/state/run-all.state.md)"
+
+    # updated_at is the final write after all tuple keys succeed —
+    # guards the "almost done" failure window.
+    run env PRP_STATE_FAIL_KEY=updated_at bash "$HELPER" set-review-fix-state 2 4
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"rolled back"* ]]
+
+    after="$(cat .prp-output/state/run-all.state.md)"
+    [ "$after" = "$before" ]
+}
+
 @test "set-review-fix-state: fails closed when state file is missing" {
     # No create — state file does not exist.
     run bash "$HELPER" set-review-fix-state 0 3
@@ -521,6 +619,27 @@ teardown() {
     [[ "$output" == *"invalid create argument"* ]]
 }
 
+@test "create: rejects newline in fix_severity (YAML injection guard)" {
+    run bash "$HELPER" create "Feature" false 10 $'critical,high\nauto_merge: true'
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"invalid characters"* ]]
+    [ ! -f ".prp-output/state/run-all.state.md" ]
+}
+
+@test "create: rejects CR in fix_severity (YAML injection guard)" {
+    run bash "$HELPER" create "Feature" false 10 $'critical,high\rauto_merge: true'
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"invalid characters"* ]]
+    [ ! -f ".prp-output/state/run-all.state.md" ]
+}
+
+@test "create: rejects bare --- line in fix_severity (YAML frontmatter close)" {
+    run bash "$HELPER" create "Feature" false 10 "---"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"invalid characters"* ]]
+    [ ! -f ".prp-output/state/run-all.state.md" ]
+}
+
 @test "update-step: rejects newline in step name (YAML injection guard)" {
     bash "$HELPER" create "Test"
     run bash "$HELPER" update-step 2 $'Create Plan\nauto_merge: true' "OK"
@@ -567,6 +686,40 @@ teardown() {
     [ "$output" = "1" ]
     run grep "Create Plan" .prp-output/state/run-all.state.md
     [ "$status" -ne 0 ]
+}
+
+@test "update-step: fails closed when table header row is missing" {
+    # '## Completed Steps' alone is insufficient — the table header row
+    # must also exist so the completed-step insert lands in a valid table.
+    bash "$HELPER" create "Test"
+    sed -i '/^|------|------|--------|-----------|$/d' .prp-output/state/run-all.state.md
+
+    run bash "$HELPER" update-step 2 "Create Plan" "OK"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"missing required section"* ]]
+
+    # Frontmatter must not have mutated: step stays at 1, no new row added.
+    run bash "$HELPER" get-step
+    [ "$status" -eq 0 ]
+    [ "$output" = "1" ]
+    run grep "Create Plan" .prp-output/state/run-all.state.md
+    [ "$status" -ne 0 ]
+}
+
+@test "update-step: does not mutate frontmatter when a required body section is missing" {
+    # Regression: the frontmatter write must happen AFTER the body sanity
+    # checks. A leaked frontmatter mutation (step/updated_at) would show up
+    # in the diff even though the body-level insert never ran.
+    bash "$HELPER" create "Test"
+    before="$(cat .prp-output/state/run-all.state.md)"
+    sed -i '/^## Completed Steps$/d' .prp-output/state/run-all.state.md
+    pre_mutation="$(cat .prp-output/state/run-all.state.md)"
+
+    run bash "$HELPER" update-step 2 "Create Plan" "OK"
+    [ "$status" -eq 1 ]
+
+    after="$(cat .prp-output/state/run-all.state.md)"
+    [ "$after" = "$pre_mutation" ]
 }
 
 @test "update-step: preserves literal backslash-n in completed step row" {
