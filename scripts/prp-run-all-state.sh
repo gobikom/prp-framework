@@ -135,12 +135,29 @@ set_frontmatter_value() {
             }
             print
         }
+        END {
+            if (marker < 2 || updated == 0) {
+                exit 1
+            }
+        }
     ' "$STATE_FILE" > "$tmp_file"; then
         rm -f "$tmp_file"
         return 1
     fi
     if ! mv "$tmp_file" "$STATE_FILE"; then
         rm -f "$tmp_file"
+        return 1
+    fi
+}
+
+# ─────────────────────────────────────────────
+# Ensure a markdown section marker exists before mutating related body content
+# ─────────────────────────────────────────────
+require_body_section() {
+    local section="$1"
+
+    if ! grep -qxF "$section" "$STATE_FILE"; then
+        echo "Error: State file missing required section '$section'" >&2
         return 1
     fi
 }
@@ -355,8 +372,20 @@ EOF
         fi
 
         # Update step number and timestamp in frontmatter
-        must_set_frontmatter_value "step" "$local_step"
-        must_set_frontmatter_value "updated_at" "\"${local_timestamp}\""
+        require_body_section "## Artifacts" || exit 1
+
+        backup="${STATE_FILE}.rollback.$$"
+        if ! cp "$STATE_FILE" "$backup" 2>/dev/null; then
+            echo "Error: Cannot snapshot state for atomic step update" >&2
+            exit 1
+        fi
+
+        if ! set_frontmatter_value "step" "$local_step" || \
+            ! set_frontmatter_value "updated_at" "\"${local_timestamp}\""; then
+            mv "$backup" "$STATE_FILE" 2>/dev/null || rm -f "$backup"
+            echo "Error: Failed to update completed-step frontmatter; rolled back to prior snapshot" >&2
+            exit 1
+        fi
 
         # Append to completed steps table (before ## Artifacts line).
         # Guard the sed: a failed substitution must not silently leave the
@@ -365,10 +394,12 @@ EOF
         if ! sed -i.bak "/^## Artifacts/i\\
 | ${local_step} | ${local_name} | ${local_result} | ${local_time} |" "$STATE_FILE"; then
             rm -f "${STATE_FILE}.bak"
+            mv "$backup" "$STATE_FILE" 2>/dev/null || rm -f "$backup"
             echo "Error: Failed to append completed-step row" >&2
             exit 1
         fi
         rm -f "${STATE_FILE}.bak"
+        rm -f "$backup"
 
         echo "Step updated to $local_step: $local_name"
         ;;
@@ -434,24 +465,51 @@ EOF
             echo "Error: invalid characters in artifact (newline, CR, or '---')" >&2
             exit 1
         fi
-        # Replace "(none yet)" or append after existing artifacts.
-        # Guard sed: silent failure would leave the state inconsistent with
-        # whatever the caller thinks was recorded.
-        if grep -q "(none yet)" "$STATE_FILE"; then
-            if ! sed -i.bak "s|(none yet)|- ${local_artifact}|" "$STATE_FILE"; then
-                rm -f "${STATE_FILE}.bak"
-                echo "Error: Failed to replace artifact placeholder" >&2
-                exit 1
-            fi
-        else
-            if ! sed -i.bak "/^## Error Log/i\\
-- ${local_artifact}" "$STATE_FILE"; then
-                rm -f "${STATE_FILE}.bak"
-                echo "Error: Failed to append artifact line" >&2
-                exit 1
-            fi
+        require_body_section "## Artifacts" || exit 1
+        require_body_section "## Error Log" || exit 1
+
+        tmp_file="${STATE_FILE}.tmp"
+        if ! ARTIFACT_VALUE="$local_artifact" awk '
+            BEGIN {
+                artifact = ENVIRON["ARTIFACT_VALUE"]
+                in_artifacts = 0
+                inserted = 0
+            }
+            $0 == "## Artifacts" {
+                in_artifacts = 1
+                print
+                next
+            }
+            in_artifacts == 1 && $0 == "(none yet)" {
+                print "- " artifact
+                inserted = 1
+                next
+            }
+            in_artifacts == 1 && $0 == "## Error Log" {
+                if (inserted == 0) {
+                    print "- " artifact
+                    inserted = 1
+                }
+                in_artifacts = 0
+                print
+                next
+            }
+            { print }
+            END {
+                if (inserted != 1) {
+                    exit 1
+                }
+            }
+        ' "$STATE_FILE" > "$tmp_file"; then
+            rm -f "$tmp_file"
+            echo "Error: Failed to write artifact line" >&2
+            exit 1
         fi
-        rm -f "${STATE_FILE}.bak"
+        if ! mv "$tmp_file" "$STATE_FILE"; then
+            rm -f "$tmp_file"
+            echo "Error: Failed to replace state file with artifact update" >&2
+            exit 1
+        fi
         echo "Artifact added: $local_artifact"
         ;;
 

@@ -702,8 +702,8 @@ Track which issues review-fix just skipped vs actually fixed, and choose the re-
 | Fix outcome | `PENDING_SKIPPED` | Re-review mode |
 |-------------|-------------------|----------------|
 | All issues actually fixed | `false` | `/prp-core:prp-review {NUMBER} --since-last-review` (incremental, cheap) |
-| Some issues skipped | `true`, `SKIPPED_COUNT = N` | `/prp-core:prp-review {NUMBER} --context` (FULL review — skipped items need to re-surface, incremental would miss them) |
-| All issues skipped (no code change) | `true`, `ALL_SKIPPED = true` | `/prp-core:prp-review {NUMBER} --context` (FULL review), then evaluate Escalation Guard below |
+| Some issues skipped | `true`, `SKIPPED_COUNT = N` | `/prp-core:prp-review {NUMBER} --context ".prp-output/reviews/pr-context-${BRANCH}.md"` when the context file exists, otherwise `/prp-core:prp-review {NUMBER}` (FULL review — skipped items need to re-surface, incremental would miss them) |
+| All issues skipped (no code change) | `true`, `ALL_SKIPPED = true` | `/prp-core:prp-review {NUMBER} --context ".prp-output/reviews/pr-context-${BRANCH}.md"` when the context file exists, otherwise `/prp-core:prp-review {NUMBER}` (FULL review), then evaluate Escalation Guard below |
 
 ### 10.2 Invoke Re-review
 

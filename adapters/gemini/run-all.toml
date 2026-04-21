@@ -200,7 +200,7 @@ Write `.prp-output/state/run-all.state.md` using Bash heredoc with YAML frontmat
 
 On `--resume`: restore ALL variables from state file, including `PENDING_SKIPPED`, `ALL_SKIPPED`, `SKIPPED_COUNT`, and `ALL_SKIPPED_ROUNDS`. Set `RESUME_FROM = step` from frontmatter.
 
-**STATE FILE I/O RULE**: Always use **Bash with heredoc** (`cat > file << 'EOF'`) to create and update state and lock files in `.prp-output/state/`. These are machine-generated tracking files, not source code.
+**STATE FILE I/O RULE**: Use **Bash with heredoc** (`cat > file << 'EOF'`) only for initial state/lock file creation or emergency recovery. For normal state mutations after creation, use the helper commands below so frontmatter and body updates remain validated and atomic.
 
 **STATE UPDATE RULE**: After each step completes:
 1. Increment `step` to next step number
@@ -406,7 +406,7 @@ Set: `REVIEW_CYCLE = {from state file if --resume, otherwise 1}` (MAX_CYCLES alr
 | false (default) | `/review-agents` | Multi-agent review (specialized agents in parallel) |
 | true | `/review` | Single-agent review (faster, saves tokens) |
 
-Pass PR_NUMBER to the chosen command. If `.prp-output/reviews/pr-context-{BRANCH}.md` exists, pass `--context` flag for token optimization.
+Pass PR_NUMBER to the chosen command. If `.prp-output/reviews/pr-context-{BRANCH}.md` exists, pass `--context ".prp-output/reviews/pr-context-${BRANCH}.md"` for token optimization.
 
 **Variable update** (depends on which review command ran):
 
@@ -461,9 +461,9 @@ Re-run review to confirm fixes resolved issues and no regressions introduced.
 | PENDING_SKIPPED | Re-verify command | Why |
 |-----------------|-------------------|-----|
 | `false` (all fixed) | `/review {PR_NUMBER} --since-last-review` (incremental) | Only new code changed — delta review saves tokens |
-| `true` (some/all skipped) | `/review {PR_NUMBER} --context` (FULL review) | Skipped items did NOT change code but STILL need to re-surface — incremental delta would miss them and produce false "0 issues" |
+| `true` (some/all skipped) | `/review {PR_NUMBER} --context ".prp-output/reviews/pr-context-${BRANCH}.md"` when the context file exists, otherwise `/review {PR_NUMBER}` (FULL review) | Skipped items did NOT change code but STILL need to re-surface — incremental delta would miss them and produce false "0 issues" |
 
-If `--since-last-review` not supported or fails, fall back to full review with `--context` flag. Display: `"WARN: --since-last-review not supported — falling back to full review (higher token cost)."`
+If `--since-last-review` not supported or fails, fall back to a full review with `--context ".prp-output/reviews/pr-context-${BRANCH}.md"` when that context file exists, or omit `--context` to let review gather fresh context. Display: `"WARN: --since-last-review not supported — falling back to full review (higher token cost)."`
 
 → **Return to Step 6.2** to evaluate results.
 
@@ -483,9 +483,13 @@ If `--since-last-review` not supported or fails, fall back to full review with `
      --title "[escalation] prp-run-all: ${SKIPPED_COUNT} issues need human judgment on PR #${PR_NUMBER}" \\
      ${LABEL_ARGS:+--label "$LABEL_ARGS"} \\
      --body "$ESCALATION_BODY"; then
-     mkdir -p .prp-output/reviews
-     printf '%s\\n' "$ESCALATION_BODY" > "$ESCALATION_ARTIFACT"
-     echo "WARN: escalation issue creation failed — local artifact written to ${ESCALATION_ARTIFACT}. File it manually before merging."
+     if mkdir -p .prp-output/reviews && printf '%s\\n' "$ESCALATION_BODY" > "$ESCALATION_ARTIFACT"; then
+       echo "WARN: escalation issue creation failed — local artifact written to ${ESCALATION_ARTIFACT}. File it manually before merging."
+     else
+       echo "ERROR: escalation issue creation failed and local artifact could not be written to ${ESCALATION_ARTIFACT}. Manual verification required before merging."
+       REVIEW_VERDICT="needs_manual_fix"
+       exit 1
+     fi
    fi
    ```
 - Set `REVIEW_VERDICT = "needs_manual_fix"`.
@@ -534,7 +538,7 @@ Generate final report (state cleanup deferred to after Step 8).
 
 {READY TO MERGE (auto-merge pending in Step 8) / READY TO MERGE / NEEDS MANUAL FIXES / NOT REVIEWED}
 
-{If NEEDS MANUAL FIXES: list remaining critical/high issues}
+{If NEEDS MANUAL FIXES: list remaining issues matching `FIX_SEVERITY`, including skipped issues}
 
 ### Next Steps
 
@@ -617,7 +621,7 @@ State and lock files are only deleted here — after merge and cleanup succeed. 
 1. **Delegate, don't duplicate** — each skill handles its own logic. Do NOT re-implement.
 2. **Verify artifacts after implement** — check report and pr-context files exist, use fallback if missing.
 3. **Stop on failure** — never continue with broken state.
-4. **Pass context forward** — information flows from earlier to later steps. Pass `--context` to review.
+4. **Pass context forward** — information flows from earlier to later steps. Pass `--context <path>` to review when a context file exists.
 5. **No extra validation** — each skill validates its own output. Adding more wastes tokens.
 6. **One commit per implementation** — review fixes committed separately by `/review-fix`.
 7. **Max review cycles** — configurable via `--max-review-rounds` (default 5). Target is 0 issues matching `FIX_SEVERITY`. STOP and report if exceeded.
@@ -688,7 +692,7 @@ State and lock files are only deleted here — after merge and cleanup succeed. 
 | Lock file exists (concurrent run) | Check age — if >2 hours, treat as stale and remove. Otherwise STOP. |
 | Review finds no issues | Skip review-fix, proceed directly to summary. |
 | All review-fix issues skipped (fixed_count=0) | Do NOT proceed to summary as "done". Set `ALL_SKIPPED = true` and follow Step 6.4 Escalation Guard: after round 2 with all-skipped, create escalation GH issue + set `REVIEW_VERDICT = needs_manual_fix` + skip merge. Zero-issues target is not satisfied by "we tried review-fix and it gave up". |
-| Some review-fix issues skipped | Re-verify with FULL review (`--context`, not `--since-last-review`) so skipped items re-surface in next 6.2 evaluation. See Step 6.4 table. |
+| Some review-fix issues skipped | Re-verify with FULL review (`--context <path>` when a context file exists, not `--since-last-review`) so skipped items re-surface in next 6.2 evaluation. See Step 6.4 table. |
 | `--ralph` but hook not registered | STOP with install instructions. |
 | Disk full during state write | STOP — state may be corrupted. Delete state file and restart. |
 | PR creation fails (auth/permission) | STOP — commit is safe on branch. User can manually create PR. |
@@ -708,7 +712,7 @@ State and lock files are only deleted here — after merge and cleanup succeed. 
 - CODE_IMPLEMENTED: All tasks complete, validation passing (including coverage >= 90%)
 - REPORT_EXISTS: Implementation report exists (created or fallback)
 - CONTEXT_GENERATED: Review context file exists (created or fallback)
-- CONTEXT_PASSED: Review context passed to review via `--context` flag
+- CONTEXT_PASSED: Review context passed to review via `--context <path>` when available
 - COMMITTED: Clean commit on feature branch
 - PR_CREATED: PR exists (unless --no-pr)
 - REVIEWED: Review posted with verdict (unless --skip-review)

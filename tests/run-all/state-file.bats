@@ -211,9 +211,9 @@ teardown() {
 
 @test "set-var: fails closed when state file cannot be written" {
     bash "$HELPER" create "Test"
-    chmod 500 .prp-output/state
+    mkdir .prp-output/state/run-all.state.md.tmp
     run bash "$HELPER" set-var review_cycle 2
-    chmod 700 .prp-output/state
+    rmdir .prp-output/state/run-all.state.md.tmp
 
     [ "$status" -eq 1 ]
     [[ "$output" == *"Cannot update variable"* ]]
@@ -221,6 +221,18 @@ teardown() {
     run bash "$HELPER" get-var review_cycle
     [ "$status" -eq 0 ]
     [ "$output" = "1" ]
+}
+
+@test "set-var: fails closed when frontmatter closing marker is missing" {
+    bash "$HELPER" create "Test"
+    sed -i '1d' .prp-output/state/run-all.state.md
+
+    run bash "$HELPER" set-var review_cycle 2
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"Cannot update variable"* ]]
+
+    run grep '^review_cycle: 2' .prp-output/state/run-all.state.md
+    [ "$status" -ne 0 ]
 }
 
 @test "set-review-fix-state: persists all-fixed skipped tuple" {
@@ -369,13 +381,13 @@ teardown() {
 
 @test "set-review-fix-state: fails closed when state file cannot be written" {
     bash "$HELPER" create "Test"
-    chmod 500 .prp-output/state
+    mkdir .prp-output/state/run-all.state.md.tmp
     run bash "$HELPER" set-review-fix-state 0 2
-    chmod 700 .prp-output/state
+    rmdir .prp-output/state/run-all.state.md.tmp
 
     [ "$status" -eq 1 ]
     # Accept either the atomic-rollback message (new) or the original
-    # set-var error (if the snapshot cp itself fails first).
+    # tmp-file write error (if a tuple key write fails before rollback).
     [[ "$output" == *"Cannot update variable"* ]] || \
         [[ "$output" == *"rolled back"* ]] || \
         [[ "$output" == *"Cannot snapshot"* ]]
@@ -468,6 +480,21 @@ teardown() {
     [[ "$output" == *"non-negative integer"* ]]
 }
 
+@test "update-step: fails closed when artifacts section is missing" {
+    bash "$HELPER" create "Test"
+    sed -i '/^## Artifacts$/d' .prp-output/state/run-all.state.md
+
+    run bash "$HELPER" update-step 2 "Create Plan" "OK"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"missing required section '## Artifacts'"* ]]
+
+    run bash "$HELPER" get-step
+    [ "$status" -eq 0 ]
+    [ "$output" = "1" ]
+    run grep "Create Plan" .prp-output/state/run-all.state.md
+    [ "$status" -ne 0 ]
+}
+
 # ─────────────────────────────────────────────
 # 4. Artifact management
 # ─────────────────────────────────────────────
@@ -478,6 +505,43 @@ teardown() {
     [ "$status" -eq 0 ]
     # "(none yet)" should be gone
     run grep "(none yet)" .prp-output/state/run-all.state.md
+    [ "$status" -ne 0 ]
+}
+
+@test "add-artifact: preserves sed replacement metacharacters" {
+    bash "$HELPER" create "Test"
+    bash "$HELPER" add-artifact 'Plan: a&b\c|d'
+
+    run grep -F 'Plan: a&b\c|d' .prp-output/state/run-all.state.md
+    [ "$status" -eq 0 ]
+    run grep "(none yet)" .prp-output/state/run-all.state.md
+    [ "$status" -ne 0 ]
+}
+
+@test "add-artifact: appends artifact before error log" {
+    bash "$HELPER" create "Test"
+    bash "$HELPER" add-artifact "Plan: first"
+    bash "$HELPER" add-artifact "Report: second"
+
+    run grep -F "Report: second" .prp-output/state/run-all.state.md
+    [ "$status" -eq 0 ]
+    run awk '
+        /^- Report: second$/ { seen_artifact = 1 }
+        /^## Error Log$/ { exit seen_artifact ? 0 : 1 }
+        END { if (seen_artifact == 0) exit 1 }
+    ' .prp-output/state/run-all.state.md
+    [ "$status" -eq 0 ]
+}
+
+@test "add-artifact: fails closed when error log section is missing" {
+    bash "$HELPER" create "Test"
+    bash "$HELPER" add-artifact "Plan: first"
+    sed -i '/^## Error Log$/d' .prp-output/state/run-all.state.md
+
+    run bash "$HELPER" add-artifact "Report: second"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"missing required section '## Error Log'"* ]]
+    run grep -F "Report: second" .prp-output/state/run-all.state.md
     [ "$status" -ne 0 ]
 }
 
