@@ -207,8 +207,13 @@ On `--resume`: restore ALL variables from state file, including `PENDING_SKIPPED
 1. Increment `step` to next step number
 2. Update `updated_at`
 3. Update new variable values (plan_path, branch, pr_number, review_artifact, review_verdict, review_cycle, pending_skipped, all_skipped, skipped_count)
-4. Append completed step to table
-5. Append new artifacts
+4. Use the helper's mutation commands for review state:
+   - `./scripts/prp-run-all-state.sh set-var review_verdict "\"0_issues\""`
+   - `./scripts/prp-run-all-state.sh set-var review_cycle "$REVIEW_CYCLE"`
+   - `./scripts/prp-run-all-state.sh set-review-fix-state "$FIXED_COUNT" "$SKIPPED_COUNT"`
+   The `set-review-fix-state` command persists the full skipped-state tuple and backfills missing keys in older state files.
+5. Append completed step to table
+6. Append new artifacts
 
 ---
 
@@ -437,11 +442,12 @@ This will: detect toolchain, load artifact directly, fix issues by severity, val
 
 | review-fix result | Set |
 |-------------------|-----|
-| All issues fixed (skipped_count = 0) | `PENDING_SKIPPED = false` |
-| Some fixed, some skipped (skipped_count > 0) | `PENDING_SKIPPED = true`, `SKIPPED_COUNT = N` |
+| All issues fixed (skipped_count = 0) | `PENDING_SKIPPED = false`, `ALL_SKIPPED = false`, `SKIPPED_COUNT = 0` |
+| Some fixed, some skipped (skipped_count > 0) | `PENDING_SKIPPED = true`, `ALL_SKIPPED = false`, `SKIPPED_COUNT = N` |
 | All issues skipped (fixed_count = 0, skipped_count > 0) | `PENDING_SKIPPED = true`, `ALL_SKIPPED = true`, `SKIPPED_COUNT = N` |
 
 **Zero-issues bar**: skipped issues are NOT resolved — they are deferred. Do not proceed to Step 7 as if done.
+Persist the outcome with `./scripts/prp-run-all-state.sh set-review-fix-state "$FIXED_COUNT" "$SKIPPED_COUNT"` before Step 6.4.
 
 #### 6.4 Re-verify
 
@@ -472,12 +478,18 @@ If `--since-last-review` not supported or fails, fall back to full review with `
        LABEL_ARGS="${LABEL_ARGS:+$LABEL_ARGS,}$LABEL"
      fi
    done
-   gh issue create \
-     --title "[escalation] prp-run-all: {SKIPPED_COUNT} issues need human judgment on PR #{PR_NUMBER}" \
+   ESCALATION_ARTIFACT=".prp-output/reviews/pr-${PR_NUMBER}-escalation-${RUN_TIMESTAMP}.md"
+   ESCALATION_BODY="<remaining-items summary + artifact path + round count>"
+   if ! gh issue create \
+     --title "[escalation] prp-run-all: ${SKIPPED_COUNT} issues need human judgment on PR #${PR_NUMBER}" \
      ${LABEL_ARGS:+--label "$LABEL_ARGS"} \
-     --body "<remaining-items summary + artifact path + round count>"
+     --body "$ESCALATION_BODY"; then
+     mkdir -p .prp-output/reviews
+     printf '%s\n' "$ESCALATION_BODY" > "$ESCALATION_ARTIFACT"
+     echo "ERROR: escalation issue creation failed — local artifact written to ${ESCALATION_ARTIFACT}. File it manually before merging."
+     exit 1
+   fi
    ```
-- If `gh issue create` fails (auth expired, rate limit, network, missing repo permissions), write the same escalation content to `.prp-output/reviews/pr-{PR_NUMBER}-escalation-{RUN_TIMESTAMP}.md`, then STOP with: `ERROR: escalation issue creation failed — local artifact written to .prp-output/reviews/pr-{PR_NUMBER}-escalation-{RUN_TIMESTAMP}.md. File it manually before merging.`
 - Set `REVIEW_VERDICT = "needs_manual_fix"`.
 - Proceed to Step 7 SUMMARY, do NOT merge (even with `--merge`).
 

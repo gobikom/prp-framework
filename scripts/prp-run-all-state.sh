@@ -9,6 +9,8 @@
 # Commands:
 #   create <feature> [use_ralph] [ralph_max_iter] [fix_severity] [skip_review] [no_pr]
 #   update-step <step_number> <step_name> <result>
+#   set-var <name> <value>
+#   set-review-fix-state <fixed_count> <skipped_count>
 #   get-step        — prints current step number
 #   get-var <name>  — prints a variable from YAML frontmatter
 #   add-artifact <artifact_line>
@@ -25,12 +27,38 @@ LOCK_FILE=".prp-output/state/run-all.lock"
 # ─────────────────────────────────────────────
 get_frontmatter_value() {
     local key="$1"
+    local line
     if [ ! -f "$STATE_FILE" ]; then
         echo ""
         return 1
     fi
-    # Extract value between --- markers
-    sed -n '/^---$/,/^---$/p' "$STATE_FILE" | grep "^${key}:" | head -1 | sed "s/^${key}: *//" | sed 's/^"//' | sed 's/"$//'
+    # Extract value between --- markers. An explicitly empty value is valid.
+    line=$(sed -n '/^---$/,/^---$/p' "$STATE_FILE" | grep -m1 "^${key}:") || return 1
+    printf '%s\n' "${line#${key}:}" | sed 's/^ *//' | sed 's/^"//' | sed 's/"$//'
+}
+
+# ─────────────────────────────────────────────
+# Legacy default values for state files created before new fields existed
+# ─────────────────────────────────────────────
+default_frontmatter_value() {
+    local key="$1"
+    case "$key" in
+        review_artifact|review_verdict)
+            echo ""
+            ;;
+        review_cycle)
+            echo "1"
+            ;;
+        pending_skipped|all_skipped)
+            echo "false"
+            ;;
+        skipped_count)
+            echo "0"
+            ;;
+        *)
+            return 1
+            ;;
+    esac
 }
 
 # ─────────────────────────────────────────────
@@ -39,14 +67,66 @@ get_frontmatter_value() {
 set_frontmatter_value() {
     local key="$1"
     local value="$2"
+    local tmp_file
     if [ ! -f "$STATE_FILE" ]; then
         return 1
     fi
-    # Use sed to replace the value in frontmatter
+    # Replace existing keys, or add new keys for older state files on resume.
     if grep -q "^${key}:" "$STATE_FILE"; then
         sed -i.bak "s|^${key}:.*|${key}: ${value}|" "$STATE_FILE"
         rm -f "${STATE_FILE}.bak"
+    else
+        tmp_file="${STATE_FILE}.tmp"
+        awk -v key="$key" -v value="$value" '
+            BEGIN { marker = 0; inserted = 0 }
+            {
+                if ($0 == "---") {
+                    marker++
+                    if (marker == 2 && inserted == 0) {
+                        print key ": " value
+                        inserted = 1
+                    }
+                }
+                print
+            }
+        ' "$STATE_FILE" > "$tmp_file" && mv "$tmp_file" "$STATE_FILE"
     fi
+}
+
+# ─────────────────────────────────────────────
+# Persist review-fix skipped-state tuple
+# ─────────────────────────────────────────────
+set_review_fix_state() {
+    local fixed_count="$1"
+    local skipped_count="$2"
+    local timestamp
+
+    if [ ! -f "$STATE_FILE" ]; then
+        echo "Error: State file not found" >&2
+        exit 1
+    fi
+
+    if ! [[ "$fixed_count" =~ ^[0-9]+$ ]] || ! [[ "$skipped_count" =~ ^[0-9]+$ ]]; then
+        echo "Error: fixed_count and skipped_count must be non-negative integers" >&2
+        exit 1
+    fi
+
+    timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+    if [ "$skipped_count" -eq 0 ]; then
+        set_frontmatter_value "pending_skipped" "false"
+        set_frontmatter_value "all_skipped" "false"
+        set_frontmatter_value "skipped_count" "0"
+    elif [ "$fixed_count" -eq 0 ]; then
+        set_frontmatter_value "pending_skipped" "true"
+        set_frontmatter_value "all_skipped" "true"
+        set_frontmatter_value "skipped_count" "$skipped_count"
+    else
+        set_frontmatter_value "pending_skipped" "true"
+        set_frontmatter_value "all_skipped" "false"
+        set_frontmatter_value "skipped_count" "$skipped_count"
+    fi
+    set_frontmatter_value "updated_at" "\"${timestamp}\""
 }
 
 case "$1" in
@@ -119,6 +199,26 @@ EOF
         echo "Step updated to $local_step: $local_name"
         ;;
 
+    set-var)
+        var_name="$2"
+        var_value="$3"
+        if [ -z "$var_name" ]; then
+            echo "Usage: prp-run-all-state.sh set-var <name> <value>" >&2
+            exit 1
+        fi
+        if [ ! -f "$STATE_FILE" ]; then
+            echo "Error: State file not found" >&2
+            exit 1
+        fi
+        set_frontmatter_value "$var_name" "$var_value"
+        echo "Variable updated: $var_name"
+        ;;
+
+    set-review-fix-state)
+        set_review_fix_state "${2:-}" "${3:-}"
+        echo "Review-fix state updated"
+        ;;
+
     get-step)
         step=$(get_frontmatter_value "step")
         if [ -z "$step" ]; then
@@ -134,8 +234,13 @@ EOF
             echo "Usage: prp-run-all-state.sh get-var <name>" >&2
             exit 1
         fi
-        value=$(get_frontmatter_value "$var_name")
-        if [ -z "$value" ]; then
+        if ! value=$(get_frontmatter_value "$var_name"); then
+            if ! value=$(default_frontmatter_value "$var_name"); then
+                echo "Error: Variable '$var_name' not found" >&2
+                exit 1
+            fi
+        fi
+        if [ -z "$value" ] && ! get_frontmatter_value "$var_name" >/dev/null 2>&1 && ! default_frontmatter_value "$var_name" >/dev/null 2>&1; then
             echo "Error: Variable '$var_name' not found" >&2
             exit 1
         fi
@@ -195,7 +300,7 @@ EOF
         ;;
 
     *)
-        echo "Usage: prp-run-all-state.sh <create|update-step|get-step|get-var|add-artifact|cleanup|exists|lock|unlock> [args]" >&2
+        echo "Usage: prp-run-all-state.sh <create|update-step|set-var|set-review-fix-state|get-step|get-var|add-artifact|cleanup|exists|lock|unlock> [args]" >&2
         exit 1
         ;;
 esac

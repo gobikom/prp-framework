@@ -120,10 +120,102 @@ teardown() {
     [ "$output" = "0" ]
 }
 
+@test "get-var: retrieves present empty value" {
+    bash "$HELPER" create "Test"
+    run bash "$HELPER" get-var review_verdict
+    [ "$status" -eq 0 ]
+    [ "$output" = "" ]
+}
+
+@test "get-var: returns legacy defaults for missing review state fields" {
+    bash "$HELPER" create "Legacy state"
+    sed -i '/^review_verdict:/d; /^review_cycle:/d; /^pending_skipped:/d; /^all_skipped:/d; /^skipped_count:/d' .prp-output/state/run-all.state.md
+
+    run bash "$HELPER" get-var review_verdict
+    [ "$status" -eq 0 ]
+    [ "$output" = "" ]
+
+    run bash "$HELPER" get-var review_cycle
+    [ "$status" -eq 0 ]
+    [ "$output" = "1" ]
+
+    run bash "$HELPER" get-var pending_skipped
+    [ "$status" -eq 0 ]
+    [ "$output" = "false" ]
+
+    run bash "$HELPER" get-var all_skipped
+    [ "$status" -eq 0 ]
+    [ "$output" = "false" ]
+
+    run bash "$HELPER" get-var skipped_count
+    [ "$status" -eq 0 ]
+    [ "$output" = "0" ]
+}
+
 @test "get-var: fails for missing variable" {
     bash "$HELPER" create "Test"
     run bash "$HELPER" get-var nonexistent
     [ "$status" -eq 1 ]
+}
+
+@test "set-var: updates existing values and backfills missing keys" {
+    bash "$HELPER" create "Test"
+    bash "$HELPER" set-var review_verdict '"needs_manual_fix"'
+    run bash "$HELPER" get-var review_verdict
+    [ "$status" -eq 0 ]
+    [ "$output" = "needs_manual_fix" ]
+
+    sed -i '/^review_artifact:/d' .prp-output/state/run-all.state.md
+    bash "$HELPER" set-var review_artifact '".prp-output/reviews/pr-1-review.md"'
+    run bash "$HELPER" get-var review_artifact
+    [ "$status" -eq 0 ]
+    [ "$output" = ".prp-output/reviews/pr-1-review.md" ]
+}
+
+@test "set-review-fix-state: persists all-fixed skipped tuple" {
+    bash "$HELPER" create "Test"
+    bash "$HELPER" set-review-fix-state 0 3
+    bash "$HELPER" set-review-fix-state 3 0
+
+    run bash "$HELPER" get-var pending_skipped
+    [ "$status" -eq 0 ]
+    [ "$output" = "false" ]
+    run bash "$HELPER" get-var all_skipped
+    [ "$status" -eq 0 ]
+    [ "$output" = "false" ]
+    run bash "$HELPER" get-var skipped_count
+    [ "$status" -eq 0 ]
+    [ "$output" = "0" ]
+}
+
+@test "set-review-fix-state: persists partial skipped tuple" {
+    bash "$HELPER" create "Test"
+    bash "$HELPER" set-review-fix-state 2 4
+
+    run bash "$HELPER" get-var pending_skipped
+    [ "$status" -eq 0 ]
+    [ "$output" = "true" ]
+    run bash "$HELPER" get-var all_skipped
+    [ "$status" -eq 0 ]
+    [ "$output" = "false" ]
+    run bash "$HELPER" get-var skipped_count
+    [ "$status" -eq 0 ]
+    [ "$output" = "4" ]
+}
+
+@test "set-review-fix-state: persists all-skipped tuple" {
+    bash "$HELPER" create "Test"
+    bash "$HELPER" set-review-fix-state 0 5
+
+    run bash "$HELPER" get-var pending_skipped
+    [ "$status" -eq 0 ]
+    [ "$output" = "true" ]
+    run bash "$HELPER" get-var all_skipped
+    [ "$status" -eq 0 ]
+    [ "$output" = "true" ]
+    run bash "$HELPER" get-var skipped_count
+    [ "$status" -eq 0 ]
+    [ "$output" = "5" ]
 }
 
 # ─────────────────────────────────────────────

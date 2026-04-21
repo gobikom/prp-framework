@@ -77,9 +77,29 @@ teardown() {
     [ "$output" = "3" ]
 }
 
-@test "lifecycle: resume can restore skipped review-fix defaults" {
+@test "lifecycle: resume can restore persisted skipped review-fix state" {
     bash "$HELPER" create "Resume skipped state"
     bash "$HELPER" update-step 6 "Review Fix" "skipped"
+    bash "$HELPER" set-review-fix-state 0 3
+
+    run bash "$HELPER" get-var pending_skipped
+    [ "$status" -eq 0 ]
+    [ "$output" = "true" ]
+
+    run bash "$HELPER" get-var all_skipped
+    [ "$status" -eq 0 ]
+    [ "$output" = "true" ]
+
+    run bash "$HELPER" get-var skipped_count
+    [ "$status" -eq 0 ]
+    [ "$output" = "3" ]
+}
+
+@test "lifecycle: all-fixed review-fix clears full skipped-state tuple" {
+    bash "$HELPER" create "Clear skipped state"
+    bash "$HELPER" set-review-fix-state 0 2
+    bash "$HELPER" update-step 6 "Review Fix" "fixed"
+    bash "$HELPER" set-review-fix-state 4 0
 
     run bash "$HELPER" get-var pending_skipped
     [ "$status" -eq 0 ]
