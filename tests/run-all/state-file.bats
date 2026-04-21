@@ -65,6 +65,8 @@ teardown() {
     [ "$status" -eq 0 ]
     run grep 'skipped_count: 0' .prp-output/state/run-all.state.md
     [ "$status" -eq 0 ]
+    run grep 'all_skipped_rounds: 0' .prp-output/state/run-all.state.md
+    [ "$status" -eq 0 ]
 }
 
 # ─────────────────────────────────────────────
@@ -129,7 +131,7 @@ teardown() {
 
 @test "get-var: returns legacy defaults for missing review state fields" {
     bash "$HELPER" create "Legacy state"
-    sed -i '/^review_verdict:/d; /^review_cycle:/d; /^pending_skipped:/d; /^all_skipped:/d; /^skipped_count:/d' .prp-output/state/run-all.state.md
+    sed -i '/^review_verdict:/d; /^review_cycle:/d; /^pending_skipped:/d; /^all_skipped:/d; /^skipped_count:/d; /^all_skipped_rounds:/d' .prp-output/state/run-all.state.md
 
     run bash "$HELPER" get-var review_verdict
     [ "$status" -eq 0 ]
@@ -148,6 +150,10 @@ teardown() {
     [ "$output" = "false" ]
 
     run bash "$HELPER" get-var skipped_count
+    [ "$status" -eq 0 ]
+    [ "$output" = "0" ]
+
+    run bash "$HELPER" get-var all_skipped_rounds
     [ "$status" -eq 0 ]
     [ "$output" = "0" ]
 }
@@ -172,6 +178,26 @@ teardown() {
     [ "$output" = ".prp-output/reviews/pr-1-review.md" ]
 }
 
+@test "set-var: preserves sed metacharacters in values" {
+    bash "$HELPER" create "Test"
+    bash "$HELPER" set-var review_artifact '"a&b|c"'
+
+    run bash "$HELPER" get-var review_artifact
+    [ "$status" -eq 0 ]
+    [ "$output" = "a&b|c" ]
+}
+
+@test "set-var: rejects invalid variable names" {
+    bash "$HELPER" create "Test"
+    run bash "$HELPER" set-var 'review_.*' '"bad"'
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"Invalid variable name"* ]]
+
+    run bash "$HELPER" get-var review_verdict
+    [ "$status" -eq 0 ]
+    [ "$output" = "" ]
+}
+
 @test "set-review-fix-state: persists all-fixed skipped tuple" {
     bash "$HELPER" create "Test"
     bash "$HELPER" set-review-fix-state 0 3
@@ -184,6 +210,9 @@ teardown() {
     [ "$status" -eq 0 ]
     [ "$output" = "false" ]
     run bash "$HELPER" get-var skipped_count
+    [ "$status" -eq 0 ]
+    [ "$output" = "0" ]
+    run bash "$HELPER" get-var all_skipped_rounds
     [ "$status" -eq 0 ]
     [ "$output" = "0" ]
 }
@@ -201,6 +230,9 @@ teardown() {
     run bash "$HELPER" get-var skipped_count
     [ "$status" -eq 0 ]
     [ "$output" = "4" ]
+    run bash "$HELPER" get-var all_skipped_rounds
+    [ "$status" -eq 0 ]
+    [ "$output" = "0" ]
 }
 
 @test "set-review-fix-state: persists all-skipped tuple" {
@@ -216,6 +248,49 @@ teardown() {
     run bash "$HELPER" get-var skipped_count
     [ "$status" -eq 0 ]
     [ "$output" = "5" ]
+    run bash "$HELPER" get-var all_skipped_rounds
+    [ "$status" -eq 0 ]
+    [ "$output" = "1" ]
+}
+
+@test "set-review-fix-state: increments consecutive all-skipped rounds" {
+    bash "$HELPER" create "Test"
+    bash "$HELPER" set-review-fix-state 0 2
+    bash "$HELPER" set-review-fix-state 0 3
+
+    run bash "$HELPER" get-var all_skipped_rounds
+    [ "$status" -eq 0 ]
+    [ "$output" = "2" ]
+}
+
+@test "set-review-fix-state: backfills skipped keys for legacy state files" {
+    bash "$HELPER" create "Legacy state"
+    sed -i '/^pending_skipped:/d; /^all_skipped:/d; /^skipped_count:/d; /^all_skipped_rounds:/d' .prp-output/state/run-all.state.md
+    bash "$HELPER" set-review-fix-state 0 2
+
+    run bash "$HELPER" get-var pending_skipped
+    [ "$status" -eq 0 ]
+    [ "$output" = "true" ]
+    run bash "$HELPER" get-var all_skipped
+    [ "$status" -eq 0 ]
+    [ "$output" = "true" ]
+    run bash "$HELPER" get-var skipped_count
+    [ "$status" -eq 0 ]
+    [ "$output" = "2" ]
+    run bash "$HELPER" get-var all_skipped_rounds
+    [ "$status" -eq 0 ]
+    [ "$output" = "1" ]
+}
+
+@test "set-review-fix-state: rejects invalid counts" {
+    bash "$HELPER" create "Test"
+    run bash "$HELPER" set-review-fix-state -1 2
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"non-negative integers"* ]]
+
+    run bash "$HELPER" set-review-fix-state 1 abc
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"non-negative integers"* ]]
 }
 
 # ─────────────────────────────────────────────

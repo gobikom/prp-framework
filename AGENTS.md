@@ -400,7 +400,7 @@ Set variables:
 - **Pass context forward** — info flows from earlier to later steps
 - **No extra validation** — each workflow validates its own output
 - **One commit per implementation** — review fixes committed separately by Review Fix workflow
-- **Max 5 review cycles** — target 0 issues across configured severities; if issues remain after the cap or review-fix skips all remaining issues for 2 rounds, stop and report
+- **Max 5 review cycles** — target 0 issues across configured severities; if issues remain after the cap or review-fix skips all remaining issues for 2 consecutive rounds, stop and report
 - **Re-verify after fix** — always re-run Review after Review Fix to confirm resolution and catch regressions
 
 ---

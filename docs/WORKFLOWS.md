@@ -624,7 +624,7 @@ After PR creation, the review step runs a fix loop targeting 0 issues:
 2. If any issues matching `FIX_SEVERITY` found (default: all severities) and cycle <= MAX_CYCLES (default 5): run `/prp:review-fix` with `--severity {FIX_SEVERITY}`
 3. Re-verify with `/prp:review` (always single-agent — use full review when prior fixes skipped issues)
 4. Loop until 0 issues or MAX_CYCLES reached. If `--merge` and 0 issues → proceed to merge + cleanup
-5. If review-fix skips all remaining issues for 2 rounds, stop early, create an escalation issue or local escalation artifact, and block merge
+5. If review-fix skips all remaining issues for 2 consecutive rounds, stop early, create an escalation issue or local escalation artifact, and block merge
 
 ### Context Handoff
 

@@ -27,14 +27,29 @@ LOCK_FILE=".prp-output/state/run-all.lock"
 # ─────────────────────────────────────────────
 get_frontmatter_value() {
     local key="$1"
-    local line
     if [ ! -f "$STATE_FILE" ]; then
         echo ""
         return 1
     fi
+    validate_frontmatter_key "$key" || return 1
     # Extract value between --- markers. An explicitly empty value is valid.
-    line=$(sed -n '/^---$/,/^---$/p' "$STATE_FILE" | grep -m1 "^${key}:") || return 1
-    printf '%s\n' "${line#${key}:}" | sed 's/^ *//' | sed 's/^"//' | sed 's/"$//'
+    awk -v key="$key" '
+        BEGIN { marker = 0; found = 0 }
+        $0 == "---" { marker++; next }
+        marker == 1 {
+            split($0, parts, ":")
+            if (parts[1] == key) {
+                value = substr($0, length(key) + 2)
+                sub(/^ */, "", value)
+                sub(/^"/, "", value)
+                sub(/"$/, "", value)
+                print value
+                found = 1
+                exit
+            }
+        }
+        END { if (found == 0) exit 1 }
+    ' "$STATE_FILE"
 }
 
 # ─────────────────────────────────────────────
@@ -52,13 +67,21 @@ default_frontmatter_value() {
         pending_skipped|all_skipped)
             echo "false"
             ;;
-        skipped_count)
+        skipped_count|all_skipped_rounds)
             echo "0"
             ;;
         *)
             return 1
             ;;
     esac
+}
+
+# ─────────────────────────────────────────────
+# Validate frontmatter keys before matching or writing
+# ─────────────────────────────────────────────
+validate_frontmatter_key() {
+    local key="$1"
+    [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]
 }
 
 # ─────────────────────────────────────────────
@@ -71,26 +94,48 @@ set_frontmatter_value() {
     if [ ! -f "$STATE_FILE" ]; then
         return 1
     fi
+    validate_frontmatter_key "$key" || return 1
     # Replace existing keys, or add new keys for older state files on resume.
-    if grep -q "^${key}:" "$STATE_FILE"; then
-        sed -i.bak "s|^${key}:.*|${key}: ${value}|" "$STATE_FILE"
-        rm -f "${STATE_FILE}.bak"
-    else
-        tmp_file="${STATE_FILE}.tmp"
-        awk -v key="$key" -v value="$value" '
-            BEGIN { marker = 0; inserted = 0 }
-            {
-                if ($0 == "---") {
-                    marker++
-                    if (marker == 2 && inserted == 0) {
-                        print key ": " value
-                        inserted = 1
-                    }
+    tmp_file="${STATE_FILE}.tmp"
+    awk -v key="$key" -v value="$value" '
+        BEGIN { marker = 0; updated = 0 }
+        {
+            if ($0 == "---") {
+                marker++
+                if (marker == 2 && updated == 0) {
+                    print key ": " value
+                    updated = 1
                 }
                 print
+                next
             }
-        ' "$STATE_FILE" > "$tmp_file" && mv "$tmp_file" "$STATE_FILE"
+            if (marker == 1) {
+                split($0, parts, ":")
+                if (parts[1] == key) {
+                    print key ": " value
+                    updated = 1
+                    next
+                }
+            }
+            print
+        }
+    ' "$STATE_FILE" > "$tmp_file" && mv "$tmp_file" "$STATE_FILE"
+}
+
+# ─────────────────────────────────────────────
+# Increment numeric YAML frontmatter value
+# ─────────────────────────────────────────────
+increment_frontmatter_counter() {
+    local key="$1"
+    local value
+
+    if ! value=$(get_frontmatter_value "$key"); then
+        value="0"
     fi
+    if ! [[ "$value" =~ ^[0-9]+$ ]]; then
+        value="0"
+    fi
+    set_frontmatter_value "$key" "$((value + 1))"
 }
 
 # ─────────────────────────────────────────────
@@ -121,10 +166,15 @@ set_review_fix_state() {
         set_frontmatter_value "pending_skipped" "true"
         set_frontmatter_value "all_skipped" "true"
         set_frontmatter_value "skipped_count" "$skipped_count"
+        increment_frontmatter_counter "all_skipped_rounds"
     else
         set_frontmatter_value "pending_skipped" "true"
         set_frontmatter_value "all_skipped" "false"
         set_frontmatter_value "skipped_count" "$skipped_count"
+        set_frontmatter_value "all_skipped_rounds" "0"
+    fi
+    if [ "$skipped_count" -eq 0 ]; then
+        set_frontmatter_value "all_skipped_rounds" "0"
     fi
     set_frontmatter_value "updated_at" "\"${timestamp}\""
 }
@@ -154,6 +204,7 @@ review_cycle: 1
 pending_skipped: false
 all_skipped: false
 skipped_count: 0
+all_skipped_rounds: 0
 use_ralph: ${local_use_ralph}
 ralph_max_iter: ${local_ralph_max_iter}
 fix_severity: "${local_fix_severity}"
@@ -208,6 +259,10 @@ EOF
         fi
         if [ ! -f "$STATE_FILE" ]; then
             echo "Error: State file not found" >&2
+            exit 1
+        fi
+        if ! validate_frontmatter_key "$var_name"; then
+            echo "Error: Invalid variable name '$var_name'" >&2
             exit 1
         fi
         set_frontmatter_value "$var_name" "$var_value"

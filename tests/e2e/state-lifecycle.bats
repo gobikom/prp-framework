@@ -93,6 +93,10 @@ teardown() {
     run bash "$HELPER" get-var skipped_count
     [ "$status" -eq 0 ]
     [ "$output" = "3" ]
+
+    run bash "$HELPER" get-var all_skipped_rounds
+    [ "$status" -eq 0 ]
+    [ "$output" = "1" ]
 }
 
 @test "lifecycle: all-fixed review-fix clears full skipped-state tuple" {
@@ -110,6 +114,10 @@ teardown() {
     [ "$output" = "false" ]
 
     run bash "$HELPER" get-var skipped_count
+    [ "$status" -eq 0 ]
+    [ "$output" = "0" ]
+
+    run bash "$HELPER" get-var all_skipped_rounds
     [ "$status" -eq 0 ]
     [ "$output" = "0" ]
 }
