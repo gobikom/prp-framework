@@ -34,21 +34,27 @@ get_frontmatter_value() {
     validate_frontmatter_key "$key" || return 1
     # Extract value between --- markers. An explicitly empty value is valid.
     awk -v key="$key" '
-        BEGIN { marker = 0; found = 0 }
+        BEGIN { marker = 0; found = 0; value = "" }
         $0 == "---" { marker++; next }
-        marker == 1 {
+        marker == 1 && found == 0 {
             split($0, parts, ":")
             if (parts[1] == key) {
                 value = substr($0, length(key) + 2)
                 sub(/^ */, "", value)
                 sub(/^"/, "", value)
                 sub(/"$/, "", value)
-                print value
                 found = 1
-                exit
             }
         }
-        END { if (found == 0) exit 1 }
+        END {
+            if (marker < 2) {
+                exit 2
+            }
+            if (found == 0) {
+                exit 1
+            }
+            print value
+        }
     ' "$STATE_FILE"
 }
 
@@ -99,6 +105,23 @@ validate_frontmatter_value() {
     return 0
 }
 
+validate_frontmatter_bool() {
+    local value="$1"
+    [[ "$value" == "true" || "$value" == "false" ]]
+}
+
+validate_frontmatter_uint() {
+    local value="$1"
+    [[ "$value" =~ ^[0-9]+$ ]]
+}
+
+yaml_quote() {
+    local value="$1"
+    value="${value//\\/\\\\}"
+    value="${value//\"/\\\"}"
+    printf '"%s"' "$value"
+}
+
 # ─────────────────────────────────────────────
 # Update YAML frontmatter value
 # ─────────────────────────────────────────────
@@ -111,10 +134,13 @@ set_frontmatter_value() {
     fi
     validate_frontmatter_key "$key" || return 1
     validate_frontmatter_value "$value" || return 1
+    if [ "${PRP_STATE_FAIL_KEY:-}" = "$key" ]; then
+        return 1
+    fi
     # Replace existing keys, or add new keys for older state files on resume.
     tmp_file="${STATE_FILE}.tmp"
-    if ! awk -v key="$key" -v value="$value" '
-        BEGIN { marker = 0; updated = 0 }
+    if ! FRONTMATTER_VALUE="$value" awk -v key="$key" '
+        BEGIN { marker = 0; updated = 0; value = ENVIRON["FRONTMATTER_VALUE"] }
         {
             if ($0 == "---") {
                 marker++
@@ -277,17 +303,27 @@ case "$1" in
         local_fix_severity="${5:-critical,high,medium,suggestion}"
         local_skip_review="${6:-false}"
         local_no_pr="${7:-false}"
+        local_feature_yaml=""
+        local_fix_severity_yaml=""
 
         # Reject caller-supplied values that would break YAML frontmatter.
-        # feature and fix_severity flow through into heredoc-rendered YAML; an
-        # untrusted caller (e.g. GitHub issue title via --issue N) must not be
-        # able to inject auto_merge/skip_review via embedded newlines.
+        # feature and fix_severity flow through into heredoc-rendered YAML.
+        # Quote/escape string fields and constrain unquoted scalar fields.
         for _field in "$local_feature" "$local_fix_severity"; do
             if ! validate_frontmatter_value "$_field"; then
                 echo "Error: invalid characters in create argument (newline, CR, or '---')" >&2
                 exit 1
             fi
         done
+        if ! validate_frontmatter_bool "$local_use_ralph" || \
+            ! validate_frontmatter_uint "$local_ralph_max_iter" || \
+            ! validate_frontmatter_bool "$local_skip_review" || \
+            ! validate_frontmatter_bool "$local_no_pr"; then
+            echo "Error: invalid create argument (booleans must be true/false; ralph_max_iter must be a non-negative integer)" >&2
+            exit 1
+        fi
+        local_feature_yaml=$(yaml_quote "$local_feature")
+        local_fix_severity_yaml=$(yaml_quote "$local_fix_severity")
 
         if ! local_timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ") || [ -z "$local_timestamp" ]; then
             echo "Error: Cannot generate timestamp" >&2
@@ -302,7 +338,7 @@ case "$1" in
 ---
 step: 1
 total_steps: 7
-feature: "${local_feature}"
+feature: ${local_feature_yaml}
 plan_path: ""
 branch: ""
 pr_number: ""
@@ -315,7 +351,7 @@ skipped_count: 0
 all_skipped_rounds: 0
 use_ralph: ${local_use_ralph}
 ralph_max_iter: ${local_ralph_max_iter}
-fix_severity: "${local_fix_severity}"
+fix_severity: ${local_fix_severity_yaml}
 skip_review: ${local_skip_review}
 no_pr: ${local_no_pr}
 started_at: "${local_timestamp}"
@@ -349,7 +385,7 @@ EOF
         fi
 
         # Reject newlines/CR in the caller-supplied name/result — they would
-        # corrupt the completed-steps markdown table and the `sed i\\` append.
+        # corrupt the completed-steps markdown table.
         for _field in "$local_name" "$local_result"; do
             if ! validate_frontmatter_value "$_field"; then
                 echo "Error: invalid characters in update-step argument (newline, CR, or '---')" >&2
@@ -372,6 +408,8 @@ EOF
         fi
 
         # Update step number and timestamp in frontmatter
+        require_body_section "## Completed Steps" || exit 1
+        require_body_section "|------|------|--------|-----------|" || exit 1
         require_body_section "## Artifacts" || exit 1
 
         backup="${STATE_FILE}.rollback.$$"
@@ -387,18 +425,33 @@ EOF
             exit 1
         fi
 
-        # Append to completed steps table (before ## Artifacts line).
-        # Guard the sed: a failed substitution must not silently leave the
-        # frontmatter mutated but the body unchanged. Remove the backup only
-        # after success so a sed-created `.bak` is never orphan-deleted.
-        if ! sed -i.bak "/^## Artifacts/i\\
-| ${local_step} | ${local_name} | ${local_result} | ${local_time} |" "$STATE_FILE"; then
-            rm -f "${STATE_FILE}.bak"
+        tmp_file="${STATE_FILE}.tmp"
+        if ! STEP_ROW="| ${local_step} | ${local_name} | ${local_result} | ${local_time} |" awk '
+            BEGIN { inserted = 0; row = ENVIRON["STEP_ROW"] }
+            $0 == "## Artifacts" {
+                print row
+                inserted = 1
+                print
+                next
+            }
+            { print }
+            END {
+                if (inserted != 1) {
+                    exit 1
+                }
+            }
+        ' "$STATE_FILE" > "$tmp_file"; then
+            rm -f "$tmp_file"
             mv "$backup" "$STATE_FILE" 2>/dev/null || rm -f "$backup"
             echo "Error: Failed to append completed-step row" >&2
             exit 1
         fi
-        rm -f "${STATE_FILE}.bak"
+        if ! mv "$tmp_file" "$STATE_FILE"; then
+            rm -f "$tmp_file"
+            mv "$backup" "$STATE_FILE" 2>/dev/null || rm -f "$backup"
+            echo "Error: Failed to replace state file with completed-step update" >&2
+            exit 1
+        fi
         rm -f "$backup"
 
         echo "Step updated to $local_step: $local_name"
@@ -439,6 +492,7 @@ EOF
 
     get-var)
         var_name="$2"
+        var_status=0
         if [ -z "$var_name" ]; then
             echo "Usage: prp-run-all-state.sh get-var <name>" >&2
             exit 1
@@ -446,7 +500,13 @@ EOF
         # Present-but-empty values (e.g. review_verdict: "") are valid:
         # get_frontmatter_value succeeds with empty stdout, so we print "".
         # Only fall back to defaults when the key is absent from frontmatter.
-        if ! value=$(get_frontmatter_value "$var_name"); then
+        value=$(get_frontmatter_value "$var_name")
+        var_status=$?
+        if [ "$var_status" -ne 0 ]; then
+            if [ "$var_status" -ne 1 ]; then
+                echo "Error: State file frontmatter is malformed" >&2
+                exit 1
+            fi
             if ! value=$(default_frontmatter_value "$var_name"); then
                 echo "Error: Variable '$var_name' not found" >&2
                 exit 1

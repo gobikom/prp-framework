@@ -628,7 +628,7 @@ State and lock files are only deleted here — after merge and cleanup succeed. 
 5. **No extra validation** — each skill validates its own output. Adding more wastes tokens.
 6. **One commit per implementation** — review fixes committed separately by `/prp-core:prp-review-fix`.
 7. **Max review cycles** — configurable via `--max-review-rounds` (default 5). Target is 0 issues matching `FIX_SEVERITY`. STOP and report if exceeded.
-8. **Re-verify after fix** — always re-run `/prp-core:prp-review` after fix. Use `--since-last-review` for token optimization.
+8. **Re-verify after fix** — always re-run `/prp-core:prp-review` after fix. Use `--since-last-review` only when review-fix skipped nothing; if any issue was skipped, run a full review with `--context <path>` when available.
 9. **No-interact means ZERO questions** — when `NO_INTERACT = true`: NEVER ask user questions. Make autonomous decisions, pick defaults. Pass `--no-interact` to sub-commands.
 10. **State management** — update state file after every step. Delete on completion. Support `--resume`.
 

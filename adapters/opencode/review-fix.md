@@ -679,9 +679,9 @@ Append a "Fix Outcome" section to the review artifact:
 
 ### Next Steps
 
-{If LOOP_MODE and all critical/high fixed:} "Entering Phase 10 re-review loop (round {ROUND}/{MAX_ROUNDS})..."
-{If SINGLE_PASS and all critical/high fixed:} "Ready for re-review. Run `/prp:review {NUMBER}` to verify."
-{If critical still open:} "{N} critical issues require manual attention before merge."
+{If LOOP_MODE and all issues matching the active severity set are fixed:} "Entering Phase 10 re-review loop (round {ROUND}/{MAX_ROUNDS})..."
+{If SINGLE_PASS and all issues matching the active severity set are fixed:} "Ready for re-review. Run `/prp:review {NUMBER}` to verify."
+{If issues remain in the active severity set:} "{N} issues require manual attention before merge."
 ```
 
 > **Note for orchestrators**: The "Next Steps" above are for standalone usage only. If this command was invoked as part of run-all, the orchestrator should ignore these suggestions and proceed to its next step. Also: orchestrators should pass `--single-pass` to prevent review-fix from launching its own Phase 10 loop (run-all's Step 6 is the outer loop).
@@ -729,7 +729,7 @@ Triggers when either:
 
 On trigger:
 
-1. Create GH issue documenting the remaining items. Label strategy: the `[escalation]` prefix in the title carries the signal; add repo-appropriate labels only if they exist (graceful fallback avoids hard-fail on repos with different label schemes):
+1. Create GH issue documenting the remaining items. Label strategy: the `[escalation]` prefix in the title carries the signal; add repo-appropriate labels only if they exist (graceful fallback avoids hard-fail on repos with different label schemes). If GitHub issue creation fails, write a local escalation artifact and block merge:
    ```bash
    # Build --label args only for labels that exist in this repo
    LABEL_ARGS=""
@@ -738,15 +738,23 @@ On trigger:
        LABEL_ARGS="${LABEL_ARGS:+$LABEL_ARGS,}$LABEL"
      fi
    done
-   gh issue create \
+   ESCALATION_ARTIFACT=".prp-output/reviews/pr-${NUMBER}-escalation-${TIMESTAMP}.md"
+   ESCALATION_BODY="<summary of remaining issues + last review artifact path + round count + diagnosis>"
+   if ! gh issue create \
      --title "[escalation] review-fix: {N} issues need human judgment on PR #{NUMBER}" \
      ${LABEL_ARGS:+--label "$LABEL_ARGS"} \
-     --body "<summary of remaining issues + last review artifact path + round count + diagnosis>"
+     --body "$ESCALATION_BODY"; then
+     if mkdir -p .prp-output/reviews && printf '%s\n' "$ESCALATION_BODY" > "$ESCALATION_ARTIFACT"; then
+       echo "WARN: escalation issue creation failed — local artifact written to ${ESCALATION_ARTIFACT}. File it manually before merging."
+     else
+       echo "ERROR: escalation issue creation failed and local artifact could not be written to ${ESCALATION_ARTIFACT}. Manual verification required before merging."
+     fi
+   fi
    ```
-   If all fallbacks miss (no recognized labels in the repo), `gh issue create` runs with NO `--label` flag — the issue is still created and the `[escalation]` title prefix makes it discoverable via search. Do NOT hard-fail the workflow on missing labels.
+   If all label fallbacks miss (no recognized labels in the repo), `gh issue create` runs with NO `--label` flag — the issue is still created and the `[escalation]` title prefix makes it discoverable via search. Do NOT hard-fail the workflow on missing labels.
 2. Set `LOOP_VERDICT = "needs_manual_fix"`.
 3. Post PR comment summarizing the escalation with a link to the new issue.
-4. EXIT with clear message: `"{N} issues require human review after {ROUND} rounds. Escalation issue: <url>. Do NOT merge until resolved."`
+4. EXIT with clear message: `"{N} issues require human review after {ROUND} rounds. Escalation: <issue URL or local artifact path>. Do NOT merge until resolved."`
 
 ### 10.5 Loop Invariants
 
@@ -755,7 +763,7 @@ On trigger:
 - `ROUND` counts distinct (review, fix) pairs. Round 1 is the initial review-fix invocation; round 2 is the first re-review + fix; etc.
 - `MAX_ROUNDS` defaults to 5 (via `--max-rounds`). The escalation-after-2-all-skipped guard is narrower and catches the "review-fix cannot make progress" case earlier.
 
-**Why this design**: matches `run-all` Step 6 behavior exactly (PR gobikom/prp-framework#59), so review-fix used standalone produces the same zero-issues guarantee as review-fix inside run-all. No divergence.
+**Why this design**: follows the same zero-issues policy as `run-all` Step 6 (PR gobikom/prp-framework#59): unresolved or skipped issues block merge and produce an escalation issue or local escalation artifact.
 
 ---
 
@@ -833,5 +841,5 @@ Note: passing `--severity` implicitly disables LOOP_MODE (see Input → Flag sem
 - PR_COMMENTED: Summary posted to GitHub
 - ARTIFACT_UPDATED: Review artifact has fix outcome appended
 - SUMMARY_SAVED: Fix summary saved with timestamp to `.prp-output/reviews/`
-- LOOP_CONVERGED (LOOP_MODE only): Phase 10 re-review loop exited with `LOOP_VERDICT = "0_issues"` OR `"needs_manual_fix"` (escalation issue created). Never exit LOOP_MODE silently with issues remaining and no escalation.
-- NO_SILENT_EXIT (LOOP_MODE only): If ALL_SKIPPED for 2 consecutive rounds OR MAX_ROUNDS exceeded, escalation GH issue exists. Matches `run-all` Step 6.4 guarantee.
+- LOOP_CONVERGED (LOOP_MODE only): Phase 10 re-review loop exited with `LOOP_VERDICT = "0_issues"` OR `"needs_manual_fix"` (escalation issue or local escalation artifact created). Never exit LOOP_MODE silently with issues remaining and no escalation.
+- NO_SILENT_EXIT (LOOP_MODE only): If ALL_SKIPPED for 2 consecutive rounds OR MAX_ROUNDS exceeded, escalation GH issue or local escalation artifact exists. Matches the `run-all` Step 6.4 blocking guarantee.

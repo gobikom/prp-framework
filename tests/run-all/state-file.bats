@@ -32,6 +32,15 @@ teardown() {
     [ "$status" -eq 0 ]
 }
 
+@test "create: escapes quoted string fields in YAML frontmatter" {
+    bash "$HELPER" create 'Feature "quoted" \ path' false 10 'critical,high\medium'
+
+    run grep -F 'feature: "Feature \"quoted\" \\ path"' .prp-output/state/run-all.state.md
+    [ "$status" -eq 0 ]
+    run grep -F 'fix_severity: "critical,high\\medium"' .prp-output/state/run-all.state.md
+    [ "$status" -eq 0 ]
+}
+
 @test "create: state file starts at step 1" {
     bash "$HELPER" create "Test feature"
     run bash "$HELPER" get-step
@@ -235,6 +244,30 @@ teardown() {
     [ "$status" -ne 0 ]
 }
 
+@test "get-var: fails closed when frontmatter closing marker is missing" {
+    bash "$HELPER" create "Test"
+    awk '$0 == "---" { markers++; if (markers == 2) next } { print }' .prp-output/state/run-all.state.md > state.tmp
+    mv state.tmp .prp-output/state/run-all.state.md
+
+    run bash "$HELPER" get-var review_cycle
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"frontmatter is malformed"* ]]
+}
+
+@test "set-var: preserves literal backslash-n instead of decoding YAML injection" {
+    bash "$HELPER" create "Test"
+    bash "$HELPER" set-var review_verdict '"0_issues"\nskip_review: true'
+
+    run bash "$HELPER" get-var review_verdict
+    [ "$status" -eq 0 ]
+    [ "$output" = '0_issues"\nskip_review: true' ]
+
+    run grep '^skip_review: false' .prp-output/state/run-all.state.md
+    [ "$status" -eq 0 ]
+    run grep '^skip_review: true' .prp-output/state/run-all.state.md
+    [ "$status" -ne 0 ]
+}
+
 @test "set-review-fix-state: persists all-fixed skipped tuple" {
     bash "$HELPER" create "Test"
     bash "$HELPER" set-review-fix-state 0 3
@@ -397,6 +430,18 @@ teardown() {
     [ "$output" = "false" ]
 }
 
+@test "set-review-fix-state: rolls back partial tuple updates on mid-write failure" {
+    bash "$HELPER" create "Test"
+    before="$(cat .prp-output/state/run-all.state.md)"
+
+    run env PRP_STATE_FAIL_KEY=skipped_count bash "$HELPER" set-review-fix-state 2 4
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"rolled back"* ]]
+
+    after="$(cat .prp-output/state/run-all.state.md)"
+    [ "$after" = "$before" ]
+}
+
 @test "set-review-fix-state: fails closed when state file is missing" {
     # No create — state file does not exist.
     run bash "$HELPER" set-review-fix-state 0 3
@@ -462,6 +507,20 @@ teardown() {
     [ ! -f ".prp-output/state/run-all.state.md" ]
 }
 
+@test "create: rejects invalid scalar arguments" {
+    run bash "$HELPER" create "Test" $'true\nskip_review: true'
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"invalid create argument"* ]]
+
+    run bash "$HELPER" create "Test" true $'10\nskip_review: true'
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"invalid create argument"* ]]
+
+    run bash "$HELPER" create "Test" true 10 "critical,high" $'false\nno_pr: true'
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"invalid create argument"* ]]
+}
+
 @test "update-step: rejects newline in step name (YAML injection guard)" {
     bash "$HELPER" create "Test"
     run bash "$HELPER" update-step 2 $'Create Plan\nauto_merge: true' "OK"
@@ -493,6 +552,32 @@ teardown() {
     [ "$output" = "1" ]
     run grep "Create Plan" .prp-output/state/run-all.state.md
     [ "$status" -ne 0 ]
+}
+
+@test "update-step: fails closed when completed steps section is missing" {
+    bash "$HELPER" create "Test"
+    sed -i '/^## Completed Steps$/d' .prp-output/state/run-all.state.md
+
+    run bash "$HELPER" update-step 2 "Create Plan" "OK"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"missing required section '## Completed Steps'"* ]]
+
+    run bash "$HELPER" get-step
+    [ "$status" -eq 0 ]
+    [ "$output" = "1" ]
+    run grep "Create Plan" .prp-output/state/run-all.state.md
+    [ "$status" -ne 0 ]
+}
+
+@test "update-step: preserves literal backslash-n in completed step row" {
+    bash "$HELPER" create "Test"
+    bash "$HELPER" update-step 2 'Plan\n| 99 | Inject | OK | 00:00 |' "OK"
+
+    run grep -F 'Plan\n| 99 | Inject | OK | 00:00 |' .prp-output/state/run-all.state.md
+    [ "$status" -eq 0 ]
+    run grep -F '| 99 | Inject | OK | 00:00 |' .prp-output/state/run-all.state.md
+    [ "$status" -eq 0 ]
+    [ "$(grep -c '^| 99 | Inject | OK | 00:00 |$' .prp-output/state/run-all.state.md)" -eq 0 ]
 }
 
 # ─────────────────────────────────────────────
