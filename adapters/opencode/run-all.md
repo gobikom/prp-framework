@@ -426,7 +426,7 @@ Check for issues matching `FIX_SEVERITY` (default: all levels):
 
 | Result | Action |
 |--------|--------|
-| 0 issues (all severities) | Set REVIEW_VERDICT = "0_issues". → Step 7 ✓ (or Step 8 if AUTO_MERGE) |
+| 0 issues matching `FIX_SEVERITY` | Set REVIEW_VERDICT = "0_issues". → Step 7 ✓ (or Step 8 if AUTO_MERGE) |
 | Issues found + `REVIEW_CYCLE <= MAX_CYCLES` | → Step 6.3 |
 | Issues found + `REVIEW_CYCLE > MAX_CYCLES` | Report remaining issues → Step 7 (NEEDS MANUAL FIXES) |
 
@@ -622,7 +622,7 @@ State and lock files are only deleted here — after merge and cleanup succeed. 
 4. **Pass context forward** — information flows from earlier to later steps. Pass `--context` to review.
 5. **No extra validation** — each skill validates its own output. Adding more wastes tokens.
 6. **One commit per implementation** — review fixes committed separately by `/prp:review-fix`.
-7. **Max review cycles** — configurable via `--max-review-rounds` (default 5). Target is 0 issues all severities. STOP and report if exceeded.
+7. **Max review cycles** — configurable via `--max-review-rounds` (default 5). Target is 0 issues matching `FIX_SEVERITY`. STOP and report if exceeded.
 8. **Re-verify after fix** — always re-run `/prp:review` after fix. Use `--since-last-review` for token optimization.
 9. **No-interact means ZERO questions** — when `NO_INTERACT = true`: NEVER ask user questions. Make autonomous decisions, pick defaults. Pass `--no-interact` to sub-commands.
 10. **State management** — update state file after every step. Delete on completion. Support `--resume`.
@@ -715,7 +715,7 @@ State and lock files are only deleted here — after merge and cleanup succeed. 
 - PR_CREATED: PR exists (unless --no-pr)
 - REVIEWED: Review posted with verdict (unless --skip-review)
 - INCREMENTAL_REVIEW: Re-verify uses `--since-last-review` for token optimization
-- ZERO_ISSUES_TARGET: Review-fix loop continues until 0 issues (all severities in `FIX_SEVERITY`) or MAX_CYCLES reached. **Skipped issues count as remaining** — they are deferred, not resolved. Re-verify uses FULL review (not incremental) when any issues were skipped in the prior round, so skipped items re-surface in the next evaluation.
+- ZERO_ISSUES_TARGET: Review-fix loop continues until 0 issues matching `FIX_SEVERITY` or MAX_CYCLES reached. The default `FIX_SEVERITY` includes all severities. **Skipped issues count as remaining** — they are deferred, not resolved. Re-verify uses FULL review (not incremental) when any issues were skipped in the prior round, so skipped items re-surface in the next evaluation.
 - NO_SILENT_MERGE: `--merge` only executes when `REVIEW_VERDICT = "0_issues"`. `needs_manual_fix` (MAX_CYCLES hit OR 2 rounds all-skipped) blocks merge; escalation GH issue is created instead.
 - MERGED: PR squash-merged if --merge and 0 issues (unless --no-pr or --skip-review)
 - CLEANED_UP: Branch deleted, main updated, issue closed if --issue

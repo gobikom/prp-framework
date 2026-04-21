@@ -123,6 +123,19 @@ set_frontmatter_value() {
 }
 
 # ─────────────────────────────────────────────
+# Update YAML frontmatter value or fail closed
+# ─────────────────────────────────────────────
+must_set_frontmatter_value() {
+    local key="$1"
+    local value="$2"
+
+    if ! set_frontmatter_value "$key" "$value"; then
+        echo "Error: Cannot update variable '$key'" >&2
+        exit 1
+    fi
+}
+
+# ─────────────────────────────────────────────
 # Increment numeric YAML frontmatter value
 # ─────────────────────────────────────────────
 increment_frontmatter_counter() {
@@ -135,7 +148,7 @@ increment_frontmatter_counter() {
     if ! [[ "$value" =~ ^[0-9]+$ ]]; then
         value="0"
     fi
-    set_frontmatter_value "$key" "$((value + 1))"
+    must_set_frontmatter_value "$key" "$((value + 1))"
 }
 
 # ─────────────────────────────────────────────
@@ -159,24 +172,24 @@ set_review_fix_state() {
     timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
     if [ "$skipped_count" -eq 0 ]; then
-        set_frontmatter_value "pending_skipped" "false"
-        set_frontmatter_value "all_skipped" "false"
-        set_frontmatter_value "skipped_count" "0"
+        must_set_frontmatter_value "pending_skipped" "false"
+        must_set_frontmatter_value "all_skipped" "false"
+        must_set_frontmatter_value "skipped_count" "0"
     elif [ "$fixed_count" -eq 0 ]; then
-        set_frontmatter_value "pending_skipped" "true"
-        set_frontmatter_value "all_skipped" "true"
-        set_frontmatter_value "skipped_count" "$skipped_count"
+        must_set_frontmatter_value "pending_skipped" "true"
+        must_set_frontmatter_value "all_skipped" "true"
+        must_set_frontmatter_value "skipped_count" "$skipped_count"
         increment_frontmatter_counter "all_skipped_rounds"
     else
-        set_frontmatter_value "pending_skipped" "true"
-        set_frontmatter_value "all_skipped" "false"
-        set_frontmatter_value "skipped_count" "$skipped_count"
-        set_frontmatter_value "all_skipped_rounds" "0"
+        must_set_frontmatter_value "pending_skipped" "true"
+        must_set_frontmatter_value "all_skipped" "false"
+        must_set_frontmatter_value "skipped_count" "$skipped_count"
+        must_set_frontmatter_value "all_skipped_rounds" "0"
     fi
     if [ "$skipped_count" -eq 0 ]; then
-        set_frontmatter_value "all_skipped_rounds" "0"
+        must_set_frontmatter_value "all_skipped_rounds" "0"
     fi
-    set_frontmatter_value "updated_at" "\"${timestamp}\""
+    must_set_frontmatter_value "updated_at" "\"${timestamp}\""
 }
 
 case "$1" in
@@ -239,8 +252,8 @@ EOF
         fi
 
         # Update step number and timestamp in frontmatter
-        set_frontmatter_value "step" "$local_step"
-        set_frontmatter_value "updated_at" "\"${local_timestamp}\""
+        must_set_frontmatter_value "step" "$local_step"
+        must_set_frontmatter_value "updated_at" "\"${local_timestamp}\""
 
         # Append to completed steps table (before ## Artifacts line)
         sed -i.bak "/^## Artifacts/i\\
@@ -253,7 +266,7 @@ EOF
     set-var)
         var_name="$2"
         var_value="$3"
-        if [ -z "$var_name" ]; then
+        if [ "$#" -lt 3 ] || [ -z "$var_name" ]; then
             echo "Usage: prp-run-all-state.sh set-var <name> <value>" >&2
             exit 1
         fi
@@ -265,7 +278,7 @@ EOF
             echo "Error: Invalid variable name '$var_name'" >&2
             exit 1
         fi
-        set_frontmatter_value "$var_name" "$var_value"
+        must_set_frontmatter_value "$var_name" "$var_value"
         echo "Variable updated: $var_name"
         ;;
 

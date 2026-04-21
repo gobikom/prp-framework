@@ -596,7 +596,7 @@ Commit → PR → Review/Fix Loop → Summary
 | `--skip-plan` | Alias for `--prp-path` — prompts to select from available plans in `.prp-output/plans/` |
 | `--issue <N>` | Fetch GitHub issue #N context. Smart plan detection (small: skip, medium: fast, large: full plan) |
 | `--merge` | Auto squash-merge PR after review passes (0 issues). Runs cleanup + issue close |
-| `--max-review-rounds <N>` | Max review-fix cycles (default: 5). Loop targets 0 issues all severities |
+| `--max-review-rounds <N>` | Max review-fix cycles (default: 5). Loop targets 0 issues matching `FIX_SEVERITY` |
 | `--fast` | Use fast-track plan mode (lighter codebase analysis, good for simple features) |
 | `--ralph` | Use ralph loop instead of one-shot implement |
 | `--ralph-max-iter N` | Set ralph max iterations (default: 10) |

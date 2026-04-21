@@ -198,6 +198,31 @@ teardown() {
     [ "$output" = "" ]
 }
 
+@test "set-var: rejects missing value" {
+    bash "$HELPER" create "Test"
+    run bash "$HELPER" set-var review_cycle
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"Usage"* ]]
+
+    run bash "$HELPER" get-var review_cycle
+    [ "$status" -eq 0 ]
+    [ "$output" = "1" ]
+}
+
+@test "set-var: fails closed when state file cannot be written" {
+    bash "$HELPER" create "Test"
+    chmod 500 .prp-output/state
+    run bash "$HELPER" set-var review_cycle 2
+    chmod 700 .prp-output/state
+
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"Cannot update variable"* ]]
+
+    run bash "$HELPER" get-var review_cycle
+    [ "$status" -eq 0 ]
+    [ "$output" = "1" ]
+}
+
 @test "set-review-fix-state: persists all-fixed skipped tuple" {
     bash "$HELPER" create "Test"
     bash "$HELPER" set-review-fix-state 0 3
@@ -291,6 +316,20 @@ teardown() {
     run bash "$HELPER" set-review-fix-state 1 abc
     [ "$status" -eq 1 ]
     [[ "$output" == *"non-negative integers"* ]]
+}
+
+@test "set-review-fix-state: fails closed when state file cannot be written" {
+    bash "$HELPER" create "Test"
+    chmod 500 .prp-output/state
+    run bash "$HELPER" set-review-fix-state 0 2
+    chmod 700 .prp-output/state
+
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"Cannot update variable"* ]]
+
+    run bash "$HELPER" get-var pending_skipped
+    [ "$status" -eq 0 ]
+    [ "$output" = "false" ]
 }
 
 # ─────────────────────────────────────────────
