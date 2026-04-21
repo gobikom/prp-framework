@@ -78,6 +78,9 @@ SKIP_PLAN = {false by default — may be set by --skip-plan flag or smart plan d
 RESUME_FROM = {0 by default — set from state file's step field if --resume}
 REVIEW_VERDICT = "{TBD — set in Step 6.2}"
 REVIEW_CYCLE = {1 — incremented after each fix cycle in Step 6.4}
+PENDING_SKIPPED = {false — set true when review-fix skips unresolved issues}
+ALL_SKIPPED = {false — set true when review-fix fixes 0 and skips >0 issues}
+SKIPPED_COUNT = {0 — number of skipped unresolved issues from review-fix}
 ```
 
 **Flag validation** (after parsing all flags):
@@ -188,19 +191,20 @@ mkdir -p .prp-output/state
 
 Write `.prp-output/state/run-all.state.md` using Bash heredoc with YAML frontmatter:
 - step, total_steps, feature, plan_path, branch, pr_number, review_artifact, review_verdict, review_cycle
+- pending_skipped, all_skipped, skipped_count
 - use_ralph, ralph_max_iter, fix_severity, fast_plan, skip_plan, skip_review, no_pr, no_interact
 - issue_number, auto_merge, max_cycles
 - started_at, updated_at
 - Completed Steps table, Artifacts section, Error Log
 
-On `--resume`: restore ALL variables from state file. Set `RESUME_FROM = step` from frontmatter.
+On `--resume`: restore ALL variables from state file, including `PENDING_SKIPPED`, `ALL_SKIPPED`, and `SKIPPED_COUNT`. Set `RESUME_FROM = step` from frontmatter.
 
 **STATE FILE I/O RULE**: Always use **Bash with heredoc** (`cat > file << 'EOF'`) to create and update state and lock files in `.prp-output/state/`. These are machine-generated tracking files, not source code.
 
 **STATE UPDATE RULE**: After each step completes:
 1. Increment `step` to next step number
 2. Update `updated_at`
-3. Update new variable values (plan_path, branch, pr_number, review_artifact, review_verdict, review_cycle)
+3. Update new variable values (plan_path, branch, pr_number, review_artifact, review_verdict, review_cycle, pending_skipped, all_skipped, skipped_count)
 4. Append completed step to table
 5. Append new artifacts
 
@@ -433,7 +437,7 @@ This will: detect toolchain, load artifact directly, fix issues by severity, val
 |-------------------|-----|
 | All issues fixed (skipped_count = 0) | `PENDING_SKIPPED = false` |
 | Some fixed, some skipped (skipped_count > 0) | `PENDING_SKIPPED = true`, `SKIPPED_COUNT = N` |
-| All issues skipped (fixed_count = 0, skipped_count > 0) | `PENDING_SKIPPED = true`, `ALL_SKIPPED = true` |
+| All issues skipped (fixed_count = 0, skipped_count > 0) | `PENDING_SKIPPED = true`, `ALL_SKIPPED = true`, `SKIPPED_COUNT = N` |
 
 **Zero-issues bar**: skipped issues are NOT resolved — they are deferred. Do not proceed to Step 7 as if done.
 
@@ -456,7 +460,7 @@ If `--since-last-review` not supported or fails, fall back to full review with `
 
 → **Return to Step 6.2** to evaluate results.
 
-**Escalation guard (NEW 2026-04-17):** before returning to 6.2, if `ALL_SKIPPED = true` AND `REVIEW_CYCLE >= 2` (i.e., we've run review-fix twice and it skipped everything both rounds), STOP the loop early:
+**Escalation guard (NEW 2026-04-17):** before returning to 6.2, if `ALL_SKIPPED = true` AND `REVIEW_CYCLE >= 2` (i.e., a post-round-1 review-fix attempt skipped every remaining issue and made no code changes), STOP the loop early:
 - Do NOT loop another round — review-fix has no additional tooling to resolve these.
 - Create escalation GH issue with the remaining items. Label strategy: the `[escalation]` title prefix carries the signal — add repo-appropriate labels only if they exist in the target repo (graceful fallback so different repos with different label schemes do not hard-fail the workflow):
    ```bash
@@ -471,6 +475,7 @@ If `--since-last-review` not supported or fails, fall back to full review with `
      ${LABEL_ARGS:+--label "$LABEL_ARGS"} \\
      --body "<remaining-items summary + artifact path + round count>"
    ```
+- If `gh issue create` fails (auth expired, rate limit, network, missing repo permissions), write the same escalation content to `.prp-output/reviews/pr-{PR_NUMBER}-escalation-{RUN_TIMESTAMP}.md`, then STOP with: `ERROR: escalation issue creation failed — local artifact written to .prp-output/reviews/pr-{PR_NUMBER}-escalation-{RUN_TIMESTAMP}.md. File it manually before merging.`
 - Set `REVIEW_VERDICT = "needs_manual_fix"`.
 - Proceed to Step 7 SUMMARY, do NOT merge (even with `--merge`).
 

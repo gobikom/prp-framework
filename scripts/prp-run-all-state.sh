@@ -69,6 +69,11 @@ plan_path: ""
 branch: ""
 pr_number: ""
 review_artifact: ""
+review_verdict: ""
+review_cycle: 1
+pending_skipped: false
+all_skipped: false
+skipped_count: 0
 use_ralph: ${local_use_ralph}
 ralph_max_iter: ${local_ralph_max_iter}
 fix_severity: "${local_fix_severity}"

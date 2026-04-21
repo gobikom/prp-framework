@@ -49,6 +49,24 @@ teardown() {
     [ "$status" -eq 0 ]
 }
 
+@test "create: state file initializes review loop state" {
+    bash "$HELPER" create "Review loop state"
+    run grep 'review_verdict: ""' .prp-output/state/run-all.state.md
+    [ "$status" -eq 0 ]
+    run grep 'review_cycle: 1' .prp-output/state/run-all.state.md
+    [ "$status" -eq 0 ]
+}
+
+@test "create: state file initializes skipped review-fix state" {
+    bash "$HELPER" create "Skipped state"
+    run grep 'pending_skipped: false' .prp-output/state/run-all.state.md
+    [ "$status" -eq 0 ]
+    run grep 'all_skipped: false' .prp-output/state/run-all.state.md
+    [ "$status" -eq 0 ]
+    run grep 'skipped_count: 0' .prp-output/state/run-all.state.md
+    [ "$status" -eq 0 ]
+}
+
 # ─────────────────────────────────────────────
 # 2. Step update
 # ─────────────────────────────────────────────
@@ -87,6 +105,19 @@ teardown() {
     run bash "$HELPER" get-var use_ralph
     [ "$status" -eq 0 ]
     [ "$output" = "true" ]
+}
+
+@test "get-var: retrieves skipped review-fix state" {
+    bash "$HELPER" create "Test"
+    run bash "$HELPER" get-var pending_skipped
+    [ "$status" -eq 0 ]
+    [ "$output" = "false" ]
+    run bash "$HELPER" get-var all_skipped
+    [ "$status" -eq 0 ]
+    [ "$output" = "false" ]
+    run bash "$HELPER" get-var skipped_count
+    [ "$status" -eq 0 ]
+    [ "$output" = "0" ]
 }
 
 @test "get-var: fails for missing variable" {

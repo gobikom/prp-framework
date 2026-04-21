@@ -77,6 +77,23 @@ teardown() {
     [ "$output" = "3" ]
 }
 
+@test "lifecycle: resume can restore skipped review-fix defaults" {
+    bash "$HELPER" create "Resume skipped state"
+    bash "$HELPER" update-step 6 "Review Fix" "skipped"
+
+    run bash "$HELPER" get-var pending_skipped
+    [ "$status" -eq 0 ]
+    [ "$output" = "false" ]
+
+    run bash "$HELPER" get-var all_skipped
+    [ "$status" -eq 0 ]
+    [ "$output" = "false" ]
+
+    run bash "$HELPER" get-var skipped_count
+    [ "$status" -eq 0 ]
+    [ "$output" = "0" ]
+}
+
 # ─────────────────────────────────────────────
 # 4. Lock/unlock lifecycle
 # ─────────────────────────────────────────────
