@@ -80,6 +80,10 @@ SKIP_PLAN = {false by default — may be set by --skip-plan flag or smart plan d
 RESUME_FROM = {0 by default — set from state file's step field if --resume}
 REVIEW_VERDICT = "{TBD — set in Step 6.2}"
 REVIEW_CYCLE = {1 — incremented after each fix cycle in Step 6.4}
+PENDING_SKIPPED = {false — set true when review-fix skips unresolved issues}
+ALL_SKIPPED = {false — set true when review-fix fixes 0 and skips >0 issues}
+SKIPPED_COUNT = {0 — number of skipped unresolved issues from review-fix}
+ALL_SKIPPED_ROUNDS = {0 — consecutive all-skipped review-fix rounds}
 ```
 
 **Flag validation** (after parsing all flags):
@@ -190,21 +194,27 @@ mkdir -p .prp-output/state
 
 Write `.prp-output/state/run-all.state.md` using Bash heredoc with YAML frontmatter:
 - step, total_steps, feature, plan_path, branch, pr_number, review_artifact, review_verdict, review_cycle
+- pending_skipped, all_skipped, skipped_count, all_skipped_rounds
 - use_ralph, ralph_max_iter, fix_severity, fast_plan, skip_plan, skip_review, no_pr, no_interact
 - issue_number, auto_merge, max_cycles
 - started_at, updated_at
 - Completed Steps table, Artifacts section, Error Log
 
-On `--resume`: restore ALL variables from state file. Set `RESUME_FROM = step` from frontmatter.
+On `--resume`: restore ALL variables from state file, including `PENDING_SKIPPED`, `ALL_SKIPPED`, `SKIPPED_COUNT`, and `ALL_SKIPPED_ROUNDS`. Set `RESUME_FROM = step` from frontmatter.
 
 **STATE FILE I/O RULE**: Always use **Bash with heredoc** (`cat > file << 'EOF'`) to create and update state and lock files in `.prp-output/state/`. These are machine-generated tracking files, not source code.
 
 **STATE UPDATE RULE**: After each step completes:
 1. Increment `step` to next step number
 2. Update `updated_at`
-3. Update new variable values (plan_path, branch, pr_number, review_artifact, review_verdict, review_cycle)
-4. Append completed step to table
-5. Append new artifacts
+3. Update new variable values (plan_path, branch, pr_number, review_artifact, review_verdict, review_cycle, pending_skipped, all_skipped, skipped_count, all_skipped_rounds)
+4. Use the helper's mutation commands for review state:
+   - `./scripts/prp-run-all-state.sh set-var review_verdict "\"0_issues\""`
+   - `./scripts/prp-run-all-state.sh set-var review_cycle "$REVIEW_CYCLE"`
+   - `./scripts/prp-run-all-state.sh set-review-fix-state "$FIXED_COUNT" "$SKIPPED_COUNT"`
+   The `set-review-fix-state` command persists the full skipped-state tuple, maintains `ALL_SKIPPED_ROUNDS`, and backfills missing keys in older state files.
+5. Append completed step to table
+6. Append new artifacts
 
 ---
 
@@ -416,7 +426,7 @@ Check for issues matching `FIX_SEVERITY` (default: all levels):
 
 | Result | Action |
 |--------|--------|
-| 0 issues (all severities) | Set REVIEW_VERDICT = "0_issues". → Step 7 ✓ (or Step 8 if AUTO_MERGE) |
+| 0 issues matching `FIX_SEVERITY` | Set REVIEW_VERDICT = "0_issues". → Step 7 ✓ (or Step 8 if AUTO_MERGE) |
 | Issues found + `REVIEW_CYCLE <= MAX_CYCLES` | → Step 6.3 |
 | Issues found + `REVIEW_CYCLE > MAX_CYCLES` | Report remaining issues → Step 7 (NEEDS MANUAL FIXES) |
 
@@ -433,11 +443,12 @@ This will: detect toolchain, load artifact directly, fix issues by severity, val
 
 | review-fix result | Set |
 |-------------------|-----|
-| All issues fixed (skipped_count = 0) | `PENDING_SKIPPED = false` |
-| Some fixed, some skipped (skipped_count > 0) | `PENDING_SKIPPED = true`, `SKIPPED_COUNT = N` |
-| All issues skipped (fixed_count = 0, skipped_count > 0) | `PENDING_SKIPPED = true`, `ALL_SKIPPED = true` |
+| All issues fixed (skipped_count = 0) | `PENDING_SKIPPED = false`, `ALL_SKIPPED = false`, `SKIPPED_COUNT = 0`, `ALL_SKIPPED_ROUNDS = 0` |
+| Some fixed, some skipped (skipped_count > 0) | `PENDING_SKIPPED = true`, `ALL_SKIPPED = false`, `SKIPPED_COUNT = N`, `ALL_SKIPPED_ROUNDS = 0` |
+| All issues skipped (fixed_count = 0, skipped_count > 0) | `PENDING_SKIPPED = true`, `ALL_SKIPPED = true`, `SKIPPED_COUNT = N`, `ALL_SKIPPED_ROUNDS += 1` |
 
 **Zero-issues bar**: skipped issues are NOT resolved — they are deferred. Do not proceed to Step 7 as if done.
+Persist the outcome with `./scripts/prp-run-all-state.sh set-review-fix-state "$FIXED_COUNT" "$SKIPPED_COUNT"` before Step 6.4.
 
 #### 6.4 Re-verify
 
@@ -458,7 +469,7 @@ If `--since-last-review` not supported or fails, fall back to full review with `
 
 → **Return to Step 6.2** to evaluate results.
 
-**Escalation guard (NEW 2026-04-17):** before returning to 6.2, if `ALL_SKIPPED = true` AND `REVIEW_CYCLE >= 2` (i.e., we've run review-fix twice and it skipped everything both rounds), STOP the loop early:
+**Escalation guard (NEW 2026-04-17):** before returning to 6.2, if `ALL_SKIPPED = true` AND `ALL_SKIPPED_ROUNDS >= 2` (i.e., review-fix skipped every remaining issue and made no code changes for 2 consecutive rounds), STOP the loop early:
 - Do NOT loop another round — review-fix has no additional tooling to resolve these.
 - Create escalation GH issue with the remaining items. Label strategy: the `[escalation]` title prefix carries the signal — add repo-appropriate labels only if they exist in the target repo (graceful fallback so different repos with different label schemes do not hard-fail the workflow):
    ```bash
@@ -468,10 +479,16 @@ If `--since-last-review` not supported or fails, fall back to full review with `
        LABEL_ARGS="${LABEL_ARGS:+$LABEL_ARGS,}$LABEL"
      fi
    done
-   gh issue create \
-     --title "[escalation] prp-run-all: {SKIPPED_COUNT} issues need human judgment on PR #{PR_NUMBER}" \
+   ESCALATION_ARTIFACT=".prp-output/reviews/pr-${PR_NUMBER}-escalation-${RUN_TIMESTAMP}.md"
+   ESCALATION_BODY="<remaining-items summary + artifact path + round count>"
+   if ! gh issue create \
+     --title "[escalation] prp-run-all: ${SKIPPED_COUNT} issues need human judgment on PR #${PR_NUMBER}" \
      ${LABEL_ARGS:+--label "$LABEL_ARGS"} \
-     --body "<remaining-items summary + artifact path + round count>"
+     --body "$ESCALATION_BODY"; then
+     mkdir -p .prp-output/reviews
+     printf '%s\n' "$ESCALATION_BODY" > "$ESCALATION_ARTIFACT"
+     echo "WARN: escalation issue creation failed — local artifact written to ${ESCALATION_ARTIFACT}. File it manually before merging."
+   fi
    ```
 - Set `REVIEW_VERDICT = "needs_manual_fix"`.
 - Proceed to Step 7 SUMMARY, do NOT merge (even with `--merge`).
@@ -605,7 +622,7 @@ State and lock files are only deleted here — after merge and cleanup succeed. 
 4. **Pass context forward** — information flows from earlier to later steps. Pass `--context` to review.
 5. **No extra validation** — each skill validates its own output. Adding more wastes tokens.
 6. **One commit per implementation** — review fixes committed separately by `/prp:review-fix`.
-7. **Max review cycles** — configurable via `--max-review-rounds` (default 5). Target is 0 issues all severities. STOP and report if exceeded.
+7. **Max review cycles** — configurable via `--max-review-rounds` (default 5). Target is 0 issues matching `FIX_SEVERITY`. STOP and report if exceeded.
 8. **Re-verify after fix** — always re-run `/prp:review` after fix. Use `--since-last-review` for token optimization.
 9. **No-interact means ZERO questions** — when `NO_INTERACT = true`: NEVER ask user questions. Make autonomous decisions, pick defaults. Pass `--no-interact` to sub-commands.
 10. **State management** — update state file after every step. Delete on completion. Support `--resume`.
@@ -698,7 +715,7 @@ State and lock files are only deleted here — after merge and cleanup succeed. 
 - PR_CREATED: PR exists (unless --no-pr)
 - REVIEWED: Review posted with verdict (unless --skip-review)
 - INCREMENTAL_REVIEW: Re-verify uses `--since-last-review` for token optimization
-- ZERO_ISSUES_TARGET: Review-fix loop continues until 0 issues (all severities in `FIX_SEVERITY`) or MAX_CYCLES reached. **Skipped issues count as remaining** — they are deferred, not resolved. Re-verify uses FULL review (not incremental) when any issues were skipped in the prior round, so skipped items re-surface in the next evaluation.
+- ZERO_ISSUES_TARGET: Review-fix loop continues until 0 issues matching `FIX_SEVERITY` or MAX_CYCLES reached. The default `FIX_SEVERITY` includes all severities. **Skipped issues count as remaining** — they are deferred, not resolved. Re-verify uses FULL review (not incremental) when any issues were skipped in the prior round, so skipped items re-surface in the next evaluation.
 - NO_SILENT_MERGE: `--merge` only executes when `REVIEW_VERDICT = "0_issues"`. `needs_manual_fix` (MAX_CYCLES hit OR 2 rounds all-skipped) blocks merge; escalation GH issue is created instead.
 - MERGED: PR squash-merged if --merge and 0 issues (unless --no-pr or --skip-review)
 - CLEANED_UP: Branch deleted, main updated, issue closed if --issue

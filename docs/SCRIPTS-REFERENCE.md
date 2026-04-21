@@ -215,6 +215,8 @@ State management helper for the `run-all` workflow. Manages a state file that tr
 |---------|-----------|-------------|
 | `create` | `<feature> [use_ralph] [ralph_max_iter] [fix_severity] [skip_review] [no_pr]` | Create a new state file |
 | `update-step` | `<step_number> <step_name> <result>` | Record a completed step |
+| `set-var` | `<name> <value>` | Set or backfill a YAML frontmatter value |
+| `set-review-fix-state` | `<fixed_count> <skipped_count>` | Persist review-fix skipped-state tuple |
 | `get-step` | (none) | Print the current step number |
 | `get-var` | `<name>` | Print a variable from YAML frontmatter |
 | `add-artifact` | `<artifact_line>` | Add an artifact entry to the state file |
@@ -227,7 +229,7 @@ State management helper for the `run-all` workflow. Manages a state file that tr
 
 1. **State file** is stored at `.prp-output/state/run-all.state.md`. It uses YAML frontmatter for configuration variables and a markdown table to track completed steps.
 
-2. **YAML frontmatter** contains: `step`, `total_steps`, `feature`, `plan_path`, `branch`, `pr_number`, `review_artifact`, `use_ralph`, `ralph_max_iter`, `fix_severity`, `skip_review`, `no_pr`, `started_at`, `updated_at`.
+2. **YAML frontmatter** contains: `step`, `total_steps`, `feature`, `plan_path`, `branch`, `pr_number`, `review_artifact`, `review_verdict`, `review_cycle`, `pending_skipped`, `all_skipped`, `skipped_count`, `all_skipped_rounds`, `use_ralph`, `ralph_max_iter`, `fix_severity`, `skip_review`, `no_pr`, `started_at`, `updated_at`.
 
 3. **Lock mechanism** uses a lock file at `.prp-output/state/run-all.lock`:
    - `lock` writes the current PID to the lock file.
@@ -254,6 +256,10 @@ State management helper for the `run-all` workflow. Manages a state file that tr
 ./scripts/prp-run-all-state.sh get-var feature
 # Output: user-authentication
 
+# Persist review outcome and review-fix skipped-state tuple
+./scripts/prp-run-all-state.sh set-var review_verdict '"0_issues"'
+./scripts/prp-run-all-state.sh set-review-fix-state 3 0
+
 # Add an artifact reference
 ./scripts/prp-run-all-state.sh add-artifact "Plan: .prp-output/plans/user-auth-20260315-1430.plan.md"
 
@@ -272,6 +278,8 @@ State management helper for the `run-all` workflow. Manages a state file that tr
 ### Notes
 
 - The `create` command defaults: `use_ralph=false`, `ralph_max_iter=10`, `fix_severity=critical,high,medium,suggestion`, `skip_review=false`, `no_pr=false`.
+- `get-var` returns legacy defaults for review-loop fields that are missing from older state files.
+- `set-review-fix-state` writes the skipped-state fields together: all fixed clears `pending_skipped`, `all_skipped`, `skipped_count`, and `all_skipped_rounds`; partial skips set `pending_skipped=true` and reset `all_skipped_rounds`; all skips set both `pending_skipped=true` and `all_skipped=true`, then increment `all_skipped_rounds`.
 - The `exists` command uses only the exit code (0 or 1) and produces no output. Use it in conditionals.
 - Stale lock detection uses the filesystem modification time of the lock file, so it works even if the locking process has crashed.
 

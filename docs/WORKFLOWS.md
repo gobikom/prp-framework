@@ -596,7 +596,7 @@ Commit → PR → Review/Fix Loop → Summary
 | `--skip-plan` | Alias for `--prp-path` — prompts to select from available plans in `.prp-output/plans/` |
 | `--issue <N>` | Fetch GitHub issue #N context. Smart plan detection (small: skip, medium: fast, large: full plan) |
 | `--merge` | Auto squash-merge PR after review passes (0 issues). Runs cleanup + issue close |
-| `--max-review-rounds <N>` | Max review-fix cycles (default: 5). Loop targets 0 issues all severities |
+| `--max-review-rounds <N>` | Max review-fix cycles (default: 5). Loop targets 0 issues matching `FIX_SEVERITY` |
 | `--fast` | Use fast-track plan mode (lighter codebase analysis, good for simple features) |
 | `--ralph` | Use ralph loop instead of one-shot implement |
 | `--ralph-max-iter N` | Set ralph max iterations (default: 10) |
@@ -622,9 +622,9 @@ run-all creates a state file at `.prp-output/state/run-all.state.md` to track pr
 After PR creation, the review step runs a fix loop targeting 0 issues:
 1. Run `/prp:review-agents` on the PR (default; use `--review-single-agent` for single-agent review)
 2. If any issues matching `FIX_SEVERITY` found (default: all severities) and cycle <= MAX_CYCLES (default 5): run `/prp:review-fix` with `--severity {FIX_SEVERITY}`
-3. Re-verify with `/prp:review` (always single-agent — multi-agent re-verify is wasteful for incremental changes)
+3. Re-verify with `/prp:review` (always single-agent — use full review when prior fixes skipped issues)
 4. Loop until 0 issues or MAX_CYCLES reached. If `--merge` and 0 issues → proceed to merge + cleanup
-4. Max 2 cycles — if issues remain after 2 rounds, report remaining issues for manual fix
+5. If review-fix skips all remaining issues for 2 consecutive rounds, stop early, create an escalation issue or local escalation artifact, and block merge
 
 ### Context Handoff
 

@@ -49,6 +49,26 @@ teardown() {
     [ "$status" -eq 0 ]
 }
 
+@test "create: state file initializes review loop state" {
+    bash "$HELPER" create "Review loop state"
+    run grep 'review_verdict: ""' .prp-output/state/run-all.state.md
+    [ "$status" -eq 0 ]
+    run grep 'review_cycle: 1' .prp-output/state/run-all.state.md
+    [ "$status" -eq 0 ]
+}
+
+@test "create: state file initializes skipped review-fix state" {
+    bash "$HELPER" create "Skipped state"
+    run grep 'pending_skipped: false' .prp-output/state/run-all.state.md
+    [ "$status" -eq 0 ]
+    run grep 'all_skipped: false' .prp-output/state/run-all.state.md
+    [ "$status" -eq 0 ]
+    run grep 'skipped_count: 0' .prp-output/state/run-all.state.md
+    [ "$status" -eq 0 ]
+    run grep 'all_skipped_rounds: 0' .prp-output/state/run-all.state.md
+    [ "$status" -eq 0 ]
+}
+
 # ─────────────────────────────────────────────
 # 2. Step update
 # ─────────────────────────────────────────────
@@ -89,10 +109,363 @@ teardown() {
     [ "$output" = "true" ]
 }
 
+@test "get-var: retrieves skipped review-fix state" {
+    bash "$HELPER" create "Test"
+    run bash "$HELPER" get-var pending_skipped
+    [ "$status" -eq 0 ]
+    [ "$output" = "false" ]
+    run bash "$HELPER" get-var all_skipped
+    [ "$status" -eq 0 ]
+    [ "$output" = "false" ]
+    run bash "$HELPER" get-var skipped_count
+    [ "$status" -eq 0 ]
+    [ "$output" = "0" ]
+}
+
+@test "get-var: retrieves present empty value" {
+    bash "$HELPER" create "Test"
+    run bash "$HELPER" get-var review_verdict
+    [ "$status" -eq 0 ]
+    [ "$output" = "" ]
+}
+
+@test "get-var: returns legacy defaults for missing review state fields" {
+    bash "$HELPER" create "Legacy state"
+    sed -i '/^review_verdict:/d; /^review_cycle:/d; /^pending_skipped:/d; /^all_skipped:/d; /^skipped_count:/d; /^all_skipped_rounds:/d' .prp-output/state/run-all.state.md
+
+    run bash "$HELPER" get-var review_verdict
+    [ "$status" -eq 0 ]
+    [ "$output" = "" ]
+
+    run bash "$HELPER" get-var review_cycle
+    [ "$status" -eq 0 ]
+    [ "$output" = "1" ]
+
+    run bash "$HELPER" get-var pending_skipped
+    [ "$status" -eq 0 ]
+    [ "$output" = "false" ]
+
+    run bash "$HELPER" get-var all_skipped
+    [ "$status" -eq 0 ]
+    [ "$output" = "false" ]
+
+    run bash "$HELPER" get-var skipped_count
+    [ "$status" -eq 0 ]
+    [ "$output" = "0" ]
+
+    run bash "$HELPER" get-var all_skipped_rounds
+    [ "$status" -eq 0 ]
+    [ "$output" = "0" ]
+}
+
 @test "get-var: fails for missing variable" {
     bash "$HELPER" create "Test"
     run bash "$HELPER" get-var nonexistent
     [ "$status" -eq 1 ]
+}
+
+@test "set-var: updates existing values and backfills missing keys" {
+    bash "$HELPER" create "Test"
+    bash "$HELPER" set-var review_verdict '"needs_manual_fix"'
+    run bash "$HELPER" get-var review_verdict
+    [ "$status" -eq 0 ]
+    [ "$output" = "needs_manual_fix" ]
+
+    sed -i '/^review_artifact:/d' .prp-output/state/run-all.state.md
+    bash "$HELPER" set-var review_artifact '".prp-output/reviews/pr-1-review.md"'
+    run bash "$HELPER" get-var review_artifact
+    [ "$status" -eq 0 ]
+    [ "$output" = ".prp-output/reviews/pr-1-review.md" ]
+}
+
+@test "set-var: preserves sed metacharacters in values" {
+    bash "$HELPER" create "Test"
+    bash "$HELPER" set-var review_artifact '"a&b|c"'
+
+    run bash "$HELPER" get-var review_artifact
+    [ "$status" -eq 0 ]
+    [ "$output" = "a&b|c" ]
+}
+
+@test "set-var: rejects invalid variable names" {
+    bash "$HELPER" create "Test"
+    run bash "$HELPER" set-var 'review_.*' '"bad"'
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"Invalid variable name"* ]]
+
+    run bash "$HELPER" get-var review_verdict
+    [ "$status" -eq 0 ]
+    [ "$output" = "" ]
+}
+
+@test "set-var: rejects missing value" {
+    bash "$HELPER" create "Test"
+    run bash "$HELPER" set-var review_cycle
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"Usage"* ]]
+
+    run bash "$HELPER" get-var review_cycle
+    [ "$status" -eq 0 ]
+    [ "$output" = "1" ]
+}
+
+@test "set-var: fails closed when state file cannot be written" {
+    bash "$HELPER" create "Test"
+    chmod 500 .prp-output/state
+    run bash "$HELPER" set-var review_cycle 2
+    chmod 700 .prp-output/state
+
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"Cannot update variable"* ]]
+
+    run bash "$HELPER" get-var review_cycle
+    [ "$status" -eq 0 ]
+    [ "$output" = "1" ]
+}
+
+@test "set-review-fix-state: persists all-fixed skipped tuple" {
+    bash "$HELPER" create "Test"
+    bash "$HELPER" set-review-fix-state 0 3
+    bash "$HELPER" set-review-fix-state 3 0
+
+    run bash "$HELPER" get-var pending_skipped
+    [ "$status" -eq 0 ]
+    [ "$output" = "false" ]
+    run bash "$HELPER" get-var all_skipped
+    [ "$status" -eq 0 ]
+    [ "$output" = "false" ]
+    run bash "$HELPER" get-var skipped_count
+    [ "$status" -eq 0 ]
+    [ "$output" = "0" ]
+    run bash "$HELPER" get-var all_skipped_rounds
+    [ "$status" -eq 0 ]
+    [ "$output" = "0" ]
+}
+
+@test "set-review-fix-state: persists partial skipped tuple" {
+    bash "$HELPER" create "Test"
+    bash "$HELPER" set-review-fix-state 2 4
+
+    run bash "$HELPER" get-var pending_skipped
+    [ "$status" -eq 0 ]
+    [ "$output" = "true" ]
+    run bash "$HELPER" get-var all_skipped
+    [ "$status" -eq 0 ]
+    [ "$output" = "false" ]
+    run bash "$HELPER" get-var skipped_count
+    [ "$status" -eq 0 ]
+    [ "$output" = "4" ]
+    run bash "$HELPER" get-var all_skipped_rounds
+    [ "$status" -eq 0 ]
+    [ "$output" = "0" ]
+}
+
+@test "set-review-fix-state: persists all-skipped tuple" {
+    bash "$HELPER" create "Test"
+    bash "$HELPER" set-review-fix-state 0 5
+
+    run bash "$HELPER" get-var pending_skipped
+    [ "$status" -eq 0 ]
+    [ "$output" = "true" ]
+    run bash "$HELPER" get-var all_skipped
+    [ "$status" -eq 0 ]
+    [ "$output" = "true" ]
+    run bash "$HELPER" get-var skipped_count
+    [ "$status" -eq 0 ]
+    [ "$output" = "5" ]
+    run bash "$HELPER" get-var all_skipped_rounds
+    [ "$status" -eq 0 ]
+    [ "$output" = "1" ]
+}
+
+@test "set-review-fix-state: increments consecutive all-skipped rounds" {
+    bash "$HELPER" create "Test"
+    bash "$HELPER" set-review-fix-state 0 2
+    bash "$HELPER" set-review-fix-state 0 3
+
+    run bash "$HELPER" get-var all_skipped_rounds
+    [ "$status" -eq 0 ]
+    [ "$output" = "2" ]
+}
+
+@test "set-review-fix-state: backfills skipped keys for legacy state files" {
+    bash "$HELPER" create "Legacy state"
+    sed -i '/^pending_skipped:/d; /^all_skipped:/d; /^skipped_count:/d; /^all_skipped_rounds:/d' .prp-output/state/run-all.state.md
+    bash "$HELPER" set-review-fix-state 0 2
+
+    run bash "$HELPER" get-var pending_skipped
+    [ "$status" -eq 0 ]
+    [ "$output" = "true" ]
+    run bash "$HELPER" get-var all_skipped
+    [ "$status" -eq 0 ]
+    [ "$output" = "true" ]
+    run bash "$HELPER" get-var skipped_count
+    [ "$status" -eq 0 ]
+    [ "$output" = "2" ]
+    run bash "$HELPER" get-var all_skipped_rounds
+    [ "$status" -eq 0 ]
+    [ "$output" = "1" ]
+}
+
+@test "set-review-fix-state: persisted skipped tuple is written to disk and survives fresh reads" {
+    bash "$HELPER" create "Persistence regression"
+    bash "$HELPER" set-review-fix-state 0 4
+
+    # Inspect the raw state file directly — proves the helper writes to disk,
+    # not just to in-process state.
+    run grep -E '^pending_skipped: true' .prp-output/state/run-all.state.md
+    [ "$status" -eq 0 ]
+    run grep -E '^all_skipped: true' .prp-output/state/run-all.state.md
+    [ "$status" -eq 0 ]
+    run grep -E '^skipped_count: 4' .prp-output/state/run-all.state.md
+    [ "$status" -eq 0 ]
+    run grep -E '^all_skipped_rounds: 1' .prp-output/state/run-all.state.md
+    [ "$status" -eq 0 ]
+
+    # Each get-var is a fresh bash process; non-default values must round-trip.
+    run bash "$HELPER" get-var pending_skipped
+    [ "$status" -eq 0 ]
+    [ "$output" = "true" ]
+    run bash "$HELPER" get-var all_skipped
+    [ "$status" -eq 0 ]
+    [ "$output" = "true" ]
+    run bash "$HELPER" get-var skipped_count
+    [ "$status" -eq 0 ]
+    [ "$output" = "4" ]
+    run bash "$HELPER" get-var all_skipped_rounds
+    [ "$status" -eq 0 ]
+    [ "$output" = "1" ]
+}
+
+@test "set-review-fix-state: persisted skipped tuple survives interleaved update-step calls" {
+    bash "$HELPER" create "Interleave regression"
+    bash "$HELPER" set-review-fix-state 1 5
+
+    # update-step writes step + updated_at — it must NOT clobber the skipped tuple.
+    bash "$HELPER" update-step 6 "Review Fix" "partial"
+    bash "$HELPER" update-step 7 "Re-review" "OK"
+
+    run bash "$HELPER" get-var pending_skipped
+    [ "$status" -eq 0 ]
+    [ "$output" = "true" ]
+    run bash "$HELPER" get-var all_skipped
+    [ "$status" -eq 0 ]
+    [ "$output" = "false" ]
+    run bash "$HELPER" get-var skipped_count
+    [ "$status" -eq 0 ]
+    [ "$output" = "5" ]
+}
+
+@test "set-review-fix-state: rejects invalid counts" {
+    bash "$HELPER" create "Test"
+    run bash "$HELPER" set-review-fix-state -1 2
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"non-negative integers"* ]]
+
+    run bash "$HELPER" set-review-fix-state 1 abc
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"non-negative integers"* ]]
+}
+
+@test "set-review-fix-state: fails closed when state file cannot be written" {
+    bash "$HELPER" create "Test"
+    chmod 500 .prp-output/state
+    run bash "$HELPER" set-review-fix-state 0 2
+    chmod 700 .prp-output/state
+
+    [ "$status" -eq 1 ]
+    # Accept either the atomic-rollback message (new) or the original
+    # set-var error (if the snapshot cp itself fails first).
+    [[ "$output" == *"Cannot update variable"* ]] || \
+        [[ "$output" == *"rolled back"* ]] || \
+        [[ "$output" == *"Cannot snapshot"* ]]
+
+    run bash "$HELPER" get-var pending_skipped
+    [ "$status" -eq 0 ]
+    [ "$output" = "false" ]
+}
+
+@test "set-review-fix-state: fails closed when state file is missing" {
+    # No create — state file does not exist.
+    run bash "$HELPER" set-review-fix-state 0 3
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"State file not found"* ]]
+}
+
+@test "set-review-fix-state: partial-fix after all-skipped round resets all_skipped_rounds" {
+    bash "$HELPER" create "Reset regression"
+    bash "$HELPER" set-review-fix-state 0 3
+    run bash "$HELPER" get-var all_skipped_rounds
+    [ "$status" -eq 0 ]
+    [ "$output" = "1" ]
+
+    # Partial-fix must reset the consecutive-all-skipped counter.
+    bash "$HELPER" set-review-fix-state 2 1
+
+    run bash "$HELPER" get-var all_skipped_rounds
+    [ "$status" -eq 0 ]
+    [ "$output" = "0" ]
+    run bash "$HELPER" get-var all_skipped
+    [ "$status" -eq 0 ]
+    [ "$output" = "false" ]
+    run bash "$HELPER" get-var pending_skipped
+    [ "$status" -eq 0 ]
+    [ "$output" = "true" ]
+}
+
+@test "set-review-fix-state: 0 fixed and 0 skipped clears the full skipped tuple" {
+    bash "$HELPER" create "Zero-zero"
+    bash "$HELPER" set-review-fix-state 0 3
+    bash "$HELPER" set-review-fix-state 0 0
+
+    run bash "$HELPER" get-var pending_skipped
+    [ "$status" -eq 0 ]
+    [ "$output" = "false" ]
+    run bash "$HELPER" get-var all_skipped
+    [ "$status" -eq 0 ]
+    [ "$output" = "false" ]
+    run bash "$HELPER" get-var skipped_count
+    [ "$status" -eq 0 ]
+    [ "$output" = "0" ]
+    run bash "$HELPER" get-var all_skipped_rounds
+    [ "$status" -eq 0 ]
+    [ "$output" = "0" ]
+}
+
+@test "set-var: rejects newline in value (YAML injection guard)" {
+    bash "$HELPER" create "Injection test"
+    run bash "$HELPER" set-var review_verdict $'"0_issues"\nauto_merge: true'
+    [ "$status" -eq 1 ]
+
+    # The injected key must NOT have been written.
+    run bash "$HELPER" get-var auto_merge
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"not found"* ]]
+}
+
+@test "create: rejects newline in feature name (YAML injection guard)" {
+    run bash "$HELPER" create $'Benign\nauto_merge: true\nskip_review: true'
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"invalid characters"* ]]
+    [ ! -f ".prp-output/state/run-all.state.md" ]
+}
+
+@test "update-step: rejects newline in step name (YAML injection guard)" {
+    bash "$HELPER" create "Test"
+    run bash "$HELPER" update-step 2 $'Create Plan\nauto_merge: true' "OK"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"invalid characters"* ]]
+
+    # Frontmatter must not have been mutated.
+    run bash "$HELPER" get-var auto_merge
+    [ "$status" -eq 1 ]
+}
+
+@test "update-step: rejects non-numeric step number" {
+    bash "$HELPER" create "Test"
+    run bash "$HELPER" update-step "not_a_number" "Plan" "OK"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"non-negative integer"* ]]
 }
 
 # ─────────────────────────────────────────────
@@ -157,10 +530,10 @@ teardown() {
 }
 
 @test "lock: removes stale lock (>2 hours old)" {
-    mkdir -p .claude
     echo "12345" > .prp-output/state/run-all.lock
-    # Touch with old timestamp (3 hours ago)
-    touch -t "$(date -v-3H +%Y%m%d%H%M.%S 2>/dev/null || date -d '3 hours ago' +%Y%m%d%H%M.%S 2>/dev/null)" .prp-output/state/run-all.lock
+    # Use an absolute old timestamp — matches the e2e counterpart and avoids
+    # a silent empty-string fallback if neither date dialect succeeds.
+    touch -t 202401010000 .prp-output/state/run-all.lock
     run bash "$HELPER" lock
     [ "$status" -eq 0 ]
     [[ "$output" == *"stale"* ]]

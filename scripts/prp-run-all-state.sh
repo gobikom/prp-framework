@@ -9,6 +9,8 @@
 # Commands:
 #   create <feature> [use_ralph] [ralph_max_iter] [fix_severity] [skip_review] [no_pr]
 #   update-step <step_number> <step_name> <result>
+#   set-var <name> <value>
+#   set-review-fix-state <fixed_count> <skipped_count>
 #   get-step        — prints current step number
 #   get-var <name>  — prints a variable from YAML frontmatter
 #   add-artifact <artifact_line>
@@ -29,8 +31,72 @@ get_frontmatter_value() {
         echo ""
         return 1
     fi
-    # Extract value between --- markers
-    sed -n '/^---$/,/^---$/p' "$STATE_FILE" | grep "^${key}:" | head -1 | sed "s/^${key}: *//" | sed 's/^"//' | sed 's/"$//'
+    validate_frontmatter_key "$key" || return 1
+    # Extract value between --- markers. An explicitly empty value is valid.
+    awk -v key="$key" '
+        BEGIN { marker = 0; found = 0 }
+        $0 == "---" { marker++; next }
+        marker == 1 {
+            split($0, parts, ":")
+            if (parts[1] == key) {
+                value = substr($0, length(key) + 2)
+                sub(/^ */, "", value)
+                sub(/^"/, "", value)
+                sub(/"$/, "", value)
+                print value
+                found = 1
+                exit
+            }
+        }
+        END { if (found == 0) exit 1 }
+    ' "$STATE_FILE"
+}
+
+# ─────────────────────────────────────────────
+# Legacy default values for state files created before new fields existed
+# ─────────────────────────────────────────────
+default_frontmatter_value() {
+    local key="$1"
+    case "$key" in
+        review_artifact|review_verdict)
+            echo ""
+            ;;
+        review_cycle)
+            echo "1"
+            ;;
+        pending_skipped|all_skipped)
+            echo "false"
+            ;;
+        skipped_count|all_skipped_rounds)
+            echo "0"
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+# ─────────────────────────────────────────────
+# Validate frontmatter keys before matching or writing
+# ─────────────────────────────────────────────
+validate_frontmatter_key() {
+    local key="$1"
+    [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]
+}
+
+# Reject values that would break YAML frontmatter structure:
+# newlines/CR allow key-injection above the legitimate key; a bare `---`
+# line closes the frontmatter block. Callers forwarding untrusted input
+# (e.g. GitHub issue bodies via --issue N) depend on this boundary.
+validate_frontmatter_value() {
+    local value="$1"
+    if [[ "$value" == *$'\n'* ]] || [[ "$value" == *$'\r'* ]]; then
+        return 1
+    fi
+    if [[ "$value" =~ ^---[[:space:]]*$ ]]; then
+        return 1
+    fi
+    return 0
 }
 
 # ─────────────────────────────────────────────
@@ -39,13 +105,150 @@ get_frontmatter_value() {
 set_frontmatter_value() {
     local key="$1"
     local value="$2"
+    local tmp_file
     if [ ! -f "$STATE_FILE" ]; then
         return 1
     fi
-    # Use sed to replace the value in frontmatter
-    if grep -q "^${key}:" "$STATE_FILE"; then
-        sed -i.bak "s|^${key}:.*|${key}: ${value}|" "$STATE_FILE"
-        rm -f "${STATE_FILE}.bak"
+    validate_frontmatter_key "$key" || return 1
+    validate_frontmatter_value "$value" || return 1
+    # Replace existing keys, or add new keys for older state files on resume.
+    tmp_file="${STATE_FILE}.tmp"
+    if ! awk -v key="$key" -v value="$value" '
+        BEGIN { marker = 0; updated = 0 }
+        {
+            if ($0 == "---") {
+                marker++
+                if (marker == 2 && updated == 0) {
+                    print key ": " value
+                    updated = 1
+                }
+                print
+                next
+            }
+            if (marker == 1) {
+                split($0, parts, ":")
+                if (parts[1] == key) {
+                    print key ": " value
+                    updated = 1
+                    next
+                }
+            }
+            print
+        }
+    ' "$STATE_FILE" > "$tmp_file"; then
+        rm -f "$tmp_file"
+        return 1
+    fi
+    if ! mv "$tmp_file" "$STATE_FILE"; then
+        rm -f "$tmp_file"
+        return 1
+    fi
+}
+
+# ─────────────────────────────────────────────
+# Update YAML frontmatter value or fail closed
+# ─────────────────────────────────────────────
+must_set_frontmatter_value() {
+    local key="$1"
+    local value="$2"
+
+    if ! set_frontmatter_value "$key" "$value"; then
+        echo "Error: Cannot update variable '$key'" >&2
+        exit 1
+    fi
+}
+
+# ─────────────────────────────────────────────
+# Increment numeric YAML frontmatter value
+# ─────────────────────────────────────────────
+increment_frontmatter_counter() {
+    local key="$1"
+    local value
+
+    if ! value=$(get_frontmatter_value "$key"); then
+        value="0"
+    fi
+    if ! [[ "$value" =~ ^[0-9]+$ ]]; then
+        # Non-numeric value indicates state-file corruption or manual edit.
+        # Surface the reset so operators see the signal instead of silently overwriting.
+        if [ -n "$value" ]; then
+            echo "Warning: non-numeric value '$value' for counter '$key'; resetting to 0" >&2
+        fi
+        value="0"
+    fi
+    must_set_frontmatter_value "$key" "$((value + 1))"
+}
+
+# ─────────────────────────────────────────────
+# Persist review-fix skipped-state tuple
+# ─────────────────────────────────────────────
+set_review_fix_state() {
+    local fixed_count="$1"
+    local skipped_count="$2"
+    local timestamp
+    local backup
+
+    if [ ! -f "$STATE_FILE" ]; then
+        echo "Error: State file not found" >&2
+        exit 1
+    fi
+
+    if ! [[ "$fixed_count" =~ ^[0-9]+$ ]] || ! [[ "$skipped_count" =~ ^[0-9]+$ ]]; then
+        echo "Error: fixed_count and skipped_count must be non-negative integers" >&2
+        exit 1
+    fi
+
+    if ! timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ") || [ -z "$timestamp" ]; then
+        echo "Error: Cannot generate timestamp" >&2
+        exit 1
+    fi
+
+    # Atomic-rollback snapshot: the tuple touches up to 5 frontmatter keys
+    # sequentially, and a midway write failure would leave partial state.
+    # Restoring from a pre-write snapshot keeps the file consistent.
+    backup="${STATE_FILE}.rollback.$$"
+    if ! cp "$STATE_FILE" "$backup" 2>/dev/null; then
+        echo "Error: Cannot snapshot state for atomic update" >&2
+        exit 1
+    fi
+
+    local ok=1
+    if [ "$skipped_count" -eq 0 ]; then
+        set_frontmatter_value "pending_skipped" "false" && \
+            set_frontmatter_value "all_skipped" "false" && \
+            set_frontmatter_value "skipped_count" "0" && \
+            set_frontmatter_value "all_skipped_rounds" "0" || ok=0
+    elif [ "$fixed_count" -eq 0 ]; then
+        local rounds_value rounds_next
+        if ! rounds_value=$(get_frontmatter_value "all_skipped_rounds" 2>/dev/null); then
+            rounds_value="0"
+        fi
+        if ! [[ "$rounds_value" =~ ^[0-9]+$ ]]; then
+            if [ -n "$rounds_value" ]; then
+                echo "Warning: non-numeric value '$rounds_value' for counter 'all_skipped_rounds'; resetting to 0" >&2
+            fi
+            rounds_value="0"
+        fi
+        rounds_next=$((rounds_value + 1))
+        set_frontmatter_value "pending_skipped" "true" && \
+            set_frontmatter_value "all_skipped" "true" && \
+            set_frontmatter_value "skipped_count" "$skipped_count" && \
+            set_frontmatter_value "all_skipped_rounds" "$rounds_next" || ok=0
+    else
+        set_frontmatter_value "pending_skipped" "true" && \
+            set_frontmatter_value "all_skipped" "false" && \
+            set_frontmatter_value "skipped_count" "$skipped_count" && \
+            set_frontmatter_value "all_skipped_rounds" "0" || ok=0
+    fi
+
+    if [ "$ok" -eq 1 ] && set_frontmatter_value "updated_at" "\"${timestamp}\""; then
+        rm -f "$backup"
+    else
+        # Roll back to the pre-write snapshot. If the rollback itself fails,
+        # the partial state stays in place but the caller still gets exit 1.
+        mv "$backup" "$STATE_FILE" 2>/dev/null || rm -f "$backup"
+        echo "Error: Failed to update review-fix state; rolled back to prior snapshot" >&2
+        exit 1
     fi
 }
 
@@ -57,10 +260,28 @@ case "$1" in
         local_fix_severity="${5:-critical,high,medium,suggestion}"
         local_skip_review="${6:-false}"
         local_no_pr="${7:-false}"
-        local_timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
-        mkdir -p .prp-output/state
-        cat > "$STATE_FILE" <<EOF
+        # Reject caller-supplied values that would break YAML frontmatter.
+        # feature and fix_severity flow through into heredoc-rendered YAML; an
+        # untrusted caller (e.g. GitHub issue title via --issue N) must not be
+        # able to inject auto_merge/skip_review via embedded newlines.
+        for _field in "$local_feature" "$local_fix_severity"; do
+            if ! validate_frontmatter_value "$_field"; then
+                echo "Error: invalid characters in create argument (newline, CR, or '---')" >&2
+                exit 1
+            fi
+        done
+
+        if ! local_timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ") || [ -z "$local_timestamp" ]; then
+            echo "Error: Cannot generate timestamp" >&2
+            exit 1
+        fi
+
+        if ! mkdir -p .prp-output/state; then
+            echo "Error: Cannot create state directory" >&2
+            exit 1
+        fi
+        if ! cat > "$STATE_FILE" <<EOF
 ---
 step: 1
 total_steps: 7
@@ -69,6 +290,12 @@ plan_path: ""
 branch: ""
 pr_number: ""
 review_artifact: ""
+review_verdict: ""
+review_cycle: 1
+pending_skipped: false
+all_skipped: false
+skipped_count: 0
+all_skipped_rounds: 0
 use_ralph: ${local_use_ralph}
 ralph_max_iter: ${local_ralph_max_iter}
 fix_severity: "${local_fix_severity}"
@@ -87,6 +314,10 @@ updated_at: "${local_timestamp}"
 ## Error Log
 (empty)
 EOF
+        then
+            echo "Error: Cannot write state file" >&2
+            exit 1
+        fi
         echo "State file created at $STATE_FILE"
         ;;
 
@@ -94,24 +325,76 @@ EOF
         local_step="$2"
         local_name="$3"
         local_result="$4"
-        local_timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-        local_time=$(date +%H:%M)
 
         if [ ! -f "$STATE_FILE" ]; then
             echo "Error: State file not found" >&2
             exit 1
         fi
 
-        # Update step number and timestamp in frontmatter
-        set_frontmatter_value "step" "$local_step"
-        set_frontmatter_value "updated_at" "\"${local_timestamp}\""
+        # Reject newlines/CR in the caller-supplied name/result — they would
+        # corrupt the completed-steps markdown table and the `sed i\\` append.
+        for _field in "$local_name" "$local_result"; do
+            if ! validate_frontmatter_value "$_field"; then
+                echo "Error: invalid characters in update-step argument (newline, CR, or '---')" >&2
+                exit 1
+            fi
+        done
 
-        # Append to completed steps table (before ## Artifacts line)
-        sed -i.bak "/^## Artifacts/i\\
-| ${local_step} | ${local_name} | ${local_result} | ${local_time} |" "$STATE_FILE"
+        if ! [[ "$local_step" =~ ^[0-9]+$ ]]; then
+            echo "Error: step number must be a non-negative integer" >&2
+            exit 1
+        fi
+
+        if ! local_timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ") || [ -z "$local_timestamp" ]; then
+            echo "Error: Cannot generate timestamp" >&2
+            exit 1
+        fi
+        if ! local_time=$(date +%H:%M) || [ -z "$local_time" ]; then
+            echo "Error: Cannot generate wall-clock time" >&2
+            exit 1
+        fi
+
+        # Update step number and timestamp in frontmatter
+        must_set_frontmatter_value "step" "$local_step"
+        must_set_frontmatter_value "updated_at" "\"${local_timestamp}\""
+
+        # Append to completed steps table (before ## Artifacts line).
+        # Guard the sed: a failed substitution must not silently leave the
+        # frontmatter mutated but the body unchanged. Remove the backup only
+        # after success so a sed-created `.bak` is never orphan-deleted.
+        if ! sed -i.bak "/^## Artifacts/i\\
+| ${local_step} | ${local_name} | ${local_result} | ${local_time} |" "$STATE_FILE"; then
+            rm -f "${STATE_FILE}.bak"
+            echo "Error: Failed to append completed-step row" >&2
+            exit 1
+        fi
         rm -f "${STATE_FILE}.bak"
 
         echo "Step updated to $local_step: $local_name"
+        ;;
+
+    set-var)
+        var_name="$2"
+        var_value="$3"
+        if [ "$#" -lt 3 ] || [ -z "$var_name" ]; then
+            echo "Usage: prp-run-all-state.sh set-var <name> <value>" >&2
+            exit 1
+        fi
+        if [ ! -f "$STATE_FILE" ]; then
+            echo "Error: State file not found" >&2
+            exit 1
+        fi
+        if ! validate_frontmatter_key "$var_name"; then
+            echo "Error: Invalid variable name '$var_name'" >&2
+            exit 1
+        fi
+        must_set_frontmatter_value "$var_name" "$var_value"
+        echo "Variable updated: $var_name"
+        ;;
+
+    set-review-fix-state)
+        set_review_fix_state "${2:-}" "${3:-}"
+        echo "Review-fix state updated"
         ;;
 
     get-step)
@@ -129,10 +412,14 @@ EOF
             echo "Usage: prp-run-all-state.sh get-var <name>" >&2
             exit 1
         fi
-        value=$(get_frontmatter_value "$var_name")
-        if [ -z "$value" ]; then
-            echo "Error: Variable '$var_name' not found" >&2
-            exit 1
+        # Present-but-empty values (e.g. review_verdict: "") are valid:
+        # get_frontmatter_value succeeds with empty stdout, so we print "".
+        # Only fall back to defaults when the key is absent from frontmatter.
+        if ! value=$(get_frontmatter_value "$var_name"); then
+            if ! value=$(default_frontmatter_value "$var_name"); then
+                echo "Error: Variable '$var_name' not found" >&2
+                exit 1
+            fi
         fi
         echo "$value"
         ;;
@@ -143,12 +430,26 @@ EOF
             echo "Error: State file not found" >&2
             exit 1
         fi
-        # Replace "(none yet)" or append after existing artifacts
+        if ! validate_frontmatter_value "$local_artifact"; then
+            echo "Error: invalid characters in artifact (newline, CR, or '---')" >&2
+            exit 1
+        fi
+        # Replace "(none yet)" or append after existing artifacts.
+        # Guard sed: silent failure would leave the state inconsistent with
+        # whatever the caller thinks was recorded.
         if grep -q "(none yet)" "$STATE_FILE"; then
-            sed -i.bak "s|(none yet)|- ${local_artifact}|" "$STATE_FILE"
+            if ! sed -i.bak "s|(none yet)|- ${local_artifact}|" "$STATE_FILE"; then
+                rm -f "${STATE_FILE}.bak"
+                echo "Error: Failed to replace artifact placeholder" >&2
+                exit 1
+            fi
         else
-            sed -i.bak "/^## Error Log/i\\
-- ${local_artifact}" "$STATE_FILE"
+            if ! sed -i.bak "/^## Error Log/i\\
+- ${local_artifact}" "$STATE_FILE"; then
+                rm -f "${STATE_FILE}.bak"
+                echo "Error: Failed to append artifact line" >&2
+                exit 1
+            fi
         fi
         rm -f "${STATE_FILE}.bak"
         echo "Artifact added: $local_artifact"
@@ -179,8 +480,17 @@ EOF
                 exit 1
             fi
         fi
-        mkdir -p .prp-output/state
-        echo "$$" > "$LOCK_FILE"
+        if ! mkdir -p .prp-output/state; then
+            echo "Error: Cannot create state directory for lock" >&2
+            exit 1
+        fi
+        # Fail closed on write failure: a silent-success lock would let a
+        # second caller also "acquire" the missing lock, collapsing the
+        # mutual-exclusion guarantee.
+        if ! echo "$$" > "$LOCK_FILE"; then
+            echo "Error: Cannot write lock file" >&2
+            exit 1
+        fi
         echo "Lock acquired"
         ;;
 
@@ -190,7 +500,7 @@ EOF
         ;;
 
     *)
-        echo "Usage: prp-run-all-state.sh <create|update-step|get-step|get-var|add-artifact|cleanup|exists|lock|unlock> [args]" >&2
+        echo "Usage: prp-run-all-state.sh <create|update-step|set-var|set-review-fix-state|get-step|get-var|add-artifact|cleanup|exists|lock|unlock> [args]" >&2
         exit 1
         ;;
 esac
