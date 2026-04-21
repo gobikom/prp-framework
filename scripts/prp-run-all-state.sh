@@ -288,8 +288,12 @@ set_review_fix_state() {
         rm -f "$backup"
     else
         # Roll back to the pre-write snapshot. If the rollback itself fails,
-        # the partial state stays in place but the caller still gets exit 1.
-        mv "$backup" "$STATE_FILE" 2>/dev/null || rm -f "$backup"
+        # preserve the backup so an operator can recover manually — losing
+        # both the partial state AND the backup would be unrecoverable.
+        if ! mv "$backup" "$STATE_FILE" 2>/dev/null; then
+            echo "CRITICAL: rollback failed — state file may be partial. Backup preserved at: $backup" >&2
+            exit 2
+        fi
         echo "Error: Failed to update review-fix state; rolled back to prior snapshot" >&2
         exit 1
     fi
@@ -420,7 +424,10 @@ EOF
 
         if ! set_frontmatter_value "step" "$local_step" || \
             ! set_frontmatter_value "updated_at" "\"${local_timestamp}\""; then
-            mv "$backup" "$STATE_FILE" 2>/dev/null || rm -f "$backup"
+            if ! mv "$backup" "$STATE_FILE" 2>/dev/null; then
+                echo "CRITICAL: rollback failed — state file may be partial. Backup preserved at: $backup" >&2
+                exit 2
+            fi
             echo "Error: Failed to update completed-step frontmatter; rolled back to prior snapshot" >&2
             exit 1
         fi
@@ -442,13 +449,19 @@ EOF
             }
         ' "$STATE_FILE" > "$tmp_file"; then
             rm -f "$tmp_file"
-            mv "$backup" "$STATE_FILE" 2>/dev/null || rm -f "$backup"
+            if ! mv "$backup" "$STATE_FILE" 2>/dev/null; then
+                echo "CRITICAL: rollback failed — state file may be partial. Backup preserved at: $backup" >&2
+                exit 2
+            fi
             echo "Error: Failed to append completed-step row" >&2
             exit 1
         fi
         if ! mv "$tmp_file" "$STATE_FILE"; then
             rm -f "$tmp_file"
-            mv "$backup" "$STATE_FILE" 2>/dev/null || rm -f "$backup"
+            if ! mv "$backup" "$STATE_FILE" 2>/dev/null; then
+                echo "CRITICAL: rollback failed — state file may be partial. Backup preserved at: $backup" >&2
+                exit 2
+            fi
             echo "Error: Failed to replace state file with completed-step update" >&2
             exit 1
         fi
@@ -483,7 +496,14 @@ EOF
 
     get-step)
         step=$(get_frontmatter_value "step")
-        if [ -z "$step" ]; then
+        step_status=$?
+        # Distinguish malformed frontmatter (exit 2) from missing key (exit 1)
+        # so the operator sees an actionable signal on a corrupt state file.
+        if [ "$step_status" -eq 2 ]; then
+            echo "Error: State file frontmatter is malformed" >&2
+            exit 1
+        fi
+        if [ "$step_status" -ne 0 ] || [ -z "$step" ]; then
             echo "Error: Cannot read step from state file" >&2
             exit 1
         fi
@@ -584,18 +604,28 @@ EOF
 
     lock)
         if [ -f "$LOCK_FILE" ]; then
-            # Check if stale (older than 2 hours = 7200 seconds)
+            # Capture mtime into a variable so a stat failure (race: file gone
+            # between -f check and stat, or permission error) does not feed
+            # empty string into the arithmetic and silently produce lock_age=0.
             if [ "$(uname)" = "Darwin" ]; then
-                lock_age=$(( $(date +%s) - $(stat -f "%m" "$LOCK_FILE") ))
+                lock_mtime=$(stat -f "%m" "$LOCK_FILE" 2>/dev/null)
             else
-                lock_age=$(( $(date +%s) - $(stat -c "%Y" "$LOCK_FILE") ))
+                lock_mtime=$(stat -c "%Y" "$LOCK_FILE" 2>/dev/null)
             fi
-            if [ "$lock_age" -gt 7200 ]; then
-                echo "Removing stale lock (age: ${lock_age}s)"
+            if ! [[ "$lock_mtime" =~ ^[0-9]+$ ]]; then
+                # Unreadable or vanished lock — treat as stale and remove.
+                echo "Removing unreadable lock (stat failed or file gone)"
                 rm -f "$LOCK_FILE"
             else
-                echo "Error: Workflow already locked (age: ${lock_age}s)" >&2
-                exit 1
+                # Stale check: older than 2 hours = 7200 seconds
+                lock_age=$(( $(date +%s) - lock_mtime ))
+                if [ "$lock_age" -gt 7200 ]; then
+                    echo "Removing stale lock (age: ${lock_age}s)"
+                    rm -f "$LOCK_FILE"
+                else
+                    echo "Error: Workflow already locked (age: ${lock_age}s)" >&2
+                    exit 1
+                fi
             fi
         fi
         if ! mkdir -p .prp-output/state; then

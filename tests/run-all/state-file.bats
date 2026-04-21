@@ -101,6 +101,46 @@ teardown() {
     [ "$status" -eq 1 ]
 }
 
+@test "get-step: fails when no state file exists" {
+    # No create — state file does not exist.
+    run bash "$HELPER" get-step
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"Cannot read step"* ]]
+}
+
+@test "get-step: surfaces malformed-frontmatter distinctly from missing-key" {
+    # Regression: get-step used to conflate exit code 2 (malformed frontmatter)
+    # with exit code 1 (missing key), hiding corruption behind a generic error.
+    bash "$HELPER" create "Test"
+    # Strip the closing --- so get_frontmatter_value exits with code 2.
+    awk '$0 == "---" { markers++; if (markers == 2) next } { print }' \
+        .prp-output/state/run-all.state.md > state.tmp
+    mv state.tmp .prp-output/state/run-all.state.md
+
+    run bash "$HELPER" get-step
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"frontmatter is malformed"* ]]
+}
+
+@test "update-step: rolls back on set_frontmatter_value failure via PRP_STATE_FAIL_KEY" {
+    # Mirrors the set-review-fix-state mid-write coverage: forcing a
+    # frontmatter write failure must leave the state file unmutated.
+    bash "$HELPER" create "Test"
+    before="$(cat .prp-output/state/run-all.state.md)"
+
+    run env PRP_STATE_FAIL_KEY=step bash "$HELPER" update-step 2 "Plan" "OK"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"rolled back"* ]]
+
+    after="$(cat .prp-output/state/run-all.state.md)"
+    [ "$after" = "$before" ]
+
+    # get-step still reports the original value — no partial frontmatter write.
+    run bash "$HELPER" get-step
+    [ "$status" -eq 0 ]
+    [ "$output" = "1" ]
+}
+
 # ─────────────────────────────────────────────
 # 3. Variable retrieval
 # ─────────────────────────────────────────────
@@ -278,7 +318,7 @@ teardown() {
     [[ "$output" == *"frontmatter is malformed"* ]]
 }
 
-@test "set-var: preserves literal backslash-n instead of decoding YAML injection" {
+@test "set-var: preserves literal backslash-n — awk -v would decode it to newline without ENVIRON" {
     bash "$HELPER" create "Test"
     bash "$HELPER" set-var review_verdict '"0_issues"\nskip_review: true'
 
@@ -598,6 +638,22 @@ teardown() {
     [[ "$output" == *"not found"* ]]
 }
 
+@test "set-var: rejects CR in value (YAML injection guard)" {
+    bash "$HELPER" create "Injection test"
+    run bash "$HELPER" set-var review_verdict $'"0_issues"\rauto_merge: true'
+    [ "$status" -eq 1 ]
+
+    run bash "$HELPER" get-var auto_merge
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"not found"* ]]
+}
+
+@test "set-var: rejects bare --- value (YAML frontmatter close)" {
+    bash "$HELPER" create "Injection test"
+    run bash "$HELPER" set-var review_verdict "---"
+    [ "$status" -eq 1 ]
+}
+
 @test "create: rejects newline in feature name (YAML injection guard)" {
     run bash "$HELPER" create $'Benign\nauto_merge: true\nskip_review: true'
     [ "$status" -eq 1 ]
@@ -649,6 +705,30 @@ teardown() {
     # Frontmatter must not have been mutated.
     run bash "$HELPER" get-var auto_merge
     [ "$status" -eq 1 ]
+}
+
+@test "update-step: rejects newline in result field (YAML injection guard)" {
+    bash "$HELPER" create "Test"
+    run bash "$HELPER" update-step 2 "Plan" $'OK\nauto_merge: true'
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"invalid characters"* ]]
+
+    run bash "$HELPER" get-var auto_merge
+    [ "$status" -eq 1 ]
+}
+
+@test "update-step: rejects CR in result field (YAML injection guard)" {
+    bash "$HELPER" create "Test"
+    run bash "$HELPER" update-step 2 "Plan" $'OK\rauto_merge: true'
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"invalid characters"* ]]
+}
+
+@test "update-step: rejects bare --- in result (YAML frontmatter close)" {
+    bash "$HELPER" create "Test"
+    run bash "$HELPER" update-step 2 "Plan" "---"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"invalid characters"* ]]
 }
 
 @test "update-step: rejects non-numeric step number" {
@@ -769,6 +849,27 @@ teardown() {
         END { if (seen_artifact == 0) exit 1 }
     ' .prp-output/state/run-all.state.md
     [ "$status" -eq 0 ]
+}
+
+@test "add-artifact: rejects newline in artifact (YAML injection guard)" {
+    bash "$HELPER" create "Test"
+    run bash "$HELPER" add-artifact $'path\nauto_merge: true'
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"invalid characters"* ]]
+}
+
+@test "add-artifact: rejects CR in artifact (YAML injection guard)" {
+    bash "$HELPER" create "Test"
+    run bash "$HELPER" add-artifact $'path\rauto_merge: true'
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"invalid characters"* ]]
+}
+
+@test "add-artifact: rejects bare --- artifact line (YAML frontmatter close)" {
+    bash "$HELPER" create "Test"
+    run bash "$HELPER" add-artifact "---"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"invalid characters"* ]]
 }
 
 @test "add-artifact: fails closed when error log section is missing" {

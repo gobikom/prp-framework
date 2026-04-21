@@ -280,6 +280,7 @@ State management helper for the `run-all` workflow. Manages a state file that tr
 - The `create` command defaults: `use_ralph=false`, `ralph_max_iter=10`, `fix_severity=critical,high,medium,suggestion`, `skip_review=false`, `no_pr=false`.
 - `get-var` returns legacy defaults for review-loop fields that are missing from older state files.
 - `set-review-fix-state` writes the skipped-state fields together: all fixed clears `pending_skipped`, `all_skipped`, `skipped_count`, and `all_skipped_rounds`; partial skips set `pending_skipped=true` and reset `all_skipped_rounds`; all skips set both `pending_skipped=true` and `all_skipped=true`, then increment `all_skipped_rounds`.
+- `set-var` mutates a single frontmatter key and does **NOT** touch `updated_at`. Callers that need a refreshed timestamp should follow up with `set-var updated_at '"..."'` or use `update-step` / `set-review-fix-state`, both of which refresh `updated_at` automatically.
 - The `exists` command uses only the exit code (0 or 1) and produces no output. Use it in conditionals.
 - Stale lock detection uses the filesystem modification time of the lock file, so it works even if the locking process has crashed.
 

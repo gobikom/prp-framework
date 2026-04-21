@@ -601,7 +601,6 @@ Commit → PR → Review/Fix Loop → Summary
 | `--ralph` | Use ralph loop instead of one-shot implement |
 | `--ralph-max-iter N` | Set ralph max iterations (default: 10) |
 | `--resume` | Resume from last failed step using saved state |
-| `--skip-plan` | Select from available plans instead of creating new one |
 | `--skip-review` | Skip review step |
 | `--no-pr` | Skip PR and review steps |
 | `--fix-severity <levels>` | Override review-fix severity (default: `critical,high,medium,suggestion`) |
@@ -622,13 +621,13 @@ run-all creates a state file at `.prp-output/state/run-all.state.md` to track pr
 After PR creation, the review step runs a fix loop targeting 0 issues:
 1. Run `/prp:review-agents` on the PR (default; use `--review-single-agent` for single-agent review)
 2. If any issues matching `FIX_SEVERITY` found (default: all severities) and cycle <= MAX_CYCLES (default 5): run `/prp:review-fix` with `--severity {FIX_SEVERITY}`
-3. Re-verify with `/prp:review` (always single-agent — use full review when prior fixes skipped issues)
+3. Re-verify with `/prp:review` (always single-agent). When review-fix skipped nothing, use `--since-last-review` for incremental re-check. When `PENDING_SKIPPED=true` (any prior issue was skipped), run a FULL review with `--context <path>` when the context file exists — `--since-last-review` is suppressed because skipped issues would not re-surface incrementally.
 4. Loop until 0 issues or MAX_CYCLES reached. If `--merge` and 0 issues → proceed to merge + cleanup
 5. If review-fix skips all remaining issues for 2 consecutive rounds, stop early, create an escalation issue or local escalation artifact, and block merge
 
 ### Context Handoff
 
-Implement step generates `pr-context-{branch}.md` which is passed explicitly to review via `--context <path>` when available, saving ~60K tokens by skipping redundant file gathering. If the context file is missing, review falls back to normal context extraction.
+Implement step generates `pr-context-{branch}.md` which is passed explicitly to review via `--context <path>` when available, saving ~60K tokens by skipping redundant file gathering. If the context file is missing, review falls back to normal context extraction. During the review-fix loop, `--since-last-review` is used only when the previous fix cycle skipped nothing; when `PENDING_SKIPPED=true`, it is suppressed in favour of a full review + `--context <path>` so skipped findings are re-inspected.
 
 ### --ralph Flag
 

@@ -156,12 +156,20 @@ RUN_TIMESTAMP=$(date +%Y%m%d-%H%M)
 ```bash
 LOCK_FILE=".prp-output/state/run-all.lock"
 if [ -f "$LOCK_FILE" ]; then
-  # Check if lock is stale (older than 2 hours)
-  LOCK_AGE=$(( $(date +%s) - $(stat -c "%Y" "$LOCK_FILE" 2>/dev/null || stat -f "%m" "$LOCK_FILE" 2>/dev/null) ))
-  if [ "$LOCK_AGE" -gt 7200 ]; then
+  # Capture mtime into a variable so a stat failure (race: file gone
+  # between -f check and stat) does not feed empty string into the
+  # arithmetic and silently yield LOCK_AGE=0 (fresh lock).
+  LOCK_MTIME=$(stat -c "%Y" "$LOCK_FILE" 2>/dev/null || stat -f "%m" "$LOCK_FILE" 2>/dev/null)
+  if ! [[ "$LOCK_MTIME" =~ ^[0-9]+$ ]]; then
+    # Lock file vanished or is unreadable — treat as stale.
     echo "STALE_LOCK"
   else
-    echo "LOCKED"
+    LOCK_AGE=$(( $(date +%s) - LOCK_MTIME ))
+    if [ "$LOCK_AGE" -gt 7200 ]; then
+      echo "STALE_LOCK"
+    else
+      echo "LOCKED"
+    fi
   fi
 else
   echo "UNLOCKED"
@@ -718,7 +726,7 @@ State and lock files are only deleted here — after merge and cleanup succeed. 
 - REVIEWED: Review posted with verdict (unless --skip-review)
 - INCREMENTAL_REVIEW: Re-verify uses `--since-last-review` for token optimization
 - ZERO_ISSUES_TARGET: Review-fix loop continues until 0 issues matching `FIX_SEVERITY` or MAX_CYCLES reached. The default `FIX_SEVERITY` includes all severities. **Skipped issues count as remaining** — they are deferred, not resolved. Re-verify uses FULL review (not incremental) when any issues were skipped in the prior round, so skipped items re-surface in the next evaluation.
-- NO_SILENT_MERGE: `--merge` only executes when `REVIEW_VERDICT = "0_issues"`. `needs_manual_fix` (MAX_CYCLES hit OR 2 rounds all-skipped) blocks merge; escalation GH issue is created instead.
+- NO_SILENT_MERGE: `--merge` only executes when `REVIEW_VERDICT = "0_issues"`. `needs_manual_fix` (MAX_CYCLES hit OR 2 rounds all-skipped) blocks merge; escalation GH issue or local escalation artifact is created instead.
 - MERGED: PR squash-merged if --merge and 0 issues (unless --no-pr or --skip-review)
 - CLEANED_UP: Branch deleted, main updated, issue closed if --issue
 - STATE_CLEANED: State and lock files deleted after completion
