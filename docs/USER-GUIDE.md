@@ -391,12 +391,17 @@ PRD → Design → Plan → Implement → Commit → PR → Review
 |------|-------------|
 | `--prp-path <path>` | Use existing plan, skip plan step |
 | `--skip-plan` | Alias for `--prp-path` — prompts to select from available plans in `.prp-output/plans/` |
+| `--issue <N>` | Fetch GitHub issue #N context. Smart plan detection (small: skip, medium: fast, large: full plan) |
+| `--merge` | Auto squash-merge PR after review passes (0 issues). Runs cleanup + issue close |
+| `--max-review-rounds <N>` | Max review-fix cycles (default: 5). Loop targets 0 issues matching `FIX_SEVERITY` |
 | `--fast` | Use fast-track plan mode (lighter codebase analysis, good for simple features) |
 | `--ralph` | Use ralph loop instead of one-shot implement |
 | `--ralph-max-iter N` | Set ralph max iterations (default: 10) |
 | `--resume` | Resume from last failed step using saved state |
 | `--skip-review` | Skip review step |
 | `--no-pr` | Skip PR and review steps |
+| `--review-single-agent` | Use single-agent review instead of the default multi-agent review. Saves tokens, less depth |
+| `--package <name>` | Scope to a specific monorepo package. Passed through to plan and implement steps |
 | `--fix-severity <levels>` | Override review-fix severity (default: `critical,high,medium,suggestion`) |
 | `--no-interact` | ไม่ถามคำถาม — ใช้ best judgment สำหรับ requirements ที่คลุมเครือ, เลือก defaults อัตโนมัติ |
 | `--dry-run` | Preview ทุก step ที่จะ run + estimated token cost โดยไม่ execute จริง |

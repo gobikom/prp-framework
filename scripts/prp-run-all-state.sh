@@ -34,8 +34,9 @@ get_frontmatter_value() {
     validate_frontmatter_key "$key" || return 1
     # Extract value between --- markers. An explicitly empty value is valid.
     # The key is validated above (alphanumeric + underscore only), so awk's
-    # `-v` C-escape decoding is harmless for it. Values flow through ENVIRON
-    # on the write paths to prevent decoding of untrusted backslash sequences.
+    # `-v` C-escape decoding is harmless for it. On the write path
+    # (`set_frontmatter_value`), values flow through ENVIRON instead of `-v`
+    # to prevent backslash-sequence decoding of untrusted strings.
     awk -v key="$key" '
         BEGIN { marker = 0; found = 0; value = "" }
         $0 == "---" { marker++; next }
@@ -266,8 +267,16 @@ set_review_fix_state() {
             set_frontmatter_value "skipped_count" "0" && \
             set_frontmatter_value "all_skipped_rounds" "0" || ok=0
     elif [ "$fixed_count" -eq 0 ]; then
-        local rounds_value rounds_next
-        if ! rounds_value=$(get_frontmatter_value "all_skipped_rounds" 2>/dev/null); then
+        local rounds_value rounds_next rounds_rc
+        rounds_value=$(get_frontmatter_value "all_skipped_rounds" 2>/dev/null)
+        rounds_rc=$?
+        if [ "$rounds_rc" -eq 2 ]; then
+            # Distinct from missing-key (exit 1): exit 2 means malformed
+            # frontmatter. Preserve the counter-reset behavior but WARN so
+            # the corruption isn't silently swallowed.
+            echo "Warning: malformed frontmatter while reading 'all_skipped_rounds' — resetting counter to 0" >&2
+            rounds_value="0"
+        elif [ "$rounds_rc" -ne 0 ]; then
             rounds_value="0"
         fi
         if ! [[ "$rounds_value" =~ ^[0-9]+$ ]]; then
@@ -289,7 +298,10 @@ set_review_fix_state() {
     fi
 
     if [ "$ok" -eq 1 ] && set_frontmatter_value "updated_at" "\"${timestamp}\""; then
-        rm -f "$backup"
+        # Non-fatal: a leaked backup is recoverable (next run's snapshot
+        # will overwrite the PID-suffixed path), but surface the problem
+        # so a read-only FS or full disk doesn't go unnoticed.
+        rm -f "$backup" || echo "WARN: Could not remove rollback backup: $backup" >&2
     else
         # Roll back to the pre-write snapshot. If the rollback itself fails,
         # preserve the backup so an operator can recover manually — losing
@@ -427,7 +439,8 @@ EOF
             exit 1
         fi
 
-        # Write 1/3 + 2/3: update step number and timestamp in frontmatter.
+        # Writes 1 and 2 (of 3): update step number and timestamp in
+        # frontmatter. Write 3 is the completed-step body row below.
         if ! set_frontmatter_value "step" "$local_step" || \
             ! set_frontmatter_value "updated_at" "\"${local_timestamp}\""; then
             if ! mv "$backup" "$STATE_FILE" 2>/dev/null; then
@@ -438,6 +451,7 @@ EOF
             exit 1
         fi
 
+        # Write 3 (of 3): append the completed-step row to the body table.
         tmp_file="${STATE_FILE}.tmp"
         if ! STEP_ROW="| ${local_step} | ${local_name} | ${local_result} | ${local_time} |" awk '
             BEGIN { inserted = 0; row = ENVIRON["STEP_ROW"] }
@@ -471,7 +485,10 @@ EOF
             echo "Error: Failed to replace state file with completed-step update" >&2
             exit 1
         fi
-        rm -f "$backup"
+        # Non-fatal: a leaked backup is recoverable (next run's snapshot
+        # will overwrite the PID-suffixed path), but surface the problem
+        # so a read-only FS or full disk doesn't go unnoticed.
+        rm -f "$backup" || echo "WARN: Could not remove rollback backup: $backup" >&2
 
         echo "Step updated to $local_step: $local_name"
         ;;
@@ -491,7 +508,10 @@ EOF
             echo "Error: Invalid variable name '$var_name'" >&2
             exit 1
         fi
-        must_set_frontmatter_value "$var_name" "$var_value"
+        # `|| exit $?` mirrors the set-review-fix-state dispatcher pattern:
+        # `must_set_frontmatter_value` exits on failure today, but a future
+        # refactor to `return` must not silently print the success line.
+        must_set_frontmatter_value "$var_name" "$var_value" || exit $?
         echo "Variable updated: $var_name"
         ;;
 
@@ -603,8 +623,11 @@ EOF
         ;;
 
     cleanup)
-        # Fail loudly if either removal fails — a silent success here would
-        # mask stale state surviving into the next workflow run.
+        # `rm -f` intentionally treats missing files as success (that's the
+        # `-f` flag). Guard only catches true removal failures — permission
+        # errors, read-only filesystem, etc. Do NOT remove `-f` to "fail
+        # loudly on missing files"; the workflow relies on cleanup being
+        # idempotent after a successful run.
         if ! rm -f "$STATE_FILE" "$LOCK_FILE"; then
             echo "Error: Failed to remove state or lock file during cleanup" >&2
             exit 1
@@ -631,7 +654,10 @@ EOF
                 echo "Removing unreadable lock (stat failed or file gone)"
                 rm -f "$LOCK_FILE"
             else
-                # Stale check: older than 2 hours = 7200 seconds
+                # 2-hour stale threshold: long enough to outlast any normal
+                # run-all workflow (largest runs complete in <1h), short enough
+                # to recover from a crashed session on the next invocation
+                # without operator intervention.
                 lock_age=$(( $(date +%s) - lock_mtime ))
                 if [ "$lock_age" -gt 7200 ]; then
                     echo "Removing stale lock (age: ${lock_age}s)"

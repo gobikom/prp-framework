@@ -981,6 +981,18 @@ teardown() {
     [ ! -f ".prp-output/state/run-all.lock" ]
 }
 
+@test "lock: fails closed when lock file cannot be written" {
+    # Block the lock path by creating a directory with the same name.
+    # `echo "$$" > file` fails with "Is a directory".
+    mkdir -p ".prp-output/state/run-all.lock"
+    run bash "$HELPER" lock
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"Cannot write lock file"* ]]
+    # The directory must remain — lock write failed, no silent replace.
+    [ -d ".prp-output/state/run-all.lock" ]
+    rmdir ".prp-output/state/run-all.lock"
+}
+
 # ─────────────────────────────────────────────
 # 8. Invalid usage
 # ─────────────────────────────────────────────

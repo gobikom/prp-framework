@@ -181,8 +181,8 @@ fi
 
 | Result | Action |
 |--------|--------|
-| UNLOCKED | Create lock: `echo "$$" > .prp-output/state/run-all.lock` → proceed |
-| STALE_LOCK | Remove stale lock, create new one → proceed |
+| UNLOCKED | Create lock via the helper: `./scripts/prp-run-all-state.sh lock` → proceed. The helper guards the write and exits non-zero on failure (do NOT fall back to a bare `echo "$$" > .prp-output/state/run-all.lock` — a silent write failure would allow two runs to both "acquire" the lock and collapse the mutex guarantee). |
+| STALE_LOCK | `./scripts/prp-run-all-state.sh lock` (it clears stale locks automatically) → proceed |
 | LOCKED | STOP: "Another run-all workflow is active. Wait or delete `.prp-output/state/run-all.lock` to force." |
 
 **Check for existing state file:**
@@ -619,9 +619,13 @@ gh issue view {ISSUE_NUMBER} --json state --jq '.state'
 #### 8.4 Final Cleanup
 
 ```bash
-rm -f .prp-output/state/run-all.state.md
-rm -f .prp-output/state/run-all.lock
+./scripts/prp-run-all-state.sh cleanup
 ```
+
+Always route through the helper — it guards `rm -f` and exits non-zero on
+failure (permission error, read-only FS). Do NOT inline bare `rm -f`
+calls: a silent removal failure would leave stale state surviving into
+the next run, breaking `--resume` detection.
 
 State and lock files are only deleted here — after merge and cleanup succeed. This ensures `--resume` works if Step 8 fails.
 

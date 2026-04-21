@@ -541,13 +541,17 @@ cat .prp-output/state/ralph.state.md
 
 **Purpose:** Execute complete end-to-end workflow from feature idea to reviewed (and optionally merged) PR.
 
-### Process (9 Sub-Steps)
+### Process
 
 ```
 Parse Input → Initialize State → Fetch Issue (optional) →
 Create Branch → Plan → Implement (or Ralph) →
 Commit → PR → Review/Fix Loop → Summary → Merge & Cleanup (optional)
 ```
+
+- **7 tracked core steps** (Create Branch → Plan → Implement → Commit → PR → Review → Summary) are recorded in `.prp-output/state/run-all.state.md` under `total_steps`. These are what the completed-step table tracks.
+- Setup sub-steps (Parse Input, Initialize State) and optional sub-steps (Fetch Issue via `--issue`, Merge & Cleanup via `--merge`) are orchestration — not counted in `total_steps`.
+- The sub-steps map to Steps 0, 0.5, 0.8, 1, 2, 3, 4, 5, 6, 7, 8 in `prompts/run-all.md`.
 
 ### Options
 
