@@ -539,13 +539,14 @@ cat .prp-output/state/ralph.state.md
 
 ## Workflow: Run All (End-to-End)
 
-**Purpose:** Execute complete 7-step workflow from feature idea to reviewed PR.
+**Purpose:** Execute complete end-to-end workflow from feature idea to reviewed (and optionally merged) PR.
 
-### Process (7 Steps)
+### Process (9 Sub-Steps)
 
 ```
-Parse Input → Create Branch → Plan → Implement (or Ralph) →
-Commit → PR → Review/Fix Loop → Summary
+Parse Input → Initialize State → Fetch Issue (optional) →
+Create Branch → Plan → Implement (or Ralph) →
+Commit → PR → Review/Fix Loop → Summary → Merge & Cleanup (optional)
 ```
 
 ### Options
@@ -603,6 +604,8 @@ Commit → PR → Review/Fix Loop → Summary
 | `--resume` | Resume from last failed step using saved state |
 | `--skip-review` | Skip review step |
 | `--no-pr` | Skip PR and review steps |
+| `--review-single-agent` | Use single-agent review instead of the default multi-agent review. Saves tokens, less depth |
+| `--package <name>` | Scope to a specific monorepo package. Passed through to plan and implement steps |
 | `--fix-severity <levels>` | Override review-fix severity (default: `critical,high,medium,suggestion`) |
 | `--no-interact` | Never ask user questions — use best judgment for ambiguous requirements, pick defaults |
 | `--dry-run` | Preview all steps and estimated token cost without executing anything |

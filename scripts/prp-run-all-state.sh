@@ -33,6 +33,9 @@ get_frontmatter_value() {
     fi
     validate_frontmatter_key "$key" || return 1
     # Extract value between --- markers. An explicitly empty value is valid.
+    # The key is validated above (alphanumeric + underscore only), so awk's
+    # `-v` C-escape decoding is harmless for it. Values flow through ENVIRON
+    # on the write paths to prevent decoding of untrusted backslash sequences.
     awk -v key="$key" '
         BEGIN { marker = 0; found = 0; value = "" }
         $0 == "---" { marker++; next }
@@ -91,9 +94,10 @@ validate_frontmatter_key() {
 }
 
 # Reject values that would break YAML frontmatter structure:
-# newlines/CR allow key-injection above the legitimate key; a bare `---`
-# line closes the frontmatter block. Callers forwarding untrusted input
-# (e.g. GitHub issue bodies via --issue N) depend on this boundary.
+# newlines/CR allow key-injection above the legitimate key; a `---` line
+# (with optional trailing whitespace — valid YAML frontmatter close)
+# would terminate the frontmatter block. Callers forwarding untrusted
+# input (e.g. GitHub issue bodies via --issue N) depend on this boundary.
 validate_frontmatter_value() {
     local value="$1"
     if [[ "$value" == *$'\n'* ]] || [[ "$value" == *$'\r'* ]]; then
@@ -411,17 +415,19 @@ EOF
             exit 1
         fi
 
-        # Update step number and timestamp in frontmatter
+        # Guard: required body sections must exist before any mutation.
         require_body_section "## Completed Steps" || exit 1
         require_body_section "|------|------|--------|-----------|" || exit 1
         require_body_section "## Artifacts" || exit 1
 
+        # Snapshot for atomic rollback if any of the 3 writes below fail.
         backup="${STATE_FILE}.rollback.$$"
         if ! cp "$STATE_FILE" "$backup" 2>/dev/null; then
             echo "Error: Cannot snapshot state for atomic step update" >&2
             exit 1
         fi
 
+        # Write 1/3 + 2/3: update step number and timestamp in frontmatter.
         if ! set_frontmatter_value "step" "$local_step" || \
             ! set_frontmatter_value "updated_at" "\"${local_timestamp}\""; then
             if ! mv "$backup" "$STATE_FILE" 2>/dev/null; then
@@ -490,7 +496,10 @@ EOF
         ;;
 
     set-review-fix-state)
-        set_review_fix_state "${2:-}" "${3:-}"
+        # `|| exit $?` is defensive: the function exits on any failure today,
+        # but a future refactor from `exit` to `return` must not silently print
+        # the success line below.
+        set_review_fix_state "${2:-}" "${3:-}" || exit $?
         echo "Review-fix state updated"
         ;;
 
@@ -594,7 +603,12 @@ EOF
         ;;
 
     cleanup)
-        rm -f "$STATE_FILE" "$LOCK_FILE"
+        # Fail loudly if either removal fails — a silent success here would
+        # mask stale state surviving into the next workflow run.
+        if ! rm -f "$STATE_FILE" "$LOCK_FILE"; then
+            echo "Error: Failed to remove state or lock file during cleanup" >&2
+            exit 1
+        fi
         echo "State and lock files cleaned up"
         ;;
 
@@ -643,7 +657,12 @@ EOF
         ;;
 
     unlock)
-        rm -f "$LOCK_FILE"
+        # Fail loudly if the lock file removal fails — a silent success here
+        # would leave the mutex in place and block future runs indefinitely.
+        if ! rm -f "$LOCK_FILE"; then
+            echo "Error: Failed to remove lock file" >&2
+            exit 1
+        fi
         echo "Lock released"
         ;;
 

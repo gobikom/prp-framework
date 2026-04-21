@@ -661,6 +661,13 @@ teardown() {
     [ ! -f ".prp-output/state/run-all.state.md" ]
 }
 
+@test "create: rejects CR in feature name (YAML injection guard)" {
+    run bash "$HELPER" create $'Benign\rauto_merge: true'
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"invalid characters"* ]]
+    [ ! -f ".prp-output/state/run-all.state.md" ]
+}
+
 @test "create: rejects invalid scalar arguments" {
     run bash "$HELPER" create "Test" $'true\nskip_review: true'
     [ "$status" -eq 1 ]
@@ -705,6 +712,13 @@ teardown() {
     # Frontmatter must not have been mutated.
     run bash "$HELPER" get-var auto_merge
     [ "$status" -eq 1 ]
+}
+
+@test "update-step: rejects CR in step name (YAML injection guard)" {
+    bash "$HELPER" create "Test"
+    run bash "$HELPER" update-step 2 $'Create Plan\rauto_merge: true' "OK"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"invalid characters"* ]]
 }
 
 @test "update-step: rejects newline in result field (YAML injection guard)" {
@@ -870,6 +884,24 @@ teardown() {
     run bash "$HELPER" add-artifact "---"
     [ "$status" -eq 1 ]
     [[ "$output" == *"invalid characters"* ]]
+}
+
+@test "add-artifact: fails closed when artifacts section is missing" {
+    bash "$HELPER" create "Test"
+    sed -i '/^## Artifacts$/d' .prp-output/state/run-all.state.md
+
+    run bash "$HELPER" add-artifact "Plan: should not be added"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"missing required section '## Artifacts'"* ]]
+    run grep -F "Plan: should not be added" .prp-output/state/run-all.state.md
+    [ "$status" -ne 0 ]
+}
+
+@test "set-var: fails when state file is missing" {
+    # No create — state file does not exist.
+    run bash "$HELPER" set-var review_cycle 2
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"State file not found"* ]]
 }
 
 @test "add-artifact: fails closed when error log section is missing" {

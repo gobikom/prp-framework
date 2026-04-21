@@ -229,7 +229,9 @@ State management helper for the `run-all` workflow. Manages a state file that tr
 
 1. **State file** is stored at `.prp-output/state/run-all.state.md`. It uses YAML frontmatter for configuration variables and a markdown table to track completed steps.
 
-2. **YAML frontmatter** contains: `step`, `total_steps`, `feature`, `plan_path`, `branch`, `pr_number`, `review_artifact`, `review_verdict`, `review_cycle`, `pending_skipped`, `all_skipped`, `skipped_count`, `all_skipped_rounds`, `use_ralph`, `ralph_max_iter`, `fix_severity`, `skip_review`, `no_pr`, `started_at`, `updated_at`.
+2. **YAML frontmatter** contains:
+   - **Written by `create`**: `step`, `total_steps`, `feature`, `plan_path`, `branch`, `pr_number`, `review_artifact`, `review_verdict`, `review_cycle`, `pending_skipped`, `all_skipped`, `skipped_count`, `all_skipped_rounds`, `use_ralph`, `ralph_max_iter`, `fix_severity`, `skip_review`, `no_pr`, `started_at`, `updated_at`.
+   - **Added by the run-all workflow via `set-var`** (not by `create`): `fast_plan`, `skip_plan`, `no_interact`, `issue_number`, `auto_merge`, `max_cycles`. These fields exist only when the workflow explicitly sets them; otherwise `get-var` falls back to legacy defaults.
 
 3. **Lock mechanism** uses a lock file at `.prp-output/state/run-all.lock`:
    - `lock` writes the current PID to the lock file.
