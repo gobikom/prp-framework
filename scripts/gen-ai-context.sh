@@ -189,6 +189,7 @@ generate_context_map() {
         case "$dir" in
             node_modules|.git|.prp|.prp-output|.claude|.codex|.opencode|.gemini|.agents|dist|build|__pycache__|.venv|venv|.env|coverage|.nyc_output|logs|output|tmp|temp) continue ;;
             src|test|tests|docs|scripts|bin|deploy|config|conf|prisma|public|static|assets) continue ;;  # already handled above
+            *.backup|*.backup.*|*.bak|*.old|*.orig|*~|*-backup|*-backup-*) continue ;;  # backup/stale dir conventions (#72)
         esac
         # Only include if it has code files
         if find "$dir" -maxdepth 2 \( -name "*.py" -o -name "*.ts" -o -name "*.js" -o -name "*.go" -o -name "*.rs" -o -name "*.java" -o -name "*.yaml" -o -name "*.yml" -o -name "*.sh" \) -print -quit 2>/dev/null | grep -q .; then
@@ -416,6 +417,7 @@ do_check() {
             dir="${dir%/}"
             case "$dir" in
                 node_modules|.git|.prp|.prp-output|.claude|.codex|.opencode|.gemini|.agents|dist|build|__pycache__|.venv|venv|.env|coverage|.nyc_output|logs|output|tmp|temp|.claude-plugin|public|static|assets) continue ;;
+                *.backup|*.backup.*|*.bak|*.old|*.orig|*~|*-backup|*-backup-*) continue ;;  # backup/stale dir conventions (#72)
             esac
             if find "$dir" -maxdepth 2 \( -name "*.py" -o -name "*.ts" -o -name "*.js" -o -name "*.go" -o -name "*.rs" -o -name "*.sh" -o -name "*.yaml" \) -print -quit 2>/dev/null | grep -q .; then
                 if ! grep -q "\`${dir}/\`\|${dir}/" "$PROJECT_MD" 2>/dev/null; then
