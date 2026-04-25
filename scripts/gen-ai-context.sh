@@ -120,7 +120,7 @@ detect_entry_points() {
         local pyproject_scripts
         pyproject_scripts=$(awk '/^\[project\.scripts\]/{found=1; next} found && /^\[/{exit} found' \
             pyproject.toml 2>/dev/null \
-            | grep '=' | awk -F'=' '{gsub(/[ \t]/, "", $1); print $1}' | head -3)
+            | grep '=' | awk -F'=' '{gsub(/[ \t]/, "", $1); print $1}' | head -3 || true)
         while IFS= read -r scr; do
             [ -n "$scr" ] && entries+=("pyproject.toml → $scr")
         done <<< "$pyproject_scripts"
@@ -140,8 +140,10 @@ detect_entry_points() {
         [ -f "$f" ] && entries+=("$f")
     done
     # Java/Kotlin: Application.java or Main.java in Maven/Gradle layout
-    local java_entry
-    java_entry=$(find src/main/java -maxdepth 6 \( -name "Application.java" -o -name "Main.java" \) -print 2>/dev/null | head -1)
+    local java_entry=""
+    if [ -d "src/main/java" ]; then
+        java_entry=$(find src/main/java -maxdepth 6 \( -name "Application.java" -o -name "Main.java" \) -print 2>/dev/null | head -1 || true)
+    fi
     [ -n "$java_entry" ] && entries+=("${java_entry#./}")
     [ -d "bin" ] && {
         for f in bin/*; do
@@ -150,13 +152,15 @@ detect_entry_points() {
     }
     # Fallback: language detected but no entry found
     if [ "${#entries[@]}" -eq 0 ]; then
-        local has_python=false has_go=false has_rust=false
+        local has_python=false has_go=false has_rust=false has_java=false
         { [ -f "pyproject.toml" ] || [ -f "requirements.txt" ] || [ -f "setup.py" ]; } && has_python=true
         [ -f "go.mod" ] && has_go=true
         [ -f "Cargo.toml" ] && has_rust=true
-        $has_python && entries+=("Python detected — add entry manually")
-        $has_go && entries+=("Go detected — add entry manually")
-        $has_rust && entries+=("Rust detected — add entry manually")
+        { [ -f "pom.xml" ] || [ -f "build.gradle" ]; } && has_java=true
+        [ "$has_python" = true ] && entries+=("Python detected — add entry manually")
+        [ "$has_go" = true ]     && entries+=("Go detected — add entry manually")
+        [ "$has_rust" = true ]   && entries+=("Rust detected — add entry manually")
+        [ "$has_java" = true ]   && entries+=("Java/Kotlin detected — add entry manually")
     fi
 
     local result=""
