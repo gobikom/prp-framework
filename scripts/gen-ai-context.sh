@@ -426,6 +426,16 @@ do_check() {
                 fi
             fi
         done
+
+        # Reverse scan: warn about Context Map entries pointing at backup/stale dirs
+        while IFS= read -r entry; do
+            case "$entry" in
+                *.backup|*.backup.*|*.bak|*.old|*.orig|*~|*-backup|backup)
+                    log_warn "Context Map entry '$entry/' matches backup-dir skip pattern — run --update to remove"
+                    stale=1
+                    ;;
+            esac
+        done < <(grep -oE '`[^`]+/`' "$PROJECT_MD" 2>/dev/null | tr -d '`' | sed 's|/$||')
     fi
 
     # Summary
