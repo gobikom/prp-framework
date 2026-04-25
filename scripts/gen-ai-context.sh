@@ -120,7 +120,8 @@ detect_entry_points() {
         local pyproject_scripts
         pyproject_scripts=$(awk '/^\[project\.scripts\]/{found=1; next} found && /^\[/{exit} found' \
             pyproject.toml 2>/dev/null \
-            | grep '=' | awk -F'=' '{gsub(/[ \t]/, "", $1); print $1}' | head -3 || true)
+            | grep '=' | awk -F'=' '{gsub(/[ \t]/, "", $1); print $1}' | head -3 \
+            || true)
         while IFS= read -r scr; do
             [ -n "$scr" ] && entries+=("pyproject.toml → $scr")
         done <<< "$pyproject_scripts"
@@ -144,7 +145,7 @@ detect_entry_points() {
     if [ -d "src/main/java" ]; then
         java_entry=$(find src/main/java -maxdepth 6 \( -name "Application.java" -o -name "Main.java" \) -print 2>/dev/null | head -1 || true)
     fi
-    [ -n "$java_entry" ] && entries+=("${java_entry#./}")
+    [ -n "$java_entry" ] && entries+=("$java_entry")
     [ -d "bin" ] && {
         for f in bin/*; do
             [ -x "$f" ] && entries+=("$f")
