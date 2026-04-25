@@ -187,7 +187,7 @@ generate_context_map() {
         dir="${dir%/}"
         # Skip common non-code dirs
         case "$dir" in
-            node_modules|.git|.prp|.prp-output|.claude|.codex|.opencode|.gemini|.agents|dist|build|__pycache__|.venv|venv|.env|coverage|.nyc_output|logs|output|tmp|temp|backup) continue ;;
+            node_modules|.git|.prp|.prp-output|.claude|.codex|.opencode|.gemini|.agents|dist|build|__pycache__|.venv|venv|.env|coverage|.nyc_output|logs|output|tmp|temp|backup|old) continue ;;
             src|test|tests|docs|scripts|bin|deploy|config|conf|prisma|public|static|assets) continue ;;  # already handled above
             *.backup|*.backup.*|*.bak|*.old|*.orig|*~|*-backup) continue ;;  # backup/stale dir conventions (#72)
         esac
@@ -416,7 +416,7 @@ do_check() {
         for dir in */; do
             dir="${dir%/}"
             case "$dir" in
-                node_modules|.git|.prp|.prp-output|.claude|.codex|.opencode|.gemini|.agents|dist|build|__pycache__|.venv|venv|.env|coverage|.nyc_output|logs|output|tmp|temp|.claude-plugin|public|static|assets|backup) continue ;;
+                node_modules|.git|.prp|.prp-output|.claude|.codex|.opencode|.gemini|.agents|dist|build|__pycache__|.venv|venv|.env|coverage|.nyc_output|logs|output|tmp|temp|.claude-plugin|public|static|assets|backup|old) continue ;;
                 *.backup|*.backup.*|*.bak|*.old|*.orig|*~|*-backup) continue ;;  # backup/stale dir conventions (#72)
             esac
             if find "$dir" -maxdepth 2 \( -name "*.py" -o -name "*.ts" -o -name "*.js" -o -name "*.go" -o -name "*.rs" -o -name "*.sh" -o -name "*.yaml" \) -print -quit 2>/dev/null | grep -q .; then
