@@ -427,15 +427,19 @@ do_check() {
             fi
         done
 
-        # Reverse scan: warn about Context Map entries pointing at backup/stale dirs
+        # Reverse scan: Context Map entries pointing at backup/stale dirs
+        # Uses process substitution (not pipe) so stale=1 propagates to parent shell
         while IFS= read -r entry; do
-            case "$entry" in
-                *.backup|*.backup.*|*.bak|*.old|*.orig|*~|*-backup|backup)
+            local base
+            base=$(basename "$entry")
+            case "$base" in
+                *.backup|*.backup.*|*.bak|*.old|*.orig|*~|*-backup|backup|old)
                     log_warn "Context Map entry '$entry/' matches backup-dir skip pattern — run --update to remove"
                     stale=1
                     ;;
             esac
-        done < <(grep -oE '`[^`]+/`' "$PROJECT_MD" 2>/dev/null | tr -d '`' | sed 's|/$||')
+        done < <(sed -n '/AUTO-GEN:BEGIN/,/AUTO-GEN:END/p' "$PROJECT_MD" \
+                 | grep -oE '`[^`]+/`' | tr -d '`' | sed 's|/$||')
     fi
 
     # Summary
