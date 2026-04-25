@@ -76,6 +76,9 @@ SKIP_PLAN = {false by default — may be set by --skip-plan flag or smart plan d
 RESUME_FROM = {0 by default — set from state file's step field if --resume}
 REVIEW_VERDICT = "{TBD — set in Step 6.2}"
 REVIEW_CYCLE = {1 — incremented after each fix cycle in Step 6.4}
+PENDING_SKIPPED = {false — set in Step 6.3 based on review-fix outcome; all 3 outcome rows assign it explicitly}
+ALL_SKIPPED = {false — set in Step 6.3 when fixed_count = 0}
+SKIPPED_COUNT = {0 — set in Step 6.3 to number of skipped issues}
 ```
 
 **Flag validation** (after parsing all flags):
@@ -188,6 +191,7 @@ Write `.prp-output/state/run-all.state.md` using Bash heredoc with YAML frontmat
 - step, total_steps, feature, plan_path, branch, pr_number, review_artifact, review_verdict, review_cycle
 - use_ralph, ralph_max_iter, fix_severity, fast_plan, skip_plan, skip_review, no_pr, no_interact
 - issue_number, auto_merge, max_cycles
+- pending_skipped, all_skipped, skipped_count
 - started_at, updated_at
 - Completed Steps table, Artifacts section, Error Log
 
@@ -198,7 +202,7 @@ On `--resume`: restore ALL variables from state file. Set `RESUME_FROM = step` f
 **STATE UPDATE RULE**: After each step completes:
 1. Increment `step` to next step number
 2. Update `updated_at`
-3. Update new variable values (plan_path, branch, pr_number, review_artifact, review_verdict, review_cycle)
+3. Update new variable values (plan_path, branch, pr_number, review_artifact, review_verdict, review_cycle, pending_skipped, all_skipped, skipped_count)
 4. Append completed step to table
 5. Append new artifacts
 
@@ -431,7 +435,7 @@ This will: detect toolchain, load artifact directly, fix issues by severity, val
 |-------------------|-----|
 | All issues fixed (skipped_count = 0) | `PENDING_SKIPPED = false` |
 | Some fixed, some skipped (skipped_count > 0) | `PENDING_SKIPPED = true`, `SKIPPED_COUNT = N` |
-| All issues skipped (fixed_count = 0, skipped_count > 0) | `PENDING_SKIPPED = true`, `ALL_SKIPPED = true` |
+| All issues skipped (fixed_count = 0, skipped_count > 0) | `PENDING_SKIPPED = true`, `ALL_SKIPPED = true`, `SKIPPED_COUNT = N` |
 
 **Zero-issues bar**: skipped issues are NOT resolved — they are deferred. Do not proceed to Step 7 as if done.
 
@@ -454,22 +458,32 @@ If `--since-last-review` not supported or fails, fall back to full review with `
 
 → **Return to Step 6.2** to evaluate results.
 
-**Escalation guard (NEW 2026-04-17):** before returning to 6.2, if `ALL_SKIPPED = true` AND `REVIEW_CYCLE >= 2` (i.e., we've run review-fix twice and it skipped everything both rounds), STOP the loop early:
+**Escalation guard (NEW 2026-04-17):** before returning to 6.2, if `ALL_SKIPPED = true` AND `REVIEW_CYCLE >= 2` (i.e., review-fix ran at least once with all issues skipped — REVIEW_CYCLE is at least 2 after increment — and cannot make further progress), STOP the loop early:
 - Do NOT loop another round — review-fix has no additional tooling to resolve these.
 - Create escalation GH issue with the remaining items. Label strategy: the `[escalation]` title prefix carries the signal — add repo-appropriate labels only if they exist in the target repo (graceful fallback so different repos with different label schemes do not hard-fail the workflow):
    ```bash
+   REPO=$(gh repo view --json nameWithOwner --jq '.nameWithOwner' 2>/dev/null)
    LABEL_ARGS=""
-   for LABEL in "priority:P2" "bug" "help wanted"; do
-     if gh label list -R "${REPO}" --json name -q ".[] | select(.name==\"$LABEL\") | .name" | grep -q .; then
-       LABEL_ARGS="${LABEL_ARGS:+$LABEL_ARGS,}$LABEL"
-     fi
-   done
+   if [ -n "$REPO" ]; then
+     for LABEL in "priority:P2" "bug" "help wanted"; do
+       if gh label list -R "${REPO}" --json name -q ".[] | select(.name==\"$LABEL\") | .name" | grep -q .; then
+         LABEL_ARGS="${LABEL_ARGS:+$LABEL_ARGS,}$LABEL"
+       fi
+     done
+   else
+     echo "WARN: Cannot determine repo name — skipping label lookup, proceeding without labels."
+   fi
    gh issue create \
      --title "[escalation] prp-run-all: {SKIPPED_COUNT} issues need human judgment on PR #{PR_NUMBER}" \
      ${LABEL_ARGS:+--label "$LABEL_ARGS"} \
      --body "<remaining-items summary + artifact path + round count>"
    ```
-- Set `REVIEW_VERDICT = "needs_manual_fix"`.
+- Set `REVIEW_VERDICT = "needs_manual_fix"` IMMEDIATELY (before any I/O attempts below).
+- If `gh issue create` fails (non-zero exit):
+  - Attempt to write escalation content to `.prp-output/reviews/pr-{PR_NUMBER}-escalation-{RUN_TIMESTAMP}.md`.
+  - If local write succeeds: STOP with "Escalation issue creation failed. Artifact saved locally — file manually."
+  - If local write also fails (disk full / directory missing): STOP with "Escalation failed (gh + disk). Open manually: {skipped issue summary}."
+  - `REVIEW_VERDICT` is already set — do NOT merge in Step 8 regardless of I/O outcome.
 - Proceed to Step 7 SUMMARY, do NOT merge (even with `--merge`).
 
 ---

@@ -8,6 +8,7 @@
 #
 # Commands:
 #   create <feature> [use_ralph] [ralph_max_iter] [fix_severity] [skip_review] [no_pr]
+#          (state also initializes: pending_skipped=false, all_skipped=false, skipped_count=0)
 #   update-step <step_number> <step_name> <result>
 #   get-step        — prints current step number
 #   get-var <name>  — prints a variable from YAML frontmatter
@@ -59,7 +60,7 @@ case "$1" in
         local_no_pr="${7:-false}"
         local_timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
-        mkdir -p .prp-output/state
+        mkdir -p .prp-output/state || { echo "Error: Cannot create state directory" >&2; exit 1; }
         cat > "$STATE_FILE" <<EOF
 ---
 step: 1
@@ -74,6 +75,9 @@ ralph_max_iter: ${local_ralph_max_iter}
 fix_severity: "${local_fix_severity}"
 skip_review: ${local_skip_review}
 no_pr: ${local_no_pr}
+pending_skipped: false
+all_skipped: false
+skipped_count: 0
 started_at: "${local_timestamp}"
 updated_at: "${local_timestamp}"
 ---
@@ -87,6 +91,10 @@ updated_at: "${local_timestamp}"
 ## Error Log
 (empty)
 EOF
+        if [ $? -ne 0 ] || [ ! -f "$STATE_FILE" ]; then
+            echo "Error: Failed to write state file at $STATE_FILE" >&2
+            exit 1
+        fi
         echo "State file created at $STATE_FILE"
         ;;
 
@@ -103,12 +111,12 @@ EOF
         fi
 
         # Update step number and timestamp in frontmatter
-        set_frontmatter_value "step" "$local_step"
-        set_frontmatter_value "updated_at" "\"${local_timestamp}\""
+        set_frontmatter_value "step" "$local_step" || { echo "Error: Failed to update step in state file" >&2; exit 1; }
+        set_frontmatter_value "updated_at" "\"${local_timestamp}\"" || { echo "Error: Failed to update timestamp in state file" >&2; exit 1; }
 
         # Append to completed steps table (before ## Artifacts line)
         sed -i.bak "/^## Artifacts/i\\
-| ${local_step} | ${local_name} | ${local_result} | ${local_time} |" "$STATE_FILE"
+| ${local_step} | ${local_name} | ${local_result} | ${local_time} |" "$STATE_FILE" || { echo "Error: Failed to append step to completed steps table" >&2; exit 1; }
         rm -f "${STATE_FILE}.bak"
 
         echo "Step updated to $local_step: $local_name"

@@ -174,7 +174,45 @@ teardown() {
 }
 
 # ─────────────────────────────────────────────
-# 8. Invalid usage
+# 8. Skip-tracking variables
+# ─────────────────────────────────────────────
+@test "create: state file initializes pending_skipped to false" {
+    bash "$HELPER" create "Test feature"
+    run bash "$HELPER" get-var pending_skipped
+    [ "$status" -eq 0 ]
+    [ "$output" = "false" ]
+}
+
+@test "create: state file initializes all_skipped to false" {
+    bash "$HELPER" create "Test feature"
+    run bash "$HELPER" get-var all_skipped
+    [ "$status" -eq 0 ]
+    [ "$output" = "false" ]
+}
+
+@test "create: state file initializes skipped_count to 0" {
+    bash "$HELPER" create "Test feature"
+    run bash "$HELPER" get-var skipped_count
+    [ "$status" -eq 0 ]
+    [ "$output" = "0" ]
+}
+
+@test "update-step: preserves pending_skipped, all_skipped, skipped_count" {
+    bash "$HELPER" create "Test feature"
+    bash "$HELPER" update-step 2 "Implement" "done"
+    run bash "$HELPER" get-var pending_skipped
+    [ "$status" -eq 0 ]
+    [ "$output" = "false" ]
+    run bash "$HELPER" get-var all_skipped
+    [ "$status" -eq 0 ]
+    [ "$output" = "false" ]
+    run bash "$HELPER" get-var skipped_count
+    [ "$status" -eq 0 ]
+    [ "$output" = "0" ]
+}
+
+# ─────────────────────────────────────────────
+# 9. Invalid usage
 # ─────────────────────────────────────────────
 @test "unknown command: exits with error" {
     run bash "$HELPER" unknown_command
