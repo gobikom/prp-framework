@@ -74,6 +74,9 @@ ralph_max_iter: ${local_ralph_max_iter}
 fix_severity: "${local_fix_severity}"
 skip_review: ${local_skip_review}
 no_pr: ${local_no_pr}
+pending_skipped: false
+all_skipped: false
+skipped_count: 0
 started_at: "${local_timestamp}"
 updated_at: "${local_timestamp}"
 ---
