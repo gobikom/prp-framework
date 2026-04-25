@@ -103,23 +103,86 @@ detect_stack() {
 # ─────────────────────────────────────────────────
 detect_entry_points() {
     local entries=()
+
+    # Node.js: package.json .main + scripts.start
     [ -f "package.json" ] && {
-        local main=$(jq -r '.main // ""' package.json 2>/dev/null)
+        local main start
+        main=$(jq -r '.main // ""' package.json 2>/dev/null)
         [ -n "$main" ] && entries+=("$main")
-        local start=$(jq -r '.scripts.start // ""' package.json 2>/dev/null)
+        start=$(jq -r '.scripts.start // ""' package.json 2>/dev/null)
         [ -n "$start" ] && entries+=("npm start → $start")
     }
-    [ -f "main.py" ] && entries+=("main.py")
-    [ -f "app.py" ] && entries+=("app.py")
-    [ -f "server.py" ] && entries+=("server.py")
+
+    # Node.js: TypeScript/JS index
     [ -f "src/index.ts" ] && entries+=("src/index.ts")
     [ -f "src/index.js" ] && entries+=("src/index.js")
+
+    # Python: root-level common names
+    [ -f "main.py" ]     && entries+=("main.py")
+    [ -f "app.py" ]      && entries+=("app.py")
+    [ -f "server.py" ]   && entries+=("server.py")
     [ -f "src/main.py" ] && entries+=("src/main.py")
+
+    # Python: pyproject.toml [project.scripts] (PEP 621)
+    if [ -f "pyproject.toml" ]; then
+        local pyscripts
+        pyscripts=$(awk '/^\[project\.scripts\]/{f=1;next} /^\[/{f=0} f && /=/{print $1}' pyproject.toml 2>/dev/null | head -5)
+        if [ -n "$pyscripts" ]; then
+            while IFS= read -r sname; do
+                [ -n "$sname" ] && entries+=("$sname (pyproject.toml)")
+            done <<< "$pyscripts"
+        fi
+    fi
+
+    # Python: package __main__.py (python -m <package>)
+    for f in */__main__.py; do
+        [ -f "$f" ] && entries+=("python -m $(dirname "$f")")
+    done
+
+    # Go: root main.go or cmd/*/main.go (standard Go layout)
+    [ -f "main.go" ] && entries+=("main.go")
+    for f in cmd/*/main.go; do
+        [ -f "$f" ] && entries+=("$f")
+    done
+
+    # Rust: src/main.rs or src/bin/*.rs
+    [ -f "src/main.rs" ] && entries+=("src/main.rs")
+    for f in src/bin/*.rs; do
+        [ -f "$f" ] && entries+=("cargo run --bin $(basename "$f" .rs)")
+    done
+
+    # Java: Application.java or Main.java under src/main/java
+    if [ -d "src/main/java" ]; then
+        local jentry
+        jentry=$(find src/main/java -name "Application.java" -o -name "Main.java" 2>/dev/null | head -1)
+        [ -n "$jentry" ] && entries+=("$jentry")
+    fi
+
+    # Shell: executable scripts in bin/
     [ -d "bin" ] && {
         for f in bin/*; do
             [ -x "$f" ] && entries+=("$f")
         done
     }
+
+    # Shell: root-level executable .sh scripts (if no bin/)
+    if [ ! -d "bin" ]; then
+        for f in *.sh; do
+            [ -f "$f" ] && [ -x "$f" ] && entries+=("$f")
+        done
+    fi
+
+    # Fallback hints when language is detected but no entry found
+    if [ "${#entries[@]}" -eq 0 ]; then
+        if [ -f "pyproject.toml" ] || [ -f "requirements.txt" ] || [ -f "setup.py" ]; then
+            entries+=("Python detected — add entry manually")
+        fi
+        [ -f "go.mod" ]    && entries+=("Go detected — add entry manually")
+        [ -f "Cargo.toml" ] && entries+=("Rust detected — add entry manually")
+        if [ -f "pom.xml" ] || [ -f "build.gradle" ]; then
+            entries+=("Java detected — add entry manually")
+        fi
+    fi
 
     local result=""
     for e in "${entries[@]}"; do
