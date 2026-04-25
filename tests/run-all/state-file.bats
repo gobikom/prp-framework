@@ -197,6 +197,20 @@ teardown() {
     [ "$output" = "0" ]
 }
 
+@test "update-step: preserves pending_skipped, all_skipped, skipped_count" {
+    bash "$HELPER" create "Test feature"
+    bash "$HELPER" update-step 2 "Implement" "done"
+    run bash "$HELPER" get-var pending_skipped
+    [ "$status" -eq 0 ]
+    [ "$output" = "false" ]
+    run bash "$HELPER" get-var all_skipped
+    [ "$status" -eq 0 ]
+    [ "$output" = "false" ]
+    run bash "$HELPER" get-var skipped_count
+    [ "$status" -eq 0 ]
+    [ "$output" = "0" ]
+}
+
 # ─────────────────────────────────────────────
 # 9. Invalid usage
 # ─────────────────────────────────────────────

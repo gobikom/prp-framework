@@ -229,7 +229,7 @@ State management helper for the `run-all` workflow. Manages a state file that tr
 
 1. **State file** is stored at `.prp-output/state/run-all.state.md`. It uses YAML frontmatter for configuration variables and a markdown table to track completed steps.
 
-2. **YAML frontmatter** contains: `step`, `total_steps`, `feature`, `plan_path`, `branch`, `pr_number`, `review_artifact`, `use_ralph`, `ralph_max_iter`, `fix_severity`, `skip_review`, `no_pr`, `started_at`, `updated_at`.
+2. **YAML frontmatter** contains: `step`, `total_steps`, `feature`, `plan_path`, `branch`, `pr_number`, `review_artifact`, `use_ralph`, `ralph_max_iter`, `fix_severity`, `skip_review`, `no_pr`, `pending_skipped`, `all_skipped`, `skipped_count`, `started_at`, `updated_at`.
 
 3. **Lock mechanism** uses a lock file at `.prp-output/state/run-all.lock`:
    - `lock` writes the current PID to the lock file.
@@ -273,7 +273,7 @@ State management helper for the `run-all` workflow. Manages a state file that tr
 
 ### Notes
 
-- The `create` command defaults: `use_ralph=false`, `ralph_max_iter=10`, `fix_severity=critical,high,medium,suggestion`, `skip_review=false`, `no_pr=false`.
+- The `create` command defaults: `use_ralph=false`, `ralph_max_iter=10`, `fix_severity=critical,high,medium,suggestion`, `skip_review=false`, `no_pr=false`. Additional tracking fields are always initialized to their zero values at creation: `pending_skipped=false`, `all_skipped=false`, `skipped_count=0`.
 - The `exists` command uses only the exit code (0 or 1) and produces no output. Use it in conditionals.
 - Stale lock detection uses the filesystem modification time of the lock file, so it works even if the locking process has crashed.
 
