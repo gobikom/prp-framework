@@ -436,9 +436,17 @@ GITIGNORE2
 fi
 
 # Inject PRP section into CLAUDE.md
+# Exception: soul-orchestra agent homes already surface PRP commands via
+# tools_knowledge: in agent YAML — injecting here causes a flap cycle where
+# deploy.py regen overwrites the inject, then prp-install-all re-adds it.
+# Same marker detection as the AGENTS.md skip above (agent-devops#84).
 if ! $SKIP_INJECT; then
-    echo "→ Injecting PRP section into CLAUDE.md"
-    "$FRAMEWORK_DIR/scripts/inject-claude-md.sh" "$PROJECT_DIR"
+    if $_skip_agents_md; then
+        echo "→ CLAUDE.md PRP inject — skipped: soul-orchestra agent home (PRP info via tools_knowledge)"
+    else
+        echo "→ Injecting PRP section into CLAUDE.md"
+        "$FRAMEWORK_DIR/scripts/inject-claude-md.sh" "$PROJECT_DIR"
+    fi
 else
     echo -e "${YELLOW}→ Skipping CLAUDE.md injection (--no-inject)${NC}"
 fi
