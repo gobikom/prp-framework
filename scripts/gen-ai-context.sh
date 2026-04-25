@@ -115,11 +115,49 @@ detect_entry_points() {
     [ -f "src/index.ts" ] && entries+=("src/index.ts")
     [ -f "src/index.js" ] && entries+=("src/index.js")
     [ -f "src/main.py" ] && entries+=("src/main.py")
+    # Python: pyproject.toml [project.scripts] (PEP 621)
+    if [ -f "pyproject.toml" ]; then
+        local pyproject_scripts
+        pyproject_scripts=$(awk '/^\[project\.scripts\]/{found=1; next} found && /^\[/{exit} found' \
+            pyproject.toml 2>/dev/null \
+            | grep '=' | awk -F'=' '{gsub(/[ \t]/, "", $1); print $1}' | head -3)
+        while IFS= read -r scr; do
+            [ -n "$scr" ] && entries+=("pyproject.toml → $scr")
+        done <<< "$pyproject_scripts"
+    fi
+    # Python: */__main__.py (python -m <package>)
+    for f in */__main__.py; do
+        [ -f "$f" ] && entries+=("python -m $(dirname "$f")")
+    done
+    # Go: main.go at root + cmd/*/main.go (standard Go layout)
+    [ -f "main.go" ] && entries+=("main.go")
+    for f in cmd/*/main.go; do
+        [ -f "$f" ] && entries+=("$f")
+    done
+    # Rust: src/main.rs + src/bin/*.rs
+    [ -f "src/main.rs" ] && entries+=("src/main.rs")
+    for f in src/bin/*.rs; do
+        [ -f "$f" ] && entries+=("$f")
+    done
+    # Java/Kotlin: Application.java or Main.java in Maven/Gradle layout
+    local java_entry
+    java_entry=$(find src/main/java -maxdepth 6 \( -name "Application.java" -o -name "Main.java" \) -print 2>/dev/null | head -1)
+    [ -n "$java_entry" ] && entries+=("${java_entry#./}")
     [ -d "bin" ] && {
         for f in bin/*; do
             [ -x "$f" ] && entries+=("$f")
         done
     }
+    # Fallback: language detected but no entry found
+    if [ "${#entries[@]}" -eq 0 ]; then
+        local has_python=false has_go=false has_rust=false
+        { [ -f "pyproject.toml" ] || [ -f "requirements.txt" ] || [ -f "setup.py" ]; } && has_python=true
+        [ -f "go.mod" ] && has_go=true
+        [ -f "Cargo.toml" ] && has_rust=true
+        $has_python && entries+=("Python detected — add entry manually")
+        $has_go && entries+=("Go detected — add entry manually")
+        $has_rust && entries+=("Rust detected — add entry manually")
+    fi
 
     local result=""
     for e in "${entries[@]}"; do
