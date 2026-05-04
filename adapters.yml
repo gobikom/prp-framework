@@ -236,6 +236,14 @@ commands:
     codex-short-description: "Full PRP workflow"
     opencode-agent: "plan"
 
+  qa:
+    description:
+      claude-code: "QA verification - test acceptance criteria via Playwright screenshots, API calls, and E2E flows with pass/fail verdicts and visual evidence"
+      default: "Acceptance criteria verification — Playwright browser testing, API contract testing, E2E flows, responsive viewports, and accessibility checks. Reports pass/fail per criterion with screenshot evidence."
+    argument-hint: "<url> [--criteria \"...\"] [--issue <N>] [--plan <path>] [--viewports desktop,mobile,tablet] [--api-only] [--skip-a11y] [--skip-screenshots]"
+    codex-short-description: "QA acceptance testing"
+    opencode-agent: "plan"
+
   # ─────────────────────────────────────────────
   # Marketing Commands (group: marketing)
   # ─────────────────────────────────────────────

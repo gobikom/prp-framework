@@ -33,6 +33,22 @@ Every major version release MUST include a `docs/migration/vX.0-to-vY.0.md` file
 
 ## [Unreleased]
 
+## [2.7.0] — 2026-05-04
+
+**QA Verification Release** — New `prp-qa` command for acceptance criteria verification via Playwright screenshots, API contract testing, E2E flows, and accessibility checks. Designed for Vera (QA Engineer) agent but usable by any agent. Run-isolated output with auto-incrementing run numbers.
+
+### Added
+
+- **`/prp-core:prp-qa` command** — verify deployed features against acceptance criteria with pass/fail verdicts and visual evidence. Supports `--criteria`, `--issue <N>`, `--plan <path>` for criteria sourcing. Captures desktop + mobile screenshots via Playwright, tests API contracts via curl, runs E2E flows, and performs basic WCAG 2.1 accessibility checks.
+- **Run isolation** — each QA run gets its own directory `.prp-output/qa/run-NNN-{label}/` with auto-incrementing run number. Screenshots and reports never overwrite across runs. Label derived from source (`issue422`, `localhost-8086-workflows`, etc.).
+- **Multi-viewport testing** — desktop (1280x720), mobile (375x812), optional tablet (768x1024). Configurable via `--viewports`.
+- **Graceful degradation** — falls back to curl + manual description when Playwright is unavailable. Skips accessibility with `--skip-a11y`, screenshots with `--skip-screenshots`, UI with `--api-only`.
+- **All 5 adapters generated** — claude-code, codex, opencode, gemini, antigravity. Placeholder replacements verified: `{TOOL}` and `{ARGS}` correctly resolved per adapter.
+
+### Changed
+
+- **`adapters.yml`** — added `qa` command entry with descriptions for all adapters, argument-hint, codex-short-description, and opencode-agent mapping.
+
 ## [2.6.0] — 2026-04-07
 
 **State file migration to `.prp-output/state/`** — All state and lock files moved from `.claude/` to `.prp-output/state/` for tool-agnostic compatibility.
