@@ -401,8 +401,25 @@ echo "📝 Configuring .gitignore..."
 GITIGNORE_FILE="$PROJECT_DIR/.gitignore"
 PRP_MARKER="# PRP Framework"
 
-if [ -f "$GITIGNORE_FILE" ] && grep -q "$PRP_MARKER" "$GITIGNORE_FILE"; then
-    echo -e "${GREEN}  ✅ .gitignore already configured${NC}"
+PRP_ARTIFACT_MARKER="# PRP artifacts"
+
+if [ -f "$GITIGNORE_FILE" ] && grep -q "$PRP_ARTIFACT_MARKER" "$GITIGNORE_FILE"; then
+    echo -e "${GREEN}  ✅ .gitignore already configured (v2 artifact rules)${NC}"
+elif [ -f "$GITIGNORE_FILE" ] && grep -q "$PRP_MARKER" "$GITIGNORE_FILE"; then
+    # Migrate old artifact rules → new trackable artifact rules
+    # Remove ALL old prp-output lines: blanket ignores (with/without trailing slash),
+    # !-unignores, and related comments. Uses temp file for macOS (BSD sed) compatibility.
+    _TMP=$(mktemp)
+    sed '/# \.prp-output/d; /^!\.prp-output/d; /# PRP Framework - artifacts/d; /# PRP output artifacts/d; /^\.prp-output\/?$/d; /^\.prp-output\/\*\*/d' "$GITIGNORE_FILE" > "$_TMP" && mv "$_TMP" "$GITIGNORE_FILE"
+    cat >> "$GITIGNORE_FILE" << 'GITIGNORE_ARTIFACTS'
+
+# PRP artifacts — runtime state ignored, everything else trackable for GitHub links
+.prp-output/state/
+.prp-output/debug/
+.prp-output/ralph-archives/
+.prp-output/reviews/review-metrics.jsonl
+GITIGNORE_ARTIFACTS
+    echo -e "${GREEN}  ✅ Migrated .gitignore to v2 artifact rules${NC}"
 else
     cat >> "$GITIGNORE_FILE" << 'GITIGNORE'
 
@@ -415,10 +432,11 @@ else
 .agents/
 AGENTS.md
 
-# PRP Framework - artifacts (directory visible to AI tools, content not tracked)
-# .prp-output/** is intentionally not ignored to allow AI tools to read/write artifacts, but we ignore all files within it to prevent tracking
-!.prp-output/
-!.prp-output/**/
+# PRP artifacts — runtime state ignored, everything else trackable for GitHub links
+.prp-output/state/
+.prp-output/debug/
+.prp-output/ralph-archives/
+.prp-output/reviews/review-metrics.jsonl
 GITIGNORE
     echo -e "${GREEN}  ✅ Added PRP rules to .gitignore${NC}"
 fi
