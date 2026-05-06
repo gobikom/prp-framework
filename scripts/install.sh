@@ -407,8 +407,10 @@ if [ -f "$GITIGNORE_FILE" ] && grep -q "$PRP_ARTIFACT_MARKER" "$GITIGNORE_FILE";
     echo -e "${GREEN}  ✅ .gitignore already configured (v2 artifact rules)${NC}"
 elif [ -f "$GITIGNORE_FILE" ] && grep -q "$PRP_MARKER" "$GITIGNORE_FILE"; then
     # Migrate old artifact rules → new trackable artifact rules
-    # Remove ALL old prp-output lines: blanket ignores, !-unignores, and comments
-    sed -i '/# \.prp-output/d; /^!\.prp-output/d; /# PRP Framework - artifacts/d; /# PRP output artifacts/d; /^\.prp-output\/$/d; /^\.prp-output\/\*\*/d' "$GITIGNORE_FILE"
+    # Remove ALL old prp-output lines: blanket ignores (with/without trailing slash),
+    # !-unignores, and related comments. Uses temp file for macOS (BSD sed) compatibility.
+    _TMP=$(mktemp)
+    sed '/# \.prp-output/d; /^!\.prp-output/d; /# PRP Framework - artifacts/d; /# PRP output artifacts/d; /^\.prp-output\/?$/d; /^\.prp-output\/\*\*/d' "$GITIGNORE_FILE" > "$_TMP" && mv "$_TMP" "$GITIGNORE_FILE"
     cat >> "$GITIGNORE_FILE" << 'GITIGNORE_ARTIFACTS'
 
 # PRP artifacts — runtime state ignored, everything else trackable for GitHub links
