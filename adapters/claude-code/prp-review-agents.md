@@ -877,6 +877,26 @@ After deduplication, categorize all findings:
 
 **Note**: If validation fails, verdict is at least NEEDS FIXES regardless of agent findings.
 
+### Merge Tier Calculation
+
+After verdict is determined, calculate `merge_tier` for the review artifact frontmatter.
+Read `conductor/score-protocols/merge-tier.md` for full tier rules.
+
+```bash
+PR_LABELS=$(gh pr view {NUMBER} --json labels --jq '[.labels[].name] | join(",")' 2>/dev/null || echo "")
+FILES_CHANGED=$(gh pr view {NUMBER} --json files --jq '.files | length' 2>/dev/null || echo "99")
+```
+
+| Tier | Conditions |
+|------|-----------|
+| `auto` | verdict = READY TO MERGE + 0 issues all severities + labels include any of: P3, docs, cosmetic, chore, test |
+| `psak-verify` | verdict = READY TO MERGE + 0 critical/important + (suggestions present OR P2 label OR files > 3) |
+| `human-approve` | any critical/important remain, OR P1/P0 label, OR cross-repo |
+
+Default to `psak-verify` if unsure or if label/file fetch fails.
+
+Include in summary: `**Merge Tier**: {tier} — {reason}`
+
 ### Summary Format
 
 ```markdown
@@ -925,6 +945,9 @@ After deduplication, categorize all findings:
 ### Verdict
 [READY TO MERGE / NEEDS FIXES / CRITICAL ISSUES]
 
+**Merge Tier**: {auto|psak-verify|human-approve} — {reason}
+(merge_tier is also written to report frontmatter — see Merge Tier Calculation above)
+
 ### Recommended Actions
 1. Fix critical issues first
 2. Address important issues
@@ -949,6 +972,7 @@ title: "{TITLE}"
 author: "{AUTHOR}"
 reviewed: {ISO_TIMESTAMP}
 verdict: {READY TO MERGE / NEEDS FIXES / CRITICAL ISSUES}
+merge_tier: {auto|psak-verify|human-approve}
 agents: [{list of agents that ran}]
 ---
 ```
