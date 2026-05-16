@@ -18,7 +18,7 @@ The core philosophy: every task follows the same loop — **prompt** the AI with
 ✅ **Complete Workflows** - PRD → Design → Plan → Implement → Review → Commit → PR
 ✅ **Iterative Perfection** - Ralph autonomous loop, review-fix cycles, and multi-agent validation until all quality gates pass
 ✅ **Quality Built-in** - TDD approach, conditional design docs, pre-commit checks, security/performance validation
-✅ **100% Workflow Parity** - 29 commands across all 5 adapters (20 core + 4 marketing + 5 bot), auto-generated from canonical prompts to guarantee zero drift
+✅ **100% Workflow Parity** - 31 commands across all 5 adapters (22 core + 4 marketing + 5 bot), auto-generated from canonical prompts to guarantee zero drift
 ✅ **Auto-Generation** - Single source of truth in `prompts/` — edit once, generate all 5 adapters with `scripts/generate-adapters.py`
 ✅ **Monorepo Support** - Auto-detects pnpm workspaces, Turborepo, Nx, Lerna. `--package` flag scopes plan/implement/run-all to a specific package
 ✅ **31 Specialized Agents** - Development, security, marketing, sales, strategy, and business operations agents
@@ -104,7 +104,9 @@ cp -r prp-framework/* my-project/
 | **Rollback** | Safely undo implementation changes (--soft / --hard with stash backup / --restore) | Implementation went wrong |
 | **Project Context** | Generate PROJECT.md — compact project docs for AI + human | New project or missing docs |
 | **Cleanup** | Post-merge cleanup (delete branches, verify merge, auto-update PROJECT.md, `--all` / `--dry-run`) | After PR merged |
-| **Run All** | Full workflow end-to-end (supports `--fast`, `--skip-plan`, `--ralph`, `--review-single-agent`, `--resume`, `--fix-severity`, `--no-interact`, `--dry-run`) | Complete automation |
+| **Verify** | Requirements traceability — checks PR diff against acceptance criteria from issue or plan | Before merge to confirm all criteria are implemented |
+| **Done** | Issue closure gate — verifies PR merged, review artifact, verify artifact, and Vera QA before closing | After QA to formally close the issue |
+| **Run All** | Full workflow end-to-end (supports `--fast`, `--skip-plan`, `--ralph`, `--review-single-agent`, `--resume`, `--fix-severity`, `--no-interact`, `--dry-run`, `--verify`, `--qa-delegate=<agent>`, `--done`) | Complete automation |
 
 ## Tool Support
 
@@ -137,6 +139,12 @@ cp -r prp-framework/* my-project/
 /prp-core:run-all --issue 55 --max-review-rounds 3 --merge # Custom review rounds + merge
 /prp-core:run-all Add JWT auth --no-interact               # Fully unattended (no questions asked)
 /prp-core:run-all Add JWT auth --dry-run                   # Preview steps + token estimate (no execution)
+/prp-core:run-all --issue 87 --merge --verify              # Full workflow + requirements verification before merge
+/prp-core:run-all --issue 87 --merge --verify --qa-delegate=vera --done  # Full autonomous lifecycle with QA + issue closure
+/prp-core:verify 25 --issue 87                             # Check PR diff implements all acceptance criteria
+/prp-core:verify 25 --plan .prp-output/plans/feature.plan.md  # Verify against plan criteria
+/prp-core:done 87                                          # Close issue after all gates pass (merged, reviewed, verified, QA)
+/prp-core:done 87 --skip-vera --reason="no UI changes"     # Close issue bypassing Vera QA gate (audit-logged)
 /prp-core:review-agents 25                                 # Multi-agent PR review
 /prp-core:review-fix 25                                    # Fix all — LOOP mode default (re-review + re-fix until 0 issues or MAX_ROUNDS=5)
 /prp-core:review-fix 25 --single-pass                      # Fix once, exit (pre-2026-04-17 behavior)
@@ -224,9 +232,12 @@ prp-framework/
 │   ├── rollback.md
 │   ├── issue-investigate.md
 │   ├── issue-fix.md
-│   └── feature-review.md
+│   ├── feature-review.md
+│   ├── verify.md
+│   ├── done.md
+│   └── qa.md
 ├── adapters/                   # Tool-specific adapters
-│   ├── claude-code/            # Claude Code core commands (19 commands, auto-generated)
+│   ├── claude-code/            # Claude Code core commands (22 commands, auto-generated)
 │   ├── claude-code-marketing/  # Marketing commands (4 commands)
 │   ├── claude-code-bot/        # AI Bot commands (5 commands)
 │   ├── claude-code-agents/     # Claude Code agents (30 agents)
@@ -327,7 +338,7 @@ cd .prp && git config pull.rebase true && cd ..
 ## Documentation
 
 - [Getting Started Guide](docs/GETTING_STARTED.md) - Step-by-step setup
-- [User Guide](docs/USER-GUIDE.md) - Complete command reference (28 commands)
+- [User Guide](docs/USER-GUIDE.md) - Complete command reference (31 commands)
 - [Agents Guide](docs/AGENTS-GUIDE.md) - How to use 30 specialized agents with strategy workflows
 - [Workflows Documentation](docs/WORKFLOWS.md) - Detailed workflow descriptions
 - [Contributing Guide](docs/CONTRIBUTING.md) - How to contribute

@@ -81,7 +81,7 @@ Include in handoff context:
 
 | Namespace | หมวดหมู่ | จำนวน |
 |-----------|----------|-------|
-| `/prp-core:` | Development, Debug, Review, Automation | 19 |
+| `/prp-core:` | Development, Debug, Review, Automation | 22 |
 | `/prp-mkt:` | Marketing & Sales | 4 |
 | `/prp-bot:` | AI Call Center / Chatbot | 5 |
 
@@ -104,7 +104,10 @@ Include in handoff context:
 - `ralph-cancel` - Cancel loop
 - `rollback` - Safely undo implementation changes (--soft / --hard with stash backup / --restore)
 - `cleanup` - Post-merge cleanup (delete local/remote branches, verify PR merged, `--all` / `--dry-run`)
-- `run-all` - Full workflow (supports `--fast` / `--skip-plan` / `--ralph` / `--ralph-max-iter N` / `--review-single-agent` / `--resume` / `--fix-severity` / `--no-interact` / `--dry-run` flags)
+- `verify` - Requirements traceability — checks PR diff against acceptance criteria from issue or plan
+- `done` - Issue closure gate — verifies PR merged, review artifact, verify artifact, and Vera QA before closing
+- `qa` - Acceptance criteria verification via Playwright screenshots, API calls, and E2E flows; use `--delegate=<agent>` to delegate async
+- `run-all` - Full workflow (supports `--fast` / `--skip-plan` / `--ralph` / `--ralph-max-iter N` / `--review-single-agent` / `--resume` / `--fix-severity` / `--no-interact` / `--dry-run` / `--verify` / `--qa-delegate=<agent>` / `--done` flags)
 
 ### Marketing Commands (`/prp-mkt:`)
 - `landing` - Landing page analysis & optimization
