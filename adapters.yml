@@ -231,8 +231,8 @@ commands:
   run-all:
     description:
       claude-code: "Orchestrate complete PRP workflow from feature request to pull request. Run branch, plan, implement, commit, PR, review with fix loop, and summary in sequence. Use when implementing features using PRP methodology or when user requests full PRP workflow."
-      default: "Execute the complete PRP lifecycle end-to-end — issue context, smart plan, implement, commit, PR, review-fix loop (until 0 issues), merge, and cleanup. Supports --issue, --merge, --max-review-rounds, --fast, --ralph, --skip-plan, --skip-review, --no-pr, --resume, --no-interact, --dry-run, --fix-severity options."
-    argument-hint: "\"<feature-description>\" or --issue <N> [--merge] [--max-review-rounds N] [--prp-path <path>] [--skip-plan] [--fast] [--ralph] [--ralph-max-iter N] [--skip-review] [--no-pr] [--fix-severity <levels>] [--resume] [--no-interact] [--dry-run]"
+      default: "Execute the complete PRP lifecycle end-to-end — issue context, smart plan, implement, commit, PR, review-fix loop (until 0 issues), merge, and cleanup. Supports --issue, --merge, --max-review-rounds, --fast, --ralph, --skip-plan, --skip-review, --no-pr, --resume, --no-interact, --dry-run, --fix-severity, --verify, --qa-delegate=<agent>, --done options."
+    argument-hint: "\"<feature-description>\" or --issue <N> [--merge] [--max-review-rounds N] [--prp-path <path>] [--skip-plan] [--fast] [--ralph] [--ralph-max-iter N] [--skip-review] [--no-pr] [--fix-severity <levels>] [--resume] [--no-interact] [--dry-run] [--verify] [--qa-delegate=<agent>] [--done]"
     codex-short-description: "Full PRP workflow"
     opencode-agent: "plan"
 
@@ -240,8 +240,24 @@ commands:
     description:
       claude-code: "QA verification - test acceptance criteria via Playwright screenshots, API calls, and E2E flows with pass/fail verdicts and visual evidence"
       default: "Acceptance criteria verification — Playwright browser testing, API contract testing, E2E flows, responsive viewports, and accessibility checks. Reports pass/fail per criterion with screenshot evidence."
-    argument-hint: "<url> [--criteria \"...\"] [--issue <N>] [--plan <path>] [--viewports desktop,mobile,tablet] [--api-only] [--skip-a11y] [--skip-screenshots]"
+    argument-hint: "<url> [--criteria \"...\"] [--issue <N>] [--plan <path>] [--viewports desktop,mobile,tablet] [--api-only] [--skip-a11y] [--skip-screenshots] [--delegate=<agent>]"
     codex-short-description: "QA acceptance testing"
+    opencode-agent: "plan"
+
+  verify:
+    description:
+      claude-code: "Verify PR implements acceptance criteria - requirements traceability from issue/plan to diff evidence"
+      default: "Requirements verification — for each acceptance criterion, find evidence in the PR diff that it was implemented. Produces verify artifact for safe-merge Gate 2."
+    argument-hint: "<pr-number> [--plan <path>] [--issue <N>] [--criteria \"...\"]"
+    codex-short-description: "Verify PR implements requirements"
+    opencode-agent: "plan"
+
+  done:
+    description:
+      claude-code: "Issue closure gate - checks all completion gates before closing (PR merged, review, verify, Vera QA)"
+      default: "Issue closure gate — verifies PR merged, review artifact exists, verify artifact exists, and Vera QA passed before closing a GitHub issue."
+    argument-hint: "<issue-number> [--repo <owner/repo>] [--skip-vera --reason=\"...\"]"
+    codex-short-description: "Close issue after all gates pass"
     opencode-agent: "plan"
 
   # ─────────────────────────────────────────────
