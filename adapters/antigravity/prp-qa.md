@@ -7,7 +7,7 @@ description: "Acceptance criteria verification — Playwright browser testing, A
 
 Target URL and acceptance criteria: `$ARGUMENTS`
 
-Format: `<url> [--criteria "criteria text"] [--issue <N>] [--plan <path>] [--viewports desktop,mobile,tablet] [--api-only] [--skip-a11y] [--skip-screenshots]`
+Format: `<url> [--criteria "criteria text"] [--issue <N>] [--plan <path>] [--viewports desktop,mobile,tablet] [--api-only] [--skip-a11y] [--skip-screenshots] [--delegate=<agent>]`
 
 ## Mission
 
@@ -18,6 +18,45 @@ Verify that a deployed or running feature **actually works** from the user's per
 ---
 
 ## Phase 0: Parse Input & Gather Criteria
+
+### 0.0 Delegation Mode Check
+
+**If `--delegate=<agent>` is present in `$ARGUMENTS`**: extract the agent name and enter delegation mode.
+
+Extract delegation target:
+
+```
+DELEGATE_AGENT = "{value from --delegate=<agent>}"
+```
+
+**Delegation mode** — skip all QA execution phases. Instead:
+
+1. Resolve acceptance criteria source (same as Phase 0.2 below, but stop after identifying the source — do NOT parse into checklist yet).
+
+2. Construct delegation payload:
+   ```
+   Task: QA verification
+   Issue: {ISSUE_NUMBER if --issue provided, else "N/A"}
+   Criteria source: {--criteria text | --issue N | --plan path}
+   URL: {URL from $ARGUMENTS}
+   Flags: {remaining flags excluding --delegate}
+   ```
+
+3. Delegate using the tool-specific mechanism:
+   - **Claude Code**: Use `/delegate-qa {DELEGATE_AGENT} --issue {ISSUE_NUMBER}` (if --issue provided) or `/ping {DELEGATE_AGENT} QA: {URL} --criteria "..."` for quick checks
+   - **Other tools**: Post delegation payload to agent message bus
+
+4. Output:
+   ```
+   QA delegated to {DELEGATE_AGENT}
+   Issue: #{ISSUE_NUMBER}
+   Criteria: {source summary}
+   Task ID: {task_id if available, else "async — check via /delegate-qa status"}
+   ```
+
+5. **STOP** — do NOT execute Phases 1–6. QA runs on the target agent.
+
+---
 
 ### 0.1 Determine URL
 

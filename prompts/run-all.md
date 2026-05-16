@@ -41,6 +41,9 @@ Execute the complete PRP workflow end-to-end autonomously. Each step delegates t
 | `--issue <N>` | Fetch GitHub issue #N context. Set ISSUE_NUMBER = N. Extracts title + body as FEATURE. |
 | `--merge` | Auto squash-merge PR after review passes (0 issues). Set AUTO_MERGE = true. |
 | `--max-review-rounds <N>` | Override max review-fix cycles (default: 5). |
+| `--verify` | Run {TOOL}:verify before merge to check requirements traceability (Step 7.5). Set VERIFY = true. |
+| `--qa-delegate=<agent>` | Delegate QA to agent after merge via {TOOL}:qa --delegate (Step 8.5). Set QA_DELEGATE = agent. |
+| `--done` | Run {TOOL}:done after QA delegation to close issue when all gates pass (Step 9). Set DONE = true. Requires --issue. |
 | `--dry-run` | Preview all steps without executing. Show estimated token cost. Exit after preview. |
 | Remaining text | Set FEATURE = text |
 
@@ -72,6 +75,9 @@ DRY_RUN = {true if --dry-run}
 ISSUE_NUMBER = "{from --issue, or empty}"
 AUTO_MERGE = {true if --merge}
 MAX_CYCLES = {from --max-review-rounds, default 5}
+VERIFY = {true if --verify}
+QA_DELEGATE = "{from --qa-delegate, or empty}"
+DONE = {true if --done}
 SKIP_PLAN = {false by default — may be set by --skip-plan flag or smart plan detection in Step 0.8}
 RESUME_FROM = {0 by default — set from state file's step field if --resume}
 REVIEW_VERDICT = "{TBD — set in Step 6.2}"
@@ -103,7 +109,10 @@ Steps that would run:
   Step 5: Create PR            -> {skipped (--no-pr) | PR to main, Fixes #N if --issue}
   Step 6: Review & Fix         -> {skipped (--skip-review) | review-fix loop (max {MAX_CYCLES} rounds, target: 0 issues)}
   Step 7: Summary              -> final report
+  Step 7.5: Verify             -> {skipped (no --verify) | {TOOL}:verify --pr {PR_NUMBER} --issue {ISSUE_NUMBER}}
   Step 8: Merge & Cleanup      -> {skipped (no --merge) | squash merge + cleanup}
+  Step 8.5: QA Delegate        -> {skipped (no --qa-delegate) | {TOOL}:qa --delegate={QA_DELEGATE} --issue {ISSUE_NUMBER}}
+  Step 9: Done                 -> {skipped (no --done or no --issue) | {TOOL}:done {ISSUE_NUMBER}}
 
 Estimated token cost:
   Plan:      {~0K (skipped) | ~5-10K (fast) | ~10-20K (full)}
@@ -191,6 +200,7 @@ Write `.prp-output/state/run-all.state.md` using Bash heredoc with YAML frontmat
 - step, total_steps, feature, plan_path, branch, pr_number, review_artifact, review_verdict, review_cycle
 - use_ralph, ralph_max_iter, fix_severity, fast_plan, skip_plan, skip_review, no_pr, no_interact
 - issue_number, auto_merge, max_cycles
+- verify, qa_delegate, done
 - pending_skipped, all_skipped, skipped_count
 - started_at, updated_at
 - Completed Steps table, Artifacts section, Error Log
@@ -513,8 +523,11 @@ Generate final report (state cleanup deferred to after Step 8).
 | Review | {TOOL}:review | {verdict} |
 | Review Fix | {TOOL}:review-fix | {N fixed, N skipped or "not needed"} |
 | Re-verify | {TOOL}:review | {final verdict or "not needed"} ({REVIEW_CYCLE}/{MAX_CYCLES} rounds) |
+| Verify | {TOOL}:verify | {PASS/FAIL/PARTIAL or "skipped (no --verify)"} |
 | Merge | gh pr merge --squash | {pending (Step 8) or "skipped (no --merge)"} |
 | Cleanup | {TOOL}:cleanup | {pending (Step 8) or "skipped"} |
+| QA Delegate | {TOOL}:qa --delegate | {dispatched to {QA_DELEGATE} or "skipped (no --qa-delegate)"} |
+| Done | {TOOL}:done | {closed #{ISSUE_NUMBER} or "skipped" or "pending QA"} |
 
 ### Artifacts
 
@@ -538,7 +551,32 @@ Generate final report (state cleanup deferred to after Step 8).
 {If AUTO_MERGE and REVIEW_VERDICT = "0_issues": "Proceeding to Step 8: merge + cleanup..."}
 ```
 
-**TRANSITION**: If AUTO_MERGE and review verdict is 0 issues → **immediately proceed to Step 8**.
+**TRANSITION**: If AUTO_MERGE and review verdict is 0 issues → **immediately proceed to Step 7.5** (if VERIFY) or Step 8.
+
+---
+
+### Step 7.5: VERIFY (skip if not AUTO_MERGE or VERIFY != true or REVIEW_VERDICT != "0_issues")
+
+**Prerequisites**:
+- AUTO_MERGE = true
+- VERIFY = true
+- REVIEW_VERDICT = "0_issues"
+
+Use `{TOOL}:verify` with `--pr {PR_NUMBER}` (append `--issue {ISSUE_NUMBER}` if set, else `--plan {PLAN_PATH}`).
+
+This will: fetch the PR diff, gather acceptance criteria from the linked issue or plan, check each criterion for implementation evidence, and produce a verify artifact at `.prp-output/reviews/pr-{PR_NUMBER}-verify.md`.
+
+**Variable update**: `VERIFY_VERDICT = {PASS | FAIL | PARTIAL from artifact}`
+
+| Result | Action |
+|--------|--------|
+| VERIFY PASSED | Proceed to Step 8 |
+| VERIFY PASSED (with gaps) | WARN: "Verify has partial coverage — proceeding to merge." Proceed to Step 8. |
+| VERIFY FAILED | STOP — "Requirements verification failed. Fix issues then re-run with --verify." Do NOT merge. |
+
+**DO NOT**: Manually inspect the diff yourself, skip the skill.
+**CHECKPOINT**: Did you invoke `{TOOL}:verify`? If not → STOP → invoke it.
+**TRANSITION**: Verify passed → **immediately proceed to Step 8**.
 
 ---
 
@@ -604,6 +642,48 @@ rm -f .prp-output/state/run-all.lock
 ```
 
 State and lock files are only deleted here — after merge and cleanup succeed. This ensures `--resume` works if Step 8 fails.
+
+---
+
+### Step 8.5: QA DELEGATE (skip if QA_DELEGATE is empty or Step 8 was skipped)
+
+**Prerequisites**:
+- QA_DELEGATE is set (non-empty)
+- Step 8 merged successfully (or AUTO_MERGE was skipped but --qa-delegate still requested)
+
+Use `{TOOL}:qa --delegate={QA_DELEGATE}` with `--issue {ISSUE_NUMBER}` (required — QA needs criteria source).
+
+If ISSUE_NUMBER is empty: SKIP with WARN: "--qa-delegate requires --issue to source acceptance criteria."
+
+This will: delegate QA execution to the target agent asynchronously. The agent will test acceptance criteria and post QA results as a comment on the issue. Current session does NOT wait for QA completion.
+
+**DO NOT**: Run QA yourself, wait for the agent to finish.
+**CHECKPOINT**: Did you invoke `{TOOL}:qa --delegate={QA_DELEGATE}`? If not → STOP → invoke it.
+**TRANSITION**: Delegation dispatched → **immediately proceed to Step 9** (if DONE) or finish.
+
+---
+
+### Step 9: DONE (skip if DONE != true or ISSUE_NUMBER is empty or Step 8 was skipped)
+
+**Prerequisites**:
+- DONE = true
+- ISSUE_NUMBER is set
+- Step 8 merged successfully
+
+**Note**: If Step 8.5 delegated QA, Step 9 will likely block on Gate 4 (QA PENDING). That is expected — run `{TOOL}:done {ISSUE_NUMBER}` again after Vera QA posts results.
+
+Use `{TOOL}:done {ISSUE_NUMBER}`.
+
+This will: check all completion gates (PR merged, review artifact, verify artifact, Vera QA), then close the issue if all pass.
+
+| Result | Action |
+|--------|--------|
+| All gates pass | Issue closed ✅ |
+| Gate 4 pending (QA delegated but not done) | WARN: "QA not yet complete — issue NOT closed. Re-run `{TOOL}:done {ISSUE_NUMBER}` after Vera posts QA results." |
+| Any other gate fails | STOP — report failed gates. Issue NOT closed. |
+
+**DO NOT**: Close the issue directly with gh, skip the skill.
+**CHECKPOINT**: Did you invoke `{TOOL}:done`? If not → STOP → invoke it.
 
 ---
 
