@@ -418,10 +418,9 @@ gh issue comment {ISSUE_NUMBER} --body-file /tmp/qa-comment-${RUN_ID}.md \\
 rm -f /tmp/qa-comment-${RUN_ID}.md
 ```
 
-If no source issue, suggest creating one:
+If no source issue, suggest creating one — display "QA found {N} failures. Create a tracking issue?" then run:
 
 ```bash
-QA found {N} failures. Suggest creating a tracking issue:
 cat > /tmp/qa-issue-${RUN_ID}.md << 'EOF'
 {bug reports}
 EOF
