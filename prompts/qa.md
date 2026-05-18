@@ -115,6 +115,7 @@ LABEL="{label}"
 LAST_RUN=$(ls -d .prp-output/qa/run-*-* 2>/dev/null | sort -t- -k2 -n | tail -1 | grep -oP 'run-\K\d+' || echo "0")
 NEXT_RUN=$(printf "%03d" $((LAST_RUN + 1)))
 RUN_DIR=".prp-output/qa/run-${NEXT_RUN}-${LABEL}"
+RUN_ID="${NEXT_RUN}-${LABEL}"
 mkdir -p "${RUN_DIR}/screenshots"
 echo "QA Run: ${RUN_DIR}"
 ```
@@ -395,7 +396,7 @@ For each failed criterion, generate a structured bug report:
 
 ### 6.4 Issue Creation (On Failure)
 
-> **🛑 SHELL SAFETY:** Multiline `--body` with backticks/code blocks **MUST** use `--body-file`. Inline `--body "$(cat <<EOF)"` executes backticks as bash subshells → hangs on stdin → 600s timeout. Pattern fix from incident `at-3db127abdf91`.
+> **🛑 SHELL SAFETY:** Inline `--body` with multiline content generated at runtime (e.g. QA verdicts, bug reports) **MUST** use `--body-file`. The `<< 'EOF'` (single-quoted delimiter) form is required — never `<< EOF` (unquoted), which performs `$(...)`, backtick, and `${var}` expansion on untrusted content. Pattern fix from incident `at-3db127abdf91`.
 
 If verdict is QA FAILED and there is a source issue (`--issue`):
 
@@ -410,16 +411,21 @@ cat > /tmp/qa-comment-${RUN_ID}.md << 'EOF'
 
 Tested by: {TOOL}:qa
 EOF
-gh issue comment {ISSUE_NUMBER} --body-file /tmp/qa-comment-${RUN_ID}.md
+gh issue comment {ISSUE_NUMBER} --body-file /tmp/qa-comment-${RUN_ID}.md \
+  || echo "WARNING: gh failed to post QA comment — body saved at /tmp/qa-comment-${RUN_ID}.md"
+rm -f /tmp/qa-comment-${RUN_ID}.md
 ```
 
 If no source issue, suggest creating one:
+
 ```bash
-QA found {N} failures. Create a tracking issue?
+QA found {N} failures. Suggest creating a tracking issue:
 cat > /tmp/qa-issue-${RUN_ID}.md << 'EOF'
 {bug reports}
 EOF
-gh issue create --title "QA: {summary}" --body-file /tmp/qa-issue-${RUN_ID}.md
+gh issue create --title "QA: {summary}" --body-file /tmp/qa-issue-${RUN_ID}.md \
+  || echo "WARNING: gh failed to create QA issue — body saved at /tmp/qa-issue-${RUN_ID}.md"
+rm -f /tmp/qa-issue-${RUN_ID}.md
 ```
 
 ---
