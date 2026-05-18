@@ -33,6 +33,30 @@ Every major version release MUST include a `docs/migration/vX.0-to-vY.0.md` file
 
 ## [Unreleased]
 
+## [2.8.1] — 2026-05-18
+
+**Documentation amendment** — Retroactively documents `prp-verify`, `prp-done`, `prp-qa --delegate`, `safe-merge` Gate 2, and new `prp-run-all` flags (`--verify`, `--qa-delegate`, `--done`) shipped in PR #82 (commit `fe6b441`, 2026-05-16) but omitted from the v2.8.0 CHANGELOG (which focused on the shell safety fix). No code changes — docs only.
+
+### Added
+
+- **`/prp-core:prp-verify` command** — requirements traceability verification comparing PR diff against acceptance criteria sourced from issue or plan. Output: PASS / FAIL / PARTIAL verdict with per-criterion mapping. Use `--pr <N> --issue <N>` or `--pr <N> --plan <path>`.
+- **`/prp-core:prp-done` command** — 4-gate issue closure check (PR merged, review artifact present, verify artifact present, Vera QA passed). Gate 3 checks artifact existence, not verify verdict content (a PARTIAL verify still passes Gate 3). Prevents premature issue closure.
+- **`prp-qa --delegate=<agent>`** — delegate QA verification to another agent (e.g., `vera`) after merge instead of running locally. Delegating agent posts result back to the issue.
+- **`prp-run-all` flags**:
+  - `--verify` — run `prp-verify` before merge to check requirements traceability (Step 7.5). VERIFY FAILED → STOP, do NOT merge.
+  - `--qa-delegate=<agent>` — delegate QA to agent after merge via `prp-qa --delegate` (Step 8.5). Requires `--issue` to source acceptance criteria.
+  - `--done` — run `prp-done` after QA delegation to close issue when all gates pass (Step 9). Requires `--issue`.
+- **Combined autonomous lifecycle** — `prp-run-all --issue N --merge --verify --qa-delegate=vera --done` runs the full plan → implement → review → verify → merge → QA → close lifecycle.
+
+### Changed
+
+- **`safe-merge` Gate 2** — verify artifact enforcement for agent-labeled PRs. Blocks merge when `.prp-output/reviews/pr-<N>-verify.md` is missing. Bypass: `--skip-verify --verify-reason="<why>"` (syslog-audited via `journalctl -t safe-merge`). Gate 1 (review artifact) is unchanged and uses a separate bypass: `--skip-review-check --reason="<why>"`.
+
+### Notes
+
+- This entry documents features released between v2.7.0 and v2.8.0 that were missed in the v2.8.0 changelog. v2.8.0 remains the canonical "shell safety hardening" release; v2.8.1 is purely a documentation amendment.
+- Reference: gobikom/agent-devops#173.
+
 ## [2.8.0] — 2026-05-18
 
 **Shell Safety Hardening** — Fix HEREDOC hang vulnerability in `prp-qa` by replacing inline `--body` with `--body-file` pattern for all `gh issue comment` / `gh issue create` calls.
