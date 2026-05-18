@@ -33,6 +33,16 @@ Every major version release MUST include a `docs/migration/vX.0-to-vY.0.md` file
 
 ## [Unreleased]
 
+## [2.8.0] — 2026-05-18
+
+**Shell Safety Hardening** — Fix HEREDOC hang vulnerability in `prp-qa` by replacing inline `--body` with `--body-file` pattern for all `gh issue comment` / `gh issue create` calls.
+
+### Fixed
+
+- **`prompts/qa.md` section 6.4** — replaced inline multiline `--body "..."` with `cat > /tmp/qa-{type}-${RUN_ID}.md << 'EOF' ... EOF` + `--body-file` pattern for both `gh issue comment` and `gh issue create` calls. Prevents shell hang when QA results contain backticks or triple-backtick code blocks (incident `at-3db127abdf91`).
+- **Shell safety warning block** — added `🛑 SHELL SAFETY` callout above section 6.4 documenting the `--body-file` requirement and root cause.
+- **All 5 adapters regenerated** — claude-code, codex, opencode, gemini, antigravity now propagate the `--body-file` pattern from source.
+
 ## [2.7.0] — 2026-05-04
 
 **QA Verification Release** — New `prp-qa` command for acceptance criteria verification via Playwright screenshots, API contract testing, E2E flows, and accessibility checks. Designed for Vera (QA Engineer) agent but usable by any agent. Run-isolated output with auto-incrementing run numbers.
