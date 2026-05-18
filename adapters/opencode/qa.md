@@ -172,6 +172,45 @@ Default viewports (override with `--viewports`):
 
 **CHECKPOINT**: Environment verified. Target reachable. Playwright: {available/missing}. Viewports: {list}.
 
+### 1.4 Console Health Setup
+
+Every page visited during QA MUST capture `console.error` and `console.warn` via a `page.on('console')` handler.
+
+**Allowlist** (skip these — known harmless):
+- `SES Removing unpermitted intrinsics` — library-level SES hardening noise
+
+**Rules:**
+
+| Level | Verdict |
+|-------|---------|
+| `console.error` not in allowlist | Hard FAIL — test case cannot PASS |
+| `console.error` in allowlist | Skip — not counted |
+| `console.warn` | Report in table, don't block PASS |
+| React dev-mode warnings | Skip in production builds |
+
+**Implementation** (Playwright):
+```typescript
+const consoleErrors: string[] = [];
+const consoleWarnings: string[] = [];
+
+const CONSOLE_ALLOWLIST = [
+  'SES Removing unpermitted intrinsics',
+];
+
+page.on('console', msg => {
+  const text = msg.text();
+  if (CONSOLE_ALLOWLIST.some(a => text.includes(a))) return;
+  if (msg.type() === 'error') consoleErrors.push(text);
+  else if (msg.type() === 'warning') consoleWarnings.push(text);
+});
+// After test actions:
+// expect(consoleErrors, 'Console errors detected').toEqual([]);
+```
+
+Accumulate errors/warnings per page throughout Phases 2–5. Clear counters between pages.
+
+**CHECKPOINT**: Console health handler configured. Allowlist: {entries}.
+
 ---
 
 ## Phase 2: Screenshot Capture (Visual Baseline)
@@ -376,7 +415,26 @@ For each acceptance criterion, combine evidence from all phases:
 |-----------|---------|
 | All criteria PASS | **QA PASSED** ✅ |
 | All criteria PASS but A11Y warnings | **QA PASSED (with warnings)** ⚠️ |
+| All criteria PASS but console errors | **QA FAILED** ❌ |
 | Any criterion FAIL | **QA FAILED** ❌ |
+
+### 6.2.1 Console Health Report
+
+Include in every QA report. Compile per-page console data captured during Phases 2–5:
+
+```markdown
+### Console Health
+| Page | Errors | Warnings |
+|------|--------|----------|
+| /en/login | 0 ✅ | 0 |
+| /en/dashboard | 0 ✅ | 1 ⚠️ (DevTools deprecated API) |
+| /en/organization | 2 ❌ | 0 |
+
+Errors found:
+- `/en/organization`: `MISSING_MESSAGE: nav.metrics (en)`
+```
+
+Any non-allowlisted `console.error` → overall verdict is **QA FAILED**, regardless of criterion results. Console errors override A11Y warning status — if both exist, verdict is QA FAILED.
 
 ### 6.3 Bug Reports (If FAIL)
 
@@ -528,6 +586,7 @@ Screenshots: {RUN_DIR}/screenshots/
 - E2E_EXECUTED: E2E flows attempted with step-by-step evidence
 - A11Y_CHECKED: Basic WCAG checks performed (unless --skip-a11y)
 - VERDICTS_EVIDENCED: Every criterion has PASS/FAIL with specific evidence
+- CONSOLE_HEALTH_CAPTURED: Browser console errors/warnings captured per page via page.on('console') handler
 - RUN_ISOLATED: Each run gets unique directory with auto-increment number (run-NNN-{label})
 - REPORT_SAVED: QA report written to {RUN_DIR}/qa-report.md
 - BUGS_DOCUMENTED: Failed criteria have structured bug reports with reproduction steps
