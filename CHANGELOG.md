@@ -40,7 +40,7 @@ Every major version release MUST include a `docs/migration/vX.0-to-vY.0.md` file
 ### Added
 
 - **`/prp-core:prp-verify` command** — requirements traceability verification comparing PR diff against acceptance criteria sourced from issue or plan. Output: PASS / FAIL / PARTIAL verdict with per-criterion mapping. Use `--pr <N> --issue <N>` or `--pr <N> --plan <path>`.
-- **`/prp-core:prp-done` command** — 4-gate issue closure check (PR merged, review artifact present, verify passed, Vera QA passed). Prevents premature issue closure; refuses to close until all gates green.
+- **`/prp-core:prp-done` command** — 4-gate issue closure check (PR merged, review artifact present, verify artifact present, Vera QA passed). Gate 3 checks artifact existence, not verify verdict content (a PARTIAL verify still passes Gate 3). Prevents premature issue closure.
 - **`prp-qa --delegate=<agent>`** — delegate QA verification to another agent (e.g., `vera`) after merge instead of running locally. Delegating agent posts result back to the issue.
 - **`prp-run-all` flags**:
   - `--verify` — run `prp-verify` before merge to check requirements traceability (Step 7.5). VERIFY FAILED → STOP, do NOT merge.
@@ -50,8 +50,7 @@ Every major version release MUST include a `docs/migration/vX.0-to-vY.0.md` file
 
 ### Changed
 
-- **`safe-merge` Gate 2** — verify artifact enforcement for agent-labeled PRs. Blocks merge when `.prp-output/reviews/pr-<N>-agents-review*.md` is missing for PRs requiring structured review. Bypass: `--skip-review-check --reason="<why>"` (audit-logged).
-- **`prp-review-agents`** — emits `merge_tier` field in review artifact frontmatter so `safe-merge` Gate 2 can parse review status without re-running the agent.
+- **`safe-merge` Gate 2** — verify artifact enforcement for agent-labeled PRs. Blocks merge when `.prp-output/reviews/pr-<N>-verify.md` is missing. Bypass: `--skip-verify --verify-reason="<why>"` (syslog-audited via `journalctl -t safe-merge`). Gate 1 (review artifact) is unchanged and uses a separate bypass: `--skip-review-check --reason="<why>"`.
 
 ### Notes
 
