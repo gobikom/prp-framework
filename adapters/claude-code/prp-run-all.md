@@ -1,6 +1,6 @@
 ---
 description: "Orchestrate complete PRP workflow from feature request to pull request. Run branch, plan, implement, commit, PR, review with fix loop, and summary in sequence. Use when implementing features using PRP methodology or when user requests full PRP workflow."
-argument-hint: "\"<feature-description>\" or --issue <N> [--merge] [--max-review-rounds N] [--prp-path <path>] [--skip-plan] [--fast] [--ralph] [--ralph-max-iter N] [--skip-review] [--no-pr] [--fix-severity <levels>] [--resume] [--no-interact] [--dry-run]"
+argument-hint: "\"<feature-description>\" or --issue <N> [--merge] [--max-review-rounds N] [--prp-path <path>] [--skip-plan] [--fast] [--ralph] [--ralph-max-iter N] [--skip-review] [--no-pr] [--fix-severity <levels>] [--resume] [--no-interact] [--dry-run] [--verify] [--qa-delegate=<agent>] [--done]"
 ---
 <process>
 ## Agent Mode Detection
@@ -720,7 +720,10 @@ This will: check all completion gates (PR merged, review artifact, verify artifa
 | Review | ~15-30K | **Low** with pre-generated context (without: ~80-150K) |
 | Review Fix | ~5-10K | If issues found |
 | Re-verify | ~10-15K | **Low** with `--since-last-review` (incremental) |
-| **Total** | ~45-85K | ~40% less than without optimization |
+| Verify | ~3-5K | If `--verify` (skipped otherwise) |
+| QA Delegate | ~2K | If `--qa-delegate` (skipped otherwise) |
+| Done | ~2K | If `--done` (skipped otherwise) |
+| **Total** | ~45-85K | ~40% less than without optimization (+7-9K if --verify/--qa-delegate/--done) |
 
 ### Ralph Mode (with --ralph)
 
@@ -754,6 +757,8 @@ This will: check all completion gates (PR merged, review artifact, verify artifa
 /prp-core:prp-run-all --resume                                 # Resume from last failure
 /prp-core:prp-run-all Add JWT auth --fix-severity critical,high # Fix only blocking issues
 /prp-core:prp-run-all --issue 55 --max-review-rounds 3 --merge # Custom review rounds
+/prp-core:prp-run-all --issue 87 --merge --verify              # Full workflow + requirements verification before merge
+/prp-core:prp-run-all --issue 87 --merge --verify --qa-delegate=vera --done  # Full autonomous lifecycle with QA + issue closure
 ```
 
 ---
@@ -779,6 +784,10 @@ This will: check all completion gates (PR merged, review artifact, verify artifa
 | `--merge` but review has remaining issues | Skip merge, report in summary. Do NOT merge with open issues. |
 | Smart plan detection says "small" but impl is complex | Plan was skipped, implement may struggle. User can re-run with `--prp-path` and explicit plan. |
 | `--issue N` + `--skip-plan` | `--skip-plan` overrides smart plan detection. If no existing plan files found, falls through to stub plan generation in Step 2. To select from existing plans, ensure at least one `.plan.md` exists in `.prp-output/plans/`. |
+| `--done` without `--issue` | SKIP Step 9 with WARN: "`--done` requires `--issue` to identify which issue to close." |
+| `--qa-delegate` without `--issue` | SKIP Step 8.5 with WARN: "`--qa-delegate` requires `--issue` to source acceptance criteria." |
+| `--verify` returns FAIL | STOP — do not merge. Report which criteria failed. User must fix and re-run with `--verify`. |
+| `--done` but Gate 4 PENDING (QA delegated, not yet posted) | Issue NOT closed. Re-run `/prp-core:prp-done {ISSUE_NUMBER}` after Vera posts QA results. |
 
 ---
 
@@ -796,6 +805,9 @@ This will: check all completion gates (PR merged, review artifact, verify artifa
 - ZERO_ISSUES_TARGET: Review-fix loop continues until 0 issues (all severities in `FIX_SEVERITY`) or MAX_CYCLES reached. **Skipped issues count as remaining** — they are deferred, not resolved. Re-verify uses FULL review (not incremental) when any issues were skipped in the prior round, so skipped items re-surface in the next evaluation.
 - NO_SILENT_MERGE: `--merge` only executes when `REVIEW_VERDICT = "0_issues"`. `needs_manual_fix` (MAX_CYCLES hit OR 2 rounds all-skipped) blocks merge; escalation GH issue is created instead.
 - MERGED: PR squash-merged if --merge and 0 issues (unless --no-pr or --skip-review)
+- VERIFIED: Verify artifact exists and PASS/PARTIAL verdict recorded if --verify (FAIL blocks merge)
+- QA_DELEGATED: QA task dispatched to target agent if --qa-delegate (async, does not block merge)
+- ISSUE_CLOSED: Issue closed via /prp-core:prp-done if --done and all gates pass; PENDING blocks without error
 - CLEANED_UP: Branch deleted, main updated, issue closed if --issue
 - STATE_CLEANED: State and lock files deleted after completion
 - SUMMARY_REPORTED: User has clear next steps

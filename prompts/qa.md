@@ -395,24 +395,31 @@ For each failed criterion, generate a structured bug report:
 
 ### 6.4 Issue Creation (On Failure)
 
+> **🛑 SHELL SAFETY:** Multiline `--body` with backticks/code blocks **MUST** use `--body-file`. Inline `--body "$(cat <<EOF)"` executes backticks as bash subshells → hangs on stdin → 600s timeout. Pattern fix from incident `at-3db127abdf91`.
+
 If verdict is QA FAILED and there is a source issue (`--issue`):
 
 ```bash
 # Comment on the source issue with QA results
-gh issue comment {ISSUE_NUMBER} --body "## QA Results — FAILED ❌
+cat > /tmp/qa-comment-${RUN_ID}.md << 'EOF'
+## QA Results — FAILED ❌
 
 {summary table}
 
 {bug details}
 
 Tested by: {TOOL}:qa
-"
+EOF
+gh issue comment {ISSUE_NUMBER} --body-file /tmp/qa-comment-${RUN_ID}.md
 ```
 
 If no source issue, suggest creating one:
-```
+```bash
 QA found {N} failures. Create a tracking issue?
-gh issue create --title "QA: {summary}" --body "{bug reports}"
+cat > /tmp/qa-issue-${RUN_ID}.md << 'EOF'
+{bug reports}
+EOF
+gh issue create --title "QA: {summary}" --body-file /tmp/qa-issue-${RUN_ID}.md
 ```
 
 ---
