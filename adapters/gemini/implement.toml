@@ -132,10 +132,23 @@ git worktree list
 
 | Current State | Action |
 |---------------|--------|
-| In worktree | Use it (log: "Using worktree") |
-| On main, clean | Create branch: `git checkout -b feature/{plan-slug}` |
-| On main, dirty | STOP: "Stash or commit changes first" |
-| On feature branch | Use it (log: "Using existing branch") |
+| Already in a worktree | Use it (log: "Using existing worktree") |
+| On feature branch (not main) | Use it (log: "Using existing branch") |
+| On main | Create isolated worktree (see below) |
+
+**Worktree creation (when on main):**
+
+```bash
+BRANCH="feature/{plan-slug}"
+WORKTREE_PATH="/tmp/prp-worktree/$(whoami)-${BRANCH//\\//-}"
+git worktree add "$WORKTREE_PATH" -b "$BRANCH" main 2>/dev/null || \\
+  git worktree add "$WORKTREE_PATH" "$BRANCH"
+cd "$WORKTREE_PATH"
+```
+
+After this step, ALL subsequent operations (edits, commits, builds) happen inside the worktree.
+The original working tree stays clean — other agents can work there simultaneously.
+Use **absolute paths** within the worktree for Edit/Write tool calls.
 
 ### 2.3 Sync with Remote
 
@@ -147,7 +160,7 @@ git pull --rebase origin main 2>/dev/null || true
 **PHASE_2_CHECKPOINT:**
 
 - [ ] On correct branch (not main with uncommitted work)
-- [ ] Working directory ready
+- [ ] Working in isolated worktree (or existing feature branch)
 - [ ] Up to date with remote
 
 ---

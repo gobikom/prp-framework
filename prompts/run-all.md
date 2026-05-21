@@ -60,6 +60,7 @@ If 1 plan → use it. If multiple → ask (or pick most recent in no-interact). 
 FEATURE = "{remaining text after flags, or title from plan file}"
 PLAN_PATH = "{from --prp-path, or TBD — set in Step 2}"
 BRANCH = "{TBD — set in Step 1}"
+WORKTREE_PATH = "{TBD — set in Step 1, empty if using existing branch}"
 PR_NUMBER = "{TBD — set in Step 5}"
 REVIEW_ARTIFACT = "{TBD — set in Step 6.1}"
 USE_RALPH = {true if --ralph}
@@ -261,17 +262,24 @@ If `--prp-path` or `--skip-plan` already provided → skip smart detection (user
 
 ---
 
-### Step 1: CREATE BRANCH (skip if RESUME_FROM > 1)
+### Step 1: CREATE BRANCH + WORKTREE (skip if RESUME_FROM > 1)
 
-**Skip if**: already on a feature branch (not main/master).
+**Skip if**: already on a feature branch (not main/master) or already in a worktree.
 
 ```bash
 CURRENT=$(git branch --show-current)
-git checkout -b feature/{slug-from-FEATURE}
+BRANCH="feature/{slug-from-FEATURE}"
+WORKTREE_PATH="/tmp/prp-worktree/$(whoami)-${BRANCH//\//-}"
+git worktree add "$WORKTREE_PATH" -b "$BRANCH" main 2>/dev/null || \
+  git worktree add "$WORKTREE_PATH" "$BRANCH"
+cd "$WORKTREE_PATH"
 ```
 
-**Variable update**: `BRANCH = feature/{slug}`
-**Failure**: dirty working dir on main → STOP, ask to stash/commit.
+All subsequent steps run inside the worktree. The original working tree stays clean.
+Use **absolute paths** within the worktree for Edit/Write tool calls.
+
+**Variable update**: `BRANCH = feature/{slug}`, `WORKTREE_PATH = /tmp/prp-worktree/...`
+**Failure**: worktree creation fails → fall back to `git checkout -b` on current tree.
 
 ---
 

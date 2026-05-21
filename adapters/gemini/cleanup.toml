@@ -182,7 +182,18 @@ Action: Delete local + remote
 
 **If `DRY_RUN`**: Show preview only, skip deletion.
 
-### 4.2 Delete Local Branch
+### 4.2 Remove Worktree (if exists)
+
+```bash
+WORKTREE_PATH="/tmp/prp-worktree/$(whoami)-${BRANCH//\\//-}"
+if [ -d "$WORKTREE_PATH" ]; then
+    cd ~  # exit worktree before removing
+    git worktree remove "$WORKTREE_PATH" 2>/dev/null || \\
+      git worktree remove --force "$WORKTREE_PATH"
+fi
+```
+
+### 4.3 Delete Local Branch
 
 ```bash
 git branch -d {branch}
