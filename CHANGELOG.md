@@ -33,6 +33,32 @@ Every major version release MUST include a `docs/migration/vX.0-to-vY.0.md` file
 
 ## [Unreleased]
 
+## [2.9.0] — 2026-05-21
+
+**Auto-worktree isolation** — `prp-implement` and `prp-run-all` now create a `git worktree` when starting on main instead of `git checkout -b`. Each agent gets an isolated working copy under `/tmp/prp-worktree/`. Eliminates mixed commits, stash conflicts, and branch clobbering when multiple agents work on the same repo simultaneously.
+
+### Added
+
+- **Auto-worktree creation** in `implement.md` Phase 2 and `run-all.md` Step 1 — when on main, creates `/tmp/prp-worktree/{user}-{branch}` with isolated copy
+- **`.prp-output/` symlink** — artifacts symlinked back to original repo root, survive worktree removal
+- **`WORKTREE_PATH` state variable** in `run-all.md` — persisted in state file, restored on `--resume` with prefix validation (`/tmp/prp-worktree/*`)
+- **Worktree cleanup** in `cleanup.md` Phase 4.2 — removes worktree before branch deletion, uses `git -C` for reliable cwd handling
+- **Error guards** — `REPO_ROOT` empty check, `cd || STOP`, `ln || STOP`, `mkdir -p /tmp/prp-worktree`, fallback to `git checkout -b` if worktree creation fails
+- **Dirty working tree warning** — WARN (not STOP) when uncommitted changes exist on main before worktree creation
+
+### Changed
+
+- `implement.md` Phase 2 Branch Decision table — reordered, worktree-first instead of checkout-first
+- `run-all.md` Step 1 — renamed "CREATE BRANCH" → "CREATE BRANCH + WORKTREE"
+- `cleanup.md` Phase 4 — renumbered sections (4.2 Worktree → 4.3 Local Branch → 4.4 Remote → 4.5 Prune → 4.6 State)
+- All 15 adapters regenerated (5 tools × 3 commands)
+
+### Notes
+
+- Backward compatible: old state files without `worktree_path` field work normally (treated as empty → skip worktree cd)
+- Falls back to `git checkout -b` when worktree creation fails — no hard dependency on worktree support
+- Covers 5 of 8 agent code modification paths (task_executor, delegate-dev, dev-task v1/v3, orchestrate). Direct ping/ask paths remain convention-based (CLAUDE.md rule).
+
 ## [2.8.1] — 2026-05-18
 
 **Documentation amendment** — Retroactively documents `prp-verify`, `prp-done`, `prp-qa --delegate`, `safe-merge` Gate 2, and new `prp-run-all` flags (`--verify`, `--qa-delegate`, `--done`) shipped in PR #82 (commit `fe6b441`, 2026-05-16) but omitted from the v2.8.0 CHANGELOG (which focused on the shell safety fix). No code changes — docs only.
