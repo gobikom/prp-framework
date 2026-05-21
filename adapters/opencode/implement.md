@@ -136,25 +136,28 @@ git worktree list
 |---------------|--------|
 | Already in a worktree | Use it (log: "Using existing worktree") |
 | On feature branch (not main) | Use it (log: "Using existing branch") |
-| On main | Create isolated worktree (see below) |
+| On main, dirty | WARN: "Uncommitted changes on main will NOT be included in the worktree." Then proceed. |
+| On main, clean | Create isolated worktree (see below) |
 
 **Worktree creation (when on main):**
 
 ```bash
 REPO_ROOT="$(git rev-parse --show-toplevel)"
+[ -n "$REPO_ROOT" ] || { echo "STOP: not inside a git repository."; exit 1; }
 BRANCH="feature/{plan-slug}"
 WORKTREE_PATH="/tmp/prp-worktree/$(whoami)-${BRANCH//\//-}"
+[[ "$WORKTREE_PATH" == /tmp/prp-worktree/* ]] || { echo "STOP: invalid worktree path"; exit 1; }
+mkdir -p /tmp/prp-worktree
 git worktree add "$WORKTREE_PATH" -b "$BRANCH" main 2>/dev/null || \
   git worktree add "$WORKTREE_PATH" "$BRANCH" 2>/dev/null || {
-    echo "Worktree creation failed — falling back to checkout"
-    git checkout -b "$BRANCH"
+    echo "FALLBACK: Worktree creation failed — using checkout-b in $(pwd)"
+    git checkout -b "$BRANCH" || { echo "STOP: cannot create branch $BRANCH"; exit 1; }
     WORKTREE_PATH=""
   }
 if [ -n "$WORKTREE_PATH" ]; then
-    cd "$WORKTREE_PATH"
-    # Symlink .prp-output back to original repo so artifacts survive worktree removal
-    ln -sfn "$REPO_ROOT/.prp-output" "$WORKTREE_PATH/.prp-output"
+    cd "$WORKTREE_PATH" || { echo "STOP: cannot enter worktree"; git worktree remove "$WORKTREE_PATH" 2>/dev/null; exit 1; }
     mkdir -p "$REPO_ROOT/.prp-output"
+    ln -sfn "$REPO_ROOT/.prp-output" "$WORKTREE_PATH/.prp-output" || { echo "STOP: symlink failed — artifacts would be lost on cleanup"; exit 1; }
 fi
 ```
 
