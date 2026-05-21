@@ -210,7 +210,7 @@ git branch -D {branch}
 
 **If still fails** (branch doesn't exist locally): Skip — already deleted.
 
-### 4.3 Delete Remote Branch
+### 4.4 Delete Remote Branch
 
 ```bash
 git push origin --delete {branch}

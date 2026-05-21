@@ -212,13 +212,14 @@ Write `.prp-output/state/run-all.state.md` using Bash heredoc with YAML frontmat
 - Completed Steps table, Artifacts section, Error Log
 
 On `--resume`: restore ALL variables from state file. Set `RESUME_FROM = step` from frontmatter.
+If `worktree_path` is non-empty and the directory exists, `cd` to it before resuming.
 
 **STATE FILE I/O RULE**: Always use **Bash with heredoc** (`cat > file << 'EOF'`) to create and update state and lock files in `.prp-output/state/`. These are machine-generated tracking files, not source code.
 
 **STATE UPDATE RULE**: After each step completes:
 1. Increment `step` to next step number
 2. Update `updated_at`
-3. Update new variable values (plan_path, branch, pr_number, review_artifact, review_verdict, review_cycle, pending_skipped, all_skipped, skipped_count)
+3. Update new variable values (plan_path, branch, worktree_path, pr_number, review_artifact, review_verdict, review_cycle, pending_skipped, all_skipped, skipped_count)
 4. Append completed step to table
 5. Append new artifacts
 
@@ -273,18 +274,28 @@ If `--prp-path` or `--skip-plan` already provided → skip smart detection (user
 
 ```bash
 CURRENT=$(git branch --show-current)
+REPO_ROOT="$(git rev-parse --show-toplevel)"
 BRANCH="feature/{slug-from-FEATURE}"
 WORKTREE_PATH="/tmp/prp-worktree/$(whoami)-${BRANCH//\//-}"
 git worktree add "$WORKTREE_PATH" -b "$BRANCH" main 2>/dev/null || \
-  git worktree add "$WORKTREE_PATH" "$BRANCH"
-cd "$WORKTREE_PATH"
+  git worktree add "$WORKTREE_PATH" "$BRANCH" 2>/dev/null || {
+    echo "Worktree creation failed — falling back to checkout"
+    git checkout -b "$BRANCH"
+    WORKTREE_PATH=""
+  }
+if [ -n "$WORKTREE_PATH" ]; then
+    cd "$WORKTREE_PATH"
+    ln -sfn "$REPO_ROOT/.prp-output" "$WORKTREE_PATH/.prp-output"
+    mkdir -p "$REPO_ROOT/.prp-output"
+fi
 ```
 
 All subsequent steps run inside the worktree. The original working tree stays clean.
 Use **absolute paths** within the worktree for Edit/Write tool calls.
+Artifacts (`.prp-output/`) are symlinked to the original repo — they persist after worktree removal.
 
 **Variable update**: `BRANCH = feature/{slug}`, `WORKTREE_PATH = /tmp/prp-worktree/...`
-**Failure**: worktree creation fails → fall back to `git checkout -b` on current tree.
+**Failure**: worktree creation fails → falls back to `git checkout -b` on current tree (WORKTREE_PATH = empty).
 
 ---
 

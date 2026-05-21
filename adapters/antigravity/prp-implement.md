@@ -140,16 +140,27 @@ git worktree list
 **Worktree creation (when on main):**
 
 ```bash
+REPO_ROOT="$(git rev-parse --show-toplevel)"
 BRANCH="feature/{plan-slug}"
 WORKTREE_PATH="/tmp/prp-worktree/$(whoami)-${BRANCH//\//-}"
 git worktree add "$WORKTREE_PATH" -b "$BRANCH" main 2>/dev/null || \
-  git worktree add "$WORKTREE_PATH" "$BRANCH"
-cd "$WORKTREE_PATH"
+  git worktree add "$WORKTREE_PATH" "$BRANCH" 2>/dev/null || {
+    echo "Worktree creation failed — falling back to checkout"
+    git checkout -b "$BRANCH"
+    WORKTREE_PATH=""
+  }
+if [ -n "$WORKTREE_PATH" ]; then
+    cd "$WORKTREE_PATH"
+    # Symlink .prp-output back to original repo so artifacts survive worktree removal
+    ln -sfn "$REPO_ROOT/.prp-output" "$WORKTREE_PATH/.prp-output"
+    mkdir -p "$REPO_ROOT/.prp-output"
+fi
 ```
 
 After this step, ALL subsequent operations (edits, commits, builds) happen inside the worktree.
 The original working tree stays clean — other agents can work there simultaneously.
 Use **absolute paths** within the worktree for Edit/Write tool calls.
+Artifacts (`.prp-output/`) are symlinked to the original repo — they persist after worktree removal.
 
 ### 2.3 Sync with Remote
 
