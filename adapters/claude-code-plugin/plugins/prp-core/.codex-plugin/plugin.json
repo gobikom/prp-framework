@@ -1,0 +1,21 @@
+{
+  "name": "prp-core",
+  "version": "2.9.0",
+  "description": "PRP (Prompt-Run-Perfect) workflow automation — plan, implement, review, commit, PR with orchestration.",
+  "author": {
+    "name": "Wirasm",
+    "email": "contact@wirasm.com"
+  },
+  "repository": "https://github.com/gobikom/prp-framework",
+  "license": "MIT",
+  "keywords": ["prp", "workflow", "code-review", "implementation", "orchestration"],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "PRP Core",
+    "shortDescription": "Plan → Implement → Review → PR workflow",
+    "longDescription": "Complete PRP workflow automation including plan creation, implementation with validation loops, multi-agent code review, commit management, and PR creation with orchestration scripts.",
+    "developerName": "Wirasm",
+    "category": "Developer Tools",
+    "capabilities": ["Interactive", "Write"]
+  }
+}
