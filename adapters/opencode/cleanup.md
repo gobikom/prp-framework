@@ -184,7 +184,19 @@ Action: Delete local + remote
 
 **If `DRY_RUN`**: Show preview only, skip deletion.
 
-### 4.2 Delete Local Branch
+### 4.2 Remove Worktree (if exists)
+
+```bash
+WORKTREE_PATH="/tmp/prp-worktree/$(whoami)-${BRANCH//\//-}"
+if [ -d "$WORKTREE_PATH" ] && [[ "$WORKTREE_PATH" == /tmp/prp-worktree/* ]]; then
+    REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || echo "$HOME")"
+    git -C "$REPO_ROOT" worktree remove "$WORKTREE_PATH" 2>/dev/null || \
+      git -C "$REPO_ROOT" worktree remove --force "$WORKTREE_PATH" || \
+      echo "WARN: Could not remove worktree at $WORKTREE_PATH — run 'git worktree prune' manually."
+fi
+```
+
+### 4.3 Delete Local Branch
 
 ```bash
 git branch -d {branch}
@@ -198,7 +210,7 @@ git branch -D {branch}
 
 **If still fails** (branch doesn't exist locally): Skip — already deleted.
 
-### 4.3 Delete Remote Branch
+### 4.4 Delete Remote Branch
 
 ```bash
 git push origin --delete {branch}
@@ -207,13 +219,13 @@ git push origin --delete {branch}
 **If fails** (already deleted): Skip — already cleaned up.
 **If fails** (permission denied): WARN — "Cannot delete remote branch. Check permissions."
 
-### 4.4 Prune Remote References
+### 4.5 Prune Remote References
 
 ```bash
 git remote prune origin
 ```
 
-### 4.5 Remove Orphaned State Files
+### 4.6 Remove Orphaned State Files
 
 ```bash
 # Remove run-all state file if it refers to the cleaned branch

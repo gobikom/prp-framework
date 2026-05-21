@@ -136,10 +136,37 @@ git worktree list
 
 | Current State | Action |
 |---------------|--------|
-| In worktree | Use it (log: "Using worktree") |
-| On main, clean | Create branch: `git checkout -b feature/{plan-slug}` |
-| On main, dirty | STOP: "Stash or commit changes first" |
-| On feature branch | Use it (log: "Using existing branch") |
+| Already in a worktree | Use it (log: "Using existing worktree") |
+| On feature branch (not main) | Use it (log: "Using existing branch") |
+| On main, dirty | WARN: "Uncommitted changes on main will NOT be included in the worktree." Then proceed. |
+| On main, clean | Create isolated worktree (see below) |
+
+**Worktree creation (when on main):**
+
+```bash
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+[ -n "$REPO_ROOT" ] || { echo "STOP: not inside a git repository."; exit 1; }
+BRANCH="feature/{plan-slug}"
+WORKTREE_PATH="/tmp/prp-worktree/$(whoami)-${BRANCH//\//-}"
+[[ "$WORKTREE_PATH" == /tmp/prp-worktree/* ]] || { echo "STOP: invalid worktree path"; exit 1; }
+mkdir -p /tmp/prp-worktree
+git worktree add "$WORKTREE_PATH" -b "$BRANCH" main 2>/dev/null || \
+  git worktree add "$WORKTREE_PATH" "$BRANCH" 2>/dev/null || {
+    echo "FALLBACK: Worktree creation failed — using checkout-b in $(pwd)"
+    git checkout -b "$BRANCH" || { echo "STOP: cannot create branch $BRANCH"; exit 1; }
+    WORKTREE_PATH=""
+  }
+if [ -n "$WORKTREE_PATH" ]; then
+    cd "$WORKTREE_PATH" || { echo "STOP: cannot enter worktree"; git worktree remove "$WORKTREE_PATH" 2>/dev/null; exit 1; }
+    mkdir -p "$REPO_ROOT/.prp-output"
+    ln -sfn "$REPO_ROOT/.prp-output" "$WORKTREE_PATH/.prp-output" || { echo "STOP: symlink failed — artifacts would be lost on cleanup"; exit 1; }
+fi
+```
+
+After this step, ALL subsequent operations (edits, commits, builds) happen inside the worktree.
+The original working tree stays clean — other agents can work there simultaneously.
+Use **absolute paths** within the worktree for Edit/Write tool calls.
+Artifacts (`.prp-output/`) are symlinked to the original repo — they persist after worktree removal.
 
 ### 2.3 Sync with Remote
 
@@ -151,7 +178,7 @@ git pull --rebase origin main 2>/dev/null || true
 **PHASE_2_CHECKPOINT:**
 
 - [ ] On correct branch (not main with uncommitted work)
-- [ ] Working directory ready
+- [ ] Working in isolated worktree (or existing feature branch)
 - [ ] Up to date with remote
 
 ---

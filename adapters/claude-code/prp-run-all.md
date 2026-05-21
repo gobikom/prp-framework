@@ -65,6 +65,7 @@ If 1 plan → use it. If multiple → ask (or pick most recent in no-interact). 
 FEATURE = "{remaining text after flags, or title from plan file}"
 PLAN_PATH = "{from --prp-path, or TBD — set in Step 2}"
 BRANCH = "{TBD — set in Step 1}"
+WORKTREE_PATH = "{TBD — set in Step 1, empty if using existing branch}"
 PR_NUMBER = "{TBD — set in Step 5}"
 REVIEW_ARTIFACT = "{TBD — set in Step 6.1}"
 USE_RALPH = {true if --ralph}
@@ -202,7 +203,7 @@ mkdir -p .prp-output/state
 ```
 
 Write `.prp-output/state/run-all.state.md` using Bash heredoc with YAML frontmatter:
-- step, total_steps, feature, plan_path, branch, pr_number, review_artifact, review_verdict, review_cycle
+- step, total_steps, feature, plan_path, branch, worktree_path, pr_number, review_artifact, review_verdict, review_cycle
 - use_ralph, ralph_max_iter, fix_severity, fast_plan, skip_plan, skip_review, no_pr, no_interact
 - issue_number, auto_merge, max_cycles
 - verify, qa_delegate, done
@@ -211,13 +212,14 @@ Write `.prp-output/state/run-all.state.md` using Bash heredoc with YAML frontmat
 - Completed Steps table, Artifacts section, Error Log
 
 On `--resume`: restore ALL variables from state file. Set `RESUME_FROM = step` from frontmatter.
+If `worktree_path` is non-empty: validate it starts with `/tmp/prp-worktree/` and the directory exists, then `cd` to it before resuming. Reject paths that don't match the prefix.
 
 **STATE FILE I/O RULE**: Always use **Bash with heredoc** (`cat > file << 'EOF'`) to create and update state and lock files in `.prp-output/state/`. These are machine-generated tracking files, not source code.
 
 **STATE UPDATE RULE**: After each step completes:
 1. Increment `step` to next step number
 2. Update `updated_at`
-3. Update new variable values (plan_path, branch, pr_number, review_artifact, review_verdict, review_cycle, pending_skipped, all_skipped, skipped_count)
+3. Update new variable values (plan_path, branch, worktree_path, pr_number, review_artifact, review_verdict, review_cycle, pending_skipped, all_skipped, skipped_count)
 4. Append completed step to table
 5. Append new artifacts
 
@@ -266,17 +268,37 @@ If `--prp-path` or `--skip-plan` already provided → skip smart detection (user
 
 ---
 
-### Step 1: CREATE BRANCH (skip if RESUME_FROM > 1)
+### Step 1: CREATE BRANCH + WORKTREE (skip if RESUME_FROM > 1)
 
-**Skip if**: already on a feature branch (not main/master).
+**Skip if**: already on a feature branch (not main/master) or already in a worktree.
 
 ```bash
 CURRENT=$(git branch --show-current)
-git checkout -b feature/{slug-from-FEATURE}
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+[ -n "$REPO_ROOT" ] || { echo "STOP: not inside a git repository."; exit 1; }
+BRANCH="feature/{slug-from-FEATURE}"
+WORKTREE_PATH="/tmp/prp-worktree/$(whoami)-${BRANCH//\//-}"
+[[ "$WORKTREE_PATH" == /tmp/prp-worktree/* ]] || { echo "STOP: invalid worktree path"; exit 1; }
+mkdir -p /tmp/prp-worktree
+git worktree add "$WORKTREE_PATH" -b "$BRANCH" main 2>/dev/null || \
+  git worktree add "$WORKTREE_PATH" "$BRANCH" 2>/dev/null || {
+    echo "FALLBACK: Worktree creation failed — using checkout-b in $(pwd)"
+    git checkout -b "$BRANCH" || { echo "STOP: cannot create branch $BRANCH"; exit 1; }
+    WORKTREE_PATH=""
+  }
+if [ -n "$WORKTREE_PATH" ]; then
+    cd "$WORKTREE_PATH" || { echo "STOP: cannot enter worktree"; git worktree remove "$WORKTREE_PATH" 2>/dev/null; exit 1; }
+    mkdir -p "$REPO_ROOT/.prp-output"
+    ln -sfn "$REPO_ROOT/.prp-output" "$WORKTREE_PATH/.prp-output" || { echo "STOP: symlink failed"; exit 1; }
+fi
 ```
 
-**Variable update**: `BRANCH = feature/{slug}`
-**Failure**: dirty working dir on main → STOP, ask to stash/commit.
+All subsequent steps run inside the worktree. The original working tree stays clean.
+Use **absolute paths** within the worktree for Edit/Write tool calls.
+Artifacts (`.prp-output/`) are symlinked to the original repo — they persist after worktree removal.
+
+**Variable update**: `BRANCH = feature/{slug}`, `WORKTREE_PATH = /tmp/prp-worktree/...`
+**Failure**: worktree creation fails → falls back to `git checkout -b` (WORKTREE_PATH = empty). All guards STOP on unrecoverable errors.
 
 ---
 
