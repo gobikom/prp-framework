@@ -71,5 +71,12 @@ AGENTS.md
 
 # PRP Framework - local clone (not a submodule)
 .prp/
+.prp
+
+# Runtime output
+results/
+
+# Oracle/memory artifacts
+ψ/
 
 !AGENTS.md
