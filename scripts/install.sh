@@ -222,6 +222,11 @@ mkdir -p "$PROJECT_DIR/.claude/skills"
 for skill_dir in "$FRAMEWORK_DIR/adapters/claude-code-skills"/*; do
     if [ -d "$skill_dir" ]; then
         skill_name=$(basename "$skill_dir")
+        # Skip prp-core-runner if already installed globally (avoid double-skill)
+        if [ "$skill_name" = "prp-core-runner" ] && [ -d "$HOME/.claude/skills/prp-core-runner" ]; then
+            echo -e "${GREEN}  ✅ Skipping prp-core-runner — already installed globally.${NC}"
+            continue
+        fi
         if install_directory "$skill_dir" "$PROJECT_DIR/.claude/skills/$skill_name" "Claude Code Skill: $skill_name"; then
             USED_SYMLINKS=true
         else
