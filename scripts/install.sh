@@ -345,6 +345,20 @@ else
     USED_COPY=true
 fi
 
+# Install thClaws (directory structure, same as codex)
+echo "→ thClaws (.thclaws/skills/)"
+mkdir -p "$PROJECT_DIR/.thclaws/skills"
+for skill_dir in "$FRAMEWORK_DIR/adapters/thclaws"/prp-*; do
+    if [ -d "$skill_dir" ]; then
+        skill_name=$(basename "$skill_dir")
+        if install_directory "$skill_dir" "$PROJECT_DIR/.thclaws/skills/$skill_name" "thClaws: $skill_name"; then
+            USED_SYMLINKS=true
+        else
+            USED_COPY=true
+        fi
+    fi
+done
+
 # Install Generic (single file)
 # Exception: soul-orchestra-generated agent homes own root AGENTS.md
 # (parallel to auto-generated CLAUDE.md — same identity content for codex).

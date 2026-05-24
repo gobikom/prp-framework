@@ -396,7 +396,7 @@ def generate_adapter_file(adapter_name: str, cmd_name: str, config: dict) -> tup
         content = generate_toml_content(desc, body)
     else:
         # Markdown format — build frontmatter + body
-        if adapter_name == "codex":
+        if adapter_name in ("codex", "thclaws"):
             frontmatter = generate_codex_frontmatter(cmd_name, cmd_cfg, adapter_cfg)
         else:
             frontmatter = generate_frontmatter_md(adapter_name, cmd_name, cmd_cfg, adapter_cfg)

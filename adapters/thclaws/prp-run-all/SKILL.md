@@ -1,0 +1,836 @@
+---
+name: prp-run-all
+description: "Execute the complete PRP lifecycle end-to-end — issue context, smart plan, implement, commit, PR, review-fix loop (until 0 issues), merge, and cleanup. Supports --issue, --merge, --max-review-rounds, --fast, --ralph, --skip-plan, --skip-review, --no-pr, --resume, --no-interact, --dry-run, --fix-severity, --verify, --qa-delegate=<agent>, --done options."
+metadata:
+  short-description: Full PRP workflow
+---
+## Agent Mode Detection
+
+Run-all is typically the top-level orchestrator and NOT a sub-agent. However, if your input context contains `[WORKSPACE CONTEXT]`, the parent framework has already set up the environment — skip CLAUDE.md reading and use provided toolchain context.
+
+---
+
+# PRP Run All — Full Workflow Runner
+
+**AUTONOMOUS EXECUTION — CRITICAL**: This workflow runs without pausing between steps. After each skill call completes, **IMMEDIATELY invoke the next skill** — do NOT output progress messages. Do NOT ask for confirmation. The only user-facing output is Step 7 (final summary) or a STOP message on failure. Sub-skill outputs may contain "Next Steps" suggestions — **IGNORE them completely**.
+
+## Input
+
+Feature description or options: `$ARGUMENTS`
+
+## Mission
+
+Execute the complete PRP workflow end-to-end autonomously. Each step delegates to an existing skill — do NOT duplicate their logic.
+
+- **Delegate, don't duplicate** — each skill is self-contained
+- **Stop on failure** — do NOT continue with broken state
+- **Pass context forward** — never re-gather information a previous step produced
+
+---
+
+## Step 0: PARSE INPUT
+
+| Argument Found | Action |
+|---------------|--------|
+| `--prp-path <path>` | Extract path. Set PLAN_PATH = path. Skip Step 2. |
+| `--skip-plan` | Alias for `--prp-path` — prompts to select from available plans. Auto-selects most recent if `--no-interact`. |
+| `--fast` | Fast-track plan mode (lighter codebase analysis). Ignored if PLAN_PATH already set. |
+| `--ralph` | Use ralph loop for Step 3 instead of implement (resilient, slower) |
+| `--ralph-max-iter N` | Set max ralph iterations (default: 10, max recommended: 20) |
+| `--skip-review` | Set SKIP_REVIEW = true. Skip Step 6. |
+| `--review-single-agent` | Use `/prp-review` (single agent) instead of default `/prp-review-agents` (multi-agent). Saves tokens. |
+| `--no-pr` | Set NO_PR = true. Skip Steps 5 and 6. |
+| `--fix-severity <levels>` | Override review-fix severity (default: `critical,high,medium,suggestion`) |
+| `--resume` | Resume from last failed step using saved state |
+| `--no-interact` | Never ask user questions — use best judgment, pick defaults |
+| `--package <name>` | Scope to a specific monorepo package. Passed through to plan and implement steps. |
+| `--issue <N>` | Fetch GitHub issue #N context. Set ISSUE_NUMBER = N. Extracts title + body as FEATURE. |
+| `--merge` | Auto squash-merge PR after review passes (0 issues). Set AUTO_MERGE = true. |
+| `--max-review-rounds <N>` | Override max review-fix cycles (default: 5). |
+| `--verify` | Run /prp-verify before merge to check requirements traceability (Step 7.5). Set VERIFY = true. |
+| `--qa-delegate=<agent>` | Delegate QA to agent after merge via /prp-qa --delegate (Step 8.5). Set QA_DELEGATE = agent. |
+| `--done` | Run /prp-done after QA delegation to close issue when all gates pass (Step 9). Set DONE = true. Requires --issue. |
+| `--dry-run` | Preview all steps without executing. Show estimated token cost. Exit after preview. |
+| Remaining text | Set FEATURE = text |
+
+**If `--prp-path` provided, validate file exists** — STOP if not found, show available plans.
+
+**If `--skip-plan` provided (without `--prp-path`)**:
+```bash
+ls -t .prp-output/plans/*.plan.md 2>/dev/null | head -5
+```
+If 1 plan → use it. If multiple → ask (or pick most recent in no-interact). If none AND no `--issue` → STOP. If none AND `--issue` is set → proceed (Step 2 will generate a stub plan).
+
+**Set workflow variables:**
+```
+FEATURE = "{remaining text after flags, or title from plan file}"
+PLAN_PATH = "{from --prp-path, or TBD — set in Step 2}"
+BRANCH = "{TBD — set in Step 1}"
+WORKTREE_PATH = "{TBD — set in Step 1, empty if using existing branch}"
+PR_NUMBER = "{TBD — set in Step 5}"
+REVIEW_ARTIFACT = "{TBD — set in Step 6.1}"
+USE_RALPH = {true if --ralph}
+RALPH_MAX_ITER = {N, default 10}
+SKIP_REVIEW = {true if --skip-review or --no-pr}
+REVIEW_SINGLE_AGENT = {true if --review-single-agent}
+NO_PR = {true if --no-pr}
+FIX_SEVERITY = "{from --fix-severity, default 'critical,high,medium,suggestion'}"
+FAST_PLAN = {true if --fast} (ignored if PLAN_PATH already set)
+NO_INTERACT = {true if --no-interact}
+MONOREPO_PACKAGE = "{from --package, or empty}"
+DRY_RUN = {true if --dry-run}
+ISSUE_NUMBER = "{from --issue, or empty}"
+AUTO_MERGE = {true if --merge}
+MAX_CYCLES = {from --max-review-rounds, default 5}
+VERIFY = {true if --verify}
+QA_DELEGATE = "{from --qa-delegate, or empty}"
+DONE = {true if --done}
+SKIP_PLAN = {false by default — may be set by --skip-plan flag or smart plan detection in Step 0.8}
+RESUME_FROM = {0 by default — set from state file's step field if --resume}
+REVIEW_VERDICT = "{TBD — set in Step 6.2}"
+REVIEW_CYCLE = {1 — incremented after each fix cycle in Step 6.4}
+PENDING_SKIPPED = {false — set in Step 6.3 based on review-fix outcome; all 3 outcome rows assign it explicitly}
+ALL_SKIPPED = {false — set in Step 6.3 when fixed_count = 0}
+SKIPPED_COUNT = {0 — set in Step 6.3 to number of skipped issues}
+```
+
+**Flag validation** (after parsing all flags):
+- If `AUTO_MERGE = true` AND (`SKIP_REVIEW = true` OR `NO_PR = true`): STOP — "`--merge` requires review to pass. Cannot use with `--skip-review` or `--no-pr`."
+
+### Dry-Run Preview
+
+**If `DRY_RUN = true`** — print preview and exit immediately:
+
+```
+DRY RUN — No changes will be made
+
+Feature: {FEATURE}
+Mode:    {ralph (loop up to N iter) | default implement}
+
+Steps that would run:
+  Step 0.8: Fetch issue        -> {skipped (no --issue) | gh issue view N}
+  Step 1: Create branch        -> feature/{slug}
+  Step 2: Create plan          -> {skipped (small issue or --skip-plan) | --fast (medium) | full (large)}
+  Step 3: Implement            -> {/prp-ralph (loop up to N iter) | /prp-implement (single pass)}
+  Step 4: Commit               -> conventional commit on feature branch
+  Step 5: Create PR            -> {skipped (--no-pr) | PR to main, Fixes #N if --issue}
+  Step 6: Review & Fix         -> {skipped (--skip-review) | review-fix loop (max {MAX_CYCLES} rounds, target: 0 issues)}
+  Step 7: Summary              -> final report
+  Step 7.5: Verify             -> {skipped (no --verify) | /prp-verify --pr {PR_NUMBER} --issue {ISSUE_NUMBER}}
+  Step 8: Merge & Cleanup      -> {skipped (no --merge) | squash merge + cleanup}
+  Step 8.5: QA Delegate        -> {skipped (no --qa-delegate) | /prp-qa --delegate={QA_DELEGATE} --issue {ISSUE_NUMBER}}
+  Step 9: Done                 -> {skipped (no --done or no --issue) | /prp-done {ISSUE_NUMBER}}
+
+Estimated token cost:
+  Plan:      {~0K (skipped) | ~5-10K (fast) | ~10-20K (full)}
+  Implement: {~15K x N iterations (ralph) | ~15-30K (single pass)}
+  Commit:    ~2K tokens
+  PR:        ~3K tokens
+  Review:    ~15-30K tokens (with pre-generated context optimization)
+  Total:     {estimated range}
+
+Artifacts that would be created:
+  .prp-output/plans/        -> implementation plan
+  .prp-output/reports/      -> implementation report
+  .prp-output/reviews/      -> pr-context + review report
+
+To execute: remove --dry-run and re-run the same command.
+```
+
+**Then STOP — do not proceed.**
+
+### Ralph Hook Check (if --ralph)
+
+If `--ralph` flag detected, verify ralph stop hook is registered:
+```bash
+test -f .claude/hooks/prp-ralph-stop.sh && echo "FOUND" || echo "NOT_FOUND"
+```
+
+If not found → STOP: "Run `cd .prp && ./scripts/install.sh` to register ralph hook."
+
+**Token warning (ralph mode):**
+```
+Ralph mode enabled — uses significantly more tokens than default implement.
+Estimated: {N} iterations x ~15K tokens = ~{N*15}K tokens for implement step alone.
+Default implement: ~15-30K tokens total.
+```
+
+---
+
+## Step 0.5: INITIALIZE STATE
+
+**Generate unified timestamp:**
+```bash
+RUN_TIMESTAMP=$(date +%Y%m%d-%H%M)
+```
+
+**Check for concurrent execution:**
+
+```bash
+LOCK_FILE=".prp-output/state/run-all.lock"
+if [ -f "$LOCK_FILE" ]; then
+  # Check if lock is stale (older than 2 hours)
+  LOCK_AGE=$(( $(date +%s) - $(stat -c "%Y" "$LOCK_FILE" 2>/dev/null || stat -f "%m" "$LOCK_FILE" 2>/dev/null) ))
+  if [ "$LOCK_AGE" -gt 7200 ]; then
+    echo "STALE_LOCK"
+  else
+    echo "LOCKED"
+  fi
+else
+  echo "UNLOCKED"
+fi
+```
+
+| Result | Action |
+|--------|--------|
+| UNLOCKED | Create lock: `echo "$$" > .prp-output/state/run-all.lock` → proceed |
+| STALE_LOCK | Remove stale lock, create new one → proceed |
+| LOCKED | STOP: "Another run-all workflow is active. Wait or delete `.prp-output/state/run-all.lock` to force." |
+
+**Check for existing state file:**
+
+| State File | `--resume`? | Action |
+|------------|-------------|--------|
+| EXISTS | Yes | Restore variables from state → skip completed steps |
+| EXISTS | No + `NO_INTERACT` | Auto-delete stale state, proceed fresh |
+| EXISTS | No + interactive | STOP: "Previous workflow interrupted. Use `--resume` or delete state file." |
+| NOT_FOUND | Yes | STOP: "No saved state found. Start fresh." |
+| NOT_FOUND | No | Create new state file → proceed |
+
+**Create new state file** (if not resuming):
+
+```bash
+mkdir -p .prp-output/state
+```
+
+Write `.prp-output/state/run-all.state.md` using Bash heredoc with YAML frontmatter:
+- step, total_steps, feature, plan_path, branch, worktree_path, pr_number, review_artifact, review_verdict, review_cycle
+- use_ralph, ralph_max_iter, fix_severity, fast_plan, skip_plan, skip_review, no_pr, no_interact
+- issue_number, auto_merge, max_cycles
+- verify, qa_delegate, done
+- pending_skipped, all_skipped, skipped_count
+- started_at, updated_at
+- Completed Steps table, Artifacts section, Error Log
+
+On `--resume`: restore ALL variables from state file. Set `RESUME_FROM = step` from frontmatter.
+If `worktree_path` is non-empty: validate it starts with `/tmp/prp-worktree/` and the directory exists, then `cd` to it before resuming. Reject paths that don't match the prefix.
+
+**STATE FILE I/O RULE**: Always use **Bash with heredoc** (`cat > file << 'EOF'`) to create and update state and lock files in `.prp-output/state/`. These are machine-generated tracking files, not source code.
+
+**STATE UPDATE RULE**: After each step completes:
+1. Increment `step` to next step number
+2. Update `updated_at`
+3. Update new variable values (plan_path, branch, worktree_path, pr_number, review_artifact, review_verdict, review_cycle, pending_skipped, all_skipped, skipped_count)
+4. Append completed step to table
+5. Append new artifacts
+
+---
+
+## Workflow
+
+Execute these steps in sequence. **Stop immediately on any failure.**
+
+### Step 0.8: FETCH ISSUE CONTEXT (skip if no --issue)
+
+If ISSUE_NUMBER is set:
+
+```bash
+gh issue view {ISSUE_NUMBER} --json title,body,labels,state
+```
+
+| Result | Action |
+|--------|--------|
+| Issue found, state=OPEN | Extract FEATURE from title. Set ISSUE_BODY from body. |
+| Issue found, state=CLOSED | WARN: "Issue #{ISSUE_NUMBER} is closed. Proceeding anyway." |
+| Issue not found | STOP: "Issue #{ISSUE_NUMBER} not found." |
+
+**Smart Plan Detection** — analyze issue scope to decide whether to plan:
+
+If `gh issue view` output cannot be parsed → STOP: "Failed to parse issue #{ISSUE_NUMBER}."
+If ISSUE_BODY is empty or null → WARN: "Issue #{N} has no body — cannot score scope. Defaulting to fast plan." Set FAST_PLAN = true, SKIP_PLAN = false. Skip scoring below.
+
+| Indicator | Score |
+|-----------|-------|
+| Body mentions > 3 files or paths | +1 |
+| Labels include `feature`, `enhancement`, `epic` | +1 |
+| Body > 500 characters | +1 |
+| Body mentions architecture, refactor, migration, redesign | +1 |
+| Body mentions multiple components, services, or packages | +1 |
+
+| Total Score | Action |
+|-------------|--------|
+| 0-1 | Small issue — set SKIP_PLAN = true, FAST_PLAN = false |
+| 2-3 | Medium issue — set SKIP_PLAN = false, FAST_PLAN = true |
+| 4-5 | Large issue — set SKIP_PLAN = false, FAST_PLAN = false (full plan) |
+
+Display: `"Issue #{N}: {title} — Scope: {small/medium/large} → {skip plan / fast plan / full plan}"`
+
+If `--prp-path` or `--skip-plan` already provided → skip smart detection (user explicitly controls planning).
+
+---
+
+### Step 1: CREATE BRANCH + WORKTREE (skip if RESUME_FROM > 1)
+
+**Skip if**: already on a feature branch (not main/master) or already in a worktree.
+
+```bash
+CURRENT=$(git branch --show-current)
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+[ -n "$REPO_ROOT" ] || { echo "STOP: not inside a git repository."; exit 1; }
+BRANCH="feature/{slug-from-FEATURE}"
+WORKTREE_PATH="/tmp/prp-worktree/$(whoami)-${BRANCH//\//-}"
+[[ "$WORKTREE_PATH" == /tmp/prp-worktree/* ]] || { echo "STOP: invalid worktree path"; exit 1; }
+mkdir -p /tmp/prp-worktree
+git worktree add "$WORKTREE_PATH" -b "$BRANCH" main 2>/dev/null || \
+  git worktree add "$WORKTREE_PATH" "$BRANCH" 2>/dev/null || {
+    echo "FALLBACK: Worktree creation failed — using checkout-b in $(pwd)"
+    git checkout -b "$BRANCH" || { echo "STOP: cannot create branch $BRANCH"; exit 1; }
+    WORKTREE_PATH=""
+  }
+if [ -n "$WORKTREE_PATH" ]; then
+    cd "$WORKTREE_PATH" || { echo "STOP: cannot enter worktree"; git worktree remove "$WORKTREE_PATH" 2>/dev/null; exit 1; }
+    mkdir -p "$REPO_ROOT/.prp-output"
+    ln -sfn "$REPO_ROOT/.prp-output" "$WORKTREE_PATH/.prp-output" || { echo "STOP: symlink failed"; exit 1; }
+fi
+```
+
+All subsequent steps run inside the worktree. The original working tree stays clean.
+Use **absolute paths** within the worktree for Edit/Write tool calls.
+Artifacts (`.prp-output/`) are symlinked to the original repo — they persist after worktree removal.
+
+**Variable update**: `BRANCH = feature/{slug}`, `WORKTREE_PATH = /tmp/prp-worktree/...`
+**Failure**: worktree creation fails → falls back to `git checkout -b` (WORKTREE_PATH = empty). All guards STOP on unrecoverable errors.
+
+---
+
+### Step 2: CREATE PLAN (skip if --prp-path or SKIP_PLAN or RESUME_FROM > 2)
+
+**Skip conditions** (any of these):
+- `--prp-path` provided (explicit plan)
+- `--skip-plan` flag
+- SKIP_PLAN = true (from smart plan detection in Step 0.8 — small issue)
+
+If skipping and no PLAN_PATH: create a minimal stub plan file:
+
+```markdown
+---
+status: pending
+mode: stub
+---
+# {FEATURE}
+
+## Summary
+{FEATURE}. {First 500 chars of ISSUE_BODY if available.}
+
+## Tasks
+1. Implement the feature described above. Read the codebase to understand patterns, then make targeted changes.
+
+## Validation Commands
+Run project's standard validation (type-check, lint, test, build).
+```
+
+Save to `.prp-output/plans/issue-{ISSUE_NUMBER}-stub-{RUN_TIMESTAMP}.plan.md` (or `stub-{RUN_TIMESTAMP}.plan.md` if no issue).
+Set PLAN_PATH to the saved file path.
+
+If NOT skipping: Use `/prp-plan` with FEATURE (append `--fast` if FAST_PLAN, `--no-interact` if NO_INTERACT, `--package {MONOREPO_PACKAGE}` if set).
+
+This will: analyze codebase (lighter if --fast), generate plan with validation commands, integration points, confidence score. Save to `.prp-output/plans/`.
+
+**Variable update**: `PLAN_PATH = {generated plan path}` (always a real file — stub plan if skipping)
+**Failure** → STOP.
+
+**DO NOT**: Read plan skill and execute logic yourself, analyze codebase directly.
+**CHECKPOINT**: If not skipping, did you invoke `/prp-plan`? If not → STOP → invoke it.
+
+---
+
+### Step 3: IMPLEMENT (skip if RESUME_FROM > 3)
+
+**Choose path based on `USE_RALPH`:**
+
+#### 3A: Default Mode (USE_RALPH = false)
+
+Use `/prp-implement` with PLAN_PATH.
+
+This will: detect toolchain, execute plan, validate (typecheck, lint, test, build), write report (timestamp), generate review context (`pr-context-{branch}.md` — even on early failure), archive plan (GATE).
+
+**Wait for completion** — this is the longest step.
+
+#### 3B: Ralph Mode (USE_RALPH = true)
+
+Use `/prp-ralph` with `{PLAN_PATH} --max-iterations {RALPH_MAX_ITER}`.
+
+This will: loop iteratively until ALL validations pass, self-fix failures, write report, generate review context, archive plan.
+
+**Failure** → STOP, report which task/validation failed.
+
+**DO NOT**: Read implement/ralph skill and execute logic yourself, write code directly.
+**CHECKPOINT**: Did you invoke `/prp-implement` or `/prp-ralph`? If not → STOP → invoke it.
+**TRANSITION**: Implement succeeded → **immediately proceed to Step 3.1**.
+
+#### 3.1 Verify Artifacts
+
+After implement completes, check:
+```bash
+ls -la .prp-output/reports/*-report*.md 2>/dev/null
+ls -la .prp-output/reviews/pr-context-*.md 2>/dev/null
+```
+
+Set: `REPORT_PATH`, `CONTEXT_PATH`
+
+#### 3.2 Fallback: Create Missing Artifacts
+
+**If report missing**, create minimal report with:
+- Plan reference, branch, date, status
+- Files changed from `git diff --name-only origin/main...HEAD`
+- Validation command reminders
+
+Save to: `.prp-output/reports/{plan-slug}-report-{RUN_TIMESTAMP}.md`
+
+**If pr-context missing**, create minimal context with:
+- Branch name
+- Files changed from `git diff --name-only origin/main...HEAD`
+- Note: "Context was not pre-generated. Review will need to analyze files directly."
+
+Save to: `.prp-output/reviews/pr-context-{BRANCH}.md`
+
+---
+
+### Step 4: COMMIT (skip if RESUME_FROM > 4)
+
+Use `/prp-commit`.
+
+**Failure**: pre-commit hook → fix and retry.
+
+**DO NOT**: Run git add/commit directly, manually stage files.
+**CHECKPOINT**: Did you invoke `/prp-commit`? If not → STOP → invoke it.
+**TRANSITION**: Commit succeeded → **immediately proceed to Step 5** (or Step 7 if NO_PR).
+
+---
+
+### Step 5: CREATE PR (skip if NO_PR or RESUME_FROM > 5)
+
+Use `/prp-pr` (pass `--no-interact` if NO_INTERACT).
+
+If ISSUE_NUMBER is set: ensure the PR body includes `Fixes #{ISSUE_NUMBER}` so the issue auto-closes on merge.
+
+**Variable update**: `PR_NUMBER = {created PR number}`
+**Failure** → STOP.
+
+**DO NOT**: Run gh pr create directly, manually craft PR body.
+**CHECKPOINT**: Did you invoke `/prp-pr`? If not → STOP → invoke it.
+**TRANSITION**: PR created → **immediately proceed to Step 6** (or Step 7 if SKIP_REVIEW).
+
+---
+
+### Step 6: REVIEW & FIX (skip if SKIP_REVIEW or NO_PR or RESUME_FROM > 6)
+
+Set: `REVIEW_CYCLE = {from state file if --resume, otherwise 1}` (MAX_CYCLES already set from Step 0 — default 5)
+
+#### 6.1 Run Review
+
+**Choose review command based on `REVIEW_SINGLE_AGENT`:**
+
+| REVIEW_SINGLE_AGENT | Command | Description |
+|---------------------|---------|-------------|
+| false (default) | `/prp-review-agents` | Multi-agent review (specialized agents in parallel) |
+| true | `/prp-review` | Single-agent review (faster, saves tokens) |
+
+Pass PR_NUMBER to the chosen command. If `.prp-output/reviews/pr-context-{BRANCH}.md` exists, pass `--context` flag for token optimization.
+
+**Variable update** (depends on which review command ran):
+
+| Command | REVIEW_ARTIFACT path |
+|---------|---------------------|
+| `/prp-review-agents` | `.prp-output/reviews/pr-{PR_NUMBER}-agents-review.md` |
+| `/prp-review` | `.prp-output/reviews/pr-{PR_NUMBER}-review-thclaws.md` |
+
+**DO NOT**: Read code and review it yourself, skip the skill.
+**CHECKPOINT**: Did you invoke the review command? If not → STOP → invoke it.
+
+#### 6.2 Evaluate Results
+
+Check for issues matching `FIX_SEVERITY` (default: all levels):
+
+| Result | Action |
+|--------|--------|
+| 0 issues (all severities) | Set REVIEW_VERDICT = "0_issues". → Step 7 ✓ (or Step 8 if AUTO_MERGE) |
+| Issues found + `REVIEW_CYCLE <= MAX_CYCLES` | → Step 6.3 |
+| Issues found + `REVIEW_CYCLE > MAX_CYCLES` | Report remaining issues → Step 7 (NEEDS MANUAL FIXES) |
+
+#### 6.3 Fix Issues
+
+Use `/prp-review-fix` with `{REVIEW_ARTIFACT} --severity {FIX_SEVERITY}`.
+
+This will: detect toolchain, load artifact directly, fix issues by severity, validate with GATE, commit and push, post summary to PR.
+
+**DO NOT**: Manually read and fix issues yourself, run validation separately.
+**CHECKPOINT**: Did you invoke `/prp-review-fix`? If not → STOP → invoke it.
+
+**Capture review-fix outcome** for Step 6.4:
+
+| review-fix result | Set |
+|-------------------|-----|
+| All issues fixed (skipped_count = 0) | `PENDING_SKIPPED = false` |
+| Some fixed, some skipped (skipped_count > 0) | `PENDING_SKIPPED = true`, `SKIPPED_COUNT = N` |
+| All issues skipped (fixed_count = 0, skipped_count > 0) | `PENDING_SKIPPED = true`, `ALL_SKIPPED = true`, `SKIPPED_COUNT = N` |
+
+**Zero-issues bar**: skipped issues are NOT resolved — they are deferred. Do not proceed to Step 7 as if done.
+
+#### 6.4 Re-verify
+
+Increment: `REVIEW_CYCLE += 1`
+
+Re-run review to confirm fixes resolved issues and no regressions introduced.
+
+**Re-verify always uses single-agent review** (`/prp-review`) regardless of `REVIEW_SINGLE_AGENT` setting — multi-agent re-verify is wasteful for incremental changes.
+
+**Re-verify mode depends on `PENDING_SKIPPED`:**
+
+| PENDING_SKIPPED | Re-verify command | Why |
+|-----------------|-------------------|-----|
+| `false` (all fixed) | `/prp-review {PR_NUMBER} --since-last-review` (incremental) | Only new code changed — delta review saves tokens |
+| `true` (some/all skipped) | `/prp-review {PR_NUMBER} --context` (FULL review) | Skipped items did NOT change code but STILL need to re-surface — incremental delta would miss them and produce false "0 issues" |
+
+If `--since-last-review` not supported or fails, fall back to full review with `--context` flag. Display: `"WARN: --since-last-review not supported — falling back to full review (higher token cost)."`
+
+→ **Return to Step 6.2** to evaluate results.
+
+**Escalation guard (NEW 2026-04-17):** before returning to 6.2, if `ALL_SKIPPED = true` AND `REVIEW_CYCLE >= 2` (i.e., review-fix ran at least once with all issues skipped — REVIEW_CYCLE is at least 2 after increment — and cannot make further progress), STOP the loop early:
+- Do NOT loop another round — review-fix has no additional tooling to resolve these.
+- Create escalation GH issue with the remaining items. Label strategy: the `[escalation]` title prefix carries the signal — add repo-appropriate labels only if they exist in the target repo (graceful fallback so different repos with different label schemes do not hard-fail the workflow):
+   ```bash
+   REPO=$(gh repo view --json nameWithOwner --jq '.nameWithOwner' 2>/dev/null)
+   LABEL_ARGS=""
+   if [ -n "$REPO" ]; then
+     for LABEL in "priority:P2" "bug" "help wanted"; do
+       if gh label list -R "${REPO}" --json name -q ".[] | select(.name==\"$LABEL\") | .name" | grep -q .; then
+         LABEL_ARGS="${LABEL_ARGS:+$LABEL_ARGS,}$LABEL"
+       fi
+     done
+   else
+     echo "WARN: Cannot determine repo name — skipping label lookup, proceeding without labels."
+   fi
+   gh issue create \
+     --title "[escalation] prp-run-all: {SKIPPED_COUNT} issues need human judgment on PR #{PR_NUMBER}" \
+     ${LABEL_ARGS:+--label "$LABEL_ARGS"} \
+     --body "<remaining-items summary + artifact path + round count>"
+   ```
+- Set `REVIEW_VERDICT = "needs_manual_fix"` IMMEDIATELY (before any I/O attempts below).
+- If `gh issue create` fails (non-zero exit):
+  - Attempt to write escalation content to `.prp-output/reviews/pr-{PR_NUMBER}-escalation-{RUN_TIMESTAMP}.md`.
+  - If local write succeeds: STOP with "Escalation issue creation failed. Artifact saved locally — file manually."
+  - If local write also fails (disk full / directory missing): STOP with "Escalation failed (gh + disk). Open manually: {skipped issue summary}."
+  - `REVIEW_VERDICT` is already set — do NOT merge in Step 8 regardless of I/O outcome.
+- Proceed to Step 7 SUMMARY, do NOT merge (even with `--merge`).
+
+---
+
+### Step 7: SUMMARY REPORT (skip if RESUME_FROM > 7)
+
+Generate final report (state cleanup deferred to after Step 8).
+**State update**: write `step: 7` to state file after generating report.
+
+```markdown
+## PRP Workflow Complete
+
+**Feature**: {FEATURE}
+**Issue**: {#{ISSUE_NUMBER} or "N/A"}
+**Branch**: {BRANCH}
+**Status**: {Complete (will merge in Step 8) | Complete | Needs Manual Fixes}
+
+### Steps Executed
+
+| Step | Command | Result |
+|------|---------|--------|
+| Issue | gh issue view | {#{N} title or "N/A"} |
+| Plan | /prp-plan | {path or "skipped (small issue)" or "skipped"} |
+| Implement | {/prp-implement or /prp-ralph} | {tasks completed} |
+| Commit | /prp-commit | {commit hash} |
+| PR | /prp-pr | {PR URL or "skipped"} |
+| Review | /prp-review | {verdict} |
+| Review Fix | /prp-review-fix | {N fixed, N skipped or "not needed"} |
+| Re-verify | /prp-review | {final verdict or "not needed"} ({REVIEW_CYCLE}/{MAX_CYCLES} rounds) |
+| Verify | /prp-verify | {PASS/FAIL/PARTIAL or "skipped (no --verify)"} |
+| Merge | gh pr merge --squash | {pending (Step 8) or "skipped (no --merge)"} |
+| Cleanup | /prp-cleanup | {pending (Step 8) or "skipped"} |
+| QA Delegate | /prp-qa --delegate | {dispatched to {QA_DELEGATE} or "skipped (no --qa-delegate)"} |
+| Done | /prp-done | {closed #{ISSUE_NUMBER} or "skipped" or "pending QA"} |
+
+### Artifacts
+
+- Plan: `{PLAN_PATH}` (archived to `.prp-output/plans/completed/`)
+- Report: `.prp-output/reports/{name}-report-{RUN_TIMESTAMP}.md`
+- Review Context: `.prp-output/reviews/pr-context-{BRANCH}.md`
+- Review: `.prp-output/reviews/pr-{PR_NUMBER}-review-thclaws.md`
+- Fix Summary: `.prp-output/reviews/pr-{PR_NUMBER}-fix-summary-*.md` (if fixes applied)
+- PR: {URL}
+
+### Review Verdict
+
+{READY TO MERGE (auto-merge pending in Step 8) / READY TO MERGE / NEEDS MANUAL FIXES / NOT REVIEWED}
+
+{If NEEDS MANUAL FIXES: list remaining critical/high issues}
+
+### Next Steps
+
+1. {Based on review verdict}
+{If not AUTO_MERGE: "2. Merge when approved"}
+{If AUTO_MERGE and REVIEW_VERDICT = "0_issues": "Proceeding to Step 8: merge + cleanup..."}
+```
+
+**TRANSITION**: If AUTO_MERGE and review verdict is 0 issues → **immediately proceed to Step 7.5** (if VERIFY) or Step 8.
+
+---
+
+### Step 7.5: VERIFY (skip if not AUTO_MERGE or VERIFY != true or REVIEW_VERDICT != "0_issues")
+
+**Prerequisites**:
+- AUTO_MERGE = true
+- VERIFY = true
+- REVIEW_VERDICT = "0_issues"
+
+Use `/prp-verify` with `--pr {PR_NUMBER}` (append `--issue {ISSUE_NUMBER}` if set, else `--plan {PLAN_PATH}`).
+
+This will: fetch the PR diff, gather acceptance criteria from the linked issue or plan, check each criterion for implementation evidence, and produce a verify artifact at `.prp-output/reviews/pr-{PR_NUMBER}-verify.md`.
+
+**Variable update**: `VERIFY_VERDICT = {PASS | FAIL | PARTIAL from artifact}`
+
+| Result | Action |
+|--------|--------|
+| VERIFY PASSED | Proceed to Step 8 |
+| VERIFY PASSED (with gaps) | WARN: "Verify has partial coverage — proceeding to merge." Proceed to Step 8. |
+| VERIFY FAILED | STOP — "Requirements verification failed. Fix issues then re-run with --verify." Do NOT merge. |
+
+**DO NOT**: Manually inspect the diff yourself, skip the skill.
+**CHECKPOINT**: Did you invoke `/prp-verify`? If not → STOP → invoke it.
+**TRANSITION**: Verify passed → **immediately proceed to Step 8**.
+
+---
+
+### Step 8: MERGE & CLEANUP (skip if not AUTO_MERGE or REVIEW_VERDICT != "0_issues")
+
+**State update**: write `step: 8` to state file before executing 8.0. This enables `--resume` if Step 8 fails.
+
+**Prerequisites**:
+- AUTO_MERGE = true
+- REVIEW_VERDICT = "0_issues"
+
+#### 8.0 Pre-check
+
+```bash
+gh pr view {PR_NUMBER} --json state,mergeable --jq '{state: .state, mergeable: .mergeable}'
+```
+
+| Result | Action |
+|--------|--------|
+| state=MERGED | WARN: "PR #{PR_NUMBER} was already merged." → skip 8.1, proceed to 8.2 |
+| state=OPEN, mergeable=MERGEABLE | Proceed to 8.1 |
+| state=OPEN, mergeable=CONFLICTING | STOP: "Merge conflict. Resolve manually then run `--resume`." |
+| state=OPEN, mergeable=UNKNOWN | Wait 5 seconds, retry once. If still UNKNOWN → STOP: "GitHub merge check pending. Re-run with `--resume`." |
+| state=CLOSED | STOP: "PR was closed. Cannot merge." |
+
+#### 8.1 Merge
+
+```bash
+gh pr merge {PR_NUMBER} --squash --delete-branch
+```
+
+> **Tip (optional, workspace-dependent)**: If `safe-merge` is in `$PATH`, prefer it — it wraps `gh pr merge` with a CI-green gate (blocks FAIL/PENDING/UNKNOWN), an audit log, AND default-on local cleanup (checkout default branch, pull, delete merged branch, prune stale remote-tracking refs). Useful on private repos where server-side branch protection is not available. It accepts all the same flags; add `--no-cleanup` to skip the local cleanup step. Example: `safe-merge {PR_NUMBER} --squash --delete-branch`. If `safe-merge` is not installed, continue to use the default `gh pr merge` command above.
+
+| Result | Action |
+|--------|--------|
+| Merged successfully | Proceed to 8.2 |
+| CI checks failing | STOP: "CI checks not passing. Fix before merge." |
+| Permission denied | STOP: "Cannot merge — check permissions." |
+
+#### 8.2 Cleanup
+
+Use `/prp-cleanup`.
+
+This will: verify PR merged, delete local branch, switch to main, pull latest.
+
+#### 8.3 Close Issue (if --issue)
+
+If ISSUE_NUMBER is set, verify whether issue was auto-closed:
+```bash
+gh issue view {ISSUE_NUMBER} --json state --jq '.state'
+```
+
+| Result | Action |
+|--------|--------|
+| CLOSED | Already closed (by `Fixes #N` or manually). Skip. |
+| OPEN | `gh issue close {ISSUE_NUMBER} --comment "Closed by PR #{PR_NUMBER}"` |
+
+#### 8.4 Final Cleanup
+
+```bash
+rm -f .prp-output/state/run-all.state.md
+rm -f .prp-output/state/run-all.lock
+```
+
+State and lock files are only deleted here — after merge and cleanup succeed. This ensures `--resume` works if Step 8 fails.
+
+---
+
+### Step 8.5: QA DELEGATE (skip if QA_DELEGATE is empty or Step 8 was skipped)
+
+**Prerequisites**:
+- QA_DELEGATE is set (non-empty)
+- Step 8 merged successfully (or AUTO_MERGE was skipped but --qa-delegate still requested)
+
+Use `/prp-qa --delegate={QA_DELEGATE}` with `--issue {ISSUE_NUMBER}` (required — QA needs criteria source).
+
+If ISSUE_NUMBER is empty: SKIP with WARN: "--qa-delegate requires --issue to source acceptance criteria."
+
+This will: delegate QA execution to the target agent asynchronously. The agent will test acceptance criteria and post QA results as a comment on the issue. Current session does NOT wait for QA completion.
+
+**DO NOT**: Run QA yourself, wait for the agent to finish.
+**CHECKPOINT**: Did you invoke `/prp-qa --delegate={QA_DELEGATE}`? If not → STOP → invoke it.
+**TRANSITION**: Delegation dispatched → **immediately proceed to Step 9** (if DONE) or finish.
+
+---
+
+### Step 9: DONE (skip if DONE != true or ISSUE_NUMBER is empty or Step 8 was skipped)
+
+**Prerequisites**:
+- DONE = true
+- ISSUE_NUMBER is set
+- Step 8 merged successfully
+
+**Note**: If Step 8.5 delegated QA, Step 9 will likely block on Gate 4 (QA PENDING). That is expected — run `/prp-done {ISSUE_NUMBER}` again after Vera QA posts results.
+
+Use `/prp-done {ISSUE_NUMBER}`.
+
+This will: check all completion gates (PR merged, review artifact, verify artifact, Vera QA), then close the issue if all pass.
+
+| Result | Action |
+|--------|--------|
+| All gates pass | Issue closed ✅ |
+| Gate 4 pending (QA delegated but not done) | WARN: "QA not yet complete — issue NOT closed. Re-run `/prp-done {ISSUE_NUMBER}` after Vera posts QA results." |
+| Any other gate fails | STOP — report failed gates. Issue NOT closed. |
+
+**DO NOT**: Close the issue directly with gh, skip the skill.
+**CHECKPOINT**: Did you invoke `/prp-done`? If not → STOP → invoke it.
+
+---
+
+## Critical Rules
+
+1. **Delegate, don't duplicate** — each skill handles its own logic. Do NOT re-implement.
+2. **Verify artifacts after implement** — check report and pr-context files exist, use fallback if missing.
+3. **Stop on failure** — never continue with broken state.
+4. **Pass context forward** — information flows from earlier to later steps. Pass `--context` to review.
+5. **No extra validation** — each skill validates its own output. Adding more wastes tokens.
+6. **One commit per implementation** — review fixes committed separately by `/prp-review-fix`.
+7. **Max review cycles** — configurable via `--max-review-rounds` (default 5). Target is 0 issues all severities. STOP and report if exceeded.
+8. **Re-verify after fix** — always re-run `/prp-review` after fix. Use `--since-last-review` for token optimization.
+9. **No-interact means ZERO questions** — when `NO_INTERACT = true`: NEVER ask user questions. Make autonomous decisions, pick defaults. Pass `--no-interact` to sub-commands.
+10. **State management** — update state file after every step. Delete on completion. Support `--resume`.
+
+---
+
+## Token Budget
+
+### Default Mode (without --ralph)
+
+| Step | Token Cost | Notes |
+|------|-----------|-------|
+| Plan | ~10-20K | Codebase analysis (5-10K if --fast) |
+| Implement | ~15-30K | Code writing + validation |
+| Commit | ~2K | Small command |
+| PR | ~3K | Small command |
+| Review | ~15-30K | **Low** with pre-generated context (without: ~80-150K) |
+| Review Fix | ~5-10K | If issues found |
+| Re-verify | ~10-15K | **Low** with `--since-last-review` (incremental) |
+| Verify | ~3-5K | If `--verify` (skipped otherwise) |
+| QA Delegate | ~2K | If `--qa-delegate` (skipped otherwise) |
+| Done | ~2K | If `--done` (skipped otherwise) |
+| **Total** | ~45-85K | ~40% less than without optimization (+7-9K if --verify/--qa-delegate/--done) |
+
+### Ralph Mode (with --ralph)
+
+| Step | Token Cost | Notes |
+|------|-----------|-------|
+| Plan | ~10-20K | Same as default |
+| Implement (ralph) | ~15K × N iter | Very high — N iterations |
+| Commit | ~2K | Same |
+| PR | ~3K | Same |
+| Review | ~15-30K | Same optimization |
+| **Total** | ~{50 + 15*N}K | Use for complex features with uncertain impl |
+
+---
+
+## Usage Examples
+
+```
+/prp-run-all Add JWT auth                             # Full workflow
+/prp-run-all --issue 87 --merge                       # Issue-driven: fetch issue → implement → review → merge
+/prp-run-all --issue 42 --merge --no-interact         # Fully autonomous issue lifecycle
+/prp-run-all --issue 100                              # Issue-driven without auto-merge
+/prp-run-all Add JWT auth --fast                      # Fast-track plan
+/prp-run-all --prp-path plans/jwt.plan.md             # Skip plan creation
+/prp-run-all --skip-plan                              # Select from available plans
+/prp-run-all Add JWT auth --ralph                     # Ralph autonomous loop
+/prp-run-all Add JWT auth --ralph --ralph-max-iter 5  # Ralph with 5 iterations
+/prp-run-all Add JWT auth --skip-review               # Skip review step
+/prp-run-all --prp-path plans/jwt.plan.md --no-pr     # Implement + commit only
+/prp-run-all Add JWT auth --no-interact               # Fully autonomous
+/prp-run-all Add JWT auth --dry-run                   # Preview without executing
+/prp-run-all --resume                                 # Resume from last failure
+/prp-run-all Add JWT auth --fix-severity critical,high # Fix only blocking issues
+/prp-run-all --issue 55 --max-review-rounds 3 --merge # Custom review rounds
+/prp-run-all --issue 87 --merge --verify              # Full workflow + requirements verification before merge
+/prp-run-all --issue 87 --merge --verify --qa-delegate=vera --done  # Full autonomous lifecycle with QA + issue closure
+```
+
+---
+
+## Edge Cases
+
+| Situation | Action |
+|-----------|--------|
+| Plan step succeeds but implement fails partway | STOP — implement generates partial report + pr-context before stopping. Use `--resume` to continue after fixing. |
+| Branch already exists from prior aborted run | Use existing branch if on it, or switch to it. State file tracks which branch. |
+| State file exists but `--resume` not passed | Interactive: warn and ask. `--no-interact`: auto-delete stale state, start fresh. |
+| Lock file exists (concurrent run) | Check age — if >2 hours, treat as stale and remove. Otherwise STOP. |
+| Review finds no issues | Skip review-fix, proceed directly to summary. |
+| All review-fix issues skipped (fixed_count=0) | Do NOT proceed to summary as "done". Set `ALL_SKIPPED = true` and follow Step 6.4 Escalation Guard: after round 2 with all-skipped, create escalation GH issue + set `REVIEW_VERDICT = needs_manual_fix` + skip merge. Zero-issues target is not satisfied by "we tried review-fix and it gave up". |
+| Some review-fix issues skipped | Re-verify with FULL review (`--context`, not `--since-last-review`) so skipped items re-surface in next 6.2 evaluation. See Step 6.4 table. |
+| `--ralph` but hook not registered | STOP with install instructions. |
+| Disk full during state write | STOP — state may be corrupted. Delete state file and restart. |
+| PR creation fails (auth/permission) | STOP — commit is safe on branch. User can manually create PR. |
+| `--issue N` but issue not found | STOP with clear error. |
+| `--issue N` but issue is closed | WARN and proceed — user may be implementing a closed issue intentionally. |
+| `--merge` but CI checks failing | STOP — do not force merge. Report CI status. |
+| `--merge` but merge conflict | STOP — user must resolve conflict manually. |
+| `--merge` but review has remaining issues | Skip merge, report in summary. Do NOT merge with open issues. |
+| Smart plan detection says "small" but impl is complex | Plan was skipped, implement may struggle. User can re-run with `--prp-path` and explicit plan. |
+| `--issue N` + `--skip-plan` | `--skip-plan` overrides smart plan detection. If no existing plan files found, falls through to stub plan generation in Step 2. To select from existing plans, ensure at least one `.plan.md` exists in `.prp-output/plans/`. |
+| `--done` without `--issue` | SKIP Step 9 with WARN: "`--done` requires `--issue` to identify which issue to close." |
+| `--qa-delegate` without `--issue` | SKIP Step 8.5 with WARN: "`--qa-delegate` requires `--issue` to source acceptance criteria." |
+| `--verify` returns FAIL | STOP — do not merge. Report which criteria failed. User must fix and re-run with `--verify`. |
+| `--done` but Gate 4 PENDING (QA delegated, not yet posted) | Issue NOT closed. Re-run `/prp-done {ISSUE_NUMBER}` after Vera posts QA results. |
+
+---
+
+## Success Criteria
+
+- PLAN_CREATED: Plan exists and is valid
+- CODE_IMPLEMENTED: All tasks complete, validation passing (including coverage >= 90%)
+- REPORT_EXISTS: Implementation report exists (created or fallback)
+- CONTEXT_GENERATED: Review context file exists (created or fallback)
+- CONTEXT_PASSED: Review context passed to review via `--context` flag
+- COMMITTED: Clean commit on feature branch
+- PR_CREATED: PR exists (unless --no-pr)
+- REVIEWED: Review posted with verdict (unless --skip-review)
+- INCREMENTAL_REVIEW: Re-verify uses `--since-last-review` for token optimization
+- ZERO_ISSUES_TARGET: Review-fix loop continues until 0 issues (all severities in `FIX_SEVERITY`) or MAX_CYCLES reached. **Skipped issues count as remaining** — they are deferred, not resolved. Re-verify uses FULL review (not incremental) when any issues were skipped in the prior round, so skipped items re-surface in the next evaluation.
+- NO_SILENT_MERGE: `--merge` only executes when `REVIEW_VERDICT = "0_issues"`. `needs_manual_fix` (MAX_CYCLES hit OR 2 rounds all-skipped) blocks merge; escalation GH issue is created instead.
+- MERGED: PR squash-merged if --merge and 0 issues (unless --no-pr or --skip-review)
+- VERIFIED: Verify artifact exists and PASS/PARTIAL verdict recorded if --verify (FAIL blocks merge)
+- QA_DELEGATED: QA task dispatched to target agent if --qa-delegate (async, does not block merge)
+- ISSUE_CLOSED: Issue closed via /prp-done if --done and all gates pass; PENDING blocks without error
+- CLEANED_UP: Branch deleted, main updated, issue closed if --issue
+- STATE_CLEANED: State and lock files deleted after completion
+- SUMMARY_REPORTED: User has clear next steps

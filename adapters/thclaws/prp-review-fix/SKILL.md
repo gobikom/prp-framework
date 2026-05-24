@@ -1,0 +1,839 @@
+---
+name: prp-review-fix
+description: "Fix all issues from a PR review artifact — applies critical, high, medium, and suggestion fixes to the PR branch with validation loops and automatic failure recovery. Default LOOP mode: auto re-review + fix until 0 issues across all severities, matching run-all Step 6 semantics. Use --single-pass or explicit --severity to opt out of loop."
+metadata:
+  short-description: Fix PR review issues (loop until 0)
+---
+
+## Agent Mode Detection
+
+If your input context contains `[WORKSPACE CONTEXT]` (injected by a multi-agents framework),
+you are running as a sub-agent. Apply these optimizations:
+
+- **Skip Phase 0** (toolchain detection) — if the context includes a `toolchain` JSON
+  block with runner/type_check/lint/test/build commands, use those directly.
+- **Skip CLAUDE.md reading** — already loaded by parent session.
+- **Phase 1 (Load Review Artifact)**: Check context files for the review artifact path
+  instead of searching the filesystem.
+
+All other phases (fix application, validation loops) run unchanged.
+
+---
+
+# PRP Review Fix — Apply Review Findings
+
+## Input
+
+PR number and optional flags: `$ARGUMENTS`
+
+Format: `<pr-number|review-artifact-path> [--severity critical,high,medium,suggestion] [--single-pass] [--max-rounds N]`
+
+**Flag semantics (2026-04-17):**
+
+| Flag combination | Mode | Description |
+|------------------|------|-------------|
+| No `--severity`, no `--single-pass` | **LOOP (default)** | Fix all severities, then auto-invoke `/prp-review`, loop until 0 issues or MAX_ROUNDS. Matches `prp-run-all` Step 6 semantics. |
+| `--severity <levels>` explicit | SINGLE-PASS | Fix only the named severities, exit after Phase 6. User knows what they want — no loop. |
+| `--single-pass` explicit | SINGLE-PASS | Explicit opt-out of loop even when no severity given. Equivalent to running the pre-2026-04-17 behavior. |
+| `--max-rounds N` | LOOP with N cap | Override default MAX_ROUNDS=5. Only meaningful in loop mode. |
+
+**Why default is LOOP**: agents and humans consistently forgot to run re-review after a single-pass fix, leaving suggestion-severity issues unresolved in merged PRs. Making LOOP the default satisfies the `~/.claude/CLAUDE.md` Post-Implement Hard Rule ("0 issues all severities before merge") without requiring the caller to remember the orchestration steps.
+
+## Mission
+
+Apply fixes for all issues found by `prp-review` or `prp-review-agents`:
+
+1. Load the review artifact and parse issues by severity
+2. Detect project toolchain and validation commands
+3. Checkout the PR branch (or use it if already on it)
+4. Fix issues in priority order: Critical → High → Medium → Suggestion
+5. Run validation after each severity batch
+6. Commit and push fixes to the PR branch
+7. Post a summary comment on the PR
+8. **(Loop mode only)** Re-review → if issues remain, loop back to step 1 with the new artifact; if 0 issues, exit; if MAX_ROUNDS exceeded OR ALL_SKIPPED for 2 rounds, escalate.
+
+**Golden Rule**: Fix what the review found, plus same-pattern siblings across all files changed in this PR. Don't refactor unrelated code. If a fix is unclear or risky, skip and note it.
+
+---
+
+## Phase 0: DETECT — Project Toolchain
+
+### 0.1 Check for Plan-Provided Commands (fast path)
+
+First, check for a completed plan matching the PR branch:
+
+```bash
+PR_BRANCH=$(gh pr view {NUMBER} --json headRefName -q '.headRefName' 2>/dev/null)
+PLAN_SLUG=$(echo "$PR_BRANCH" | sed 's|^feature/||')
+ls -t .prp-output/plans/completed/*${PLAN_SLUG}*.plan.md 2>/dev/null | head -1
+```
+
+**If a matching plan exists with a Metadata table** containing Runner/Type Check/Lint/Test/Build commands: use those directly and **skip the rest of Phase 0**.
+
+Display: "Using toolchain from completed plan — skipping detection."
+
+### 0.2 Fallback — Auto-Detect (only when no plan found)
+
+**Only run this section if no matching completed plan was found.**
+
+Identify package manager from lock files:
+
+| File Found | Package Manager | Runner |
+|------------|-----------------|--------|
+| `bun.lockb` | bun | `bun` / `bun run` |
+| `pnpm-lock.yaml` | pnpm | `pnpm` / `pnpm run` |
+| `yarn.lock` | yarn | `yarn` / `yarn run` |
+| `package-lock.json` | npm | `npm run` |
+| `pyproject.toml` | uv/pip | `uv run` / `python` |
+| `Cargo.toml` | cargo | `cargo` |
+| `go.mod` | go | `go` |
+
+Then detect validation commands from `package.json` or equivalent.
+
+**Store detected commands** — use consistently for all validation steps.
+
+---
+
+## Phase 1: LOAD — Get the Review Artifact
+
+### 1.1 Parse Input
+
+**Determine input type:**
+
+| Input Format | Action |
+|--------------|--------|
+| Path to artifact | Use path directly — skip discovery. Extract PR number from filename. |
+| Number (`123`, `#123`) | Discover artifacts for this PR number |
+| No input | Get current branch's PR number, then discover |
+
+```bash
+# If no input: find current PR number
+gh pr view --json number -q '.number'
+```
+
+**When path is provided — validate it is a review artifact (not a fix-summary):**
+
+```bash
+ARTIFACT_PATH="{provided path}"
+# Reject fix-summary artifacts — these are outputs of review-fix, not inputs
+if echo "$ARTIFACT_PATH" | grep -q "fix-summary"; then
+  echo "ERROR: Input appears to be a fix-summary artifact, not a review artifact."
+  echo "Expected: pr-{N}-review-*.md or pr-{N}-agents-review.md"
+fi
+```
+
+If the input is a fix-summary artifact: STOP — "Cannot fix a fix-summary. Pass a review artifact instead (e.g., `pr-{N}-review-thclaws.md` or `pr-{N}-agents-review.md`)."
+
+**Extract PR number from filename:**
+
+```bash
+# Artifact name format: pr-{NUMBER}-*.md (e.g. pr-123-review-thclaws.md)
+NUMBER=$(basename "$ARTIFACT_PATH" | grep -oE 'pr-([0-9]+)-' | grep -oE '[0-9]+')
+
+# Fallback: get from current branch if filename doesn't match pattern
+if [ -z "$NUMBER" ]; then
+  NUMBER=$(gh pr view --json number -q '.number' 2>/dev/null)
+fi
+```
+
+**Set**: `NUMBER = {extracted or fetched PR number}` — used for checkout, comment, and push in later phases.
+
+### 1.2 Discover Artifacts
+
+**If input is a path**: use it directly, skip to 1.4.
+
+**If input is a PR number**: find all review artifacts for this PR:
+
+```bash
+ls -t .prp-output/reviews/pr-{NUMBER}-*review*.md 2>/dev/null
+```
+
+This may return multiple files, e.g.:
+```
+.prp-output/reviews/pr-123-review-thclaws.md   <- this tool's review
+.prp-output/reviews/pr-123-agents-review.md   <- multi-agent review
+.prp-output/reviews/pr-123-review-toolA.md    <- another tool's review
+.prp-output/reviews/pr-123-review-toolB.md    <- yet another tool's review
+```
+
+### 1.3 Resolve Which Artifact to Use
+
+**Case A — Exactly 1 artifact found:**
+Use it automatically. Show user:
+```
+Using review artifact: pr-123-review-thclaws.md
+```
+
+**Case B — Multiple artifacts found:**
+List them with metadata and ask user to select:
+
+```
+Multiple review artifacts found for PR #123:
+
+  [1] pr-123-review-thclaws.md    (this tool)     modified: 2026-02-27 14:30
+  [2] pr-123-review-toolA.md    (tool A)        modified: 2026-02-27 10:15
+  [3] pr-123-agents-review.md   (agents)        modified: 2026-02-26 09:00
+
+Which review should be fixed? Enter number (or press Enter for [1] most recent):
+```
+
+Default: most recently modified. To skip prompt: pass artifact path directly.
+
+**Case C — No artifacts found:**
+```
+No review artifact found for PR #{NUMBER}.
+
+Run `/prp-review {NUMBER}` first to generate the review.
+```
+
+### 1.4 Parse Severity Filter + Loop Mode
+
+**From `--severity` flag (if provided):**
+
+```
+--severity critical          -> fix only Critical
+--severity critical,high     -> fix Critical and High
+--severity all               -> fix all (equivalent to omitting the flag)
+```
+
+**Default severity**: Fix all (Critical -> High -> Medium -> Suggestion)
+
+**Determine loop mode:**
+
+```
+SEVERITY_EXPLICIT   = true if --severity flag was present in input
+SINGLE_PASS_EXPLICIT = true if --single-pass flag was present in input
+LOOP_MODE           = NOT (SEVERITY_EXPLICIT OR SINGLE_PASS_EXPLICIT)
+MAX_ROUNDS          = {from --max-rounds N, default 5}
+ROUND               = {from --resume state if present, else 1}
+```
+
+**Display to user**:
+- If LOOP_MODE: `"Loop mode: after fix, will auto re-review and loop until 0 issues (MAX_ROUNDS={MAX_ROUNDS}). Pass --single-pass to disable."`
+- If SINGLE_PASS: `"Single-pass mode: will exit after Phase 6. Re-verify manually with /prp-review {NUMBER} or enable loop by omitting --severity."`
+
+### 1.5 Parse Issues from Artifact
+
+Extract all issues grouped by severity. Look for sections:
+
+**Standard review format:**
+```markdown
+### Critical Issues (X found)
+| Pass | Issue | Location |
+
+### Important Issues (X found)
+| Pass | Issue | Location |
+
+### Suggestions (X found)
+| Pass | Suggestion | Location |
+```
+
+**Severity mapping table:**
+
+| Review Section | Maps To | Formats |
+|----------------|---------|---------|
+| Critical / Critical Issues / Critical (block merge) | **Critical** | All |
+| High Priority / Important / Important Issues / Important (address before merge) | **High** | All |
+| Medium Priority / Medium | **Medium** | Standard review |
+| Suggestions / Low / Suggestions (nice to have) | **Suggestion** | All |
+
+**Format-specific notes:**
+- **agents-review**: Does not use "Medium" — issues are Critical, Important, or Suggestion. Treat Important as High.
+- **Codex adapters**: Use parenthetical labels (e.g., "Critical (block merge)"). Match on the keyword before the parenthetical.
+- **Standard review**: Uses "Pass" column (pass name). Agents-review uses "Agent" column (agent name). Both are valid source identifiers.
+
+**Severity promotion for test gaps:**
+- Test gaps flagged as "NOT TESTED" that cover **security guarantees** (auth, PKCE, token handling, encryption, access control, input validation) → promote to **Critical** regardless of original label.
+- Other test gaps → keep original severity but **do not skip** — write the missing tests as part of the fix.
+
+**PHASE_1_CHECKPOINT:**
+- [ ] Review artifact resolved (auto or user-selected)
+- [ ] PR number identified
+- [ ] Which artifact is being used — shown to user
+- [ ] Issues parsed and grouped by severity
+- [ ] Severity filter applied
+
+**Early exit check**: If after parsing and severity filtering, **zero issues remain** to fix:
+- Display: "No issues to fix — {reason: 'review found 0 issues' | 'no issues match --severity {filter}'}"
+- EXIT without creating commits, posting comments, or producing artifacts.
+
+---
+
+## Phase 2: CHECKOUT — Get on the PR Branch
+
+### 2.1 Get PR Branch Info
+
+```bash
+gh pr view {NUMBER} --json headRefName,state -q '{headRefName: .headRefName, state: .state}'
+```
+
+| State | Action |
+|-------|--------|
+| `MERGED` | STOP: "PR already merged. Cannot apply fixes." |
+| `CLOSED` | STOP: "PR is closed. Cannot apply fixes." |
+| `OPEN` or `DRAFT` | PROCEED |
+
+### 2.2 Checkout the Branch
+
+**Check if already on the correct branch first:**
+
+```bash
+CURRENT=$(git branch --show-current)
+PR_BRANCH=$(gh pr view {NUMBER} --json headRefName -q '.headRefName')
+
+if [ "$CURRENT" = "$PR_BRANCH" ]; then
+  echo "Already on PR branch: $PR_BRANCH"
+  # Verify working directory is clean before proceeding
+  if [ -n "$(git status --porcelain)" ]; then
+    echo "Working directory is dirty. Stash or commit changes first."
+    # STOP if dirty — don't mix pre-existing changes with review fixes
+  fi
+else
+  gh pr checkout {NUMBER}
+fi
+```
+
+### 2.3 Ensure Up-to-Date
+
+```bash
+git pull --rebase origin $(git branch --show-current) 2>/dev/null || true
+```
+
+**PHASE_2_CHECKPOINT:**
+- [ ] PR is open/draft
+- [ ] On PR branch
+- [ ] Working directory is clean
+
+---
+
+## Phase 3: TRIAGE — Print Fix Plan
+
+### 3.1 Print Fix Plan
+
+Before making any changes, output the fix plan:
+
+```
+## Fix Plan for PR #{NUMBER}
+
+Severity filter: {all | critical | critical,high | ...}
+Validation commands: {detected runner} ({source: plan / auto-detected})
+
+### Issues to Fix
+
+#### Critical ({N})
+- `file.ts:42` - {description}
+- `file.ts:87` - {description}
+
+#### High ({N})
+- `file.ts:12` - {description}
+
+#### Medium ({N})
+- `util.ts:55` - {description}
+
+#### Suggestion ({N})
+- `service.ts:23` - {description}
+
+### Skipping (out of severity filter)
+- {N} issues will be skipped
+
+Proceeding with fixes...
+```
+
+### 3.2 Group by File (Within Each Batch)
+
+For efficiency, group issues by file **within each severity batch** so each file is read once per batch. If the same file appears in multiple severity batches (e.g., Critical and High), it will be read again in the later batch — this is acceptable because the file content may have changed from earlier fixes.
+
+**PHASE_3_CHECKPOINT:**
+- [ ] Fix plan printed
+- [ ] Issues grouped by severity
+- [ ] Files identified
+
+---
+
+## Phase 4: FIX — Apply Fixes
+
+Process severity batches in order: **Critical → High → Medium → Suggestion**
+
+Before processing any issues, initialize an empty **Pattern Expansions log** (list of rows for the Phase 8 table). Append to it during step 3 of each fix. After all batches complete, this log populates the Phase 8 Pattern Expansions table.
+
+### 4.1 Fix Loop (per severity batch)
+
+For each issue in the batch:
+
+1. **Read the file** — understand current context around the flagged line
+2. **Apply the fix** — exactly what the review recommends, using the review's suggestion and the file's existing patterns
+3. **Pattern Expansion** — if the fix addresses a recurring pattern-class bug (same type of bug at 2+ locations, e.g., missing type guard, falsy-value blind spot), grep ALL files changed in this PR for other instances of the same pattern and fix them in the same batch. This is NOT refactoring — it is completing the same fix class. If more than 10 sibling instances are found, add ALL to the skip log with reason: "Large pattern expansion (N instances) — requires manual review" and continue without applying sibling fixes. Always log the result:
+   - Siblings found and fixed: add row to Phase 8 Pattern Expansions table — Action = "Fixed N"
+   - No siblings found: add row to Phase 8 Pattern Expansions table — Action = "No siblings found"
+   - Fix is not pattern-class: add row to Phase 8 Pattern Expansions table — Action = "Not pattern-class — sweep skipped"
+4. **Read additional files only if needed** — only if the fix requires understanding an import, caller, or type defined elsewhere. Do NOT speculatively read unrelated files.
+5. **Note deviations** — if you must deviate, document why
+
+**Rules:**
+- Fix what the review flagged + same-pattern siblings across all PR files
+- **Test gaps are code fixes** — when the review flags missing tests (e.g., "NOT TESTED", "no test for X", "test gap"), write the missing tests as part of the fix. Test gaps covering security guarantees (auth, encryption, access control, input validation) should be treated as Critical regardless of how the review labeled them.
+- Don't refactor surrounding code or fix unrelated issues
+- Match existing code style
+- If a fix is ambiguous or risky → SKIP and add to skip log
+
+### 4.2 Skip Logic
+
+**Skip an issue if:**
+- The fix recommendation is unclear
+- The fix requires architectural changes beyond the issue scope
+- The code has changed since the review (drift detected)
+- The fix would break other things
+
+**When skipping:** Note the issue in the skip log with reason.
+
+### 4.3 Quick Check After Each Batch
+
+After fixing all issues in a severity batch, run validation based on batch severity:
+
+**For Critical and High batches** — run type-check + lint + tests:
+```bash
+{type_check_command}
+{lint_command}
+{test_command}
+```
+
+**For Medium and Suggestion batches** — run type-check + lint only (fast feedback):
+```bash
+{type_check_command}
+{lint_command}
+```
+
+Running tests after critical/high batches catches regressions early — a test failure after all 4 batches is much harder to bisect.
+
+**If test run is slow** (>2 minutes for critical/high quick-check): fall back to type-check + lint only for that batch. Note in the fix summary: "Tests skipped in quick-check (slow project) — deferred to Phase 5 full suite."
+
+**If quick check fails after a batch:**
+1. Identify which fix caused the failure
+2. If single fix in batch → revert it, add to skip log with reason: "Validation failed"
+3. If multiple fixes in batch and cause is unclear → **bisect**: revert fixes one at a time (last-to-first) using `git checkout HEAD -- {file}` for each fix's file(s), and re-run the failing check after each revert until it passes. The last reverted fix is the cause — add it to skip log, re-apply the others.
+4. If bisection completes with ALL fixes reverted (i.e., the fixes interact and only fail together) → skip the entire batch, add all fixes to skip log with reason: "Multi-fix interaction — fixes pass individually but fail together. Requires manual resolution."
+5. Re-run quick check to confirm clean state
+6. Continue to next batch
+
+**PHASE_4_CHECKPOINT:**
+- [ ] Critical issues fixed (or skipped with reason)
+- [ ] High issues fixed (or skipped with reason)
+- [ ] Medium issues fixed (or skipped with reason)
+- [ ] Suggestions applied (or skipped with reason)
+- [ ] Type-check + lint pass after each batch
+
+---
+
+## Phase 5: VALIDATE — Full Validation Suite (Once)
+
+Run the full suite **once** after all batches are complete. Tests may have already passed during critical/high batch quick-checks — this final run confirms no cross-batch regressions and adds the build check.
+
+### 5.1 Run Complete Validation
+
+```bash
+# Type check
+{type_check_command}
+
+# Linting
+{lint_command}
+
+# Tests
+{test_command}
+
+# Build
+{build_command}
+```
+
+### 5.2 Handle Failures
+
+**If any check fails:**
+1. Identify the root cause — check which file/test fails and correlate with fixes applied
+2. If the cause is clear → fix the underlying issue, re-run the specific check
+3. If the cause is unclear (multiple batches may interact) → **bisect by batch**: revert the last severity batch entirely, re-run. If it passes, the last batch caused the regression — investigate its fixes individually. If it still fails, revert the next-to-last batch, and so on.
+4. If unfixable → revert the causing fix and add to skip log
+
+**GATE**: Do NOT proceed to Phase 6 until all validation checks pass (or failing fixes are reverted and skipped).
+
+**PHASE_5_CHECKPOINT:**
+- [ ] Type check passes
+- [ ] Lint passes
+- [ ] Tests pass
+- [ ] Build passes
+
+---
+
+## Phase 6: COMMIT — Save Changes
+
+### 6.1 Stage Changes
+
+**Do NOT use `git add -A`** — this can stage unintended files (.env, build artifacts, editor files).
+
+```bash
+# Stage modified tracked files
+git diff --name-only | xargs -r git add
+
+# Stage new files created as part of fixes (untracked, non-ignored)
+git ls-files --others --exclude-standard | xargs -r git add
+
+# Review what's being staged
+git status
+
+# Verify no unexpected files are staged
+git diff --cached --name-only
+```
+
+**If unexpected files appear** (not related to review fixes): unstage them before committing.
+
+### 6.2 Commit Message
+
+```bash
+git commit -m "$(cat <<'EOF'
+fix: apply review fixes for PR #{NUMBER}
+
+Address {N} issues from code review:
+
+Critical ({N_critical} fixed, {N_critical_skipped} skipped):
+- {brief description of critical fixes}
+
+High ({N_high} fixed, {N_high_skipped} skipped):
+- {brief description of high fixes}
+
+Medium ({N_medium} fixed, {N_medium_skipped} skipped):
+- {brief description}
+
+Suggestions ({N_suggestion} applied, {N_suggestion_skipped} skipped):
+- {brief description}
+
+Skipped ({N_total_skipped} issues - see PR comment for details)
+EOF
+)"
+```
+
+**If nothing to commit** (all issues were skipped):
+```
+No changes to commit. All fixable issues were already addressed or skipped.
+```
+
+**PHASE_6_CHECKPOINT:**
+- [ ] Only intentionally modified files staged
+- [ ] Commit created with descriptive message
+
+---
+
+## Phase 7: PUSH — Update PR Branch
+
+```bash
+git push origin $(git branch --show-current)
+```
+
+**If push fails (branch protection or force needed):**
+```bash
+git push origin $(git branch --show-current) --force-with-lease
+```
+
+**PHASE_7_CHECKPOINT:**
+- [ ] Changes pushed to PR branch
+
+---
+
+## Phase 8: REPORT — Post Summary and Update Artifacts
+
+### 8.1 Save Fix Summary Locally
+
+**Artifact Naming (Timestamp Format)**:
+
+```bash
+TIMESTAMP=$(date +%Y%m%d-%H%M)
+SUMMARY_FILE=".prp-output/reviews/pr-${NUMBER}-fix-summary-${TIMESTAMP}.md"
+mkdir -p .prp-output/reviews
+```
+
+### 8.2 Post Summary Comment to PR
+
+```bash
+gh pr comment ${NUMBER} --body-file "$SUMMARY_FILE"
+```
+
+Summary content:
+
+```markdown
+## Review Fix Summary
+
+Applied fixes from review report: `{artifact filename}`
+
+### Fixed Issues
+
+| Severity | Fixed | Skipped | Already Fixed | Total |
+|----------|-------|---------|---------------|-------|
+| Critical | {N} | {N} | {N} | {N} |
+| High | {N} | {N} | {N} | {N} |
+| Medium | {N} | {N} | {N} | {N} |
+| Suggestion | {N} | {N} | {N} | {N} |
+| **Total** | **{N}** | **{N}** | **{N}** | **{N}** |
+
+### Validation
+
+| Check | Status |
+|-------|--------|
+| Type Check | {PASS/FAIL} |
+| Lint | {PASS/FAIL} |
+| Tests | {PASS/FAIL} |
+| Build | {PASS/FAIL} |
+
+{If skipped issues exist:}
+### Skipped Issues (require manual attention)
+
+- `{file}:{line}` — {reason skipped}
+
+### Pattern Expansions
+
+| Pattern | File | Siblings Found | Action |
+|---------|------|----------------|--------|
+| {one row per entry from Pattern Expansions log, e.g.:} |
+| {Missing type guard | src/foo.ts | 3 | Fixed 3} |
+| {If log is empty, emit: — | — | — | No pattern-class fixes applied} |
+
+### Changes Made
+
+| File | Changes |
+|------|---------|
+| `{file.ts}` | {what was fixed} |
+
+---
+*Automated review fixes*
+*Commit: {commit-hash}*
+```
+
+### 8.3 Update Review Artifact
+
+Append a "Fix Outcome" section to the review artifact:
+
+```markdown
+
+---
+
+## Fix Outcome
+
+**Fixed**: {ISO_TIMESTAMP}
+**Commit**: {hash}
+**Branch**: {branch-name}
+
+| Severity | Fixed | Skipped | Already Fixed |
+|----------|-------|---------|---------------|
+| Critical | {N} | {N} | {N} |
+| High | {N} | {N} | {N} |
+| Medium | {N} | {N} | {N} |
+| Suggestion | {N} | {N} | {N} |
+
+### Skipped Issues
+{List with reasons, or "None"}
+
+### Pattern Expansions
+{Table of pattern sweep results, or "None performed."}
+```
+
+**PHASE_8_CHECKPOINT:**
+- [ ] Fix summary saved to `.prp-output/reviews/pr-{NUMBER}-fix-summary-{TIMESTAMP}.md`
+- [ ] Summary comment posted to PR
+- [ ] Review artifact updated with Fix Outcome section
+
+---
+
+## Phase 9: OUTPUT — Report to User
+
+**Skip this phase** if invoked as part of `/prp-run-all` (detected by: `.prp-output/state/run-all.state.md` exists, or `[WORKSPACE CONTEXT]` present). The orchestrator produces its own summary in Step 7.
+
+```markdown
+## Review Fixes Applied
+
+**PR**: #{NUMBER} - {TITLE}
+**Branch**: `{branch-name}`
+**Commit**: `{hash}`
+
+### Summary
+
+| Severity | Fixed | Skipped | Already Fixed |
+|----------|-------|---------|---------------|
+| Critical | {N} | {N} | {N} |
+| High | {N} | {N} | {N} |
+| Medium | {N} | {N} | {N} |
+| Suggestion | {N} | {N} | {N} |
+
+### Validation
+
+| Check | Result |
+|-------|--------|
+| Type Check | ✅/❌ |
+| Lint | ✅/❌ |
+| Tests | ✅/❌ |
+| Build | ✅/❌ |
+
+{If skipped:}
+### Needs Manual Attention
+
+{N} issues were skipped and require manual review:
+- `{file}:{line}` — {reason}
+
+### Artifacts
+
+- Fix summary: `.prp-output/reviews/pr-{NUMBER}-fix-summary-{TIMESTAMP}.md`
+- Review artifact updated with Fix Outcome
+
+### Next Steps
+
+{If LOOP_MODE and all critical/high fixed:} "Entering Phase 10 re-review loop (round {ROUND}/{MAX_ROUNDS})..."
+{If SINGLE_PASS and all critical/high fixed:} "Ready for re-review. Run `/prp-review {NUMBER}` to verify."
+{If critical still open:} "{N} critical issues require manual attention before merge."
+```
+
+> **Note for orchestrators**: The "Next Steps" above are for standalone usage only. If this command was invoked as part of run-all, the orchestrator should ignore these suggestions and proceed to its next step. Also: orchestrators should pass `--single-pass` to prevent review-fix from launching its own Phase 10 loop (run-all's Step 6 is the outer loop).
+
+---
+
+## Phase 10: LOOP — Re-review and Repeat (LOOP_MODE only)
+
+**SKIP this entire phase if `LOOP_MODE = false`** (i.e., `--severity` or `--single-pass` was explicit, OR this is a nested review-fix invocation from run-all).
+
+> **Numbering note:** the document already has Phase 7: PUSH, Phase 8: REPORT, and Phase 9: OUTPUT. The loop runs AFTER all of those as the final optional stage, so it is numbered Phase 10 to avoid collision. Earlier drafts used "Phase 7: LOOP" which collided with "Phase 7: PUSH" — fixed 2026-04-17.
+
+### 10.1 Decide Re-review Mode
+
+Track which issues review-fix just skipped vs actually fixed, and choose the re-review command accordingly (mirrors `run-all` Step 6.4, post PR #59):
+
+| Fix outcome | `PENDING_SKIPPED` | Re-review mode |
+|-------------|-------------------|----------------|
+| All issues actually fixed | `false` | `/prp-review {NUMBER} --since-last-review` (incremental, cheap) |
+| Some issues skipped | `true`, `SKIPPED_COUNT = N` | `/prp-review {NUMBER} --context` (FULL review — skipped items need to re-surface, incremental would miss them) |
+| All issues skipped (no code change) | `true`, `ALL_SKIPPED = true` | `/prp-review {NUMBER} --context` (FULL review), then evaluate Escalation Guard below |
+
+### 10.2 Invoke Re-review
+
+Run the chosen review command. Wait for completion. Capture the new artifact path.
+
+**DO NOT**: Read the code and review it yourself, skip the skill.
+**CHECKPOINT**: Did you invoke `/prp-review`? If not → STOP → invoke it.
+
+### 10.3 Evaluate Result
+
+Parse the new artifact for issues at the full default severity set (`critical,high,medium,suggestion` — the LOOP_MODE default; no user-provided filter applies here since LOOP_MODE implies no `--severity`):
+
+| Result | Action |
+|--------|--------|
+| 0 issues (all severities) | Set `LOOP_VERDICT = "0_issues"`. Display `"All {ROUND} rounds converged on 0 issues — done."`. EXIT ✓. |
+| Issues found AND `ROUND < MAX_ROUNDS` | Increment `ROUND += 1`. Set ARTIFACT to the new path. **Return to Phase 1** with the new artifact, reusing `LOOP_MODE = true` and current `ROUND` value. |
+| Issues found AND `ROUND >= MAX_ROUNDS` | Go to 10.4 Escalation. |
+
+### 10.4 Escalation Guard
+
+Triggers when either:
+- `ROUND >= MAX_ROUNDS` AND issues remain, OR
+- `ALL_SKIPPED = true` has occurred in 2 consecutive rounds (review-fix cannot resolve these without human judgment).
+
+On trigger:
+
+1. Create GH issue documenting the remaining items. Label strategy: the `[escalation]` prefix in the title carries the signal; add repo-appropriate labels only if they exist (graceful fallback avoids hard-fail on repos with different label schemes):
+   ```bash
+   # Build --label args only for labels that exist in this repo
+   LABEL_ARGS=""
+   for LABEL in "priority:P2" "bug" "help wanted"; do
+     if gh label list -R "${REPO}" --json name -q ".[] | select(.name==\"$LABEL\") | .name" | grep -q .; then
+       LABEL_ARGS="${LABEL_ARGS:+$LABEL_ARGS,}$LABEL"
+     fi
+   done
+   gh issue create \
+     --title "[escalation] review-fix: {N} issues need human judgment on PR #{NUMBER}" \
+     ${LABEL_ARGS:+--label "$LABEL_ARGS"} \
+     --body "<summary of remaining issues + last review artifact path + round count + diagnosis>"
+   ```
+   If all fallbacks miss (no recognized labels in the repo), `gh issue create` runs with NO `--label` flag — the issue is still created and the `[escalation]` title prefix makes it discoverable via search. Do NOT hard-fail the workflow on missing labels.
+2. Set `LOOP_VERDICT = "needs_manual_fix"`.
+3. Post PR comment summarizing the escalation with a link to the new issue.
+4. EXIT with clear message: `"{N} issues require human review after {ROUND} rounds. Escalation issue: <url>. Do NOT merge until resolved."`
+
+### 10.5 Loop Invariants
+
+- Phase 10 only runs after Phase 6 (commit) succeeds. If commit fails, the loop does not start. (Phases 7–9 — PUSH/REPORT/OUTPUT — run whether or not the loop triggers.)
+- Each loop iteration runs Phases 1 → 6 in full for the new artifact. This is the existing single-pass pipeline, re-entered with a fresh artifact.
+- `ROUND` counts distinct (review, fix) pairs. Round 1 is the initial review-fix invocation; round 2 is the first re-review + fix; etc.
+- `MAX_ROUNDS` defaults to 5 (via `--max-rounds`). The escalation-after-2-all-skipped guard is narrower and catches the "review-fix cannot make progress" case earlier.
+
+**Why this design**: matches `run-all` Step 6 behavior exactly (PR gobikom/prp-framework#59), so review-fix used standalone produces the same zero-issues guarantee as review-fix inside run-all. No divergence.
+
+---
+
+## Edge Cases
+
+### No review artifact exists
+
+Stop and tell user to run `/prp-review {NUMBER}` first.
+
+### PR branch has conflicts
+
+```
+Branch has conflicts with base. Resolve conflicts first:
+git rebase origin/{base-branch}
+```
+
+### Issue already fixed
+
+If code at flagged line already matches the recommendation: skip and track as "already fixed" (distinct from "skipped"). Include in the fix summary:
+
+```
+| Severity | Fixed | Skipped | Already Fixed |
+```
+
+This prevents discrepancy between parsed issue count and reported totals.
+
+### Drift detected (code changed since review)
+
+If file content differs significantly from what review expected:
+- Warn: "Code has changed since review. Manual verification recommended."
+- Still attempt the fix if context is clear, otherwise skip.
+
+### All issues skipped
+
+```
+All {N} issues were skipped (unclear fixes or validation failures).
+```
+
+If `LOOP_MODE = true`: Phase 10.4 Escalation Guard triggers after 2 consecutive all-skipped rounds — creates a tracked GH issue and exits. Do NOT silently return to caller as if done.
+
+If `LOOP_MODE = false` (single-pass): Display "Manual review required. See skip log above." and exit normally.
+
+### Suggestion-only issues
+
+By default, suggestions are included AND the loop continues until they are resolved. To fix only critical/high and skip suggestion-severity entirely:
+```
+/prp-review-fix {NUMBER} --severity critical,high,medium
+```
+
+Note: passing `--severity` implicitly disables LOOP_MODE (see Input → Flag semantics). To fix Critical/High first with a loop but without Suggestions, run `--severity critical,high,medium` once, then run review-fix again without flags to enter loop mode for whatever remains.
+
+---
+
+## Usage Examples
+
+```
+/prp-review-fix 163                                    # LOOP mode — fix all + re-review until 0 issues
+/prp-review-fix 163 --severity critical,high           # SINGLE-PASS — only critical and high
+/prp-review-fix 163 --single-pass                      # SINGLE-PASS explicit — fix all once, exit
+/prp-review-fix 163 --max-rounds 3                     # LOOP mode with custom cap (default 5)
+/prp-review-fix                                        # Current branch's PR, LOOP mode
+/prp-review-fix .prp-output/reviews/pr-42-review-thclaws.md  # By artifact path, LOOP mode
+```
+
+---
+
+## Success Criteria
+
+- ARTIFACT_LOADED: Review artifact found and parsed
+- BRANCH_CHECKED_OUT: On correct PR branch
+- TOOLCHAIN_DETECTED: Validation commands identified (plan or auto-detected)
+- FIXES_APPLIED: All non-skipped issues addressed
+- VALIDATION_PASSES: All automated checks green (GATE passed)
+- CHANGES_PUSHED: Commit pushed to PR branch (only modified files staged)
+- PR_COMMENTED: Summary posted to GitHub
+- ARTIFACT_UPDATED: Review artifact has fix outcome appended
+- SUMMARY_SAVED: Fix summary saved with timestamp to `.prp-output/reviews/`
+- LOOP_CONVERGED (LOOP_MODE only): Phase 10 re-review loop exited with `LOOP_VERDICT = "0_issues"` OR `"needs_manual_fix"` (escalation issue created). Never exit LOOP_MODE silently with issues remaining and no escalation.
+- NO_SILENT_EXIT (LOOP_MODE only): If ALL_SKIPPED for 2 consecutive rounds OR MAX_ROUNDS exceeded, escalation GH issue exists. Matches `run-all` Step 6.4 guarantee.

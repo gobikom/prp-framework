@@ -33,6 +33,24 @@ Every major version release MUST include a `docs/migration/vX.0-to-vY.0.md` file
 
 ## [Unreleased]
 
+## [2.10.0] — 2026-05-24
+
+**thClaws adapter** — 6th adapter added for the thClaws multi-provider agent harness. Generates SKILL.md files (same format as Codex adapter) installed to `.thclaws/skills/prp-*/`. Enables PRP workflows via Claude subscription (Agent SDK) or Codex subscription (ChatGPT) through thClaws without API keys.
+
+### Added
+
+- **thClaws adapter** in `adapters.yml` — SKILL.md format with `name`, `description`, `metadata` frontmatter, `/prp-{cmd}` command template
+- **32 skill files** generated at `adapters/thclaws/prp-*/SKILL.md` — full PRP command set (core + marketing + bot)
+- **install.sh thClaws section** — symlinks skills to `.thclaws/skills/` in target projects (same pattern as Codex)
+- **Generator support** — `generate-adapters.py` handles thClaws using codex-style frontmatter
+
+### Notes
+
+- thClaws reads `.thclaws/skills/<name>/SKILL.md` with YAML frontmatter — identical directory structure to `.codex/skills/`
+- Tested with Claude Agent SDK (`agent/claude-sonnet-4-6`): full PRP plan → implement → report flow works with artifact output
+- Codex (`chatgpt-codex/gpt-5.5`) works for simple 1-2 step operations; multi-step requires chunked invocation (see agent-devops#293)
+- MCP integration (Oracle v3 + code-knowledge) verified working alongside skills
+
 ## [2.9.0] — 2026-05-21
 
 **Auto-worktree isolation** — `prp-implement` and `prp-run-all` now create a `git worktree` when starting on main instead of `git checkout -b`. Each agent gets an isolated working copy under `/tmp/prp-worktree/`. Eliminates mixed commits, stash conflicts, and branch clobbering when multiple agents work on the same repo simultaneously.

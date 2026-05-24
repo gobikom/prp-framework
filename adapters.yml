@@ -59,6 +59,16 @@ adapters:
     frontmatter:
       fields: [description]
 
+  thclaws:
+    file_pattern: "prp-{name}/SKILL.md"
+    format: md
+    args_placeholder: "$ARGUMENTS"
+    # {TOOL}:cmd → /prp-cmd (thClaws invokes skills as /skill-name)
+    tool_command_template: "/prp-{cmd}"
+    artifact_suffix: "thclaws"
+    frontmatter:
+      fields: [name, description, metadata]
+
 # Per-command metadata
 # Used for frontmatter generation across adapters
 commands:
