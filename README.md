@@ -18,8 +18,8 @@ The core philosophy: every task follows the same loop — **prompt** the AI with
 ✅ **Complete Workflows** - PRD → Design → Plan → Implement → Review → Commit → PR
 ✅ **Iterative Perfection** - Ralph autonomous loop, review-fix cycles, and multi-agent validation until all quality gates pass
 ✅ **Quality Built-in** - TDD approach, conditional design docs, pre-commit checks, security/performance validation
-✅ **100% Workflow Parity** - 31 commands across all 5 adapters (22 core + 4 marketing + 5 bot), auto-generated from canonical prompts to guarantee zero drift
-✅ **Auto-Generation** - Single source of truth in `prompts/` — edit once, generate all 5 adapters with `scripts/generate-adapters.py`
+✅ **100% Workflow Parity** - 32 commands across all 6 adapters (22 core + 4 marketing + 5 bot + 1 meta), auto-generated from canonical prompts to guarantee zero drift
+✅ **Auto-Generation** - Single source of truth in `prompts/` — edit once, generate all 6 adapters with `scripts/generate-adapters.py`
 ✅ **Monorepo Support** - Auto-detects pnpm workspaces, Turborepo, Nx, Lerna. `--package` flag scopes plan/implement/run-all to a specific package
 ✅ **31 Specialized Agents** - Development, security, marketing, sales, strategy, and business operations agents
 ✅ **Beyond Code** - Marketing automation, AI Bot design, sales enablement, and business strategy command packs
@@ -248,6 +248,7 @@ prp-framework/
 │   ├── opencode/               # OpenCode commands (16 commands)
 │   ├── gemini/                 # Gemini commands (16 commands)
 │   ├── antigravity/            # Antigravity workflows (16 workflows)
+│   ├── thclaws/                # thClaws skills (32 skills)
 │   └── generic/                # AGENTS.md for Kimi and other AI tools (natural language)
 ├── docs/                       # Documentation
 │   └── SCRIPTS-REFERENCE.md   # Detailed script docs
@@ -350,7 +351,7 @@ This framework is derived from [PRPs-agentic-eng](https://github.com/Wirasm/PRPs
 
 Significant modifications and enhancements by gobikom team:
 - Added Design Doc workflow
-- Cross-tool adapters (Codex, OpenCode, Gemini, Kimi)
+- Cross-tool adapters (Codex, OpenCode, Gemini, thClaws, Kimi)
 - Tool-specific naming conventions for parallel generation
 - Portable submodule architecture
 - Comprehensive documentation
