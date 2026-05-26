@@ -44,7 +44,8 @@ declare -a NEW_FILES=() MOD_FILES=() DEL_FILES=()
 
 while IFS= read -r file; do
     [ -z "$file" ] && continue
-    file_header=$(echo "$DIFF" | grep -A2 "^diff.*${file//./\\.}" | head -3)
+    escaped_class=$(printf '%s' "$file" | sed 's/[][\.^$*]/\\&/g; s|/|\\/|g')
+    file_header=$(echo "$DIFF" | grep -A2 "^diff.*${escaped_class}" | head -3)
     if echo "$file_header" | grep -q "new file mode"; then
         NEW_FILES+=("$file")
     elif echo "$file_header" | grep -q "deleted file mode"; then

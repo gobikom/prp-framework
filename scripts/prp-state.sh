@@ -37,7 +37,7 @@ case "$CMD" in
         # Use awk for safe substitution (no sed delimiter/regex issues)
         if grep -qF "${KEY}:" "$STATE_FILE"; then
             awk -v key="$KEY" -v val="$VALUE" '{
-                if ($0 ~ "^"key":") print key": "val
+                if (index($0, key": ") == 1 || $0 == key":") print key": "val
                 else print
             }' "$STATE_FILE" > "$STATE_FILE.tmp" && mv "$STATE_FILE.tmp" "$STATE_FILE"
         else
