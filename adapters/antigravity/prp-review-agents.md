@@ -157,7 +157,13 @@ Extract all context in ONE pass:
 # PR metadata
 gh pr view {NUMBER} --json number,title,body,author,headRefName,baseRefName,state,additions,deletions,changedFiles
 
-# PR diff
+# Structural diff (compact overview — for agent routing)
+# Use prp-diff if available, otherwise fall back to gh pr diff
+if [ -x .prp/scripts/prp-diff.sh ]; then
+  .prp/scripts/prp-diff.sh {NUMBER}
+fi
+
+# Full PR diff (for detailed line-level review)
 gh pr diff {NUMBER}
 
 # Changed files list

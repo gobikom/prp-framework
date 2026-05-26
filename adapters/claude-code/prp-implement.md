@@ -275,7 +275,13 @@ If you must deviate from the plan:
 
 ### 4.1 Static Analysis
 
-**Run the type-check and lint commands from the plan's Validation Commands section.**
+**If `prp-validate` is available** (`test -x .prp/scripts/prp-validate.sh`):
+```bash
+.prp/scripts/prp-validate.sh . type_check,lint
+```
+Parse JSON output — if any check has `"status":"fail"`, read `failures` and fix.
+
+**Otherwise**, run the type-check and lint commands from the plan's Validation Commands section.
 
 **Must pass with zero errors.**
 
@@ -353,7 +359,13 @@ CHANGED_FILES=$(git diff --name-only origin/main...HEAD | grep -E '\.(ts|tsx|js|
 
 ### 4.3 Build Check
 
-**Run the build command from the plan's Validation Commands section.**
+**If `prp-validate` is available**, run the full suite at once:
+```bash
+.prp/scripts/prp-validate.sh .
+```
+This runs type-check, lint, test, and build in parallel and returns compact JSON with failures only.
+
+**Otherwise**, run the build command from the plan's Validation Commands section.
 
 **Must complete without errors.**
 
