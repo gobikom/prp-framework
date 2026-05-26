@@ -9,6 +9,8 @@ set -euo pipefail
 
 PROJECT_DIR="${1:-.}"
 CHECKS="${2:-type_check,lint,test,build}"
+CHECK_TIMEOUT="${PRP_VALIDATE_TIMEOUT:-120}"
+[ -d "$PROJECT_DIR" ] || { echo '{"error":"PROJECT_DIR does not exist: '"$PROJECT_DIR"'"}'; exit 1; }
 cd "$PROJECT_DIR"
 
 # Auto-detect runner from lock files
@@ -24,8 +26,8 @@ detect_runner() {
 }
 
 RUNNER=$(detect_runner)
-TMPDIR=$(mktemp -d)
-trap "rm -rf $TMPDIR" EXIT
+PRP_TMPDIR=$(mktemp -d)
+trap 'rm -rf "$PRP_TMPDIR"' EXIT
 
 # Detect scripts based on runner
 TC_SCRIPT="" LINT_SCRIPT="" TEST_SCRIPT="" BUILD_SCRIPT=""
@@ -84,7 +86,7 @@ run_check() {
     local name="$1"
     local cmd
     cmd=$(build_cmd "$name")
-    local outfile="$TMPDIR/$name"
+    local outfile="$PRP_TMPDIR/$name"
 
     if [ -z "$cmd" ]; then
         echo "{\"status\":\"skip\",\"reason\":\"no script\"}" > "$outfile.json"
@@ -93,7 +95,7 @@ run_check() {
 
     local start_ns
     start_ns=$(date +%s%N 2>/dev/null || echo 0)
-    if eval "$cmd" > "$outfile.stdout" 2>&1; then
+    if timeout "$CHECK_TIMEOUT" bash -c "$cmd" > "$outfile.stdout" 2>&1; then
         local end_ns
         end_ns=$(date +%s%N 2>/dev/null || echo 0)
         local dur=$(( (end_ns - start_ns) / 1000000 ))
@@ -111,19 +113,28 @@ run_check() {
     fi
 }
 
-# Run requested checks in parallel
+# Run requested checks in parallel with PID tracking
+declare -a PIDS=()
+declare -a CHECK_NAMES=()
 for check in ${CHECKS//,/ }; do
     run_check "$check" &
+    PIDS+=($!)
+    CHECK_NAMES+=("$check")
 done
-wait
+for pid in "${PIDS[@]}"; do
+    wait "$pid" || true
+done
 
-# Assemble JSON output
+# Assemble JSON output — report crashed checks
 echo "{"
 first=true
 for check in type_check lint test build; do
-    if [ -f "$TMPDIR/$check.json" ]; then
-        if [ "$first" = true ]; then first=false; else echo ","; fi
-        printf "  \"%s\": %s" "$check" "$(cat "$TMPDIR/$check.json")"
+    if [[ "$CHECKS" != *"$check"* ]]; then continue; fi
+    if [ "$first" = true ]; then first=false; else echo ","; fi
+    if [ -f "$PRP_TMPDIR/$check.json" ]; then
+        printf "  \"%s\": %s" "$check" "$(cat "$PRP_TMPDIR/$check.json")"
+    else
+        printf "  \"%s\": {\"status\":\"crash\",\"reason\":\"check process died before writing result\"}" "$check"
     fi
 done
 echo ""

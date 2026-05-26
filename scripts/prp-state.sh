@@ -31,12 +31,18 @@ case "$CMD" in
         [ -f "$STATE_FILE" ] || { echo "error: no state file"; exit 1; }
         KEY="${1:?Usage: prp-state set <key> <value>}"
         VALUE="${2:?Usage: prp-state set <key> <value>}"
-        if grep -q "^${KEY}:" "$STATE_FILE"; then
-            sed -i "s|^${KEY}:.*|${KEY}: ${VALUE}|" "$STATE_FILE"
+        # Validate: no newlines in key or value
+        [[ "$KEY" == *$'\n'* ]] && { echo "error: newline in key"; exit 1; }
+        [[ "$VALUE" == *$'\n'* ]] && { echo "error: newline in value"; exit 1; }
+        # Use awk for safe substitution (no sed delimiter/regex issues)
+        if grep -qF "${KEY}:" "$STATE_FILE"; then
+            awk -v key="$KEY" -v val="$VALUE" '{
+                if ($0 ~ "^"key":") print key": "val
+                else print
+            }' "$STATE_FILE" > "$STATE_FILE.tmp" && mv "$STATE_FILE.tmp" "$STATE_FILE"
         else
-            # Insert before closing --- (second occurrence)
-            sed -i "0,/^---$/!{/^---$/{i\\${KEY}: ${VALUE}
-            }}" "$STATE_FILE"
+            awk -v key="$KEY" -v val="$VALUE" 'NR>1 && /^---$/ && !done { print key": "val; done=1 } { print }' \
+                "$STATE_FILE" > "$STATE_FILE.tmp" && mv "$STATE_FILE.tmp" "$STATE_FILE"
         fi
         echo "ok"
         ;;
@@ -82,7 +88,12 @@ case "$CMD" in
                 ;;
             merge)
                 ROUND=$(get_val "review_round")
-                echo "ready: review round ${ROUND:-0} complete"
+                VERDICT=$(get_val "review_verdict")
+                if [ "$VERDICT" = "pass" ] || [ "$VERDICT" = "READY TO MERGE" ]; then
+                    echo "ready: review round ${ROUND:-0} passed"
+                else
+                    echo "blocked: review_verdict=${VERDICT:-unset} (round ${ROUND:-0})"
+                fi
                 ;;
             *)
                 echo "unknown gate: $GATE"
@@ -102,6 +113,7 @@ case "$CMD" in
             echo "max_review_rounds: 5"
             # Add any passed key=value pairs (convert = to : for YAML)
             for kv in "$@"; do
+                [[ "$kv" == *=* ]] || { echo "error: init argument must be key=value, got: $kv" >&2; exit 1; }
                 echo "${kv/=/: }"
             done
             echo "---"

@@ -421,7 +421,7 @@ for script in prp-validate.sh prp-diff.sh prp-state.sh; do
     if [ -f "$FRAMEWORK_DIR/scripts/$script" ]; then
         ln -sf "$FRAMEWORK_DIR/scripts/$script" "$PROJECT_DIR/.prp/scripts/$script" 2>/dev/null || \
         cp "$FRAMEWORK_DIR/scripts/$script" "$PROJECT_DIR/.prp/scripts/$script"
-        chmod +x "$PROJECT_DIR/.prp/scripts/$script"
+        [ ! -L "$PROJECT_DIR/.prp/scripts/$script" ] && chmod +x "$PROJECT_DIR/.prp/scripts/$script"
     fi
 done
 echo -e "${GREEN}  ✅ Installed helper scripts to .prp/scripts/${NC}"

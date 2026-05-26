@@ -18,20 +18,23 @@ while [ $# -gt 0 ]; do
     esac
 done
 
+# Validate PR_NUMBER is an integer
+[[ "$PR_NUMBER" =~ ^[0-9]+$ ]] || { echo "error: PR number must be an integer, got: $PR_NUMBER" >&2; exit 1; }
+
 # Get PR metadata
-META=$(gh pr view $PR_NUMBER $REPO_FLAG --json additions,deletions,changedFiles,title \
-  --jq '"\(.additions) \(.deletions) \(.changedFiles) \(.title)"' 2>/dev/null)
+META=$(gh pr view "$PR_NUMBER" $REPO_FLAG --json additions,deletions,changedFiles,title \
+  --jq '"\(.additions) \(.deletions) \(.changedFiles) \(.title)"' 2>&1) || { echo "error: gh pr view failed: $META" >&2; exit 1; }
 read -r ADDITIONS DELETIONS CHANGED_FILES TITLE <<< "$META"
 
 # Get file list
-FILES=$(gh pr diff $PR_NUMBER $REPO_FLAG --name-only 2>/dev/null)
+FILES=$(gh pr diff "$PR_NUMBER" $REPO_FLAG --name-only 2>&1) || { echo "error: gh pr diff --name-only failed: $FILES" >&2; exit 1; }
 if [ -z "$FILES" ]; then
     echo "No changes found in PR #${PR_NUMBER}"
     exit 0
 fi
 
 # Get full diff for analysis
-DIFF=$(gh pr diff $PR_NUMBER $REPO_FLAG 2>/dev/null)
+DIFF=$(gh pr diff "$PR_NUMBER" $REPO_FLAG 2>&1) || { echo "error: gh pr diff failed: $DIFF" >&2; exit 1; }
 
 echo "## PR #${PR_NUMBER} — Structural Diff (${CHANGED_FILES} files, +${ADDITIONS}/-${DELETIONS})"
 echo ""
@@ -55,13 +58,13 @@ done <<< "$FILES"
 if [ ${#MOD_FILES[@]} -gt 0 ]; then
     echo "### Modified (${#MOD_FILES[@]} files)"
     for file in "${MOD_FILES[@]}"; do
-        # Count per-file changes
-        escaped_file="${file//\//\\/}"
-        file_adds=$(echo "$DIFF" | sed -n "/^diff.*${escaped_file}/,/^diff --git/p" | grep -c "^+" 2>/dev/null || echo "?")
-        file_dels=$(echo "$DIFF" | sed -n "/^diff.*${escaped_file}/,/^diff --git/p" | grep -c "^-" 2>/dev/null || echo "?")
+        # Count per-file changes (escape all BRE metacharacters)
+        escaped_file=$(printf '%s' "$file" | sed 's/[][\.^$*]/\\&/g; s|/|\\/|g')
+        file_adds=$(echo "$DIFF" | sed -n "/^diff.*${escaped_file}/,/^diff --git/p" | grep -v "^diff --git" | grep -c "^+" 2>/dev/null || echo "?")
+        file_dels=$(echo "$DIFF" | sed -n "/^diff.*${escaped_file}/,/^diff --git/p" | grep -v "^diff --git" | grep -c "^-" 2>/dev/null || echo "?")
         echo "- \`$file\` (+$file_adds/-$file_dels)"
         # Extract hunk headers (contain function/class context)
-        echo "$DIFF" | sed -n "/^diff.*${escaped_file}/,/^diff --git/p" | grep "^@@" | sed 's/.*@@ /  - /' | head -5
+        echo "$DIFF" | sed -n "/^diff.*${escaped_file}/,/^diff --git/p" | grep -v "^diff --git" | grep "^@@" | sed 's/.*@@ /  - /' | head -5
     done
     echo ""
 fi
