@@ -217,6 +217,16 @@ If `worktree_path` is non-empty: validate it starts with `/tmp/prp-worktree/` an
 **STATE FILE I/O RULE**: Always use **Bash with heredoc** (`cat > file << 'EOF'`) to create and update state and lock files in `.prp-output/state/`. These are machine-generated tracking files, not source code.
 
 **STATE UPDATE RULE**: After each step completes:
+
+**If `prp-state` is available** (`test -x .prp/scripts/prp-state.sh`), use compact CLI:
+```bash
+.prp/scripts/prp-state.sh set step {N}
+.prp/scripts/prp-state.sh set pr_number {PR}
+# Check progress: .prp/scripts/prp-state.sh summary
+# Check gate: .prp/scripts/prp-state.sh check-gate review
+```
+
+**Otherwise**, update state file directly:
 1. Increment `step` to next step number
 2. Update `updated_at`
 3. Update new variable values (plan_path, branch, worktree_path, pr_number, review_artifact, review_verdict, review_cycle, pending_skipped, all_skipped, skipped_count)

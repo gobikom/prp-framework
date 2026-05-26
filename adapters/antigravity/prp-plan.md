@@ -294,7 +294,31 @@ Proceeding with fast-track anyway...
 
 **If monorepo with `MONOREPO_PACKAGE` set**: Focus exploration on `{PACKAGE_DIR}` first, then check shared packages (e.g., `packages/shared/`, `packages/common/`). Only explore other packages if cross-package integration is needed.
 
-Thoroughly explore the codebase to discover:
+### 2.0 Pre-Exploration — ck-first (zero LLM cost)
+
+Before spawning Explore agents or reading files, gather structured codebase context via code-knowledge MCP tools (if available):
+
+1. **Check ck availability**: Verify the target repo is indexed by running `ck_query` or checking `ck repos` via Bash.
+   - If repo IS indexed → proceed with steps 2-4
+   - If ck tools NOT available or repo NOT indexed → skip directly to step 2.1
+
+2. **Architecture overview**: Call `ck_onboard("{repo_name}")`
+   - Returns: directory tree, entry points, dependencies, modules
+   - Use this to understand repo structure before reading any files
+
+3. **Targeted search**: Call `ck_query("{repo_name}", "{feature keywords from Phase 1}")`
+   - Returns: relevant files ranked by name/signature/doc match
+   - Use results to scope file reads in step 2.1 to ONLY these files
+
+4. **Blast radius** (if modifying existing code): Call `ck_impact("{repo_name}", "{symbol_to_change}")`
+   - Returns: all callers/importers of the target symbol
+   - Use to identify integration points and test targets
+
+**ck results reduce the Explore scope**: Instead of reading 15-20 files, read only 3-5 files identified by ck. Pass ck results as pre-loaded context to any Explore agent spawned in step 2.1.
+
+### 2.1 Codebase Exploration
+
+Thoroughly explore the codebase to discover (scope to ck-identified files when available):
 
 1. **Similar implementations** with file:line references
 2. **Naming conventions** with actual examples
@@ -331,7 +355,7 @@ Tag each source:
 - `SOURCE: external ({library} v{version} docs)` — official documentation
 - `SOURCE: convention ({framework} standard)` — framework convention
 
-**Token Budget**: Max 20K tokens for exploration. If hitting limit, document "Exploration incomplete."
+**Token Budget**: Max 20K tokens for exploration (typically 5-8K when ck pre-loads context). If hitting limit, document "Exploration incomplete."
 
 **PHASE_2_CHECKPOINT:**
 - [ ] At least 3 similar implementations found with file:line refs

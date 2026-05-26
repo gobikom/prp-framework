@@ -413,6 +413,19 @@ echo "📁 Creating runtime artifact directories..."
 mkdir -p "$PROJECT_DIR/.prp-output"/{prds/drafts,designs,plans/completed,reports,reviews,debug,issues/completed,ralph-archives}
 echo -e "${GREEN}  ✅ Created .prp-output/ structure${NC}"
 
+# Install helper scripts (prp-validate, prp-diff, prp-state)
+echo ""
+echo "🔧 Installing helper scripts..."
+mkdir -p "$PROJECT_DIR/.prp/scripts"
+for script in prp-validate.sh prp-diff.sh prp-state.sh; do
+    if [ -f "$FRAMEWORK_DIR/scripts/$script" ]; then
+        ln -sf "$FRAMEWORK_DIR/scripts/$script" "$PROJECT_DIR/.prp/scripts/$script" 2>/dev/null || \
+        cp "$FRAMEWORK_DIR/scripts/$script" "$PROJECT_DIR/.prp/scripts/$script"
+        chmod +x "$PROJECT_DIR/.prp/scripts/$script"
+    fi
+done
+echo -e "${GREEN}  ✅ Installed helper scripts to .prp/scripts/${NC}"
+
 # Add gitignore rules to consumer project
 echo ""
 echo "📝 Configuring .gitignore..."
