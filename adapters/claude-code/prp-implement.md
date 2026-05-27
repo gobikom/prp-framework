@@ -546,7 +546,7 @@ Compare the original plan's assessment with what actually happened:
 
 - [ ] Review implementation
 - [ ] Create PR: `gh pr create` (if applicable)
-- [ ] Merge when approved
+- [ ] Merge: `safe-merge {PR_NUMBER} --squash` (fallback: `gh pr merge --squash`)
 ```
 
 ### 5.3 Update Source PRD (if applicable)
@@ -753,7 +753,7 @@ To continue: `/prp-core:prp-plan {prd-path}`
 
 1. Review the report (especially if deviations noted)
 2. Create PR: `gh pr create` or `/prp-core:prp-pr`
-3. Merge when approved
+3. Merge: `safe-merge {PR_NUMBER} --squash` (fallback: `gh pr merge --squash`)
 {If more phases: "4. Continue with next phase: `/prp-core:prp-plan {prd-path}`"}
 ```
 
