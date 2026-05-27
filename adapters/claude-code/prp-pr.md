@@ -341,6 +341,7 @@ gh pr checks
 - Wait for CI checks to pass
 - Request review if needed: `gh pr edit --add-reviewer @username`
 - View PR: `gh pr view --web`
+- Merge: `safe-merge {PR_NUMBER} --squash` (preferred — CI + review gates). Fallback: `gh pr merge --squash`
 ```
 
 > **Note for orchestrators**: The "Next Steps" above are for standalone usage only. If this command was invoked as part of run-all, the orchestrator should ignore these suggestions and proceed to its next step.
