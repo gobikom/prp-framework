@@ -44,7 +44,7 @@ elif [ -f "$PROJECT_DIR/.claude/prp-preset" ]; then
     PRESET=$(cat "$PROJECT_DIR/.claude/prp-preset" 2>/dev/null)
     echo "Using saved preset: $PRESET (from .claude/prp-preset)"
 else
-    PRESET="minimal"
+    PRESET="standard"
 fi
 
 echo "Framework directory: $FRAMEWORK_DIR"
