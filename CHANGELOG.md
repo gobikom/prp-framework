@@ -33,6 +33,21 @@ Every major version release MUST include a `docs/migration/vX.0-to-vY.0.md` file
 
 ## [Unreleased]
 
+## [2.11.0] — 2026-05-27
+
+**Token optimization tools** — 4 helper scripts that reduce ~99K tokens per run-all cycle by optimizing I/O boundaries. Inspired by code-knowledge-mcp (ck) and rtk (Rust Token Killer) patterns. All changes go through `prompts/*.md` → `generate-adapters.py` → all 6 adapters auto-updated.
+
+### Added
+
+- **prp-explore** (`prompts/plan.md` Phase 2.0) — call ck_onboard/ck_query/ck_impact before Explore agent; scope file reads to 3-5 ck-identified files instead of 15-20; graceful fallback if ck unavailable
+- **prp-validate** (`scripts/prp-validate.sh`) — parallel execution of type-check/lint/test/build with compact JSON output (~270 tokens vs ~14K raw); auto-detect runner (bun/pnpm/npm/python/cargo/go); configurable timeout via `PRP_VALIDATE_TIMEOUT`
+- **prp-diff** (`scripts/prp-diff.sh`) — structural diff summary for review agents (~580 tokens vs ~27K full diff); shows modified/created/deleted files with hunk context; full BRE escaping for filenames
+- **prp-state** (`scripts/prp-state.sh`) — compact CLI for run-all state management (get/set/summary/check-gate); awk-based YAML mutation (safe for `|`, `&`, regex chars); ~24 tokens per state read vs ~91 for full file
+- **install.sh** — auto-installs helper scripts to `.prp/scripts/` via symlink with copy fallback
+- `prompts/implement.md` Phase 4.1, 4.3 — prp-validate integration with fallback
+- `prompts/review-agents.md`, `prompts/review.md` Phase 1.3 — prp-diff integration
+- `prompts/run-all.md` STATE UPDATE RULE — prp-state integration with fallback
+
 ## [2.10.0] — 2026-05-24
 
 **thClaws adapter** — 6th adapter added for the thClaws multi-provider agent harness. Generates SKILL.md files (same format as Codex adapter) installed to `.thclaws/skills/prp-*/`. Enables PRP workflows via Claude subscription (Agent SDK) or Codex subscription (ChatGPT) through thClaws without API keys.

@@ -20,6 +20,7 @@ The core philosophy: every task follows the same loop — **prompt** the AI with
 ✅ **Quality Built-in** - TDD approach, conditional design docs, pre-commit checks, security/performance validation
 ✅ **100% Workflow Parity** - 32 commands across all 6 adapters (22 core + 4 marketing + 5 bot + 1 meta), auto-generated from canonical prompts to guarantee zero drift
 ✅ **Auto-Generation** - Single source of truth in `prompts/` — edit once, generate all 6 adapters with `scripts/generate-adapters.py`
+✅ **Token Optimization** - Helper scripts (prp-validate, prp-diff, prp-state) reduce ~99K tokens per run-all cycle via compact output, parallel execution, and structural diffs
 ✅ **Monorepo Support** - Auto-detects pnpm workspaces, Turborepo, Nx, Lerna. `--package` flag scopes plan/implement/run-all to a specific package
 ✅ **31 Specialized Agents** - Development, security, marketing, sales, strategy, and business operations agents
 ✅ **Beyond Code** - Marketing automation, AI Bot design, sales enablement, and business strategy command packs
@@ -253,6 +254,11 @@ prp-framework/
 ├── docs/                       # Documentation
 │   └── SCRIPTS-REFERENCE.md   # Detailed script docs
 ├── scripts/                    # Installation & utility scripts
+│   ├── install.sh             # Install PRP to target project
+│   ├── generate-adapters.py   # Generate all 6 adapters from prompts/
+│   ├── prp-validate.sh        # Parallel validation with compact JSON output
+│   ├── prp-diff.sh            # Structural diff for review (compact markdown)
+│   └── prp-state.sh           # Compact state management for run-all
 └── LICENSE
 ```
 
