@@ -18,9 +18,13 @@ FRAMEWORK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 # Parse arguments
 SKIP_INJECT=false
+PRESET_ARG=""
 for arg in "$@"; do
     case "$arg" in
         --no-inject) SKIP_INJECT=true ;;
+        --minimal)   PRESET_ARG="minimal" ;;
+        --standard)  PRESET_ARG="standard" ;;
+        --full)      PRESET_ARG="full" ;;
         -*) ;; # ignore unknown flags
         *)  PROJECT_DIR_ARG="$arg" ;;
     esac
@@ -33,8 +37,19 @@ elif [ -z "$PROJECT_DIR" ]; then
     PROJECT_DIR="$(cd "$FRAMEWORK_DIR/.." && pwd)"
 fi
 
+# Resolve preset: explicit flag > saved preset > auto-detect > minimal
+if [ -n "$PRESET_ARG" ]; then
+    PRESET="$PRESET_ARG"
+elif [ -f "$PROJECT_DIR/.claude/prp-preset" ]; then
+    PRESET=$(cat "$PROJECT_DIR/.claude/prp-preset" 2>/dev/null)
+    echo "Using saved preset: $PRESET (from .claude/prp-preset)"
+else
+    PRESET="minimal"
+fi
+
 echo "Framework directory: $FRAMEWORK_DIR"
 echo "Project directory: $PROJECT_DIR"
+echo "Install preset: $PRESET"
 
 # Detect version from CHANGELOG
 CURRENT_VERSION=$(grep -oP '## \[\K[0-9]+\.[0-9]+\.[0-9]+' "$FRAMEWORK_DIR/CHANGELOG.md" 2>/dev/null | head -1)
@@ -179,32 +194,78 @@ install_file() {
 USED_SYMLINKS=false
 USED_COPY=false
 
-echo "📦 Installing adapters..."
+# Preset command definitions
+MINIMAL_CMDS="prp-plan prp-implement prp-review prp-review-agents prp-review-fix prp-commit prp-pr prp-run-all prp-cleanup"
+STANDARD_EXTRA="prp-debug prp-ralph prp-ralph-cancel prp-rollback prp-verify prp-done prp-prd prp-design prp-issue-investigate prp-issue-fix prp-qa prp-feature-review prp-feature-review-agents prp-project-context"
+
+# Build install list based on preset
+CORE_CMDS="$MINIMAL_CMDS"
+if [[ "$PRESET" == "standard" || "$PRESET" == "full" ]]; then
+    CORE_CMDS="$MINIMAL_CMDS $STANDARD_EXTRA"
+fi
+
+echo "📦 Installing adapters ($PRESET preset)..."
 echo ""
 
-# Install Claude Code Commands
+# Install Claude Code Commands (selective per preset)
 echo "→ Claude Code Commands (.claude/commands/prp-core/)"
-mkdir -p "$PROJECT_DIR/.claude/commands"
-if install_directory "$FRAMEWORK_DIR/adapters/claude-code" "$PROJECT_DIR/.claude/commands/prp-core" "Claude Code Commands"; then
-    USED_SYMLINKS=true
-else
-    USED_COPY=true
-fi
+mkdir -p "$PROJECT_DIR/.claude/commands/prp-core"
+CORE_COUNT=0
+for cmd in $CORE_CMDS; do
+    source_file="$FRAMEWORK_DIR/adapters/claude-code/${cmd}.md"
+    target_file="$PROJECT_DIR/.claude/commands/prp-core/${cmd}.md"
+    if [ -f "$source_file" ]; then
+        # Skip if already correct symlink
+        if [ -L "$target_file" ] && [ "$(readlink "$target_file")" = "$source_file" ]; then
+            CORE_COUNT=$((CORE_COUNT + 1))
+            continue
+        fi
+        [ -e "$target_file" ] || [ -L "$target_file" ] && rm -f "$target_file"
+        if ln -s "$source_file" "$target_file" 2>/dev/null; then
+            USED_SYMLINKS=true
+        else
+            cp "$source_file" "$target_file"
+            USED_COPY=true
+        fi
+        CORE_COUNT=$((CORE_COUNT + 1))
+    fi
+done
+# Remove commands not in current preset (clean downgrade)
+for existing in "$PROJECT_DIR/.claude/commands/prp-core"/prp-*.md; do
+    [ -e "$existing" ] || continue
+    cmd_name=$(basename "$existing" .md)
+    if ! echo "$CORE_CMDS" | grep -qw "$cmd_name"; then
+        rm -f "$existing"
+    fi
+done
+echo -e "${GREEN}  ✅ Installed $CORE_COUNT core commands ($PRESET)${NC}"
 
-# Install Claude Code Marketing Commands
-echo "→ Claude Code Marketing (.claude/commands/prp-mkt/)"
-if install_directory "$FRAMEWORK_DIR/adapters/claude-code-marketing" "$PROJECT_DIR/.claude/commands/prp-mkt" "Claude Code Marketing"; then
-    USED_SYMLINKS=true
-else
-    USED_COPY=true
-fi
+if [[ "$PRESET" == "full" ]]; then
+    # Install Claude Code Marketing Commands
+    echo "→ Claude Code Marketing (.claude/commands/prp-mkt/)"
+    if install_directory "$FRAMEWORK_DIR/adapters/claude-code-marketing" "$PROJECT_DIR/.claude/commands/prp-mkt" "Claude Code Marketing"; then
+        USED_SYMLINKS=true
+    else
+        USED_COPY=true
+    fi
 
-# Install Claude Code Bot Commands
-echo "→ Claude Code Bot (.claude/commands/prp-bot/)"
-if install_directory "$FRAMEWORK_DIR/adapters/claude-code-bot" "$PROJECT_DIR/.claude/commands/prp-bot" "Claude Code Bot"; then
-    USED_SYMLINKS=true
+    # Install Claude Code Bot Commands
+    echo "→ Claude Code Bot (.claude/commands/prp-bot/)"
+    if install_directory "$FRAMEWORK_DIR/adapters/claude-code-bot" "$PROJECT_DIR/.claude/commands/prp-bot" "Claude Code Bot"; then
+        USED_SYMLINKS=true
+    else
+        USED_COPY=true
+    fi
 else
-    USED_COPY=true
+    # Remove marketing/bot if downgrading from full
+    if [ -d "$PROJECT_DIR/.claude/commands/prp-mkt" ]; then
+        rm -rf "$PROJECT_DIR/.claude/commands/prp-mkt"
+        echo -e "${YELLOW}  ⏭ Removed prp-mkt (not in $PRESET preset)${NC}"
+    fi
+    if [ -d "$PROJECT_DIR/.claude/commands/prp-bot" ]; then
+        rm -rf "$PROJECT_DIR/.claude/commands/prp-bot"
+        echo -e "${YELLOW}  ⏭ Removed prp-bot (not in $PRESET preset)${NC}"
+    fi
 fi
 
 # Install Claude Code Agents (per-file install to preserve custom agents)
@@ -517,7 +578,10 @@ elif $USED_COPY; then
 fi
 
 echo ""
-echo "Available workflows (19 core commands):"
+echo "Installed preset: $PRESET ($CORE_COUNT core commands)"
+echo "  Change: install.sh <project> --minimal|--standard|--full"
+echo ""
+echo "Available workflows:"
 echo ""
 echo "  Claude Code (/prp-core:*):"
 printf "    %-14s %s\n" "Development:" "prd, design, plan, implement, commit, pr"
@@ -538,8 +602,9 @@ echo ""
 echo "Documentation: $FRAMEWORK_DIR/docs/"
 echo ""
 
-# Save installed version for upgrade detection
+# Save installed version and preset for upgrade detection
 if [ -n "$CURRENT_VERSION" ]; then
     mkdir -p "$PROJECT_DIR/.claude"
     echo "$CURRENT_VERSION" > "$PROJECT_DIR/.claude/prp-version"
 fi
+echo "$PRESET" > "$PROJECT_DIR/.claude/prp-preset"
