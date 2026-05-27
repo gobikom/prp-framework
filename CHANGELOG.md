@@ -33,6 +33,20 @@ Every major version release MUST include a `docs/migration/vX.0-to-vY.0.md` file
 
 ## [Unreleased]
 
+## [2.12.0] — 2026-05-27
+
+**Install presets + safe-merge enforcement** — Repos can choose which PRP commands to install. Merge workflow enforces `safe-merge` across all prompts.
+
+### Added
+
+- **3-tier install presets** (`scripts/install.sh`) — `--minimal` (9 commands: plan→run-all+cleanup), `--standard` (23 commands, **default**), `--full` (32 commands: +marketing+bot). Saved to `.claude/prp-preset` for idempotent re-installs. Downgrade removes extra commands cleanly.
+
+### Changed
+
+- **safe-merge as default merge command** — `prompts/run-all.md` Step 8.1 uses `safe-merge` (was `gh pr merge` with optional tip). Fallback to `gh pr merge` if safe-merge not in PATH.
+- **safe-merge in Next Steps** — `prompts/pr.md` and `prompts/implement.md` show `safe-merge` in merge instructions (was "Merge when approved" with no specific command).
+- **Default preset**: `standard` (23 commands). Use `--minimal` for lightweight installs, `--full` for marketing/bot packs.
+
 ## [2.11.0] — 2026-05-27
 
 **Token optimization tools** — 4 helper scripts that reduce ~99K tokens per run-all cycle by optimizing I/O boundaries. Inspired by code-knowledge-mcp (ck) and rtk (Rust Token Killer) patterns. All changes go through `prompts/*.md` → `generate-adapters.py` → all 6 adapters auto-updated.
