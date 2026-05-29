@@ -366,18 +366,36 @@ else
 fi
 
 # Install Codex (directory structure)
-echo "→ Codex (.codex/skills/)"
-mkdir -p "$PROJECT_DIR/.codex/skills"
-for skill_dir in "$FRAMEWORK_DIR/adapters/codex"/prp-*; do
-    if [ -d "$skill_dir" ]; then
-        skill_name=$(basename "$skill_dir")
-        if install_directory "$skill_dir" "$PROJECT_DIR/.codex/skills/$skill_name" "Codex: $skill_name"; then
-            USED_SYMLINKS=true
-        else
-            USED_COPY=true
+# Skip if prp-core plugin is already installed — avoids duplicate skills (agent-devops#237)
+_codex_plugin_installed=false
+if [ -d "$HOME/.codex/plugins/cache/prp-marketplace/prp-core" ]; then
+    _codex_plugin_installed=true
+elif codex plugin list 2>/dev/null | grep -q 'prp-core.*installed'; then
+    _codex_plugin_installed=true
+fi
+
+if $_codex_plugin_installed; then
+    echo "→ Codex (.codex/skills/) — skipped: prp-core plugin already installed"
+    # Clean up stale per-project skills left by previous installs
+    for stale in "$PROJECT_DIR/.codex/skills"/prp-*; do
+        [ -e "$stale" ] || continue
+        rm -rf "$stale"
+        echo -e "${YELLOW}  🧹 Removed stale: $(basename "$stale") (now via plugin)${NC}"
+    done
+else
+    echo "→ Codex (.codex/skills/)"
+    mkdir -p "$PROJECT_DIR/.codex/skills"
+    for skill_dir in "$FRAMEWORK_DIR/adapters/codex"/prp-*; do
+        if [ -d "$skill_dir" ]; then
+            skill_name=$(basename "$skill_dir")
+            if install_directory "$skill_dir" "$PROJECT_DIR/.codex/skills/$skill_name" "Codex: $skill_name"; then
+                USED_SYMLINKS=true
+            else
+                USED_COPY=true
+            fi
         fi
-    fi
-done
+    done
+fi
 
 # Install OpenCode
 echo "→ OpenCode (.opencode/commands/prp/)"
