@@ -376,6 +376,12 @@ fi
 
 if $_codex_plugin_installed; then
     echo "→ Codex (.codex/skills/) — skipped: prp-core plugin already installed"
+    # Clean up stale per-project skills left by previous installs
+    for stale in "$PROJECT_DIR/.codex/skills"/prp-*; do
+        [ -e "$stale" ] || continue
+        rm -rf "$stale"
+        echo -e "${YELLOW}  🧹 Removed stale: $(basename "$stale") (now via plugin)${NC}"
+    done
 else
     echo "→ Codex (.codex/skills/)"
     mkdir -p "$PROJECT_DIR/.codex/skills"
