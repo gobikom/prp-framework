@@ -107,11 +107,25 @@ fi
 GOOD_RE='0[[:space:]]*critical[[:space:]]*/[[:space:]]*0[[:space:]]*(high|important)|READY[[:space:]]+TO[[:space:]]+MERGE'
 BAD_RE='(^|[^0-9.])[1-9][0-9]*[[:space:]]*(critical|high|important|medium|suggestion)s?([^a-z]|$)|NEEDS[[:space:]]+FIXES'
 
-_last_line_no() { # regex -> line number of last match (0 if none)
+# review-fix appends a "## Fix Outcome" section to the original artifact;
+# everything after it is fix bookkeeping (skipped-issue prose like
+# '— 1 critical: needs architectural review'), not the review verdict.
+# Verdict scanning stops at that delimiter.
+SCAN_END=$(grep -inEm1 '^#+[[:space:]]*Fix Outcome' "$ARTIFACT" | cut -d: -f1 || true)
+
+_scan() {
+    if [ -n "$SCAN_END" ]; then
+        head -n $(( SCAN_END - 1 )) "$ARTIFACT"
+    else
+        cat "$ARTIFACT"
+    fi
+}
+
+_last_line_no() { # regex -> line number of last match within scan range (0 if none)
     local n
-    n=$(grep -icE "$1" "$ARTIFACT" 2>/dev/null || true)
+    n=$(_scan | grep -icE "$1" 2>/dev/null || true)
     if [ "${n:-0}" -eq 0 ]; then echo 0; return; fi
-    grep -inE "$1" "$ARTIFACT" | tail -1 | cut -d: -f1
+    _scan | grep -inE "$1" | tail -1 | cut -d: -f1
 }
 
 LAST_GOOD=$(_last_line_no "$GOOD_RE")
