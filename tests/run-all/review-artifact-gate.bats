@@ -80,6 +80,34 @@ READY TO MERGE — 0 critical / 0 high / 0 medium / 0 suggestion"
     [ "$status" -eq 5 ]
 }
 
+@test "historical zero-count line cannot whitewash a later NEEDS FIXES (exit 4)" {
+    _write_artifact "$REVIEWS/pr-42-agents-review.md" "## Round 1
+Summary: 0 critical / 0 high / 0 medium — initial pass clean.
+
+## Final Verdict
+NEEDS FIXES — 1 critical regression introduced"
+    run bash "$SCRIPT" 42
+    [ "$status" -eq 4 ]
+    [[ "$output" == *"GATE FAIL"* ]]
+}
+
+@test "remaining suggestions block the gate (exit 4)" {
+    _write_artifact "$REVIEWS/pr-42-agents-review.md" "## Verdict
+0 critical / 0 high / 0 medium / 5 suggestion"
+    run bash "$SCRIPT" 42
+    [ "$status" -eq 4 ]
+}
+
+@test "re-verify: newer single-agent artifact wins over stale agents artifact when any tier allowed" {
+    _write_artifact "$REVIEWS/pr-42-agents-review.md" "NEEDS FIXES — 2 critical"
+    touch -d '2024-01-01' "$REVIEWS/pr-42-agents-review.md"
+    _write_artifact "$REVIEWS/pr-42-review-claude-code.md" "Re-verify: READY TO MERGE — 0 critical / 0 high / 0 medium / 0 suggestion"
+    run bash "$SCRIPT" 42 --since "$(( $(date +%s) - 60 ))"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"pr-42-review-claude-code.md"* ]]
+    [[ "$output" == *"tier=single"* ]]
+}
+
 @test "agents artifact preferred over single when both exist" {
     _write_artifact "$REVIEWS/pr-42-review-claude-code.md" "NEEDS FIXES — 1 critical"
     _write_artifact "$REVIEWS/pr-42-agents-review.md" "0 critical / 0 high / 0 medium / 0 suggestion — APPROVE"
