@@ -433,6 +433,12 @@ Set: `REVIEW_CYCLE = {from state file if --resume, otherwise 1}` (MAX_CYCLES alr
 
 #### 6.1 Run Review
 
+**Before invoking the review command**, capture the invocation timestamp (used by the artifact gate in 6.2.0):
+
+```bash
+REVIEW_STARTED_AT=$(date +%s)
+```
+
 **Choose review command based on `REVIEW_SINGLE_AGENT`:**
 
 | REVIEW_SINGLE_AGENT | Command | Description |
@@ -452,9 +458,42 @@ Pass PR_NUMBER to the chosen command. If `.prp-output/reviews/pr-context-{BRANCH
 **DO NOT**: Read code and review it yourself, skip the skill.
 **CHECKPOINT**: Did you invoke the review command? If not → STOP → invoke it.
 
+#### 6.2.0 Artifact Gate (MANDATORY — mechanical, not from memory)
+
+A review that produced no artifact did not happen. Before evaluating anything,
+verify the artifact ON DISK with the gate script (agent-devops#534 — agents
+reported "review=0-issues" with no artifact three times in one day; the forced
+reviews then found real criticals):
+
+```bash
+# Round 1 enforces the agents tier (unless --review-single-agent was an
+# explicit caller choice). Re-verify rounds (REVIEW_CYCLE > 1) intentionally
+# use single-agent review, so the gate accepts any tier and picks the NEWEST
+# artifact — the freshness check still rejects stale round-1 leftovers.
+if [ "{REVIEW_CYCLE}" -gt 1 ] || [ "{REVIEW_SINGLE_AGENT}" = "true" ]; then
+  TIER_FLAG=""
+else
+  TIER_FLAG="--require-tier agents"
+fi
+.prp/scripts/verify-review-artifact.sh {PR_NUMBER} --since "$REVIEW_STARTED_AT" $TIER_FLAG
+```
+
+**Miss counter (durable — survives compact/resume):** track gate misses in the state file, not memory:
+`.prp/scripts/prp-state.sh set review_miss_count {N}` — increment on exit 1/2, reset to 0 on exit 0.
+
+| Gate exit | Meaning | Action |
+|-----------|---------|--------|
+| 0 | artifact exists, fresh, tier-correct, verdict 0-issues | `review_miss_count = 0`. Set REVIEW_VERDICT = "0_issues" **from the gate output**, → continue 6.2 |
+| 1 | artifact missing | `review_miss_count += 1` (state file). The review did NOT run. Check pwd (cross-repo cwd resets write artifacts to the wrong repo — see known PRP issue). If `review_miss_count >= 2` → workflow status = "Needs Manual Fixes", NEVER "Complete". Else re-run 6.1 |
+| 2 | artifact stale (predates this run) | Same as exit 1 — counts as a miss, re-run 6.1 |
+| 3 | wrong tier (single-agent on logic change) | Re-run 6.1 with `{TOOL}:review-agents` |
+| 4 | verdict in FILE is not 0-issues | → Step 6.3 (fix loop) using the artifact's actual findings |
+
+**DO NOT**: set REVIEW_VERDICT from what the review sub-skill *said* in conversation — only from the gate script's output. A claim without an on-disk artifact is not a review.
+
 #### 6.2 Evaluate Results
 
-Check for issues matching `FIX_SEVERITY` (default: all levels):
+Evaluate from the ARTIFACT FILE (gated in 6.2.0). Check for issues matching `FIX_SEVERITY` (default: all levels):
 
 | Result | Action |
 |--------|--------|
@@ -498,7 +537,9 @@ Re-run review to confirm fixes resolved issues and no regressions introduced.
 
 If `--since-last-review` not supported or fails, fall back to full review with `--context` flag. Display: `"WARN: --since-last-review not supported — falling back to full review (higher token cost)."`
 
-→ **Return to Step 6.2** to evaluate results.
+**Recapture `REVIEW_STARTED_AT=$(date +%s)` before invoking the re-verify review** (the artifact gate checks freshness per round).
+
+→ **Return to Step 6.2.0** (artifact gate) to evaluate results — re-verify rounds go through the same gate; a re-verify that wrote no fresh artifact did not happen.
 
 **Escalation guard (NEW 2026-04-17):** before returning to 6.2, if `ALL_SKIPPED = true` AND `REVIEW_CYCLE >= 2` (i.e., review-fix ran at least once with all issues skipped — REVIEW_CYCLE is at least 2 after increment — and cannot make further progress), STOP the loop early:
 - Do NOT loop another round — review-fix has no additional tooling to resolve these.
