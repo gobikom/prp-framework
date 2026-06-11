@@ -495,15 +495,20 @@ echo -e "${GREEN}  ✅ Created .prp-output/ structure${NC}"
 # Install helper scripts (prp-validate, prp-diff, prp-state)
 echo ""
 echo "🔧 Installing helper scripts..."
-mkdir -p "$PROJECT_DIR/.prp/scripts"
-for script in prp-validate.sh prp-diff.sh prp-state.sh; do
-    if [ -f "$FRAMEWORK_DIR/scripts/$script" ]; then
-        ln -sf "$FRAMEWORK_DIR/scripts/$script" "$PROJECT_DIR/.prp/scripts/$script" 2>/dev/null || \
-        cp "$FRAMEWORK_DIR/scripts/$script" "$PROJECT_DIR/.prp/scripts/$script"
-        [ ! -L "$PROJECT_DIR/.prp/scripts/$script" ] && chmod +x "$PROJECT_DIR/.prp/scripts/$script"
-    fi
-done
-echo -e "${GREEN}  ✅ Installed helper scripts to .prp/scripts/${NC}"
+PRP_LINK_TARGET=$(readlink -f "$PROJECT_DIR/.prp" 2>/dev/null || true)
+if [ "$PRP_LINK_TARGET" = "$(readlink -f "$FRAMEWORK_DIR")" ]; then
+    echo -e "${GREEN}  ✅ .prp is a symlink to framework — helper scripts already accessible${NC}"
+else
+    mkdir -p "$PROJECT_DIR/.prp/scripts"
+    for script in prp-validate.sh prp-diff.sh prp-state.sh; do
+        if [ -f "$FRAMEWORK_DIR/scripts/$script" ]; then
+            ln -sf "$FRAMEWORK_DIR/scripts/$script" "$PROJECT_DIR/.prp/scripts/$script" 2>/dev/null || \
+            cp "$FRAMEWORK_DIR/scripts/$script" "$PROJECT_DIR/.prp/scripts/$script"
+            [ ! -L "$PROJECT_DIR/.prp/scripts/$script" ] && chmod +x "$PROJECT_DIR/.prp/scripts/$script"
+        fi
+    done
+    echo -e "${GREEN}  ✅ Installed helper scripts to .prp/scripts/${NC}"
+fi
 
 # Add gitignore rules to consumer project
 echo ""
