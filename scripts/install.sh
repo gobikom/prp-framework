@@ -209,6 +209,15 @@ echo ""
 
 # Install Claude Code Commands (selective per preset)
 echo "→ Claude Code Commands (.claude/commands/prp-core/)"
+# SAFETY: if prp-core is a directory symlink (from older install versions),
+# remove the symlink itself — NOT its contents. A directory symlink makes
+# rm/write operations reach the SOURCE files in prp-framework, causing
+# cross-repo corruption. Per-file symlinks are safe; directory symlinks are not.
+# Ref: agent-devops incident 2026-06-14 — circular symlinks + source deletion.
+if [ -L "$PROJECT_DIR/.claude/commands/prp-core" ]; then
+    echo -e "${YELLOW}  ⚠️  Replacing directory symlink with per-file symlinks (safety fix)${NC}"
+    rm "$PROJECT_DIR/.claude/commands/prp-core"
+fi
 mkdir -p "$PROJECT_DIR/.claude/commands/prp-core"
 CORE_COUNT=0
 for cmd in $CORE_CMDS; do
@@ -231,13 +240,16 @@ for cmd in $CORE_CMDS; do
     fi
 done
 # Remove commands not in current preset (clean downgrade)
-for existing in "$PROJECT_DIR/.claude/commands/prp-core"/prp-*.md; do
-    [ -e "$existing" ] || continue
-    cmd_name=$(basename "$existing" .md)
-    if ! echo "$CORE_CMDS" | grep -qw "$cmd_name"; then
-        rm -f "$existing"
-    fi
-done
+# SAFETY: only remove if prp-core is a real directory (not a symlink to source)
+if [ -d "$PROJECT_DIR/.claude/commands/prp-core" ] && [ ! -L "$PROJECT_DIR/.claude/commands/prp-core" ]; then
+    for existing in "$PROJECT_DIR/.claude/commands/prp-core"/prp-*.md; do
+        [ -e "$existing" ] || continue
+        cmd_name=$(basename "$existing" .md)
+        if ! echo "$CORE_CMDS" | grep -qw "$cmd_name"; then
+            rm -f "$existing"
+        fi
+    done
+fi
 echo -e "${GREEN}  ✅ Installed $CORE_COUNT core commands ($PRESET)${NC}"
 
 if [[ "$PRESET" == "full" ]]; then
