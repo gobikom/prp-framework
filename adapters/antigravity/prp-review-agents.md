@@ -969,6 +969,13 @@ mkdir -p .prp-output/reviews
 
 ### Post to GitHub
 
+**Self-review detection**: Before posting a formal review, check if the current GitHub user is the PR author:
+```bash
+PR_AUTHOR=$(gh pr view {NUMBER} --json author --jq '.author.login')
+CURRENT_USER=$(gh api user --jq '.login')
+```
+If `PR_AUTHOR == CURRENT_USER`: skip `gh pr review` (GitHub blocks self-approval) and fall back to `gh pr comment` directly. This is expected in single-user repos where all agents share the same GitHub identity.
+
 | Condition | Action |
 |-----------|--------|
 | READY TO MERGE | `gh pr review {NUMBER} --approve --body-file .prp-output/reviews/pr-{NUMBER}-agents-review.md` |
