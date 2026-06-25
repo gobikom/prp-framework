@@ -523,7 +523,7 @@ The plan file MUST include lifecycle frontmatter (`status: pending`, `runner`, `
     - **GOTCHA**: Known pitfalls to avoid
     - **VALIDATE**: Exact command to verify (pre-filled, no placeholders)
 12. **Testing Strategy** — unit tests table + integration tests (conditional) + test data + performance benchmarks (conditional) + edge cases checklist
-13. **Docs Impact** — list docs pages to update, new pages needed, or "N/A" with per-feature justification. If the plan changes user-facing behavior (features, UI flows, limits, pricing), list which `packages/docs/` pages need updating. Blank = ⚠️ warning at gate audit.
+13. **Docs Impact** — list docs pages to update/create, or "N/A" with per-feature justification. If the plan changes user-facing behavior, list which `packages/docs/` pages need updating and include docs + translation as implementation steps (the implementing agent writes EN docs + translates to 13 locales in the same PR). Blank = ⚠️ warning at gate audit.
 14. **Validation Commands** — 6 levels (Static Analysis, Unit Tests, Full Suite, Database, Browser, Manual), **pre-filled with actual commands**
 15. **Confidence Score** — 5 dimensions × 2pts = 10 formula: Patterns + Gotchas + Integration + Validation + Testing
 16. **Acceptance Criteria** — definition of done (including unit tests cover >= 90% of new code)
