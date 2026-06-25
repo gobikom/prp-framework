@@ -505,12 +505,13 @@ The plan file MUST include lifecycle frontmatter (`status: pending`, `runner`, `
     - **GOTCHA**: Known pitfalls to avoid
     - **VALIDATE**: Exact command to verify (pre-filled, no placeholders)
 12. **Testing Strategy** — unit tests table + integration tests (conditional) + test data + performance benchmarks (conditional) + edge cases checklist
-13. **Validation Commands** — 6 levels (Static Analysis, Unit Tests, Full Suite, Database, Browser, Manual), **pre-filled with actual commands**
-14. **Confidence Score** — 5 dimensions × 2pts = 10 formula: Patterns + Gotchas + Integration + Validation + Testing
-15. **Acceptance Criteria** — definition of done (including unit tests cover >= 90% of new code)
-16. **Completion Checklist** — all 6 validation levels
-17. **Risks and Mitigations** — likelihood, impact, strategy
-18. **Technical Design** (conditional, HIGH or API/DB) — API contracts, DB schema, sequence diagrams, NFRs, migration & rollback
+13. **Docs Impact** — list docs pages to update, new pages needed, or "N/A" with per-feature justification. If the plan changes user-facing behavior (features, UI flows, limits, pricing), list which `packages/docs/` pages need updating. Blank = ⚠️ warning at gate audit.
+14. **Validation Commands** — 6 levels (Static Analysis, Unit Tests, Full Suite, Database, Browser, Manual), **pre-filled with actual commands**
+15. **Confidence Score** — 5 dimensions × 2pts = 10 formula: Patterns + Gotchas + Integration + Validation + Testing
+16. **Acceptance Criteria** — definition of done (including unit tests cover >= 90% of new code)
+17. **Completion Checklist** — all 6 validation levels
+18. **Risks and Mitigations** — likelihood, impact, strategy
+19. **Technical Design** (conditional, HIGH or API/DB) — API contracts, DB schema, sequence diagrams, NFRs, migration & rollback
 
 **IMPORTANT**: The saved plan file MUST NOT contain any unfilled `{...}` placeholders in Validation Commands section. Pre-fill with actual detected commands.
 
