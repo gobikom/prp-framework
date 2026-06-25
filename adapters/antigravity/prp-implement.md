@@ -269,6 +269,50 @@ If you must deviate from the plan:
 
 ---
 
+## Phase 3.5: DOCS — Update Documentation + Translate
+
+**Skip this phase if** the plan's `## Docs Impact` section says "N/A" with justification, OR no `packages/docs/` directory exists in the project.
+
+When the plan has a `## Docs Impact` section listing pages to update:
+
+### 3.5.1 Write/Update EN Documentation
+
+You just implemented the feature — you understand it best. Write the docs now.
+
+1. Read the plan's Docs Impact section for which pages need updating
+2. Read the existing EN page (`packages/docs/src/content/docs/{page}.mdx`)
+3. Add or update the relevant `## ` section with clear, concise documentation
+4. Follow the existing page's style and component usage (Aside, Steps, Badge, etc.)
+
+### 3.5.2 Translate Changed Sections
+
+For each EN section you added or modified:
+
+1. Read `packages/docs/scripts/translate-manifest.json` for existing section hashes
+2. For each of the 13 target locales (zh, ja, ko, vi, id, ms, my, hi, ar, ru, fr, de, es):
+   - Read the existing locale file (`packages/docs/src/content/docs/{locale}/{page}.mdx`)
+   - Translate ONLY the changed/new section — keep all other sections intact
+   - Preserve exactly: import statements, frontmatter keys, component names, URLs, code blocks, image paths
+   - Translate: headings, paragraphs, list items, text inside components
+   - Write the updated locale file
+3. Update `translate-manifest.json` with new section hashes
+
+### 3.5.3 Validate Docs Build
+
+```bash
+cd packages/docs && pnpm build 2>&1 | tail -5
+```
+
+Must build with zero errors.
+
+### Checklist
+- [ ] EN docs section written/updated for the implemented feature
+- [ ] 13 locale translations updated (changed sections only)
+- [ ] translate-manifest.json updated with section hashes
+- [ ] `pnpm --filter docs build` passes
+
+---
+
 ## Phase 4: VALIDATE - Full Verification
 
 ### 4.1 Static Analysis
