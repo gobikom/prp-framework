@@ -283,7 +283,7 @@ You just implemented the feature — you understand it best. Write the docs now.
 
 ### 3.5.2 Translate Changed Sections
 
-**IMPORTANT**: NEVER translate to `th` (Thai) — it has human-quality translations. Only translate to these 13 locales: zh, ja, ko, vi, id, ms, my, hi, ar, ru, fr, de, es.
+**IMPORTANT**: Translate to all 14 non-EN locales: th, zh, ja, ko, vi, id, ms, my, hi, ar, ru, fr, de, es.
 
 For each EN section you added or modified:
 
