@@ -271,7 +271,7 @@ If you must deviate from the plan:
 
 ## Phase 3.5: DOCS — Update Documentation + Translate
 
-**Skip this phase if** the plan's `## Docs Impact` section says "N/A" with justification, OR no `packages/docs/` directory exists in the project.
+**Skip this phase if** the plan's `## Docs Impact` section says "N/A" with justification, OR the project has no documentation directory.
 
 When the plan has a `## Docs Impact` section listing pages to update:
 
@@ -280,32 +280,26 @@ When the plan has a `## Docs Impact` section listing pages to update:
 You just implemented the feature — you understand it best. Write the docs now.
 
 1. Read the plan's Docs Impact section for which pages need updating
-2. Read the existing EN page (`packages/docs/src/content/docs/{page}.mdx`)
-3. Add or update the relevant `## ` section with clear, concise documentation
-4. Follow the existing page's style and component usage (Aside, Steps, Badge, etc.)
+2. Read the existing EN doc page
+3. Add or update the relevant section with clear, concise documentation
+4. Follow the existing page's style and component usage
 
 ### 3.5.2 Translate Changed Sections
 
-**IMPORTANT**: Translate to all 14 non-EN locales: th, zh, ja, ko, vi, id, ms, my, hi, ar, ru, fr, de, es.
-
 For each EN section you added or modified:
 
-1. Read `packages/docs/scripts/translate-manifest.json` for existing section hashes
-2. For each of the 13 target locales (zh, ja, ko, vi, id, ms, my, hi, ar, ru, fr, de, es):
-   - Read the existing locale file (`packages/docs/src/content/docs/{locale}/{page}.mdx`)
+1. Determine translation targets from the project's locale config (e.g. `locales.ts`, `translate-manifest.json`, or equivalent). Do NOT hardcode locale lists — read from the project's source of truth.
+2. For each target locale:
+   - Read the existing locale file
    - Translate ONLY the changed/new section — keep all other sections intact
    - Preserve exactly: import statements, frontmatter keys, component names, URLs, code blocks, image paths
    - Translate: headings, paragraphs, list items, text inside components
    - Write the updated locale file
-3. Update `translate-manifest.json` with new section hashes
+3. Update the translation manifest with new section hashes
 
 ### 3.5.3 Validate Docs Build
 
-```bash
-cd packages/docs && pnpm build 2>&1 | tail -5
-```
-
-Must build with zero errors.
+Run the project's docs build command to verify no syntax errors were introduced.
 
 ### Checklist
 - [ ] EN docs section written/updated for the implemented feature
