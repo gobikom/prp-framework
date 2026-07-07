@@ -996,9 +996,17 @@ CRIT=$(grep -oiP '###\s+Critical Issues\s+\(\K\d+' "$REVIEW_FILE" | head -1); CR
 IMP=$(grep -oiP '###\s+Important Issues\s+\(\K\d+' "$REVIEW_FILE" | head -1); IMP="${IMP:-0}"
 # VERDICT_TOKEN and AGENTS_CSV from your aggregation. Sanitize agents to the grammar.
 AGENTS_CSV=$(printf '%s' "$AGENTS_CSV" | tr 'A-Z' 'a-z' | tr -cd 'a-z0-9,-')
+# Validate VERDICT_TOKEN against the enum (defensive — an aggregation glitch must
+# fail loud, not emit an off-grammar marker).
+case "$VERDICT_TOKEN" in
+  READY_TO_MERGE|NEEDS_FIXES|CRITICAL_ISSUES) ;;
+  *) echo "FATAL: bad VERDICT_TOKEN ('$VERDICT_TOKEN') — marker NOT emitted" >&2; VERDICT_TOKEN="" ;;
+esac
 # head must be the Phase-1 reviewed SHA, validated as 40-hex — fail loud, never emit a malformed marker.
 if ! printf '%s' "$REVIEWED_HEAD_SHA" | grep -qE '^[0-9a-f]{40}$'; then
   echo "FATAL: REVIEWED_HEAD_SHA missing/invalid ('$REVIEWED_HEAD_SHA') — marker NOT emitted; re-run Phase 1.3" >&2
+elif [[ -z "$VERDICT_TOKEN" ]]; then
+  : # VERDICT_TOKEN already reported FATAL above — marker not emitted
 else
   printf '\n<!-- safe-merge-review: verdict=%s critical=%s important=%s agents=%s head=%s -->\n' \
     "$VERDICT_TOKEN" "$CRIT" "$IMP" "$AGENTS_CSV" "$REVIEWED_HEAD_SHA" \
