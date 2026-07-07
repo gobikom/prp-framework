@@ -970,6 +970,32 @@ Save aggregated review to `.prp-output/reviews/pr-{NUMBER}-agents-review.md` bef
 mkdir -p .prp-output/reviews
 ```
 
+### Emit safe-merge review marker (agent-devops#785 gap A)
+
+Append a machine-readable, SHA-bound marker as the **last line** of the review file, **before** posting to GitHub. Because the same file is used both as the local artifact and as the `--body-file` for the GitHub post, the marker lands in **both** places. This lets `safe-merge` satisfy its review gate across worktrees / different-cwd repos and for `-R` cross-repo merges (where it currently skips review entirely).
+
+Emit it for **every** verdict (READY / NEEDS FIXES / CRITICAL) — `safe-merge` must see blocks too, and cross-checks it against the body.
+
+**Strict grammar** (`safe-merge` rejects anything off-grammar, fail-closed):
+```
+<!-- safe-merge-review: verdict=(READY_TO_MERGE|NEEDS_FIXES|CRITICAL_ISSUES) critical=<int> important=<int> agents=<csv-no-spaces> head=<40-hex-sha> -->
+```
+
+- `verdict` — map the aggregated verdict: `READY TO MERGE`→`READY_TO_MERGE`, `NEEDS FIXES`→`NEEDS_FIXES`, `CRITICAL ISSUES`→`CRITICAL_ISSUES`.
+- `critical` / `important` — the SAME integers reported under `### Critical Issues (N found)` / `### Important Issues (N found)`. **`safe-merge` recomputes these from the body headings and BLOCKS on mismatch** — they must be identical. Consistency is also enforced: `READY_TO_MERGE` ⟹ both 0; `CRITICAL_ISSUES` ⟹ critical>0.
+- `agents` — comma-separated, no spaces (e.g. `code-reviewer,security-reviewer,silent-failure-hunter`).
+- `head` — the PR head commit SHA (40 hex). Binds the marker to the reviewed commit so a stale marker can't pass after new commits land.
+
+```bash
+HEAD_SHA=$(gh pr view {NUMBER} --json headRefOid -q '.headRefOid')
+# VERDICT_TOKEN, CRIT, IMP, AGENTS_CSV come from your aggregation — CRIT/IMP MUST equal the body headings.
+printf '\n<!-- safe-merge-review: verdict=%s critical=%s important=%s agents=%s head=%s -->\n' \
+  "$VERDICT_TOKEN" "$CRIT" "$IMP" "$AGENTS_CSV" "$HEAD_SHA" \
+  >> .prp-output/reviews/pr-{NUMBER}-agents-review.md
+```
+
+Do NOT hand-edit the counts to differ from the body — a mismatch makes `safe-merge` block the merge.
+
 ### Post to GitHub
 
 **Self-review detection**: Before posting a formal review, check if the current GitHub user is the PR author:
