@@ -33,6 +33,18 @@ Every major version release MUST include a `docs/migration/vX.0-to-vY.0.md` file
 
 ## [Unreleased]
 
+## [2.13.0] — 2026-07-09
+
+### Added
+- **prp-plan §Gate Compliance scaffold** (agent-devops#799): `prompts/plan.md` Phase 6 now
+  emits an always-present `## Gate Compliance` plan section so the pre-implement gate-audit
+  (Layer 3) can mechanically verify operational `/gate` checklist coverage (new_feature +
+  epic_kickoff + post_ship). Tiered content: full item→task mapping for user-facing/endpoint/
+  schema/entity/flag/billing changes; enumerated-`N/A` (blanket N/A rejected, mirrors Docs
+  Impact bar) for internal-only changes. Conditional `/gate audit pre-implement` verify hint
+  for toolchains that ship the gate skill (claude-code/codex); degrades gracefully elsewhere.
+  Regenerated all 6 plan adapters. Companion to soul-orchestra Warden + soul-skills /gate changes.
+
 ## [2.12.0] — 2026-05-27
 
 **Install presets + safe-merge enforcement** — Repos can choose which PRP commands to install. Merge workflow enforces `safe-merge` across all prompts.
