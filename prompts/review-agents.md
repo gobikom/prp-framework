@@ -154,6 +154,12 @@ Extract all context in ONE pass:
 # PR metadata
 gh pr view {NUMBER} --json number,title,body,author,headRefName,baseRefName,state,additions,deletions,changedFiles
 
+# Record the EXACT commit being reviewed, NOW, at diff-gather time. The agents
+# review THIS SHA. The safe-merge marker (see "Emit safe-merge review marker")
+# MUST bind to this value — NOT a value re-queried later — so that any push
+# during review invalidates the marker (marker.head != current head → re-review).
+REVIEWED_HEAD_SHA=$(gh pr view {NUMBER} --json headRefOid -q '.headRefOid')
+
 # Structural diff (compact overview — for agent routing)
 # Use prp-diff if available, otherwise fall back to gh pr diff
 if [ -x .prp/scripts/prp-diff.sh ]; then
@@ -962,6 +968,50 @@ Save aggregated review to `.prp-output/reviews/pr-{NUMBER}-agents-review.md` bef
 
 ```bash
 mkdir -p .prp-output/reviews
+```
+
+### Emit safe-merge review marker (agent-devops#785 gap A)
+
+Append a machine-readable, SHA-bound marker as the **last line** of the review file, **before** posting to GitHub. Because the same file is used both as the local artifact and as the `--body-file` for the GitHub post, the marker lands in **both** places. This lets `safe-merge` satisfy its review gate across worktrees / different-cwd repos and for `-R` cross-repo merges (where it currently skips review entirely).
+
+> **Trust model (read this):** the marker is an **integrity/consistency signal for an honest reviewer, NOT an authenticity boundary.** A process that can write this file can write a matching body+marker; the marker does not, by itself, prove a review happened. It does not raise the trust level above the pre-existing local-file-presence gate — it only makes that same signal portable across repos and SHA-bound. `safe-merge` is responsible for re-deriving counts from the body, re-checking the head SHA at merge time, and blocking on any inconsistency. Emit honestly.
+
+Emit for **every** verdict (READY / NEEDS FIXES / CRITICAL) — `safe-merge` must see blocks too, and cross-checks the marker against the body.
+
+**Strict grammar** (`safe-merge` matches the whole last line, expects exactly one marker, rejects anything off-grammar → fail-closed):
+```
+<!-- safe-merge-review: verdict=(READY_TO_MERGE|NEEDS_FIXES|CRITICAL_ISSUES) critical=<int> important=<int> agents=<csv-of [a-z0-9-] tokens, no spaces> head=<40-hex-sha> -->
+```
+
+Field rules:
+- `verdict` — map the aggregated verdict: `READY TO MERGE`→`READY_TO_MERGE`, `NEEDS FIXES`→`NEEDS_FIXES`, `CRITICAL ISSUES`→`CRITICAL_ISSUES`. **The verdict field is authoritative for block/pass:** `safe-merge` blocks on `NEEDS_FIXES`/`CRITICAL_ISSUES` regardless of counts (so a `CRITICAL_ISSUES` caused by a validation/build failure with zero agent-critical findings — see the Verdict Decision Logic — is legitimately `critical=0` and still blocks).
+- `critical` / `important` — MUST equal the integers in the body headings `### Critical Issues (N found)` / `### Important Issues (N found)`. `safe-merge` recomputes them from the body and BLOCKS on mismatch. Only enforced invariant: `READY_TO_MERGE` ⟹ `critical=0` AND `important=0`. (No `critical>0` requirement for `CRITICAL_ISSUES` — a blocking verdict already blocks.)
+- `agents` — comma-separated `[a-z0-9-]` tokens, no spaces. **Do NOT emit `verdict=READY_TO_MERGE` unless all three core agents (`code-reviewer`, `security-reviewer`, `silent-failure-hunter`) are present in the aggregation** — mirrors the Phase 3 rule "READY TO MERGE is never valid when a core agent is missing." If a core agent is missing, the verdict is at least `NEEDS_FIXES`.
+- `head` — reuse **`$REVIEWED_HEAD_SHA` captured in Phase 1.3 at diff-gather time** (NOT a fresh `gh pr view`). This binds the marker to the exact commit the agents reviewed, so a push during review invalidates it.
+
+Extract the counts **mechanically from the file you just wrote** (don't retype from memory — that drifts, and a drift makes `safe-merge` block):
+```bash
+REVIEW_FILE=".prp-output/reviews/pr-{NUMBER}-agents-review.md"
+CRIT=$(grep -oiP '###\s+Critical Issues\s+\(\K\d+' "$REVIEW_FILE" | head -1); CRIT="${CRIT:-0}"
+IMP=$(grep -oiP '###\s+Important Issues\s+\(\K\d+' "$REVIEW_FILE" | head -1); IMP="${IMP:-0}"
+# VERDICT_TOKEN and AGENTS_CSV from your aggregation. Sanitize agents to the grammar.
+AGENTS_CSV=$(printf '%s' "$AGENTS_CSV" | tr 'A-Z' 'a-z' | tr -cd 'a-z0-9,-')
+# Validate VERDICT_TOKEN against the enum (defensive — an aggregation glitch must
+# fail loud, not emit an off-grammar marker).
+case "$VERDICT_TOKEN" in
+  READY_TO_MERGE|NEEDS_FIXES|CRITICAL_ISSUES) ;;
+  *) echo "FATAL: bad VERDICT_TOKEN ('$VERDICT_TOKEN') — marker NOT emitted" >&2; VERDICT_TOKEN="" ;;
+esac
+# head must be the Phase-1 reviewed SHA, validated as 40-hex — fail loud, never emit a malformed marker.
+if ! printf '%s' "$REVIEWED_HEAD_SHA" | grep -qE '^[0-9a-f]{40}$'; then
+  echo "FATAL: REVIEWED_HEAD_SHA missing/invalid ('$REVIEWED_HEAD_SHA') — marker NOT emitted; re-run Phase 1.3" >&2
+elif [[ -z "$VERDICT_TOKEN" ]]; then
+  : # VERDICT_TOKEN already reported FATAL above — marker not emitted
+else
+  printf '\n<!-- safe-merge-review: verdict=%s critical=%s important=%s agents=%s head=%s -->\n' \
+    "$VERDICT_TOKEN" "$CRIT" "$IMP" "$AGENTS_CSV" "$REVIEWED_HEAD_SHA" \
+    >> "$REVIEW_FILE"
+fi
 ```
 
 ### Post to GitHub
