@@ -36,6 +36,7 @@ Every major version release MUST include a `docs/migration/vX.0-to-vY.0.md` file
 ## [2.13.0] — 2026-07-09
 
 ### Added
+- prp-plan commits the plan artifact to the feature branch + git-mv archive keeps it tracked (agent-devops#801).
 - **prp-plan §Gate Compliance scaffold** (agent-devops#799): `prompts/plan.md` Phase 6 now
   emits an always-present `## Gate Compliance` plan section so the pre-implement gate-audit
   (Layer 3) can mechanically verify operational `/gate` checklist coverage (new_feature +
