@@ -529,6 +529,22 @@ If verification fails, STOP — do not report success.
 
 **If from PRD**: Update PRD status to `in-progress`, link plan file path. After update, verify the PRD file was modified (re-read and confirm status changed). If update fails, WARN: "Could not update PRD status. Manually update the phase status to `in-progress`."
 
+**Commit the plan artifact for durable git history (agent-devops#801):** the plan (and any design/review artifacts under `.prp-output/`) should live in git, not only on disk. After saving, commit the artifact — but ONLY on a real feature branch:
+```bash
+BR=$(git branch --show-current)   # empty on detached HEAD
+if [ -n "$BR" ] && [ "$BR" != "main" ] && [ "$BR" != "master" ]; then
+  git add -f .prp-output/plans/{filename}
+  if git commit -q -m "docs(plan): {kebab-case-feature-name} plan artifact"; then
+    echo "Plan committed on $BR: $(git rev-parse --short HEAD)"
+  else
+    echo "WARNING: plan commit did not succeed (nothing staged / hook / unset git identity) — commit the artifact manually before it is lost (#801)"
+  fi
+else
+  echo "WARNING: on '${BR:-<detached HEAD>}' — NOT committing plan to main/master or a detached HEAD. Create a feature branch and commit the artifact so it isn't lost (repeatedly flagged by Warden — #801)."
+fi
+```
+The `[ -n "$BR" ]` guard is essential — on a detached HEAD `git branch --show-current` is empty and `"" != "main"` would otherwise pass, orphaning the commit. Never commit plan artifacts directly to main/master. **Report the commit outcome (sha or the WARNING) in the "Report to user" block below** so it is auditable. (Epics: EPIC-ORCHESTRATION kickoff carries a matching 'commit plan/design artifacts to the feature branch' item.)
+
 **Report to user:**
 
 ```markdown

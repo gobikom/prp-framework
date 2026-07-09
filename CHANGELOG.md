@@ -33,6 +33,9 @@ Every major version release MUST include a `docs/migration/vX.0-to-vY.0.md` file
 
 ## [Unreleased]
 
+### Added
+- prp-plan now commits the plan artifact to the feature branch (never main) for durable git history (agent-devops#801) — stops the recurring "plan uncommitted in git" Warden flag.
+
 ## [2.12.0] — 2026-05-27
 
 **Install presets + safe-merge enforcement** — Repos can choose which PRP commands to install. Merge workflow enforces `safe-merge` across all prompts.

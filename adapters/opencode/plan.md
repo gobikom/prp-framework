@@ -527,12 +527,13 @@ The plan file MUST include lifecycle frontmatter (`status: pending`, `runner`, `
     - **GOTCHA**: Known pitfalls to avoid
     - **VALIDATE**: Exact command to verify (pre-filled, no placeholders)
 12. **Testing Strategy** — unit tests table + integration tests (conditional) + test data + performance benchmarks (conditional) + edge cases checklist
-13. **Validation Commands** — 6 levels (Static Analysis, Unit Tests, Full Suite, Database, Browser, Manual), **pre-filled with actual commands**
-14. **Confidence Score** — 5 dimensions × 2pts = 10 formula: Patterns + Gotchas + Integration + Validation + Testing
-15. **Acceptance Criteria** — definition of done (including unit tests cover >= 90% of new code)
-16. **Completion Checklist** — all 6 validation levels
-17. **Risks and Mitigations** — likelihood, impact, strategy
-18. **Technical Design** (conditional, HIGH or API/DB) — API contracts, DB schema, sequence diagrams, NFRs, migration & rollback
+13. **Docs Impact** — list docs pages to update/create, or "N/A" with per-feature justification. If the plan changes user-facing behavior, list which `packages/docs/` pages need updating and include docs + translation as implementation steps (the implementing agent writes EN docs + translates to 13 locales in the same PR). Blank = ⚠️ warning at gate audit.
+14. **Validation Commands** — 6 levels (Static Analysis, Unit Tests, Full Suite, Database, Browser, Manual), **pre-filled with actual commands**
+15. **Confidence Score** — 5 dimensions × 2pts = 10 formula: Patterns + Gotchas + Integration + Validation + Testing
+16. **Acceptance Criteria** — definition of done (including unit tests cover >= 90% of new code)
+17. **Completion Checklist** — all 6 validation levels
+18. **Risks and Mitigations** — likelihood, impact, strategy
+19. **Technical Design** (conditional, HIGH or API/DB) — API contracts, DB schema, sequence diagrams, NFRs, migration & rollback
 
 **IMPORTANT**: The saved plan file MUST NOT contain any unfilled `{...}` placeholders in Validation Commands section. Pre-fill with actual detected commands.
 
@@ -549,6 +550,22 @@ test -f ".prp-output/plans/{filename}" || echo "FATAL: Plan file write failed"
 If verification fails, STOP — do not report success.
 
 **If from PRD**: Update PRD status to `in-progress`, link plan file path. After update, verify the PRD file was modified (re-read and confirm status changed). If update fails, WARN: "Could not update PRD status. Manually update the phase status to `in-progress`."
+
+**Commit the plan artifact for durable git history (agent-devops#801):** the plan (and any design/review artifacts under `.prp-output/`) should live in git, not only on disk. After saving, commit the artifact — but ONLY on a real feature branch:
+```bash
+BR=$(git branch --show-current)   # empty on detached HEAD
+if [ -n "$BR" ] && [ "$BR" != "main" ] && [ "$BR" != "master" ]; then
+  git add -f .prp-output/plans/{filename}
+  if git commit -q -m "docs(plan): {kebab-case-feature-name} plan artifact"; then
+    echo "Plan committed on $BR: $(git rev-parse --short HEAD)"
+  else
+    echo "WARNING: plan commit did not succeed (nothing staged / hook / unset git identity) — commit the artifact manually before it is lost (#801)"
+  fi
+else
+  echo "WARNING: on '${BR:-<detached HEAD>}' — NOT committing plan to main/master or a detached HEAD. Create a feature branch and commit the artifact so it isn't lost (repeatedly flagged by Warden — #801)."
+fi
+```
+The `[ -n "$BR" ]` guard is essential — on a detached HEAD `git branch --show-current` is empty and `"" != "main"` would otherwise pass, orphaning the commit. Never commit plan artifacts directly to main/master. **Report the commit outcome (sha or the WARNING) in the "Report to user" block below** so it is auditable. (Epics: EPIC-ORCHESTRATION kickoff carries a matching 'commit plan/design artifacts to the feature branch' item.)
 
 **Report to user:**
 

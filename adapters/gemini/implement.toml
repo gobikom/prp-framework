@@ -268,6 +268,48 @@ If you must deviate from the plan:
 
 ---
 
+## Phase 3.5: DOCS — Update Documentation + Translate
+
+**Skip this phase if** the plan's `## Docs Impact` section says "N/A" with justification, OR the project has no documentation directory.
+
+When the plan has a `## Docs Impact` section listing pages to update:
+
+### 3.5.1 Write/Update EN Documentation
+
+You just implemented the feature — you understand it best. Write the docs now.
+
+1. Read the plan's Docs Impact section for which pages need updating
+2. Read the existing EN doc page
+3. Add or update the relevant section with clear, concise documentation
+4. Follow the existing page's style and component usage
+
+### 3.5.2 Translate Changed Sections
+
+For each EN section you added or modified:
+
+1. Determine translation targets from the project's locale config (e.g. `locales.ts`, `translate-manifest.json`, or equivalent). Do NOT hardcode locale lists — read from the project's source of truth.
+2. For each target locale:
+   - Read the existing locale file
+   - Translate ONLY the changed/new section — keep all other sections intact
+   - Preserve exactly: import statements, frontmatter keys, component names, URLs, code blocks, image paths
+   - Translate: headings, paragraphs, list items, text inside components
+   - Write the updated locale file
+3. Update the translation manifest with new section hashes
+
+### 3.5.3 Validate Docs Build
+
+Run the project's docs build command to verify no syntax errors were introduced.
+
+Must build with zero errors. If build fails, fix the MDX syntax before proceeding.
+
+### Checklist
+- [ ] EN docs section written/updated for the implemented feature
+- [ ] 13 locale translations updated (changed sections only)
+- [ ] translate-manifest.json updated with section hashes
+- [ ] `pnpm --filter docs build` passes
+
+---
+
 ## Phase 4: VALIDATE - Full Verification
 
 ### 4.1 Static Analysis
@@ -582,8 +624,25 @@ Compare the original plan's assessment with what actually happened:
 # Create completed directory if it doesn't exist
 mkdir -p .prp-output/plans/completed
 
-# Move plan to completed folder
-mv "{{args}}" .prp-output/plans/completed/
+# Move plan to completed folder. If the plan is TRACKED in git (prp-plan committed it, #801),
+# use `git mv` so the archive stays tracked — a plain `mv` would un-track it (.prp-output/** is
+# gitignored for NEW paths, so a later `git add -A` stages the deletion but never re-adds the
+# moved file, silently reverting it to on-disk-only — the exact state #801 fixes). Fall back to
+# plain mv when the plan is not tracked.
+# Collision-safe destination (no -f overwrite — matches the name-collision fallback below):
+DEST=".prp-output/plans/completed/$(basename "{{args}}")"
+[ -e "$DEST" ] && DEST=".prp-output/plans/completed/$(basename "{{args}}" .plan.md)-$(date +%Y%m%d-%H%M).plan.md"
+if git ls-files --error-unmatch "{{args}}" >/dev/null 2>&1; then
+  git mv "{{args}}" "$DEST"
+  BR=$(git branch --show-current)
+  if [ -n "$BR" ] && [ "$BR" != "main" ] && [ "$BR" != "master" ]; then
+    git commit -q -m "chore(plan): archive $(basename "$DEST") to completed/" || echo "WARNING: archive commit failed — commit the moved plan manually (#801)"
+  else
+    echo "WARNING: on '${BR:-<detached HEAD>}' — archive move is STAGED but NOT committed (won't commit to main/master/detached). Commit it manually so the plan isn't left uncommitted (#801)."
+  fi
+else
+  mv "{{args}}" "$DEST"
+fi
 ```
 
 **Verify both destination AND source removal:**

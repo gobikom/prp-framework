@@ -304,6 +304,8 @@ For each EN section you added or modified:
 
 Run the project's docs build command to verify no syntax errors were introduced.
 
+Must build with zero errors. If build fails, fix the MDX syntax before proceeding.
+
 ### Checklist
 - [ ] EN docs section written/updated for the implemented feature
 - [ ] 13 locale translations updated (changed sections only)
@@ -626,8 +628,25 @@ Compare the original plan's assessment with what actually happened:
 # Create completed directory if it doesn't exist
 mkdir -p .prp-output/plans/completed
 
-# Move plan to completed folder
-mv "$ARGUMENTS" .prp-output/plans/completed/
+# Move plan to completed folder. If the plan is TRACKED in git (prp-plan committed it, #801),
+# use `git mv` so the archive stays tracked — a plain `mv` would un-track it (.prp-output/** is
+# gitignored for NEW paths, so a later `git add -A` stages the deletion but never re-adds the
+# moved file, silently reverting it to on-disk-only — the exact state #801 fixes). Fall back to
+# plain mv when the plan is not tracked.
+# Collision-safe destination (no -f overwrite — matches the name-collision fallback below):
+DEST=".prp-output/plans/completed/$(basename "$ARGUMENTS")"
+[ -e "$DEST" ] && DEST=".prp-output/plans/completed/$(basename "$ARGUMENTS" .plan.md)-$(date +%Y%m%d-%H%M).plan.md"
+if git ls-files --error-unmatch "$ARGUMENTS" >/dev/null 2>&1; then
+  git mv "$ARGUMENTS" "$DEST"
+  BR=$(git branch --show-current)
+  if [ -n "$BR" ] && [ "$BR" != "main" ] && [ "$BR" != "master" ]; then
+    git commit -q -m "chore(plan): archive $(basename "$DEST") to completed/" || echo "WARNING: archive commit failed — commit the moved plan manually (#801)"
+  else
+    echo "WARNING: on '${BR:-<detached HEAD>}' — archive move is STAGED but NOT committed (won't commit to main/master/detached). Commit it manually so the plan isn't left uncommitted (#801)."
+  fi
+else
+  mv "$ARGUMENTS" "$DEST"
+fi
 ```
 
 **Verify both destination AND source removal:**
