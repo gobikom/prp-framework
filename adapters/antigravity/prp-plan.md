@@ -526,12 +526,17 @@ The plan file MUST include lifecycle frontmatter (`status: pending`, `runner`, `
     - **GOTCHA**: Known pitfalls to avoid
     - **VALIDATE**: Exact command to verify (pre-filled, no placeholders)
 12. **Testing Strategy** — unit tests table + integration tests (conditional) + test data + performance benchmarks (conditional) + edge cases checklist
-13. **Validation Commands** — 6 levels (Static Analysis, Unit Tests, Full Suite, Database, Browser, Manual), **pre-filled with actual commands**
-14. **Confidence Score** — 5 dimensions × 2pts = 10 formula: Patterns + Gotchas + Integration + Validation + Testing
-15. **Acceptance Criteria** — definition of done (including unit tests cover >= 90% of new code)
-16. **Completion Checklist** — all 6 validation levels
-17. **Risks and Mitigations** — likelihood, impact, strategy
-18. **Technical Design** (conditional, HIGH or API/DB) — API contracts, DB schema, sequence diagrams, NFRs, migration & rollback
+13. **Docs Impact** — list docs pages to update/create, or "N/A" with per-feature justification. If the plan changes user-facing behavior, list which `packages/docs/` pages need updating and include docs + translation as implementation steps (the implementing agent writes EN docs + translates to 13 locales in the same PR). Blank = ⚠️ warning at gate audit.
+14. **Gate Compliance** (ALWAYS emit — agent-devops#799) — a `## Gate Compliance` section that maps the project's `/gate` operational checklists to plan tasks so the pre-implement gate-audit (Layer 3) can verify completeness. Classify the change and scale the content (tiered — never silently omit):
+    - **User-facing / new endpoint / schema / new entity / feature flag / billing change** → map each applicable `new_feature` + `epic_kickoff` + `post_ship` item to an owning plan task/phase: smoke-test L1/L2 for new endpoints, `seed-uat-roles` for new entities, nav entry points for new pages, `ALTER TYPE … ADD VALUE` for new enums, feature-flag verify-all-envs, docs redeploy, post-ship rollback/version-bump/branch-cleanup.
+    - **Genuinely internal-only** (docs/config/refactor with no user-facing or CI-observable change) → `Gate Compliance: N/A — <enumerated reason>`. A blanket "N/A — no new features" is **REJECTED** (mirrors the Docs Impact N/A bar): enumerate what was checked (no `packages/web` pages, no `/api` routes, no schema/entities, no flags/billing) and why none apply.
+    - The always-present, justified classification is what lets the gate-auditor mechanically verify L3. **If this project ships a `/gate` skill (e.g. claude-code/codex), run `/gate audit pre-implement` to verify this section** (other toolchains: skip — this line degrades gracefully).
+15. **Validation Commands** — 6 levels (Static Analysis, Unit Tests, Full Suite, Database, Browser, Manual), **pre-filled with actual commands**
+16. **Confidence Score** — 5 dimensions × 2pts = 10 formula: Patterns + Gotchas + Integration + Validation + Testing
+17. **Acceptance Criteria** — definition of done (including unit tests cover >= 90% of new code)
+18. **Completion Checklist** — all 6 validation levels
+19. **Risks and Mitigations** — likelihood, impact, strategy
+20. **Technical Design** (conditional, HIGH or API/DB) — API contracts, DB schema, sequence diagrams, NFRs, migration & rollback
 
 **IMPORTANT**: The saved plan file MUST NOT contain any unfilled `{...}` placeholders in Validation Commands section. Pre-fill with actual detected commands.
 
