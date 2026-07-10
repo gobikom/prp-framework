@@ -165,6 +165,10 @@ gh pr view {NUMBER} --json number,title,body,author,headRefName,baseRefName,stat
 # MUST bind to this value — NOT a value re-queried later — so that any push
 # during review invalidates the marker (marker.head != current head → re-review).
 REVIEWED_HEAD_SHA=$(gh pr view {NUMBER} --json headRefOid -q '.headRefOid')
+# Validate immediately — an empty/garbage capture here must fail loud NOW, not
+# surface later as a silent fail-open in the marker re-bind guard.
+printf '%s' "$REVIEWED_HEAD_SHA" | grep -qE '^[0-9a-f]{40}$' || \
+  { echo "FATAL: could not capture reviewed head SHA ('$REVIEWED_HEAD_SHA')" >&2; exit 1; }
 
 # Structural diff (compact overview — for agent routing)
 # Use prp-diff if available, otherwise fall back to gh pr diff
@@ -993,7 +997,59 @@ Field rules:
 - `verdict` — map the aggregated verdict: `READY TO MERGE`→`READY_TO_MERGE`, `NEEDS FIXES`→`NEEDS_FIXES`, `CRITICAL ISSUES`→`CRITICAL_ISSUES`. **The verdict field is authoritative for block/pass:** `safe-merge` blocks on `NEEDS_FIXES`/`CRITICAL_ISSUES` regardless of counts (so a `CRITICAL_ISSUES` caused by a validation/build failure with zero agent-critical findings — see the Verdict Decision Logic — is legitimately `critical=0` and still blocks).
 - `critical` / `important` — MUST equal the integers in the body headings `### Critical Issues (N found)` / `### Important Issues (N found)`. `safe-merge` recomputes them from the body and BLOCKS on mismatch. Only enforced invariant: `READY_TO_MERGE` ⟹ `critical=0` AND `important=0`. (No `critical>0` requirement for `CRITICAL_ISSUES` — a blocking verdict already blocks.)
 - `agents` — comma-separated `[a-z0-9-]` tokens, no spaces. **Do NOT emit `verdict=READY_TO_MERGE` unless all three core agents (`code-reviewer`, `security-reviewer`, `silent-failure-hunter`) are present in the aggregation** — mirrors the Phase 3 rule "READY TO MERGE is never valid when a core agent is missing." If a core agent is missing, the verdict is at least `NEEDS_FIXES`.
-- `head` — reuse **`$REVIEWED_HEAD_SHA` captured in Phase 1.3 at diff-gather time** (NOT a fresh `gh pr view`). This binds the marker to the exact commit the agents reviewed, so a push during review invalidates it.
+- `head` — use **`$MARKER_HEAD` derived below** (never a fresh `gh pr view`). Default is `$REVIEWED_HEAD_SHA` captured in Phase 1.3 at diff-gather time, so a push during review invalidates the marker. The ONLY sanctioned exception is the artifacts-commit re-bind in "Commit artifacts BEFORE the marker" below — a docs-only advance of HEAD by this workflow's own artifact commit, mechanically verified.
+
+#### Commit artifacts BEFORE the marker (head re-bind, prp-framework#121)
+
+`safe-merge` matches the GitHub-side marker's `head=` against the PR HEAD **at merge time**. Flows that commit review artifacts to the PR branch (run-all, ARTIFACT-REPORT) advance HEAD past `$REVIEWED_HEAD_SHA` with that very commit — a marker bound to the pre-artifacts SHA is then guaranteed to block, and the tempting escape (`--skip-review-check`) defeats the gate. Fixed ordering:
+
+1. Write the review artifact (verdict + counts final; **no marker line yet**).
+2. If this flow commits artifacts to the PR branch → `git add`/`commit`/`push` them NOW (review file, fix summaries, reports, archived plan).
+3. Derive the marker head with the docs-only guard:
+
+```bash
+MARKER_HEAD=""
+CURRENT_HEAD=$(git rev-parse HEAD 2>/dev/null)
+# Both SHAs must be valid 40-hex BEFORE any diff. An empty/unset REVIEWED_HEAD_SHA
+# makes `git diff ""..HEAD` print NOTHING and the guard would fail OPEN (verified);
+# an unresolvable SHA makes git exit 128 with empty stdout — same silent fail-open
+# if the exit code is swallowed by a pipeline. Fail loud on both.
+if ! printf '%s' "$CURRENT_HEAD" | grep -qE '^[0-9a-f]{40}$'; then
+  echo "FATAL: could not resolve local HEAD ('$CURRENT_HEAD') — marker NOT emitted" >&2
+elif ! printf '%s' "$REVIEWED_HEAD_SHA" | grep -qE '^[0-9a-f]{40}$'; then
+  echo "FATAL: REVIEWED_HEAD_SHA missing/invalid ('$REVIEWED_HEAD_SHA') — marker NOT emitted; re-run Phase 1.3" >&2
+elif [ "$CURRENT_HEAD" = "$REVIEWED_HEAD_SHA" ]; then
+  MARKER_HEAD="$REVIEWED_HEAD_SHA"   # no advance — bind to the reviewed head as before
+else
+  # HEAD moved since diff-gather. Re-bind is legitimate ONLY if every commit in
+  # between touches nothing but .prp-output/ (this workflow's own artifacts).
+  # --no-renames: with rename detection, `git mv src/x .prp-output/y` would show
+  # ONLY the .prp-output destination and a reviewed file could vanish from the
+  # merged tree unnoticed; --no-renames lists BOTH the deletion and the addition.
+  # Capture git diff's exit code SEPARATELY from the grep filter — a git error
+  # must never be indistinguishable from "zero non-artifact files".
+  DIFF_OUTPUT=$(git diff --no-renames "$REVIEWED_HEAD_SHA".."$CURRENT_HEAD" --name-only 2>&1)
+  DIFF_EC=$?
+  if [ "$DIFF_EC" -ne 0 ]; then
+    echo "FATAL: git diff $REVIEWED_HEAD_SHA..$CURRENT_HEAD failed (exit $DIFF_EC) — cannot verify docs-only advance, refusing to re-bind:" >&2
+    echo "$DIFF_OUTPUT" >&2
+  else
+    NON_ARTIFACT=$(printf '%s\n' "$DIFF_OUTPUT" | grep -v '^\.prp-output/' || true)
+    if [ -z "$NON_ARTIFACT" ]; then
+      MARKER_HEAD="$CURRENT_HEAD"   # docs-only advance — reviewed code state is byte-identical
+    else
+      echo "FATAL: code changed since review ($REVIEWED_HEAD_SHA -> $CURRENT_HEAD):" >&2
+      echo "$NON_ARTIFACT" >&2
+      echo "Marker NOT emitted — re-run the review against the new head." >&2
+    fi
+  fi
+fi
+```
+
+4. Emit the marker (below) with `head=$MARKER_HEAD`, append to the artifact, then post to GitHub. The local file's marker may lag one docs-only commit behind its own blob — the GitHub-side post (what `safe-merge` reads for head-matching) carries the current-head binding.
+5. Flows that never commit artifacts to the branch: `MARKER_HEAD` stays `$REVIEWED_HEAD_SHA` — behavior unchanged.
+
+Do NOT commit again after emitting the marker (that re-invalidates it). If a later fix round changes code, the next review round re-runs this whole sequence.
 
 Extract the counts **mechanically from the file you just wrote** (don't retype from memory — that drifts, and a drift makes `safe-merge` block):
 ```bash
@@ -1008,14 +1064,17 @@ case "$VERDICT_TOKEN" in
   READY_TO_MERGE|NEEDS_FIXES|CRITICAL_ISSUES) ;;
   *) echo "FATAL: bad VERDICT_TOKEN ('$VERDICT_TOKEN') — marker NOT emitted" >&2; VERDICT_TOKEN="" ;;
 esac
-# head must be the Phase-1 reviewed SHA, validated as 40-hex — fail loud, never emit a malformed marker.
-if ! printf '%s' "$REVIEWED_HEAD_SHA" | grep -qE '^[0-9a-f]{40}$'; then
-  echo "FATAL: REVIEWED_HEAD_SHA missing/invalid ('$REVIEWED_HEAD_SHA') — marker NOT emitted; re-run Phase 1.3" >&2
+# head must be MARKER_HEAD from the re-bind block above. This regex is a FORMAT
+# backstop only (rejects empty/garbage) — CORRECTNESS of the value is the re-bind
+# guard's job above. (Empty MARKER_HEAD = the guard already reported FATAL:
+# code drift, unresolvable SHA, or git-diff failure.)
+if ! printf '%s' "$MARKER_HEAD" | grep -qE '^[0-9a-f]{40}$'; then
+  echo "FATAL: MARKER_HEAD missing/invalid ('$MARKER_HEAD') — marker NOT emitted; re-run Phase 1.3 / the re-bind block" >&2
 elif [[ -z "$VERDICT_TOKEN" ]]; then
   : # VERDICT_TOKEN already reported FATAL above — marker not emitted
 else
   printf '\n<!-- safe-merge-review: verdict=%s critical=%s important=%s agents=%s head=%s -->\n' \
-    "$VERDICT_TOKEN" "$CRIT" "$IMP" "$AGENTS_CSV" "$REVIEWED_HEAD_SHA" \
+    "$VERDICT_TOKEN" "$CRIT" "$IMP" "$AGENTS_CSV" "$MARKER_HEAD" \
     >> "$REVIEW_FILE"
 fi
 ```
