@@ -159,6 +159,10 @@ gh pr view {NUMBER} --json number,title,body,author,headRefName,baseRefName,stat
 # MUST bind to this value — NOT a value re-queried later — so that any push
 # during review invalidates the marker (marker.head != current head → re-review).
 REVIEWED_HEAD_SHA=$(gh pr view {NUMBER} --json headRefOid -q '.headRefOid')
+# Validate immediately — an empty/garbage capture here must fail loud NOW, not
+# surface later as a silent fail-open in the marker re-bind guard.
+printf '%s' "$REVIEWED_HEAD_SHA" | grep -qE '^[0-9a-f]{40}$' || \
+  { echo "FATAL: could not capture reviewed head SHA ('$REVIEWED_HEAD_SHA')" >&2; exit 1; }
 
 # Structural diff (compact overview — for agent routing)
 # Use prp-diff if available, otherwise fall back to gh pr diff
@@ -998,19 +1002,40 @@ Field rules:
 3. Derive the marker head with the docs-only guard:
 
 ```bash
-MARKER_HEAD="$REVIEWED_HEAD_SHA"
-CURRENT_HEAD=$(git rev-parse HEAD)
-if [ "$CURRENT_HEAD" != "$REVIEWED_HEAD_SHA" ]; then
+MARKER_HEAD=""
+CURRENT_HEAD=$(git rev-parse HEAD 2>/dev/null)
+# Both SHAs must be valid 40-hex BEFORE any diff. An empty/unset REVIEWED_HEAD_SHA
+# makes `git diff ""..HEAD` print NOTHING and the guard would fail OPEN (verified);
+# an unresolvable SHA makes git exit 128 with empty stdout — same silent fail-open
+# if the exit code is swallowed by a pipeline. Fail loud on both.
+if ! printf '%s' "$CURRENT_HEAD" | grep -qE '^[0-9a-f]{40}$'; then
+  echo "FATAL: could not resolve local HEAD ('$CURRENT_HEAD') — marker NOT emitted" >&2
+elif ! printf '%s' "$REVIEWED_HEAD_SHA" | grep -qE '^[0-9a-f]{40}$'; then
+  echo "FATAL: REVIEWED_HEAD_SHA missing/invalid ('$REVIEWED_HEAD_SHA') — marker NOT emitted; re-run Phase 1.3" >&2
+elif [ "$CURRENT_HEAD" = "$REVIEWED_HEAD_SHA" ]; then
+  MARKER_HEAD="$REVIEWED_HEAD_SHA"   # no advance — bind to the reviewed head as before
+else
   # HEAD moved since diff-gather. Re-bind is legitimate ONLY if every commit in
   # between touches nothing but .prp-output/ (this workflow's own artifacts).
-  NON_ARTIFACT=$(git diff "$REVIEWED_HEAD_SHA".."$CURRENT_HEAD" --name-only | grep -v '^\.prp-output/' || true)
-  if [ -z "$NON_ARTIFACT" ]; then
-    MARKER_HEAD="$CURRENT_HEAD"   # docs-only advance — reviewed code state is byte-identical
+  # --no-renames: with rename detection, `git mv src/x .prp-output/y` would show
+  # ONLY the .prp-output destination and a reviewed file could vanish from the
+  # merged tree unnoticed; --no-renames lists BOTH the deletion and the addition.
+  # Capture git diff's exit code SEPARATELY from the grep filter — a git error
+  # must never be indistinguishable from "zero non-artifact files".
+  DIFF_OUTPUT=$(git diff --no-renames "$REVIEWED_HEAD_SHA".."$CURRENT_HEAD" --name-only 2>&1)
+  DIFF_EC=$?
+  if [ "$DIFF_EC" -ne 0 ]; then
+    echo "FATAL: git diff $REVIEWED_HEAD_SHA..$CURRENT_HEAD failed (exit $DIFF_EC) — cannot verify docs-only advance, refusing to re-bind:" >&2
+    echo "$DIFF_OUTPUT" >&2
   else
-    echo "FATAL: code changed since review ($REVIEWED_HEAD_SHA -> $CURRENT_HEAD):" >&2
-    echo "$NON_ARTIFACT" >&2
-    echo "Marker NOT emitted — re-run the review against the new head." >&2
-    MARKER_HEAD=""
+    NON_ARTIFACT=$(printf '%s\n' "$DIFF_OUTPUT" | grep -v '^\.prp-output/' || true)
+    if [ -z "$NON_ARTIFACT" ]; then
+      MARKER_HEAD="$CURRENT_HEAD"   # docs-only advance — reviewed code state is byte-identical
+    else
+      echo "FATAL: code changed since review ($REVIEWED_HEAD_SHA -> $CURRENT_HEAD):" >&2
+      echo "$NON_ARTIFACT" >&2
+      echo "Marker NOT emitted — re-run the review against the new head." >&2
+    fi
   fi
 fi
 ```
@@ -1033,9 +1058,10 @@ case "$VERDICT_TOKEN" in
   READY_TO_MERGE|NEEDS_FIXES|CRITICAL_ISSUES) ;;
   *) echo "FATAL: bad VERDICT_TOKEN ('$VERDICT_TOKEN') — marker NOT emitted" >&2; VERDICT_TOKEN="" ;;
 esac
-# head must be MARKER_HEAD from the re-bind block above, validated as 40-hex —
-# fail loud, never emit a malformed marker. (Empty MARKER_HEAD = re-bind guard
-# detected code drift and already reported FATAL.)
+# head must be MARKER_HEAD from the re-bind block above. This regex is a FORMAT
+# backstop only (rejects empty/garbage) — CORRECTNESS of the value is the re-bind
+# guard's job above. (Empty MARKER_HEAD = the guard already reported FATAL:
+# code drift, unresolvable SHA, or git-diff failure.)
 if ! printf '%s' "$MARKER_HEAD" | grep -qE '^[0-9a-f]{40}$'; then
   echo "FATAL: MARKER_HEAD missing/invalid ('$MARKER_HEAD') — marker NOT emitted; re-run Phase 1.3 / the re-bind block" >&2
 elif [[ -z "$VERDICT_TOKEN" ]]; then
