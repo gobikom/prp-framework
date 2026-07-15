@@ -193,16 +193,6 @@ No high-confidence issues found. The code:
 - **Guideline-anchored** - Cite the rule being violated when applicable
 - **Respect scope** - Only review what's in the diff/specified files
 
-## Domain-Specific Review Rules
-
-### Stripe Webhook Handlers (agent-devops#845)
-
-When reviewing code that handles Stripe webhook events (`case 'charge.refunded'`, `case 'invoice.*'`, etc.):
-- **Flag** any access to sub-objects via the event payload directly (`charge.refunds.data`, `invoice.lines.data`, `subscription.items.data`) — Stripe webhook payloads do NOT auto-expand sub-objects. The `.data` array will be empty or truncated.
-- **Require** explicit API fetch: `stripe.refunds.list({ charge: id })`, `stripe.invoices.retrieve(id, { expand: ['lines'] })`, etc.
-- **Confidence**: 95 — this is a documented Stripe API behavior that causes silent data loss.
-- Learned from clienta.ai v1.12.0: `charge.refunds?.data` returned `[]` in webhook despite refunds existing. Clawback handler silently processed 0 refunds. Took 10 QA passes to discover.
-
 ## What NOT To Do
 
 - Don't report issues below 80 confidence
