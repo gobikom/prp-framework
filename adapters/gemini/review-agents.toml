@@ -24,7 +24,7 @@ these are where quality comes from.
 
 PR number and optional aspects: `{{args}}`
 
-Format: `<pr-number> [aspects: comments|tests|errors|types|code|security|deps|docs|perf|a11y|simplify|all] [--since-last-review] [--metrics]`
+Format: `<pr-number> [aspects: comments|tests|errors|types|code|security|deps|docs|perf|a11y|simplify|all] [--since-last-review] [--metrics] [--no-commit]`
 
 ## Mission
 
@@ -976,6 +976,39 @@ Save aggregated review to `.prp-output/reviews/pr-{NUMBER}-agents-review.md` bef
 mkdir -p .prp-output/reviews
 ```
 
+### Commit Review Artifact to PR Branch (agent-devops#939)
+
+**Default behavior**: After writing the review artifact, commit and push it to the PR branch so `safe-merge` can find it without manual intervention. This step runs BEFORE emitting the safe-merge marker (see "Commit artifacts BEFORE the marker" below) to keep the marker's `head=` SHA aligned with the pushed HEAD.
+
+**Skip with `--no-commit`**: Pass `--no-commit` to skip this step (useful when running review-agents inside a flow that handles artifact commits separately, e.g., `/run-all`).
+
+**Detect run-all context**: If the environment variable `PRP_RUN_ALL=1` is set (injected by `/run-all`), skip auto-commit — run-all commits all artifacts together in its own step. Treat this the same as `--no-commit`.
+
+```bash
+# Auto-commit review artifact to PR branch (unless --no-commit or PRP_RUN_ALL)
+if [ "${NO_COMMIT:-0}" != "1" ] && [ "${PRP_RUN_ALL:-0}" != "1" ]; then
+  REVIEW_FILE=".prp-output/reviews/pr-{NUMBER}-agents-review.md"
+  CONTEXT_FILE=".prp-output/reviews/pr-context-$(git branch --show-current).md"
+  METRICS_FILE=".prp-output/reviews/review-metrics.jsonl"
+
+  # Stage review artifacts that exist
+  git add "$REVIEW_FILE" 2>/dev/null
+  git add "$CONTEXT_FILE" 2>/dev/null
+  git add "$METRICS_FILE" 2>/dev/null
+
+  # Only commit if there are staged changes
+  if ! git diff --cached --quiet 2>/dev/null; then
+    git commit -m "docs: add review artifact for PR #{NUMBER}"
+    git push
+    echo "Review artifact committed and pushed to PR branch."
+  else
+    echo "NOTE: No new review artifacts to commit (already committed or unchanged)."
+  fi
+else
+  echo "Skipping auto-commit (--no-commit or PRP_RUN_ALL detected)."
+fi
+```
+
 ### Emit safe-merge review marker (agent-devops#785 gap A)
 
 Append a machine-readable, SHA-bound marker as the **last line** of the review file, **before** posting to GitHub. Because the same file is used both as the local artifact and as the `--body-file` for the GitHub post, the marker lands in **both** places. This lets `safe-merge` satisfy its review gate across worktrees / different-cwd repos and for `-R` cross-repo merges (where it currently skips review entirely).
@@ -1000,7 +1033,7 @@ Field rules:
 `safe-merge` matches the GitHub-side marker's `head=` against the PR HEAD **at merge time**. Flows that commit review artifacts to the PR branch (run-all, ARTIFACT-REPORT) advance HEAD past `$REVIEWED_HEAD_SHA` with that very commit — a marker bound to the pre-artifacts SHA is then guaranteed to block, and the tempting escape (`--skip-review-check`) defeats the gate. Fixed ordering:
 
 1. Write the review artifact (verdict + counts final; **no marker line yet**).
-2. If this flow commits artifacts to the PR branch → `git add`/`commit`/`push` them NOW (review file, fix summaries, reports, archived plan).
+2. Commit artifacts to the PR branch → the "Commit Review Artifact to PR Branch" step above handles `git add`/`commit`/`push` automatically (unless `--no-commit` or `PRP_RUN_ALL`). For run-all / ARTIFACT-REPORT flows, they commit all artifacts together in their own step.
 3. Derive the marker head with the docs-only guard:
 
 ```bash
@@ -1043,7 +1076,7 @@ fi
 ```
 
 4. Emit the marker (below) with `head=$MARKER_HEAD`, append to the artifact, then post to GitHub. The local file's marker may lag one docs-only commit behind its own blob — the GitHub-side post (what `safe-merge` reads for head-matching) carries the current-head binding.
-5. Flows that never commit artifacts to the branch: `MARKER_HEAD` stays `$REVIEWED_HEAD_SHA` — behavior unchanged.
+5. Flows that skip artifact commit (`--no-commit`): `MARKER_HEAD` stays `$REVIEWED_HEAD_SHA` — behavior unchanged.
 
 Do NOT commit again after emitting the marker (that re-invalidates it). If a later fix round changes code, the next review round re-runs this whole sequence.
 
@@ -1239,6 +1272,7 @@ If implementation report references a Source PRD:
 /review-agents 42 perf a11y               # Performance + accessibility agents
 /review-agents 163 --since-last-review    # Incremental re-review
 /review-agents --metrics                  # View review metrics
+/review-agents 163 --no-commit            # Review without auto-committing artifact
 ```
 
 ---
@@ -1259,6 +1293,9 @@ If implementation report references a Source PRD:
 | `--metrics` with PR number | Display metrics first, then proceed with review |
 | Agent tool not available | Fall back to `/review` (single-session sequential) |
 | Agent times out or fails | Note failure, proceed with available results; if core agent failed, force verdict to NEEDS FIXES minimum |
+| `--no-commit` flag provided | Skip auto-commit of review artifact to PR branch. Useful when caller (e.g., run-all) commits artifacts separately |
+| `PRP_RUN_ALL=1` env set | Same as `--no-commit` — run-all handles artifact commits in its own step |
+| Auto-commit fails (push rejected) | WARN but continue — artifact is saved locally and posted to GitHub. Display: "WARNING: Could not push review artifact to PR branch. Commit manually or use safe-merge --skip-review-check." |
 
 ---
 
