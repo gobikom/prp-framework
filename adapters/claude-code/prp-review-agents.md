@@ -1047,8 +1047,19 @@ approved, the artifact commit landed, and `reviewDecision` went straight back to
 This makes the ordering below load-bearing in both directions. Commit artifacts
 BEFORE requesting review, or do not commit them at all — posting the artifact as
 a PR comment satisfies `safe-merge`'s marker check on its own, since the marker
-travels in the comment body. When in doubt, prefer the comment: it cannot
-dismiss an approval, and it cannot advance HEAD.
+travels in the comment body.
+
+Neither option is free. A committed artifact is in git history and cannot be
+quietly altered later; a PR comment can be edited or deleted by its author, so
+choosing the comment trades an immutable audit record for the ordering fix — if
+a later gate-audit or retro needs to read that review, commit it (before
+requesting approval) rather than comment it. On a PUBLIC repo the comment path
+also widens the marker's practical author set from "collaborators with push
+access" to "any GitHub account". That stays within the marker's documented bar
+— it is explicitly an integrity and head-binding signal, not an authenticity
+boundary, and `safe-merge` still re-derives the counts, re-checks the head SHA
+and fails closed — but it is a real difference and should be a deliberate
+choice, not a default.
 
 Fixed ordering:
 
