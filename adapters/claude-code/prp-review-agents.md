@@ -1033,7 +1033,24 @@ Field rules:
 
 #### Commit artifacts BEFORE the marker (head re-bind, prp-framework#121)
 
-`safe-merge` matches the GitHub-side marker's `head=` against the PR HEAD **at merge time**. Flows that commit review artifacts to the PR branch (run-all, ARTIFACT-REPORT) advance HEAD past `$REVIEWED_HEAD_SHA` with that very commit — a marker bound to the pre-artifacts SHA is then guaranteed to block, and the tempting escape (`--skip-review-check`) defeats the gate. Fixed ordering:
+`safe-merge` matches the GitHub-side marker's `head=` against the PR HEAD **at merge time**. Flows that commit review artifacts to the PR branch (run-all, ARTIFACT-REPORT) advance HEAD past `$REVIEWED_HEAD_SHA` with that very commit — a marker bound to the pre-artifacts SHA is then guaranteed to block, and the tempting escape (`--skip-review-check`) defeats the gate.
+
+**A second, independent reason the ordering matters: `dismiss_stale_reviews`.**
+When branch protection has it enabled, ANY push to the PR branch — including a
+docs-only artifact commit — silently discards every approval already given. So
+committing the artifact after a code owner has approved does not merely
+invalidate the marker; it revokes the approval and forces a second review round
+for a change nobody made. Measured 2026-08-01 on clienta.ai#2214: merger-bot
+approved, the artifact commit landed, and `reviewDecision` went straight back to
+`REVIEW_REQUIRED`.
+
+This makes the ordering below load-bearing in both directions. Commit artifacts
+BEFORE requesting review, or do not commit them at all — posting the artifact as
+a PR comment satisfies `safe-merge`'s marker check on its own, since the marker
+travels in the comment body. When in doubt, prefer the comment: it cannot
+dismiss an approval, and it cannot advance HEAD.
+
+Fixed ordering:
 
 1. Write the review artifact (verdict + counts final; **no marker line yet**).
 2. Commit artifacts to the PR branch → the "Commit Review Artifact to PR Branch" step above handles `git add`/`commit`/`push` automatically (unless `--no-commit` or `PRP_RUN_ALL`). For run-all / ARTIFACT-REPORT flows, they commit all artifacts together in their own step.
