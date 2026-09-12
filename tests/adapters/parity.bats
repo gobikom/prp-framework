@@ -8,15 +8,28 @@
 
 FRAMEWORK_DIR="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)"
 
+# Counts come from adapters.yml, not from literals (prp-framework#128): the hardcoded
+# 19/28/5/95 rotted the moment thclaws and four core commands were added, and because
+# nobody ran bats the suite sat red on main. `$1` is a Python expression over `c`
+# (the parsed adapters.yml) whose value is printed.
+yml_eval() {
+    python3 -c "import yaml; c = yaml.safe_load(open('$FRAMEWORK_DIR/adapters.yml')); print($1)"
+}
+# Core = commands with no `group:` (marketing/bot commands live in their own dirs).
+yml_core_count()  { yml_eval "len([k for k, v in c['commands'].items() if not v.get('group')])"; }
+yml_group_count() { yml_eval "len([k for k, v in c['commands'].items() if v.get('group') == '$1'])"; }
+yml_cmd_count()   { yml_eval "len(c['commands'])"; }
+yml_adapter_count() { yml_eval "len(c['adapters'])"; }
+
 # ─────────────────────────────────────────────
 # 1. Core command existence per adapter
 # ─────────────────────────────────────────────
-@test "claude-code has 19 core commands" {
-    [ "$(ls "$FRAMEWORK_DIR/adapters/claude-code"/prp-*.md | wc -l)" -eq 19 ]
+@test "claude-code has every core command from adapters.yml" {
+    [ "$(ls "$FRAMEWORK_DIR/adapters/claude-code"/prp-*.md | wc -l)" -eq "$(yml_core_count)" ]
 }
 
-@test "claude-code has 4 marketing commands in separate dir" {
-    [ "$(ls "$FRAMEWORK_DIR/adapters/claude-code-marketing"/prp-*.md | wc -l)" -eq 4 ]
+@test "claude-code has every marketing command in its separate dir" {
+    [ "$(ls "$FRAMEWORK_DIR/adapters/claude-code-marketing"/prp-*.md | wc -l)" -eq "$(yml_group_count marketing)" ]
     # Verify specific commands exist
     [ -f "$FRAMEWORK_DIR/adapters/claude-code-marketing/prp-landing.md" ]
     [ -f "$FRAMEWORK_DIR/adapters/claude-code-marketing/prp-demo.md" ]
@@ -24,8 +37,8 @@ FRAMEWORK_DIR="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)"
     [ -f "$FRAMEWORK_DIR/adapters/claude-code-marketing/prp-competitor.md" ]
 }
 
-@test "claude-code has 5 bot commands in separate dir" {
-    [ "$(ls "$FRAMEWORK_DIR/adapters/claude-code-bot"/prp-*.md | wc -l)" -eq 5 ]
+@test "claude-code has every bot command in its separate dir" {
+    [ "$(ls "$FRAMEWORK_DIR/adapters/claude-code-bot"/prp-*.md | wc -l)" -eq "$(yml_group_count bot)" ]
     # Verify specific commands exist
     [ -f "$FRAMEWORK_DIR/adapters/claude-code-bot/prp-intent.md" ]
     [ -f "$FRAMEWORK_DIR/adapters/claude-code-bot/prp-flow.md" ]
@@ -34,19 +47,20 @@ FRAMEWORK_DIR="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)"
     [ -f "$FRAMEWORK_DIR/adapters/claude-code-bot/prp-integration.md" ]
 }
 
-@test "claude-code total commands across all dirs equals 28" {
+@test "claude-code total commands across all dirs equals adapters.yml command count" {
     CC_CORE=$(ls "$FRAMEWORK_DIR/adapters/claude-code"/prp-*.md | wc -l)
     CC_MKT=$(ls "$FRAMEWORK_DIR/adapters/claude-code-marketing"/prp-*.md | wc -l)
     CC_BOT=$(ls "$FRAMEWORK_DIR/adapters/claude-code-bot"/prp-*.md | wc -l)
     TOTAL=$((CC_CORE + CC_MKT + CC_BOT))
-    [ "$TOTAL" -eq 28 ]
+    [ "$TOTAL" -eq "$(yml_cmd_count)" ]
 }
 
-@test "codex/opencode/gemini/antigravity have 28 commands each" {
-    [ "$(ls -d "$FRAMEWORK_DIR/adapters/codex"/prp-*/ | wc -l)" -eq 28 ]
-    [ "$(ls "$FRAMEWORK_DIR/adapters/opencode"/*.md | wc -l)" -eq 28 ]
-    [ "$(ls "$FRAMEWORK_DIR/adapters/antigravity"/prp-*.md | wc -l)" -eq 28 ]
-    [ "$(ls "$FRAMEWORK_DIR/adapters/gemini"/*.toml | wc -l)" -eq 28 ]
+@test "codex/opencode/gemini/antigravity each carry every adapters.yml command" {
+    N=$(yml_cmd_count)
+    [ "$(ls -d "$FRAMEWORK_DIR/adapters/codex"/prp-*/ | wc -l)" -eq "$N" ]
+    [ "$(ls "$FRAMEWORK_DIR/adapters/opencode"/*.md | wc -l)" -eq "$N" ]
+    [ "$(ls "$FRAMEWORK_DIR/adapters/antigravity"/prp-*.md | wc -l)" -eq "$N" ]
+    [ "$(ls "$FRAMEWORK_DIR/adapters/gemini"/*.toml | wc -l)" -eq "$N" ]
 }
 
 @test "all 9 mkt+bot commands exist in cross-adapters by name" {
@@ -582,8 +596,7 @@ check_all_6() {
     python3 -m py_compile "$FRAMEWORK_DIR/scripts/generate-adapters.py"
 }
 
-@test "generate-adapters.py --dry-run lists all 95 files" {
-    # 19 commands × 5 adapters = 95 files
+@test "generate-adapters.py --dry-run lists adapters × commands files" {
     OUTPUT=$(python3 "$FRAMEWORK_DIR/scripts/generate-adapters.py" --dry-run 2>&1)
     COUNT=$(echo "$OUTPUT" | grep -c "DRY RUN")
     # Derive expected count from config
@@ -595,24 +608,29 @@ print(len(c['adapters']) * len(c['commands']))
     [ "$COUNT" -eq "$EXPECTED" ]
 }
 
-@test "adapters.yml defines all 28 commands (19 core + 4 mkt + 5 bot)" {
-    COUNT=$(python3 -c "import yaml; c=yaml.safe_load(open('$FRAMEWORK_DIR/adapters.yml')); print(len(c['commands']))")
-    [ "$COUNT" -eq 28 ]
+@test "adapters.yml command count equals core + marketing + bot" {
+    # The three groups partition the command set; a command with an unknown group
+    # would be generated into no claude-code dir and this sum would fall short.
+    CORE=$(yml_core_count); MKT=$(yml_group_count marketing); BOT=$(yml_group_count bot)
+    [ "$((CORE + MKT + BOT))" -eq "$(yml_cmd_count)" ]
 }
 
-@test "adapters.yml defines all 5 adapters" {
-    COUNT=$(python3 -c "import yaml; c=yaml.safe_load(open('$FRAMEWORK_DIR/adapters.yml')); print(len(c['adapters']))")
-    [ "$COUNT" -eq 5 ]
+@test "every adapter in adapters.yml has a generated directory" {
+    for name in $(yml_eval "' '.join(c['adapters'])"); do
+        [ -d "$FRAMEWORK_DIR/adapters/$name" ]
+    done
+    # Floor so an empty/missing `adapters:` cannot pass the loop above vacuously.
+    [ "$(yml_adapter_count)" -gt 0 ]
 }
 
 @test "claude-code plan overlay exists" {
     [ -f "$FRAMEWORK_DIR/prompts/overlays/claude-code/plan.md" ]
 }
 
-@test "generate-adapters.py --adapter gemini --dry-run lists 28 files" {
+@test "generate-adapters.py --adapter gemini --dry-run lists one file per command" {
     OUTPUT=$(python3 "$FRAMEWORK_DIR/scripts/generate-adapters.py" --adapter gemini --dry-run 2>&1)
     COUNT=$(echo "$OUTPUT" | grep -c "DRY RUN")
-    [ "$COUNT" -eq 28 ]
+    [ "$COUNT" -eq "$(yml_cmd_count)" ]
     # All should be gemini paths
     ! echo "$OUTPUT" | grep "DRY RUN" | grep -qv "gemini"
 }
