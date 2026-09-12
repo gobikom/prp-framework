@@ -305,7 +305,7 @@ Suggested splits based on file categories:
 
 ## Per-File Review Checklist
 
-For EVERY changed file, the relevant agent should check against these 7 categories:
+For EVERY changed file, the relevant agent should check against these 8 categories:
 
 - **Correctness**: Logic errors, edge cases, error handling
 - **Type Safety**: No implicit `any`, return types declared, type guards
@@ -314,6 +314,7 @@ For EVERY changed file, the relevant agent should check against these 7 categori
 - **Performance**: N+1 queries, unnecessary async, memory leaks
 - **Completeness**: Tests for new code, docs updated, TODOs addressed
 - **Maintainability**: Readability, over/under-engineering, magic numbers
+- **Scope**: Every hunk the PR title/body does not account for is a finding (**High**), whatever its size — a removed YAML key, a changed default, a path edit in a file the PR never mentions, a file outside the stated change set. Ask "which sentence of the PR description explains this hunk?"; if none, report it with the exact file:line so the author can explain, split it out, or drop it. Unrelated hunks are how behaviour disappears without a trace: soul-orchestra#1151 (a deploy-time timeout-validation PR) also deleted `chela_auth: subscription` from an agent YAML and nobody flagged the line — the fallback chain lost its Claude hop for a month. A branch cut from a stale local `main` shows the same shape (reverting merged work as if it were new); multi-agents#236 was caught exactly this way.
 
 ## Issue Severity Definitions
 
