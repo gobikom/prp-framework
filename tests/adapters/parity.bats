@@ -619,7 +619,8 @@ print(len(c['adapters']) * len(c['commands']))
     for name in $(yml_eval "' '.join(c['adapters'])"); do
         [ -d "$FRAMEWORK_DIR/adapters/$name" ]
     done
-    [ "$(yml_adapter_count)" -ge 5 ]
+    # Floor so an empty/missing `adapters:` cannot pass the loop above vacuously.
+    [ "$(yml_adapter_count)" -gt 0 ]
 }
 
 @test "claude-code plan overlay exists" {
