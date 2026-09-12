@@ -419,6 +419,28 @@ PROJECT_GUIDELINES = {relevant sections from CLAUDE.md}
 CHANGED_FILES = {list from context file}
 ```
 
+### 2.1.1 Create Detached Clone for Agents
+
+**CRITICAL**: Agents MUST NOT read from the author's live worktree. Create a detached
+clone at the PR head so agents cannot contaminate the working tree (prp-framework#129:
+a reviewer removed the worktree, another staged 6001 junk files).
+
+```bash
+# Record author worktree state BEFORE agents run
+AUTHOR_WORKTREE="$(pwd)"
+AUTHOR_STATUS_BEFORE=$(git -C "$AUTHOR_WORKTREE" status --porcelain)
+AUTHOR_HEAD=$(git -C "$AUTHOR_WORKTREE" rev-parse HEAD)
+
+# Create detached clone under scratchpad
+REVIEW_CLONE="${SCRATCHPAD:-/tmp}/prp-review-clone-pr-${PR_NUMBER}"
+rm -rf "$REVIEW_CLONE"
+git worktree add --detach "$REVIEW_CLONE" HEAD
+```
+
+Pass `$REVIEW_CLONE` (not `$AUTHOR_WORKTREE`) to every agent prompt as the working
+directory. The context file at `CONTEXT_PATH` is still read from the author tree (it
+is written by Phase 1 and is the only file agents need from there).
+
 ### 2.2 Core Agents (Always — Spawn ALL in Parallel)
 
 Spawn these 3 agents simultaneously in a **SINGLE message with multiple Agent tool calls**:
@@ -771,6 +793,30 @@ Running: {TOOL}:review {NUMBER}
 ---
 
 ## Phase 3: Result Collection
+
+### 3.0 Verify Author Worktree Integrity
+
+Before collecting results, verify the author's worktree was not contaminated:
+
+```bash
+AUTHOR_STATUS_AFTER=$(git -C "$AUTHOR_WORKTREE" status --porcelain)
+AUTHOR_HEAD_AFTER=$(git -C "$AUTHOR_WORKTREE" rev-parse HEAD)
+
+if [ "$AUTHOR_HEAD" != "$AUTHOR_HEAD_AFTER" ]; then
+  echo "REVIEW ABORT: author worktree HEAD changed during review ($AUTHOR_HEAD → $AUTHOR_HEAD_AFTER)"
+  exit 1
+fi
+if [ "$AUTHOR_STATUS_BEFORE" != "$AUTHOR_STATUS_AFTER" ]; then
+  echo "REVIEW ABORT: author worktree modified during review"
+  diff <(echo "$AUTHOR_STATUS_BEFORE") <(echo "$AUTHOR_STATUS_AFTER") || true
+  exit 1
+fi
+
+# Clean up clone
+git worktree remove --force "$REVIEW_CLONE" 2>/dev/null || rm -rf "$REVIEW_CLONE"
+```
+
+If the check fails, abort the review and report — an agent escaped the clone.
 
 After all agents complete, collect their outputs. Each agent returns a markdown report with findings.
 
