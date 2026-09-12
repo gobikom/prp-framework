@@ -348,7 +348,7 @@ Auto-dispatching: performance pass (DB query patterns in 2 files)
 
 ## Per-File Review Checklist
 
-For EVERY changed file, check against these 7 categories:
+For EVERY changed file, check against these 8 categories:
 
 - **Correctness**: Logic errors, edge cases, error handling
 - **Type Safety**: No implicit `any`, return types declared, type guards
