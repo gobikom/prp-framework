@@ -359,6 +359,7 @@ For EVERY changed file, check against these 7 categories:
 - **Performance**: N+1 queries, unnecessary async, memory leaks
 - **Completeness**: Tests for new code, docs updated, TODOs addressed
 - **Maintainability**: Readability, over/under-engineering, magic numbers
+- **Scope**: Every semantic hunk the PR title/body does not account for is a finding (**High**) — a removed YAML key, a changed default, a path edit in a file the PR never mentions. Mechanical artifacts the described change itself produces (lockfile, formatter output, baseline re-sync) are expected; a behavioural hunk is not. Report it with file:line so the author can explain, split it out, or drop it (soul-orchestra#1151: an unrelated PR silently deleted `chela_auth: subscription`).
 
 ## Issue Severity Levels
 

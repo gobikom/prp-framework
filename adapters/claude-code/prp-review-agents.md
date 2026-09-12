@@ -314,7 +314,7 @@ For EVERY changed file, the relevant agent should check against these 8 categori
 - **Performance**: N+1 queries, unnecessary async, memory leaks
 - **Completeness**: Tests for new code, docs updated, TODOs addressed
 - **Maintainability**: Readability, over/under-engineering, magic numbers
-- **Scope**: Every hunk the PR title/body does not account for is a finding (**High**), whatever its size — a removed YAML key, a changed default, a path edit in a file the PR never mentions, a file outside the stated change set. Ask "which sentence of the PR description explains this hunk?"; if none, report it with the exact file:line so the author can explain, split it out, or drop it. Unrelated hunks are how behaviour disappears without a trace: soul-orchestra#1151 (a deploy-time timeout-validation PR) also deleted `chela_auth: subscription` from an agent YAML and nobody flagged the line — the fallback chain lost its Claude hop for a month. A branch cut from a stale local `main` shows the same shape (reverting merged work as if it were new); multi-agents#236 was caught exactly this way.
+- **Scope**: Every semantic hunk the PR title/body does not account for is a finding (**High**), whatever its size — a removed YAML key, a changed default, a path edit in a file the PR never mentions, a file outside the stated change set. Mechanical artifacts the described change itself produces (lockfile, formatter output, baseline re-sync) are expected; a behavioural hunk is not. Ask "which sentence of the PR description explains this hunk?"; if none, report it with the exact file:line so the author can explain, split it out, or drop it. Unrelated hunks are how behaviour disappears without a trace: soul-orchestra#1151 (a deploy-time timeout-validation PR) also deleted `chela_auth: subscription` from an agent YAML and nobody flagged the line — the fallback chain lost its Claude hop for a month. A branch cut from a stale local `main` shows the same shape (reverting merged work as if it were new); multi-agents#236 was caught exactly this way.
 
 ## Issue Severity Definitions
 
@@ -445,7 +445,7 @@ Focus areas:
 - Logic errors, off-by-one, null handling, race conditions
 - Naming conventions, import organization, dead code
 - Pattern compliance with existing codebase
-- Per-file checklist: Correctness, Type Safety, Pattern Compliance, Completeness, Maintainability
+- Per-file checklist: Correctness, Type Safety, Pattern Compliance, Completeness, Maintainability, Scope (unexplained hunks = High)
 
 EXHAUSTIVE PATTERN SWEEP: When you identify a recurring bug class (e.g., missing
 type guard, falsy-value blind spot, unguarded interpolation), grep/search ALL
@@ -1034,35 +1034,7 @@ Field rules:
 
 #### Commit artifacts BEFORE the marker (head re-bind, prp-framework#121)
 
-`safe-merge` matches the GitHub-side marker's `head=` against the PR HEAD **at merge time**. Flows that commit review artifacts to the PR branch (run-all, ARTIFACT-REPORT) advance HEAD past `$REVIEWED_HEAD_SHA` with that very commit — a marker bound to the pre-artifacts SHA is then guaranteed to block, and the tempting escape (`--skip-review-check`) defeats the gate.
-
-**A second, independent reason the ordering matters: `dismiss_stale_reviews`.**
-When branch protection has it enabled, ANY push to the PR branch — including a
-docs-only artifact commit — silently discards every approval already given. So
-committing the artifact after a code owner has approved does not merely
-invalidate the marker; it revokes the approval and forces a second review round
-for a change nobody made. Measured 2026-08-01 on clienta.ai#2214: merger-bot
-approved, the artifact commit landed, and `reviewDecision` went straight back to
-`REVIEW_REQUIRED`.
-
-This makes the ordering below load-bearing in both directions. Commit artifacts
-BEFORE requesting review, or do not commit them at all — posting the artifact as
-a PR comment satisfies `safe-merge`'s marker check on its own, since the marker
-travels in the comment body.
-
-Neither option is free. A committed artifact is in git history and cannot be
-quietly altered later; a PR comment can be edited or deleted by its author, so
-choosing the comment trades an immutable audit record for the ordering fix — if
-a later gate-audit or retro needs to read that review, commit it (before
-requesting approval) rather than comment it. On a PUBLIC repo the comment path
-also widens the marker's practical author set from "collaborators with push
-access" to "any GitHub account". That stays within the marker's documented bar
-— it is explicitly an integrity and head-binding signal, not an authenticity
-boundary, and `safe-merge` still re-derives the counts, re-checks the head SHA
-and fails closed — but it is a real difference and should be a deliberate
-choice, not a default.
-
-Fixed ordering:
+`safe-merge` matches the GitHub-side marker's `head=` against the PR HEAD **at merge time**. Flows that commit review artifacts to the PR branch (run-all, ARTIFACT-REPORT) advance HEAD past `$REVIEWED_HEAD_SHA` with that very commit — a marker bound to the pre-artifacts SHA is then guaranteed to block, and the tempting escape (`--skip-review-check`) defeats the gate. Fixed ordering:
 
 1. Write the review artifact (verdict + counts final; **no marker line yet**).
 2. Commit artifacts to the PR branch → the "Commit Review Artifact to PR Branch" step above handles `git add`/`commit`/`push` automatically (unless `--no-commit` or `PRP_RUN_ALL`). For run-all / ARTIFACT-REPORT flows, they commit all artifacts together in their own step.
