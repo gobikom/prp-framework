@@ -44,6 +44,15 @@ Every major version release MUST include a `docs/migration/vX.0-to-vY.0.md` file
 - `prp-review-agents --l2-comments` (#142): posts one PR comment per core pass (code-reviewer, security-reviewer, silent-failure-hunter). Each comment starts with `Reviewed head: <sha>` / `Passes run: <name>`, then the exact Critical/Important/Suggestions/Could not verify headings, and ends with a `Generated-by: prp-review-agents v<ver> run=<id> pass=<name>` provenance footer. The option implies `--no-commit` and posts neither the aggregate review nor a safe-merge marker; the L2 verifier writes the marker after checking the three comments. Behaviour is tested in `tests/commands/l2-comments.bats`.
 - `prp-review-agents --l2-comments` risk tier (agent-devops#1259): a new step 2.0b runs `pr-risk-tier` (gobikom/ops) at the reviewed head before any agent starts. When it prints `trivial`, which means the PR changes only bare version lines and the one `PROJECT.md` Status line, the run spawns `code-reviewer` alone and posts one comment whose footer ends ` tier=trivial`. Step C re-runs the classifier before posting. Anything else, including a missing tool or an error, keeps the three core passes, and their output is unchanged. safe-merge and merger recompute the tier themselves.
 
+### Fixed
+- `gen-ai-context.sh` excludes `.sandbox-home` / `.sandbox-tmp` / `.sandbox-root` (and `.sandbox-*` glob)
+  from all four scan sites — `detect_stack` EXCL, `detect_exports` EXCL, Context Map generate skip-list,
+  and `--check` forward scan. Agent harnesses (chela) that spawn sessions with a sandboxed HOME inside
+  the working repo previously leaked plugin junk into PROJECT.md auto-gen sections: `sqlite3` matches in
+  sandbox `.py` files produced a false `Stack: SQLite`, and the Express-route grep matched
+  `app.getHostCapabilities()` (an `app.get` prefix collision) as fake API endpoints. Same failure class
+  as #72/#73 (backup-dir skip; PR #133).
+
 ## [2.13.0] — 2026-07-09
 
 ### Added
