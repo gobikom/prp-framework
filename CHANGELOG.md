@@ -33,6 +33,17 @@ Every major version release MUST include a `docs/migration/vX.0-to-vY.0.md` file
 
 ## [Unreleased]
 
+## [2.13.1] — 2026-09-22
+
+### Fixed
+- `gen-ai-context.sh` excludes `.sandbox-home` / `.sandbox-tmp` / `.sandbox-root` (and `.sandbox-*` glob)
+  from all four scan sites — `detect_stack` EXCL, `detect_exports` EXCL, Context Map generate skip-list,
+  and `--check` forward scan. Agent harnesses (chela) that spawn sessions with a sandboxed HOME inside
+  the working repo previously leaked plugin junk into PROJECT.md auto-gen sections: `sqlite3` matches in
+  sandbox `.py` files produced a false `Stack: SQLite`, and the Express-route grep matched
+  `app.getHostCapabilities()` (an `app.get` prefix collision) as fake API endpoints. Same failure class
+  as #72/#73 (backup-dir skip; PR #133).
+
 ## [2.13.0] — 2026-07-09
 
 ### Added
