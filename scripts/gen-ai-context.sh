@@ -56,7 +56,7 @@ log_err() { log "  ${RED}✗${NC} $1"; }
 detect_stack() {
     local stack=()
     # Common exclude dirs for recursive grep (avoid scanning vendored/generated code)
-    local EXCL="--exclude-dir=node_modules --exclude-dir=.venv --exclude-dir=venv --exclude-dir=dist --exclude-dir=build --exclude-dir=__pycache__"
+    local EXCL="--exclude-dir=node_modules --exclude-dir=.venv --exclude-dir=venv --exclude-dir=dist --exclude-dir=build --exclude-dir=__pycache__ --exclude-dir=.sandbox-home --exclude-dir=.sandbox-tmp --exclude-dir=.sandbox-root"
 
     [ -f "package.json" ] && stack+=("Node.js $(jq -r '.engines.node // ""' package.json 2>/dev/null | head -1)")
     if [ -f "requirements.txt" ] || [ -f "pyproject.toml" ] || [ -f "setup.py" ] || ls requirements*.txt 1>/dev/null 2>&1; then
@@ -232,6 +232,7 @@ generate_context_map() {
         case "$dir" in
             node_modules|.git|.prp|.prp-output|.claude|.codex|.opencode|.gemini|.agents|dist|build|__pycache__|.venv|venv|.env|coverage|.nyc_output|logs|output|tmp|temp|backup|old) continue ;;
             src|test|tests|docs|scripts|bin|deploy|config|conf|prisma|public|static|assets) continue ;;  # already handled above
+            .sandbox-home|.sandbox-tmp|.sandbox-root|.sandbox-*) continue ;;  # agent runtime sandboxes (chela)
             *.backup|*.backup.*|*.bak|*.old|*.orig|*~|*-backup) continue ;;  # backup/stale dir conventions (#72)
         esac
         # Only include if it has code files
@@ -246,7 +247,7 @@ generate_context_map() {
 # ─────────────────────────────────────────────────
 detect_exports() {
     local found=false
-    local EXCL="--exclude-dir=node_modules --exclude-dir=.venv --exclude-dir=venv --exclude-dir=dist --exclude-dir=build --exclude-dir=__pycache__"
+    local EXCL="--exclude-dir=node_modules --exclude-dir=.venv --exclude-dir=venv --exclude-dir=dist --exclude-dir=build --exclude-dir=__pycache__ --exclude-dir=.sandbox-home --exclude-dir=.sandbox-tmp --exclude-dir=.sandbox-root"
 
     # FastAPI routes
     local fastapi_routes
@@ -459,7 +460,7 @@ do_check() {
         for dir in */; do
             dir="${dir%/}"
             case "$dir" in
-                node_modules|.git|.prp|.prp-output|.claude|.codex|.opencode|.gemini|.agents|dist|build|__pycache__|.venv|venv|.env|coverage|.nyc_output|logs|output|tmp|temp|.claude-plugin|public|static|assets|backup|old) continue ;;
+                node_modules|.git|.prp|.prp-output|.claude|.codex|.opencode|.gemini|.agents|dist|build|__pycache__|.venv|venv|.env|coverage|.nyc_output|logs|output|tmp|temp|.claude-plugin|public|static|assets|backup|old|.sandbox-home|.sandbox-tmp|.sandbox-root|.sandbox-*) continue ;;
                 *.backup|*.backup.*|*.bak|*.old|*.orig|*~|*-backup) continue ;;  # backup/stale dir conventions (#72)
             esac
             if find "$dir" -maxdepth 2 \( -name "*.py" -o -name "*.ts" -o -name "*.js" -o -name "*.go" -o -name "*.rs" -o -name "*.sh" -o -name "*.yaml" \) -print -quit 2>/dev/null | grep -q .; then
