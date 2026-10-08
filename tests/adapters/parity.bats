@@ -692,10 +692,13 @@ with open('$f', 'rb') as fh:
     local fw="$BATS_TEST_TMPDIR/fw"
     mkdir -p "$fw"
     cp -R "$FRAMEWORK_DIR/scripts" "$FRAMEWORK_DIR/prompts" "$FRAMEWORK_DIR/adapters" "$FRAMEWORK_DIR/adapters.yml" "$fw/"
-    OUTPUT=$(python3 "$fw/scripts/generate-adapters.py" 2>&1)
-    GENERATED=$(echo "$OUTPUT" | grep -oP '\d+ generated' | grep -oP '\d+')
-    [ -n "$GENERATED" ] || { echo "$OUTPUT"; false; }
-    [ "$GENERATED" -eq 0 ] || { echo "$OUTPUT" | grep -E '\[(CHANGED|NEW)\]'; false; }
+    # --diff makes the generator name each drifted file ([CHANGED]/[NEW]).
+    run python3 "$fw/scripts/generate-adapters.py" --diff
+    [ "$status" -eq 0 ] || { echo "$output"; false; }
+    # The whole results line, not just "0 generated": a missing prompt is only a skip and a
+    # failed write only an error, and neither raises the generated count.
+    echo "$output" | grep -qE 'Results: 0 generated, [0-9]+ unchanged, 0 skipped, 0 errors' \
+        || { echo "$output" | grep -E '\[(CHANGED|NEW)\]|WARNING|ERROR|Results:'; false; }
 }
 
 # ─────────────────────────────────────────────
