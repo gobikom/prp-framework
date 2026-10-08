@@ -24,6 +24,14 @@ yml_adapter_count() { yml_eval "len(c['adapters'])"; }
 # ─────────────────────────────────────────────
 # 1. Core command existence per adapter
 # ─────────────────────────────────────────────
+# Floor for the count tests below: with an empty or missing `commands:` (and no generated
+# dirs) every equality would pass vacuously at 0 == 0.
+@test "adapters.yml declares at least one core, marketing and bot command" {
+    [ "$(yml_core_count)" -gt 0 ]
+    [ "$(yml_group_count marketing)" -gt 0 ]
+    [ "$(yml_group_count bot)" -gt 0 ]
+}
+
 @test "claude-code has every core command from adapters.yml" {
     [ "$(ls "$FRAMEWORK_DIR/adapters/claude-code"/prp-*.md | wc -l)" -eq "$(yml_core_count)" ]
 }
@@ -678,10 +686,16 @@ with open('$f', 'rb') as fh:
 }
 
 @test "generated adapters are idempotent (running twice produces same output)" {
-    # Run generate once (already done), then run again — should produce 0 changes
-    OUTPUT=$(python3 "$FRAMEWORK_DIR/scripts/generate-adapters.py" 2>&1)
+    # Regenerate in a throwaway copy, never in the checkout: run in place, a drifted adapter
+    # was rewritten (dirtying tracked files) and the next run passed on the polluted tree,
+    # so the drift healed itself instead of being reported (prp-framework#131 review).
+    local fw="$BATS_TEST_TMPDIR/fw"
+    mkdir -p "$fw"
+    cp -R "$FRAMEWORK_DIR/scripts" "$FRAMEWORK_DIR/prompts" "$FRAMEWORK_DIR/adapters" "$FRAMEWORK_DIR/adapters.yml" "$fw/"
+    OUTPUT=$(python3 "$fw/scripts/generate-adapters.py" 2>&1)
     GENERATED=$(echo "$OUTPUT" | grep -oP '\d+ generated' | grep -oP '\d+')
-    [ "$GENERATED" -eq 0 ]
+    [ -n "$GENERATED" ] || { echo "$OUTPUT"; false; }
+    [ "$GENERATED" -eq 0 ] || { echo "$OUTPUT" | grep -E '\[(CHANGED|NEW)\]'; false; }
 }
 
 # ─────────────────────────────────────────────
