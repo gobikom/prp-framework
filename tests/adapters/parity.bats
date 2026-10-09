@@ -101,29 +101,30 @@ yml_adapter_count() { yml_eval "len(c['adapters'])"; }
 }
 
 # review-agents and feature-review-agents are full parallel-agents commands, not aliases
-# (since 0651358): each adapter must carry its own prompt's title line.
+# (since 0651358): each adapter must carry its own prompt's title as a whole "# <title>"
+# heading line. Content beyond the title is covered by "generated adapters are idempotent".
 REVIEW_AGENTS_TITLE="PRP Review Agents — Parallel Multi-Agent PR Code Review"
 FEATURE_REVIEW_AGENTS_TITLE="Feature Review Agents — Parallel Multi-Agent Feature & Code Review"
 
 @test "review-agents and feature-review-agents titles come from their prompts" {
-    grep -qF "# $REVIEW_AGENTS_TITLE" "$FRAMEWORK_DIR/prompts/review-agents.md"
-    grep -qF "# $FEATURE_REVIEW_AGENTS_TITLE" "$FRAMEWORK_DIR/prompts/feature-review-agents.md"
+    grep -qxF "# $REVIEW_AGENTS_TITLE" "$FRAMEWORK_DIR/prompts/review-agents.md"
+    grep -qxF "# $FEATURE_REVIEW_AGENTS_TITLE" "$FRAMEWORK_DIR/prompts/feature-review-agents.md"
 }
 
 @test "codex has review-agents and feature-review-agents commands" {
     [ -d "$FRAMEWORK_DIR/adapters/codex/prp-review-agents" ]
     [ -d "$FRAMEWORK_DIR/adapters/codex/prp-feature-review-agents" ]
-    grep -qF "$REVIEW_AGENTS_TITLE" "$FRAMEWORK_DIR/adapters/codex/prp-review-agents/SKILL.md"
-    grep -qF "$FEATURE_REVIEW_AGENTS_TITLE" "$FRAMEWORK_DIR/adapters/codex/prp-feature-review-agents/SKILL.md"
+    grep -qxF "# $REVIEW_AGENTS_TITLE" "$FRAMEWORK_DIR/adapters/codex/prp-review-agents/SKILL.md"
+    grep -qxF "# $FEATURE_REVIEW_AGENTS_TITLE" "$FRAMEWORK_DIR/adapters/codex/prp-feature-review-agents/SKILL.md"
 }
 
 @test "all non-CC adapters have review-agents and feature-review-agents commands" {
-    grep -qF "$REVIEW_AGENTS_TITLE" "$FRAMEWORK_DIR/adapters/opencode/review-agents.md"
-    grep -qF "$FEATURE_REVIEW_AGENTS_TITLE" "$FRAMEWORK_DIR/adapters/opencode/feature-review-agents.md"
-    grep -qF "$REVIEW_AGENTS_TITLE" "$FRAMEWORK_DIR/adapters/antigravity/prp-review-agents.md"
-    grep -qF "$FEATURE_REVIEW_AGENTS_TITLE" "$FRAMEWORK_DIR/adapters/antigravity/prp-feature-review-agents.md"
-    grep -qF "$REVIEW_AGENTS_TITLE" "$FRAMEWORK_DIR/adapters/gemini/review-agents.toml"
-    grep -qF "$FEATURE_REVIEW_AGENTS_TITLE" "$FRAMEWORK_DIR/adapters/gemini/feature-review-agents.toml"
+    grep -qxF "# $REVIEW_AGENTS_TITLE" "$FRAMEWORK_DIR/adapters/opencode/review-agents.md"
+    grep -qxF "# $FEATURE_REVIEW_AGENTS_TITLE" "$FRAMEWORK_DIR/adapters/opencode/feature-review-agents.md"
+    grep -qxF "# $REVIEW_AGENTS_TITLE" "$FRAMEWORK_DIR/adapters/antigravity/prp-review-agents.md"
+    grep -qxF "# $FEATURE_REVIEW_AGENTS_TITLE" "$FRAMEWORK_DIR/adapters/antigravity/prp-feature-review-agents.md"
+    grep -qxF "# $REVIEW_AGENTS_TITLE" "$FRAMEWORK_DIR/adapters/gemini/review-agents.toml"
+    grep -qxF "# $FEATURE_REVIEW_AGENTS_TITLE" "$FRAMEWORK_DIR/adapters/gemini/feature-review-agents.toml"
 }
 
 @test "opencode has all 9 core commands" {

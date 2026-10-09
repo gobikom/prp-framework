@@ -36,9 +36,10 @@ jobs:
       # bats (bats-core) is the runner host's, on its PATH via ~/.npm-global/bin. Every *.bats
       # suite under tests/ runs. Green requires bats to exit 0 AND its JUnit report to count
       # 0 failures, 0 errors and 0 skipped, with at least one test (the suites have no skips,
-      # so a skip appearing here is a change to look at, not noise). Each test counts once,
-      # keyed by suite + name. The counts come from the report bats writes, never from
-      # parsing its console text.
+      # so a skip appearing here is a change to look at, not noise), and to list every @test
+      # each *.bats file declares; an @test in a file bats does not run is red too. Each test
+      # counts once, keyed by suite + name. The counts come from the report bats writes,
+      # never from parsing its console text.
       - name: Run the bats suites
         timeout-minutes: 15
         run: |
@@ -48,8 +49,8 @@ jobs:
           rc=0
           bats -r tests --report-formatter junit -o "$out" || rc=$?
           verdict=0
-          counts=$(python3 -I - "$out/report.xml" <<'PY'
-          import sys, xml.etree.ElementTree as ET
+          counts=$(python3 -I - "$out/report.xml" tests <<'PY'
+          import pathlib, re, sys, xml.etree.ElementTree as ET
           try:
               root = ET.parse(sys.argv[1]).getroot()
           except Exception as e:
@@ -70,7 +71,28 @@ jobs:
           kinds = ["bad" if "bad" in m else "skip" if "skip" in m else "pass" for m in outcome.values()]
           n["skipped"], passed = kinds.count("skip"), kinds.count("pass")
           print(" ".join(f"{k}={v}" for k, v in n.items()) + f" passed={passed}")
-          ok = passed > 0 and n["skipped"] == 0 and n["failures"] == n["errors"] == 0 and "bad" not in kinds
+          # Every @test the suites declare must be in the report: a .bats file that exits at top
+          # level, or a test file bats never picks up (not *.bats), would otherwise vanish.
+          declared, problems = {}, []
+          for f in sorted(pathlib.Path(sys.argv[2]).rglob("*")):
+              if not f.is_file():
+                  continue
+              k = sum(1 for line in f.read_text(errors="replace").splitlines() if re.match(r"@test\s", line))
+              rel = f.relative_to(sys.argv[2]).as_posix()
+              if f.suffix == ".bats":
+                  declared[rel] = k
+              elif k:
+                  problems.append(f"{rel}: {k} @test outside a .bats file")
+          reported = {}
+          for s in suites:
+              reported[s.get("name")] = sum(1 for _ in s.iter("testcase"))
+          for rel, k in declared.items():
+              if reported.get(rel, 0) != k:
+                  problems.append(f"{rel}: {k} declared, {reported.get(rel, 0)} reported")
+          for p in problems:
+              print(f"::error::{p}", file=sys.stderr)
+          ok = (passed > 0 and n["skipped"] == 0 and n["failures"] == n["errors"] == 0
+                and "bad" not in kinds and not problems)
           sys.exit(0 if ok else 1)
           PY
           ) || verdict=$?

@@ -47,10 +47,14 @@ teardown() {
 @test "install replaces a legacy prp-core directory symlink without touching the source" {
     mkdir -p "$SANDBOX/.claude/commands"
     ln -s "$SANDBOX/prp-framework/adapters/claude-code" "$SANDBOX/.claude/commands/prp-core"
-    before=$(ls "$SANDBOX/prp-framework/adapters/claude-code" | wc -l)
+    src="$SANDBOX/prp-framework/adapters/claude-code"
+    # Every source file's type, path and content, before and after the install.
+    snapshot() { (cd "$src" && find . -printf '%y %p\n' | sort && find . -type f -print0 | sort -z | xargs -0 sha256sum); }
+    before="$(snapshot)"
     bash "$INSTALL_SCRIPT"
     [ ! -L "$SANDBOX/.claude/commands/prp-core" ]
-    [ "$(ls "$SANDBOX/prp-framework/adapters/claude-code" | wc -l)" -eq "$before" ]
+    [ -n "$before" ]
+    [ "$(snapshot)" = "$before" ]
 }
 
 # prp-mkt and prp-bot are installed only by the full preset (#101); the default is standard.
