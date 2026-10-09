@@ -74,20 +74,31 @@ jobs:
           # Every @test a suite declares must be in that suite's report, BY NAME: a .bats file
           # that exits at top level, a test that is never registered, or a test file bats never
           # picks up (not *.bats) would otherwise vanish. A declaration is a column-0
-          # `@test <name> {` line (one-line bodies included); a double-quoted name is unescaped
-          # as bash does (\\ \$ \" \`). A name bash would expand at runtime ($var, `cmd`)
-          # matches any otherwise-unmatched reported test of the same suite. Extra reported
-          # tests (bats_test_function, loops) are fine. Docs (*.md) under tests/ are not scanned
-          # for stray declarations. A column-0 `@test ... {` line inside a heredoc counts as a
+          # `@test <name> {` line (one-line bodies included). A double-quoted name is unescaped
+          # as bash does (\\ \$ \" \`). A name bash expands at runtime ($var, ${..}, $(..),
+          # `..`, in any quoting) becomes a pattern: its literal text must match and each
+          # expansion matches anything, so it cannot be satisfied by an unrelated test. Exact
+          # names are matched first, then patterns, longest literal first. Extra reported tests
+          # (bats_test_function, loops) are fine. Docs (*.md) under tests/ are not scanned for
+          # stray declarations. A column-0 `@test ... {` line inside a heredoc counts as a
           # declaration and turns the run red; none exists today.
           decl = re.compile(r"""@test\s+(?:"((?:[^"\\]|\\.)*)"|'([^']*)'|(\S.*?))\s*\{""")
+          expansion = re.compile(r"(?<!\\)((?:\\\\)*)(\$\{[^}]*\}|\$\([^)]*\)|\$[A-Za-z_][A-Za-z0-9_]*|\$[0-9@*#?$!-]|`[^`]*`)")
+          def unescape(text):
+              return re.sub(r"\\([\\$\"`])", r"\1", text)
           def declared_name(m):
+              """('exact', name) or ('pattern', compiled regex, literal length)."""
               dq, sq, bare = m.groups()
-              if dq is not None:
-                  if re.search(r"(?<!\\)(?:\\\\)*[$`]", dq):
-                      return None  # expanded at runtime: not predictable
-                  return re.sub(r"\\([\\$\"`])", r"\1", dq)
-              return sq if sq is not None else bare
+              raw = dq if dq is not None else sq if sq is not None else bare
+              parts, last = [], 0
+              for e in expansion.finditer(raw):
+                  parts.append(raw[last:e.start(2)])
+                  last = e.end()
+              if not parts:
+                  return ("exact", unescape(raw) if dq is not None else raw)
+              parts.append(raw[last:])
+              lits = [unescape(x) if dq is not None else x for x in parts]
+              return ("pattern", re.compile(".*".join(map(re.escape, lits)), re.S), sum(map(len, lits)))
           declared, problems = {}, []
           for f in sorted(pathlib.Path(sys.argv[2]).rglob("*")):
               if not f.is_file() or f.suffix == ".md":
@@ -101,14 +112,17 @@ jobs:
           reported = {s.get("name"): [tc.get("name") for tc in s.iter("testcase")] for s in suites}
           for rel, names in declared.items():
               pool = list(reported.get(rel, []))
-              for name in [x for x in names if x is not None]:
+              for _, name in [x for x in names if x[0] == "exact"]:
                   if name in pool:
                       pool.remove(name)
                   else:
                       problems.append(f"{rel}: declared test not in the report: {name!r}")
-              wild = sum(1 for x in names if x is None)
-              if wild > len(pool):
-                  problems.append(f"{rel}: {wild} runtime-named test(s) declared, {len(pool)} unmatched reported")
+              for _, pat, _ in sorted((x for x in names if x[0] == "pattern"), key=lambda x: -x[2]):
+                  hit = next((r for r in pool if pat.fullmatch(r)), None)
+                  if hit is None:
+                      problems.append(f"{rel}: declared test not in the report: pattern {pat.pattern!r}")
+                  else:
+                      pool.remove(hit)
           for p in problems:
               print(f"::error::{p}", file=sys.stderr)
           ok = (passed > 0 and n["skipped"] == 0 and n["failures"] == n["errors"] == 0
