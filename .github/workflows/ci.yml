@@ -73,17 +73,17 @@ jobs:
           print(" ".join(f"{k}={v}" for k, v in n.items()) + f" passed={passed}")
           # Every @test a suite declares must be in that suite's report, BY NAME: a .bats file
           # that exits at top level, a test that is never registered, or a test file bats never
-          # picks up (not *.bats) would otherwise vanish. A declaration is a column-0
-          # `@test <name> {` line (one-line bodies included). Names are read as bats evaluates
+          # picks up (not *.bats) would otherwise vanish. A declaration is an `@test <name> {`
+          # line, indented or not, as bats accepts it (one-line bodies included). Names are read as bats evaluates
           # them (see split_name): exact names match exactly, and a name with runtime
           # expansions matches as a pattern of its literal text, assigned by maximum bipartite
           # matching (greedy first, then iterative augmenting paths; literal text is matched by
           # a linear scan). A name with no literal text cannot be verified and is red. Extra
           # reported tests (bats_test_function, loops) are fine. Docs (*.md) under tests/ are not
-          # scanned for stray declarations. Known red-not-green limits, none present today: a
-          # column-0 `@test ... {` line inside a heredoc counts as a declaration, and an
-          # unescaped `"` inside a double-quoted name ends it, so that declaration fails to match.
-          DECL = re.compile(r"""@test\s+(?:"((?:[^"\\]|\\.)*)"|'([^']*)'|(\S.*?))\s*\{""")
+          # scanned for stray declarations. Known red-not-green limits, none present today: an
+          # `@test ... {` line inside a heredoc counts as a declaration, and an unescaped `"`
+          # inside a double-quoted name ends it, so that declaration fails to match.
+          DECL = re.compile(r"""[ \t]*@test\s+(?:"((?:[^"\\]|\\.)*)"|'([^']*)'|(\S.*?))\s*\{""")
           ESCAPABLE = set('\\$"`')
 
 
@@ -155,7 +155,9 @@ jobs:
           def declared_name(m):
               dq, sq, bare = m.groups()
               raw = dq if dq is not None else sq if sq is not None else bare
-              return split_name(raw)
+              # The JUnit reader normalises a tab inside an attribute value to a space, so compare the
+              # same way (a tab in a test name would otherwise always look missing).
+              return [lit.replace("\t", " ") for lit in split_name(raw)]
 
 
           def match(declared, reported):
