@@ -125,6 +125,13 @@ FEATURE_REVIEW_AGENTS_TITLE="Feature Review Agents — Parallel Multi-Agent Feat
     grep -qxF "# $FEATURE_REVIEW_AGENTS_TITLE" "$FRAMEWORK_DIR/adapters/antigravity/prp-feature-review-agents.md"
     grep -qxF "# $REVIEW_AGENTS_TITLE" "$FRAMEWORK_DIR/adapters/gemini/review-agents.toml"
     grep -qxF "# $FEATURE_REVIEW_AGENTS_TITLE" "$FRAMEWORK_DIR/adapters/gemini/feature-review-agents.toml"
+    grep -qxF "# $REVIEW_AGENTS_TITLE" "$FRAMEWORK_DIR/adapters/thclaws/prp-review-agents/SKILL.md"
+    grep -qxF "# $FEATURE_REVIEW_AGENTS_TITLE" "$FRAMEWORK_DIR/adapters/thclaws/prp-feature-review-agents/SKILL.md"
+}
+
+@test "claude-code has review-agents and feature-review-agents commands" {
+    grep -qxF "# $REVIEW_AGENTS_TITLE" "$FRAMEWORK_DIR/adapters/claude-code/prp-review-agents.md"
+    grep -qxF "# $FEATURE_REVIEW_AGENTS_TITLE" "$FRAMEWORK_DIR/adapters/claude-code/prp-feature-review-agents.md"
 }
 
 @test "opencode has all 9 core commands" {

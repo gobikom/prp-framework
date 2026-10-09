@@ -6,11 +6,11 @@ End-to-end tests that exercise the framework's **shell/infrastructure layer** ag
 
 | Test File | What It Tests | Tests |
 |-----------|--------------|-------|
-| `install-sandbox.bats` | `install.sh` in a real temp sandbox | 11 |
+| `install-sandbox.bats` | `install.sh` in a real temp sandbox | 12 |
 | `state-lifecycle.bats` | State machine create→update→resume→cleanup sequence | 8 |
 | `scripts-sandbox.bats` | `cleanup-artifacts.sh` with real files and fake mtimes | 5 |
 
-**Total: 24 tests**
+**Total: 25 tests**
 
 ## What's NOT Covered
 
