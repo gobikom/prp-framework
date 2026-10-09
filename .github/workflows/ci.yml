@@ -77,11 +77,12 @@ jobs:
           # `@test <name> {` line (one-line bodies included). Names are read as bats evaluates
           # them (see split_name): exact names match exactly, and a name with runtime
           # expansions matches as a pattern of its literal text, assigned by maximum bipartite
-          # matching. A name with no literal text cannot be verified and is red. Extra reported
-          # tests (bats_test_function, loops) are fine. Docs (*.md) under tests/ are not scanned
-          # for stray declarations. Known red-not-green limits, none present today: a column-0
-          # `@test ... {` line inside a heredoc counts as a declaration, and a `"` inside $(..)
-          # inside a double-quoted name is not parsed.
+          # matching (greedy first, then iterative augmenting paths; literal text is matched by
+          # a linear scan). A name with no literal text cannot be verified and is red. Extra
+          # reported tests (bats_test_function, loops) are fine. Docs (*.md) under tests/ are not
+          # scanned for stray declarations. Known red-not-green limits, none present today: a
+          # column-0 `@test ... {` line inside a heredoc counts as a declaration, and an
+          # unescaped `"` inside a double-quoted name ends it, so that declaration fails to match.
           DECL = re.compile(r"""@test\s+(?:"((?:[^"\\]|\\.)*)"|'([^']*)'|(\S.*?))\s*\{""")
           ESCAPABLE = set('\\$"`')
 
@@ -173,28 +174,63 @@ jobs:
                       pool.remove(name)
                   else:
                       problems.append(f"declared test not in the report: {name!r}")
-              compiled = []
+              shapes = []
               for lits in patterns:
                   if not "".join(lits):
                       problems.append("declared test name has no literal text, so it cannot be verified: "
                                       + repr("<expansion>" * (len(lits) - 1)))
                       continue
-                  compiled.append(re.compile(".*".join(map(re.escape, lits)), re.S))
-              owner = {}
+                  shapes.append(lits)
 
-              def augment(p, seen):
-                  for j, r in enumerate(pool):
-                      if j in seen or not compiled[p].fullmatch(r):
-                          continue
-                      seen.add(j)
-                      if j not in owner or augment(owner[j], seen):
-                          owner[j] = p
-                          return True
-                  return False
+              def fits(lits, name):
+                  # Every gap matches anything, so a leftmost scan for each literal is exact (linear).
+                  first, *mid, last = lits
+                  if not name.startswith(first) or len(name) < len(first) + len(last):
+                      return False
+                  pos, end = len(first), len(name) - len(last)
+                  for lit in mid:
+                      pos = name.find(lit, pos, end)
+                      if pos < 0:
+                          return False
+                      pos += len(lit)
+                  return name.endswith(last)
 
-              for p, pat in enumerate(compiled):
-                  if not augment(p, set()):
-                      problems.append(f"declared test not in the report: pattern {pat.pattern!r}")
+              edges = [[j for j, r in enumerate(pool) if fits(lits, r)] for lits in shapes]
+              owner = {}  # reported index -> pattern index
+              holds = {}  # pattern index -> reported index (the inverse of owner)
+              for p in range(len(shapes)):
+                  free = next((j for j in edges[p] if j not in owner), None)
+                  if free is not None:  # greedy first: most patterns take a free name directly
+                      owner[free], holds[p] = p, free
+                      continue
+                  # Iterative augmenting path (Kuhn's algorithm), so no recursion limit applies.
+                  parent, seen, stack, found = {}, set(), [(p, iter(edges[p]))], None
+                  while stack and found is None:
+                      q, it = stack[-1]
+                      for j in it:
+                          if j in seen:
+                              continue
+                          seen.add(j)
+                          parent[j] = q
+                          if j not in owner:
+                              found = j
+                          else:
+                              stack.append((owner[j], iter(edges[owner[j]])))
+                          break
+                      else:
+                          stack.pop()
+                  if found is None:
+                      problems.append("declared test not in the report: pattern "
+                                      + repr("<expansion>".join(shapes[p])))
+                      continue
+                  j = found
+                  while True:
+                      q = parent[j]
+                      prev = holds.get(q)
+                      owner[j], holds[q] = q, j
+                      if q == p:
+                          break
+                      j = prev
               return problems
 
 
