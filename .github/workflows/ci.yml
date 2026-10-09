@@ -37,8 +37,8 @@ jobs:
       # suite under tests/ runs. Green requires bats to exit 0 AND its JUnit report to count
       # 0 failures, 0 errors and 0 skipped, with at least one test (the suites have no skips,
       # so a skip appearing here is a change to look at, not noise), and to list every @test
-      # each *.bats file declares (more is fine, fewer is red); an @test in a file bats does
-      # not run is red too. Each test counts once, keyed by suite + name. The counts come from
+      # each *.bats file declares, by name (extra reported tests are fine); an @test in a
+      # file bats does not run is red too. Each test counts once, keyed by suite + name. The counts come from
       # the report bats writes, never from parsing its console text.
       - name: Run the bats suites
         timeout-minutes: 15
@@ -71,30 +71,44 @@ jobs:
           kinds = ["bad" if "bad" in m else "skip" if "skip" in m else "pass" for m in outcome.values()]
           n["skipped"], passed = kinds.count("skip"), kinds.count("pass")
           print(" ".join(f"{k}={v}" for k, v in n.items()) + f" passed={passed}")
-          # Every @test a suite declares must be in the report: a .bats file that exits at top
-          # level, or a test file bats never picks up (not *.bats), would otherwise vanish.
-          # A declaration is a column-0 `@test <name> {` line (one-line bodies included). The
-          # report may hold MORE tests (bats_test_function, loops), never fewer. Docs (*.md)
-          # under tests/ are not scanned
-          # for stray declarations. A column-0 `@test ... {` line inside a heredoc would count as
-          # a declaration and turn the run red; none exists today.
-          decl = re.compile(r"@test\s.*\{")
+          # Every @test a suite declares must be in that suite's report, BY NAME: a .bats file
+          # that exits at top level, a test that is never registered, or a test file bats never
+          # picks up (not *.bats) would otherwise vanish. A declaration is a column-0
+          # `@test <name> {` line (one-line bodies included); a double-quoted name is unescaped
+          # as bash does (\\ \$ \" \`). A name bash would expand at runtime ($var, `cmd`)
+          # matches any otherwise-unmatched reported test of the same suite. Extra reported
+          # tests (bats_test_function, loops) are fine. Docs (*.md) under tests/ are not scanned
+          # for stray declarations. A column-0 `@test ... {` line inside a heredoc counts as a
+          # declaration and turns the run red; none exists today.
+          decl = re.compile(r"""@test\s+(?:"((?:[^"\\]|\\.)*)"|'([^']*)'|(\S.*?))\s*\{""")
+          def declared_name(m):
+              dq, sq, bare = m.groups()
+              if dq is not None:
+                  if re.search(r"(?<!\\)(?:\\\\)*[$`]", dq):
+                      return None  # expanded at runtime: not predictable
+                  return re.sub(r"\\([\\$\"`])", r"\1", dq)
+              return sq if sq is not None else bare
           declared, problems = {}, []
           for f in sorted(pathlib.Path(sys.argv[2]).rglob("*")):
               if not f.is_file() or f.suffix == ".md":
                   continue
-              k = sum(1 for line in f.read_text(errors="replace").splitlines() if decl.match(line))
+              names = [declared_name(m) for m in map(decl.match, f.read_text(errors="replace").splitlines()) if m]
               rel = f.relative_to(sys.argv[2]).as_posix()
               if f.suffix == ".bats":
-                  declared[rel] = k
-              elif k:
-                  problems.append(f"{rel}: {k} @test outside a .bats file")
-          reported = {}
-          for s in suites:
-              reported[s.get("name")] = sum(1 for _ in s.iter("testcase"))
-          for rel, k in declared.items():
-              if reported.get(rel, 0) < k:
-                  problems.append(f"{rel}: {k} declared, {reported.get(rel, 0)} reported")
+                  declared[rel] = names
+              elif names:
+                  problems.append(f"{rel}: {len(names)} @test outside a .bats file")
+          reported = {s.get("name"): [tc.get("name") for tc in s.iter("testcase")] for s in suites}
+          for rel, names in declared.items():
+              pool = list(reported.get(rel, []))
+              for name in [x for x in names if x is not None]:
+                  if name in pool:
+                      pool.remove(name)
+                  else:
+                      problems.append(f"{rel}: declared test not in the report: {name!r}")
+              wild = sum(1 for x in names if x is None)
+              if wild > len(pool):
+                  problems.append(f"{rel}: {wild} runtime-named test(s) declared, {len(pool)} unmatched reported")
           for p in problems:
               print(f"::error::{p}", file=sys.stderr)
           ok = (passed > 0 and n["skipped"] == 0 and n["failures"] == n["errors"] == 0
