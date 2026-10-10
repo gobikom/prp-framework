@@ -35,6 +35,7 @@ EOF
   chmod +x bin/gh
   export PATH="$WORK/bin:$PATH" WORK_LOG="$WORK/posted.log" FAKE_HEAD="$HEAD_SHA"
   : > "$WORK_LOG"
+  printf '%s\n' "$HEAD_SHA" > .prp-output/reviews/pr-7-reviewed-head   # what Phase 1.3 saves
   step A > stepA.sh; step C > stepC.sh
   [ -s stepA.sh ] && [ -s stepC.sh ]
 }
@@ -43,12 +44,12 @@ teardown() { rm -rf "$WORK"; }
 
 # Step B: write a well-formed body for one pass from the saved run values
 body() {
-  local pass="$1"; . .prp-output/reviews/pr-7-l2-run.env
+  local pass="$1"; . .prp-output/reviews/pr-7-l2-run.env   # the test reads its own fixture file
   printf 'Reviewed head: %s\nPasses run: %s\n\n### Critical Issues (0 found)\nNone.\n\n### Important Issues (0 found)\nNone.\n\n### Suggestions (0 found)\nNone.\n\n### Could not verify\nNothing.\n\nGenerated-by: prp-review-agents v%s run=%s pass=%s\n' \
     "$REVIEWED_HEAD_SHA" "$pass" "$PRP_VERSION" "$RUN_ID" "$pass" > ".prp-output/reviews/pr-7-l2-$pass.md"
 }
 
-start() { run env L2_COMMENTS=1 REVIEWED_HEAD_SHA="$HEAD_SHA" bash stepA.sh; }
+start() { run env -u REVIEWED_HEAD_SHA -u L2_COMMENTS bash stepA.sh; }   # a fresh shell: nothing inherited
 write_all() { for p in code-reviewer security-reviewer silent-failure-hunter; do body "$p"; done; }
 post() { run bash stepC.sh; }
 
@@ -141,7 +142,7 @@ post() { run bash stepC.sh; }
   git -C prp tag -d v9.9.9 >/dev/null
   start
   [ "$status" -ne 0 ]
-  [[ "$output" == *"prp-framework version"* ]]
+  [[ "$output" == *"prp-framework release tag"* ]]
 }
 
 @test "Step C without Step A posts nothing" {
@@ -159,10 +160,48 @@ post() { run bash stepC.sh; }
   [[ "$output" == *"posting the security-reviewer comment failed"* ]]
 }
 
-@test "L2_COMMENTS is required (not an --l2-comments run starts nothing)" {
-  run env REVIEWED_HEAD_SHA="$HEAD_SHA" bash stepA.sh
+@test "Step A in a fresh shell takes the reviewed head from the Phase 1.3 file" {
+  start; [ "$status" -eq 0 ]
+  grep -q "^REVIEWED_HEAD_SHA=$HEAD_SHA\$" .prp-output/reviews/pr-7-l2-run.env
+}
+
+@test "no saved reviewed head means no run (never re-query the PR head)" {
+  rm .prp-output/reviews/pr-7-reviewed-head
+  start
   [ "$status" -ne 0 ]
-  [[ "$output" == *"not an --l2-comments run"* ]]
+  [[ "$output" == *"no reviewed head saved by Phase 1.3"* ]]
+}
+
+@test "Step C cannot be replayed: a second run posts nothing" {
+  start; write_all; post
+  [ "$status" -eq 0 ]
+  post
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"run Step A"* ]]
+  [ "$(wc -l < "$WORK_LOG")" -eq 3 ]
+}
+
+@test "a run file from another review (other head) posts nothing" {
+  start; write_all
+  printf '%s\n' fedcba9876543210fedcba9876543210fedcba98 > .prp-output/reviews/pr-7-reviewed-head
+  post
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"not from this review"* ]]
+  [ "$(wc -l < "$WORK_LOG")" -eq 0 ]
+}
+
+@test "the run file is parsed, never executed" {
+  start; write_all
+  printf 'touch %s/pwned\n' "$WORK" >> .prp-output/reviews/pr-7-l2-run.env
+  post
+  [ "$status" -ne 0 ]
+  [ ! -e "$WORK/pwned" ]
+}
+
+@test "Step A clears an earlier run's bodies" {
+  start; write_all
+  start
+  [ ! -e .prp-output/reviews/pr-7-l2-code-reviewer.md ]
 }
 
 @test "--l2-comments implies no artifact commit (documented flag mapping)" {
