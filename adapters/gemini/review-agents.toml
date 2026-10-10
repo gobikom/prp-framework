@@ -459,15 +459,13 @@ author_fingerprint() (   # identical in 2.1.1 and 3.0; prints one hash, or fails
   # GNU (Linux) or BSD (macOS) tools, whichever exist
   if command -v sha256sum >/dev/null 2>&1; then H=(sha256sum --); else H=(shasum -a 256 --); fi
   mode() { stat -c %a -- "$1" 2>/dev/null || stat -f %Lp -- "$1"; }
-  {
+  tree_state() (   # $1 = one worktree: its status, its index and its changed files' contents
+    cd "$1" || exit 1
+    printf 'tree %s\\n' "$1"
     # --ignored also lists ignored paths that appear (e.g. a stray build or install)
     "${g[@]}" status --porcelain --ignored || exit 1
     # the index itself: object id, mode and stage of every entry (a re-staged edit, a chmod)
     "${g[@]}" ls-files -s -z | tr '\\0' '\\n' || exit 1
-    # refs, including refs/stash (a new stash entry moves it)
-    "${g[@]}" for-each-ref --format='%(refname) %(objectname)' || exit 1
-    "${g[@]}" worktree list --porcelain || exit 1
-    "${g[@]}" config --local --list || exit 1
     # Mode and contents of modified, untracked and index-flagged (skip-worktree /
     # assume-unchanged) files: a flag, or an edit to an already-dirty or flagged file, leaves
     # the status line unchanged. Symlinks count by target; only regular
@@ -483,6 +481,20 @@ author_fingerprint() (   # identical in 2.1.1 and 3.0; prints one hash, or fails
                  case "${l:0:1}" in [a-z]|S) printf '%s\\0' "${l:2}" ;; esac
                done; } | sort -zu)
     if (( ${#regular[@]} )); then printf '%s\\0' "${regular[@]}" | xargs -0 "${H[@]}" 2>&1; fi
+    true   # an unreadable file is recorded by its error line above, not fatal
+  )
+  {
+    # refs, including refs/stash (a new stash entry moves it)
+    "${g[@]}" for-each-ref --format='%(refname) %(objectname)' || exit 1
+    wts="$("${g[@]}" worktree list --porcelain)" || exit 1
+    printf '%s\\n' "$wts"
+    "${g[@]}" config --local --list || exit 1
+    # every worktree of the repository, not only this one: an agent in the wrong checkout
+    # changes a sibling worktree as easily as this one (a bare main entry has no files)
+    while IFS= read -r wt; do
+      if [ -d "$wt" ]; then tree_state "$wt" || exit 1; else printf 'missing %s\\n' "$wt"; fi
+    done < <(awk '/^worktree /{if (p != "" && !b) print p; p = substr($0, 10); b = 0}
+                  /^bare$/{b = 1} END{if (p != "" && !b) print p}' <<<"$wts")
     # every file under info/ (exclude, attributes, sparse-checkout, ...) and packed-refs
     if [ -f "$common/packed-refs" ]; then "${H[@]}" "$common/packed-refs"; fi
     if [ -d "$common/info" ]; then
@@ -536,7 +548,9 @@ fi
 git -C "$REVIEW_CLONE/repo" checkout --quiet --detach "$REVIEWED_HEAD_SHA" \\
   && [ "$(git -C "$REVIEW_CLONE/repo" rev-parse HEAD)" = "$REVIEWED_HEAD_SHA" ] \\
   || abort_clean "the review clone is not at $REVIEWED_HEAD_SHA"
-# the clone keeps no record of where the PR head was fetched from (FETCH_HEAD names the URL)
+# the clone keeps no record of where the PR head was fetched from (FETCH_HEAD names the URL).
+# Friction only: the URL is still readable in the author's config. The control that catches a
+# push during the review is 3.0's PR-head check.
 rm -f -- "$REVIEW_CLONE/repo/.git/FETCH_HEAD"
 
 echo "AUTHOR_WORKTREE=$AUTHOR_WORKTREE"
@@ -916,7 +930,26 @@ Running: /review {NUMBER}
 
 ### 3.0 Verify Author Worktree Integrity
 
-Before collecting results, verify the author's repository was not touched. Fill in the four
+First check the PR itself: its head on the server must still be the reviewed head. A push
+during the review (an agent pushing from the clone, or anyone else) changes it, and the local
+fingerprint cannot see that. A head that cannot be read is an abort too:
+
+```bash
+R="${REVIEWED_HEAD_SHA:-<REVIEWED_HEAD_SHA from Phase 1>}"
+[[ "$R" =~ ^[0-9a-f]{40}$ ]] || { echo "REVIEW ABORT: REVIEWED_HEAD_SHA is not filled in ('$R')"; exit 1; }
+if ! PR_HEAD_NOW="$(gh pr view {NUMBER} --json headRefOid -q .headRefOid)" || [ -z "$PR_HEAD_NOW" ]; then
+  echo "REVIEW ABORT: cannot read the PR head (gh pr view {NUMBER} failed or printed nothing)"; exit 1
+fi
+[ "$PR_HEAD_NOW" = "$R" ] \\
+  || { echo "REVIEW ABORT: the PR head is now $PR_HEAD_NOW, not the reviewed $R: something pushed during the review"; exit 1; }
+echo "PR_HEAD_CHECK=OK $R"
+```
+
+If the head moved, the pushed commits are the evidence:
+`git fetch origin pull/{NUMBER}/head && git log {REVIEWED_HEAD_SHA}..FETCH_HEAD` shows who pushed
+what, and the clone is still in place (this check runs before the repository check removes it).
+
+Then verify the author's repository (every worktree of it) was not touched. Fill in the four
 values 2.1.1 printed, from this transcript (never from a file an agent could have written);
 a value that is missing or still a placeholder is an abort, never a pass:
 
@@ -944,15 +977,13 @@ author_fingerprint() (   # identical in 2.1.1 and 3.0; prints one hash, or fails
   # GNU (Linux) or BSD (macOS) tools, whichever exist
   if command -v sha256sum >/dev/null 2>&1; then H=(sha256sum --); else H=(shasum -a 256 --); fi
   mode() { stat -c %a -- "$1" 2>/dev/null || stat -f %Lp -- "$1"; }
-  {
+  tree_state() (   # $1 = one worktree: its status, its index and its changed files' contents
+    cd "$1" || exit 1
+    printf 'tree %s\\n' "$1"
     # --ignored also lists ignored paths that appear (e.g. a stray build or install)
     "${g[@]}" status --porcelain --ignored || exit 1
     # the index itself: object id, mode and stage of every entry (a re-staged edit, a chmod)
     "${g[@]}" ls-files -s -z | tr '\\0' '\\n' || exit 1
-    # refs, including refs/stash (a new stash entry moves it)
-    "${g[@]}" for-each-ref --format='%(refname) %(objectname)' || exit 1
-    "${g[@]}" worktree list --porcelain || exit 1
-    "${g[@]}" config --local --list || exit 1
     # Mode and contents of modified, untracked and index-flagged (skip-worktree /
     # assume-unchanged) files: a flag, or an edit to an already-dirty or flagged file, leaves
     # the status line unchanged. Symlinks count by target; only regular
@@ -968,6 +999,20 @@ author_fingerprint() (   # identical in 2.1.1 and 3.0; prints one hash, or fails
                  case "${l:0:1}" in [a-z]|S) printf '%s\\0' "${l:2}" ;; esac
                done; } | sort -zu)
     if (( ${#regular[@]} )); then printf '%s\\0' "${regular[@]}" | xargs -0 "${H[@]}" 2>&1; fi
+    true   # an unreadable file is recorded by its error line above, not fatal
+  )
+  {
+    # refs, including refs/stash (a new stash entry moves it)
+    "${g[@]}" for-each-ref --format='%(refname) %(objectname)' || exit 1
+    wts="$("${g[@]}" worktree list --porcelain)" || exit 1
+    printf '%s\\n' "$wts"
+    "${g[@]}" config --local --list || exit 1
+    # every worktree of the repository, not only this one: an agent in the wrong checkout
+    # changes a sibling worktree as easily as this one (a bare main entry has no files)
+    while IFS= read -r wt; do
+      if [ -d "$wt" ]; then tree_state "$wt" || exit 1; else printf 'missing %s\\n' "$wt"; fi
+    done < <(awk '/^worktree /{if (p != "" && !b) print p; p = substr($0, 10); b = 0}
+                  /^bare$/{b = 1} END{if (p != "" && !b) print p}' <<<"$wts")
     # every file under info/ (exclude, attributes, sparse-checkout, ...) and packed-refs
     if [ -f "$common/packed-refs" ]; then "${H[@]}" "$common/packed-refs"; fi
     if [ -d "$common/info" ]; then
@@ -995,18 +1040,6 @@ now="$(author_fingerprint)" && [ -n "$now" ] || abort "cannot fingerprint the au
 rm -rf -- "$rc"
 ```
 
-Then check the PR itself: its head on the server must still be the reviewed head. A push
-during the review (an agent pushing from the clone, or anyone else) changes it, and the local
-fingerprint cannot see that. A head that cannot be read is an abort too:
-
-```bash
-PR_HEAD_NOW="$(gh pr view {NUMBER} --json headRefOid -q .headRefOid)" || PR_HEAD_NOW=""
-[ "$PR_HEAD_NOW" = "${REVIEWED_HEAD_SHA:-<REVIEWED_HEAD_SHA from Phase 1>}" ] \\
-  || { echo "REVIEW ABORT: the PR head is now '${PR_HEAD_NOW:-unreadable}', not the reviewed $REVIEWED_HEAD_SHA: something pushed during the review"; exit 1; }
-```
-
-If the PR-head check fails, the commits pushed on top of the reviewed head are the evidence:
-`git log {REVIEWED_HEAD_SHA}..<new head>` shows who pushed what.
 
 If the repository check fails, abort the review and report it. Usually an agent escaped the clone, but
 another session working in the same repository (a commit, fetch or branch cleanup in another
@@ -1016,10 +1049,19 @@ clone in place for the investigation; `git -C "$AUTHOR_WORKTREE" status` and
 
 After all agents complete, collect their outputs. Each agent returns a markdown report with findings.
 
+Collect only when this transcript shows `PR_HEAD_CHECK=OK <REVIEWED_HEAD_SHA>` from the first
+3.0 block AND the repository check ran to the end without `REVIEW ABORT`. If either is
+missing, the review is aborted: report that and write no verdict and no marker.
+
 **For each agent result:**
 1. Parse the findings table. For the docs-impact agent, also take its "Documentation Updates
-   Needed" table and carry the rows verbatim into the report (Phase 6): it is the only place
-   the proposed text survives, because the review clone is deleted
+   Needed" table and carry the rows into the report (Phase 6) verbatim except for one change:
+   write every `#` as `&#35;`, which GitHub renders the same. This table is the only place the
+   proposed text survives, because the review clone is deleted, and the escaping stops
+   proposed text from reading as a "### Critical Issues (N found)" heading to safe-merge.
+   If the docs-impact agent ran but its output has no "Documentation Updates Needed" heading,
+   print `WARNING: docs-impact-agent returned no "Documentation Updates Needed" table` and say
+   so in the report: a missing table is not the same as "nothing to update"
 2. Map severity to unified levels (Critical → Critical, High → Important, Medium/Low → Suggestions)
 3. Extract file:line references
 4. Note the source agent for each finding
@@ -1167,7 +1209,8 @@ After deduplication, categorize all findings:
 | README.md | Usage section | Exact replacement text from the docs-impact agent |
 
 (Omit this section when the docs-impact agent did not run or reported nothing. It is not an
-issue heading, so it never changes the Critical/Important counts.)
+issue heading, and its `#` characters are escaped (Phase 3), so it never adds to the
+Critical/Important counts; the marker step below refuses a report with more than one of each.)
 
 ### Strengths
 - Well-structured error handling
@@ -1373,6 +1416,14 @@ case "$VERDICT_TOKEN" in
   READY_TO_MERGE|NEEDS_FIXES|CRITICAL_ISSUES) ;;
   *) echo "FATAL: bad VERDICT_TOKEN ('$VERDICT_TOKEN') — marker NOT emitted" >&2; VERDICT_TOKEN="" ;;
 esac
+# safe-merge SUMS every match of these patterns, so exactly one of each may appear: a second
+# one (e.g. quoted in a finding or a proposed doc text) would make it count something else
+NCRIT=$(grep -oiP '###\\s+Critical Issues\\s+\\(\\d' "$REVIEW_FILE" | wc -l)
+NIMP=$(grep -oiP '###\\s+Important Issues\\s+\\(\\d' "$REVIEW_FILE" | wc -l)
+if [ "$NCRIT" != 1 ] || [ "$NIMP" != 1 ]; then
+  echo "FATAL: the report has $NCRIT Critical and $NIMP Important count headings, not one of each — marker NOT emitted; escape the extra ones (# as &#35;)" >&2
+  VERDICT_TOKEN=""
+fi
 # head must be MARKER_HEAD from the re-bind block above. This regex is a FORMAT
 # backstop only (rejects empty/garbage) — CORRECTNESS of the value is the re-bind
 # guard's job above. (Empty MARKER_HEAD = the guard already reported FATAL:

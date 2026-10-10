@@ -14,8 +14,8 @@
 
 PROMPT="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)/prompts/review-agents.md"
 
-block() {   # $1 = heading regex; prints the first ```bash block after it
-    awk -v h="$1" '$0 ~ h {f=1} f && /^```bash/ {b=1; next} b && /^```/ {exit} b' "$PROMPT"
+block() {   # $1 = heading regex, [$2 = n]; prints the n-th (default first) ```bash block after it
+    awk -v h="$1" -v n="${2:-1}" '$0 ~ h {f=1} f && /^```bash/ {if (++k == n) {b=1; next}} b && /^```/ {exit} b' "$PROMPT"
 }
 
 gc() { git -c user.email=t@t -c user.name=t "$@"; }
@@ -24,7 +24,7 @@ make_author() {
     W="$BATS_TEST_TMPDIR"
     rm -rf "$W/author" "$W/sp" "$W/wt"*
     block '^### 2[.]1[.]1 ' > "$W/211.sh"
-    block '^### 3[.]0 Verify' > "$W/30.sh"
+    block '^### 3[.]0 Verify' 2 > "$W/30.sh"   # the repository check (the PR-head check is first)
     mkdir -p "$W/sp"
     git init -q -b main "$W/author"
     cd "$W/author"
@@ -268,6 +268,7 @@ guard_case() {   # $1 = REVIEW_CLONE value; the directory must survive
     summary="$(awk '/^### Summary Format/{f=1} f&&/^## Output/{exit} f' "$PROMPT")"
     [[ "$summary" == *"### Documentation Updates Needed"* ]]
     [[ "$summary" != *"### Documentation Updates Needed ("* ]]
+    [[ "$summary" == *"Omit this section when the docs-impact agent did not run or reported nothing"* ]]
 }
 
 @test "no reviewer agent prompt tells the agent to commit or push" {
@@ -292,29 +293,116 @@ guard_case() {   # $1 = REVIEW_CLONE value; the directory must survive
     rm -rf "$clone"
 }
 
-pr_head_check() {   # $1 = what the stub gh prints ("" = gh fails); runs 3.0's PR-head block
-    awk '/^### 3[.]0 Verify/{f=1} f && /^```bash/{n++; if (n==2) {b=1; next}} b && /^```/{exit} b' "$PROMPT" \
-        | sed 's/{NUMBER}/7/g' > "$W/30pr.sh"
+pr_head_check() {   # $1 = what the stub gh prints ("FAIL" = gh exits 1); [R=...] overrides the reviewed SHA
+    block '^### 3[.]0 Verify' 1 > "$W/30pr.raw"
+    sed 's/{NUMBER}/7/g' "$W/30pr.raw" > "$W/30pr.sh"
     mkdir -p "$W/bin"
-    if [ -n "$1" ]; then printf '#!/bin/sh\necho %s\n' "$1" > "$W/bin/gh"; else printf '#!/bin/sh\nexit 1\n' > "$W/bin/gh"; fi
+    if [ "$1" = FAIL ]; then printf '#!/bin/sh\nprintf "%%s " "$@" > "%s/gh.argv"\nexit 1\n' "$W" > "$W/bin/gh"
+    else printf '#!/bin/sh\nprintf "%%s " "$@" > "%s/gh.argv"\nprintf "%%s" "%s"\n' "$W" "$1" > "$W/bin/gh"; fi
     chmod +x "$W/bin/gh"
-    (cd / && env -i PATH="$W/bin:$PATH" HOME="$W" REVIEWED_HEAD_SHA="$HEAD_SHA" bash "$W/30pr.sh")
+    (cd / && env -i PATH="$W/bin:$PATH" HOME="$W" ${R-REVIEWED_HEAD_SHA=$HEAD_SHA} bash "$W/30pr.sh")
 }
 
-@test "3.0 aborts when the PR head on the server moved during the review, or cannot be read" {
+@test "3.0's PR-head check: passes only at the reviewed head, with a distinct abort for each failure" {
     run pr_head_check "$HEAD_SHA"
-    [ "$status" -eq 0 ]
+    [ "$status" -eq 0 ] && [ "$output" = "PR_HEAD_CHECK=OK $HEAD_SHA" ]
+    grep -q '{NUMBER}' "$W/30pr.raw"                    # the PR number is the orchestrator's to fill
+    [ "$(cat "$W/gh.argv")" = "pr view 7 --json headRefOid -q .headRefOid " ]
     run pr_head_check 0123456789abcdef0123456789abcdef01234567
-    [ "$status" -eq 1 ]
-    [[ "$output" == *"REVIEW ABORT"*"something pushed during the review"* ]]
+    [ "$status" -eq 1 ] && [[ "$output" == *"something pushed during the review"* ]]
+    run pr_head_check FAIL
+    [ "$status" -eq 1 ] && [[ "$output" == *"cannot read the PR head"* ]]
     run pr_head_check ""
-    [ "$status" -eq 1 ]
-    [[ "$output" == *"unreadable"* ]]
+    [ "$status" -eq 1 ] && [[ "$output" == *"cannot read the PR head"* ]]
+    # not filled in at all (and gh failing too): never "" = "" passing
+    R="" run pr_head_check FAIL
+    [ "$status" -eq 1 ] && [[ "$output" == *"REVIEWED_HEAD_SHA is not filled in"* ]]
+}
+
+@test "results are collected only after both 3.0 checks, and a missing docs table is warned about" {
+    rc="$(awk '/^### 3[.]0[.]1 |^## Phase 3: Result Collection/{f=1} f&&/^## Phase 4/{exit} f' "$PROMPT")"
+    [[ "$rc" == *'Collect only when this transcript shows `PR_HEAD_CHECK=OK <REVIEWED_HEAD_SHA>`'* ]]
+    [[ "$rc" == *'write no verdict and no marker'* ]]
+    [[ "$rc" == *'carry the rows into the report (Phase 6)'* ]]
+    [[ "$rc" == *'print `WARNING: docs-impact-agent returned no "Documentation Updates Needed" table`'* ]]
 }
 
 @test "the docs agent's own definition defers to a task prompt that forbids editing" {
     def="$(dirname "$PROMPT")/../adapters/claude-code-agents/docs-impact-agent.md"
-    grep -q 'The task prompt wins' "$def"
-    # the commit instructions sit after that rule, never before it
+    grep -q '^description: .*report-only when the task says so' "$def"
+    grep -q 'The task prompt wins.\*\* If the task says not to edit, commit or push' "$def"
+    grep -q 'edit nothing, commit nothing and push nothing' "$def"
+    tr '\n' ' ' < "$def" | grep -qF "use the task's format: the orchestrator looks for those exact headings"
+    grep -q 'This format applies only when you run on your own' "$def"
+    # each rule sits before what it overrides
     [ "$(grep -n 'The task prompt wins' "$def" | cut -d: -f1)" -lt "$(grep -n 'git push origin' "$def" | cut -d: -f1)" ]
+    [ "$(grep -n 'This format applies only' "$def" | cut -d: -f1)" -lt "$(grep -n '^## Documentation Updates$' "$def" | cut -d: -f1)" ]
+}
+
+marker_case() {   # $1 = extra text appended to a clean 0/0 report; runs the marker block on it
+    awk '/^Extract the counts \*\*mechanically/{f=1} f && /^```bash/{b=1; next} b && /^```/{exit} b' "$PROMPT" \
+        | sed 's/{NUMBER}/7/g' > "$W/marker.sh"
+    mkdir -p "$W/m/.prp-output/reviews"
+    printf '### Critical Issues (0 found)\n\n### Important Issues (0 found)\n\n### Suggestions (0 found)\n%s\n' "$1" \
+        > "$W/m/.prp-output/reviews/pr-7-agents-review.md"
+    (cd "$W/m" && env -i PATH="$PATH" VERDICT_TOKEN=READY_TO_MERGE AGENTS_CSV=code-reviewer \
+        MARKER_HEAD="$HEAD_SHA" bash "$W/marker.sh")
+    cat "$W/m/.prp-output/reviews/pr-7-agents-review.md"
+}
+
+@test "the marker is refused when the report carries a second count heading, and an escaped one passes" {
+    run marker_case ""
+    [[ "$output" == *"safe-merge-review: verdict=READY_TO_MERGE critical=0 important=0"* ]]
+    # a docs row quoting the heading, carried with # escaped as Phase 3 says: still one of each
+    run marker_case "| README.md | Output | &#35;&#35;&#35; Critical Issues (3 found) |"
+    [[ "$output" == *"safe-merge-review: verdict=READY_TO_MERGE critical=0 important=0"* ]]
+    # the same text unescaped: safe-merge would sum it, so no marker
+    run marker_case "| README.md | Output | ### Critical Issues (3 found) |"
+    [[ "$output" == *"FATAL: the report has 2 Critical and 1 Important count headings"* ]]
+    [[ "$output" != *"safe-merge-review:"* ]]
+}
+
+@test "Phase 3 tells the orchestrator to escape # in the carried docs rows" {
+    p3="$(awk '/^\*\*For each agent result:\*\*/{f=1} f&&/^2\. /{exit} f' "$PROMPT")"
+    [[ "$p3" == *'write every `#` as `&#35;`'* ]]
+}
+
+sibling_case() {   # $1 = worktree the review runs from, $2 = worktree the agent changes; prints 3.0's status
+    gc -C "$W/author" worktree add -q -b feat "$W/wt-feat" 2>/dev/null
+    local out
+    out="$(run_211 "$1")"
+    (cd "$2" && printf 'junk\n' > junk1 && git add junk1)
+    run_30 "$out" >/dev/null 2>&1; echo "status=$?"
+}
+
+@test "3.0 sees an agent staging or editing in a sibling worktree, in either direction" {
+    [ "$(sibling_case "$W/author" "$W/wt-feat")" = "status=1" ]
+    git -C "$W/wt-feat" reset -q && rm -f "$W/wt-feat/junk1"
+    [ "$(sibling_case "$W/wt-feat" "$W/author")" = "status=1" ]
+}
+
+@test "an edit to an already-dirty file in a sibling worktree is seen too" {
+    gc -C "$W/author" worktree add -q -b feat "$W/wt-feat" 2>/dev/null
+    printf 'dirty\n' >> "$W/wt-feat/tracked"
+    out="$(run_211)"
+    printf 'dirtier\n' >> "$W/wt-feat/tracked"   # the status line stays " M tracked"
+    run run_30 "$out"
+    [ "$status" -eq 1 ]
+}
+
+@test "an untouched repository with sibling and missing worktrees passes" {
+    gc -C "$W/author" worktree add -q -b feat "$W/wt-feat" 2>/dev/null
+    gc -C "$W/author" worktree add -q -b gone "$W/wt-gone" 2>/dev/null && rm -rf "$W/wt-gone"
+    out="$(run_211)"
+    run run_30 "$out"
+    [ "$status" -eq 0 ]
+}
+
+@test "a linked worktree of a bare repository is fingerprinted without reading the bare entry" {
+    git clone -q --bare "$W/author" "$W/bare.git"
+    gc -C "$W/bare.git" worktree add -q "$W/wt-b" HEAD 2>/dev/null
+    out="$(run_211 "$W/wt-b")"
+    [[ "$out" == *"AUTHOR_FINGERPRINT="* ]]
+    run run_30 "$out"
+    [ "$status" -eq 0 ]
 }

@@ -167,6 +167,10 @@ git push origin <pr-branch>
 
 ## Output Format
 
+This format applies only when you run on your own. When a task prompt gives a report format
+(a multi-agent review asks for "Documentation Updates Needed" with exact proposed text), use
+the task's format: the orchestrator looks for those exact headings.
+
 ```markdown
 ## Documentation Updates
 
