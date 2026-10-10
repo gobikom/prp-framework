@@ -259,14 +259,25 @@ clone211() { awk 'index($0, "### 2.1.1 ") == 1 {f=1} f && /^```bash$/ {b=1; next
   run env -u REVIEWED_HEAD_SHA bash p20.sh; [ "$status" -eq 0 ]
   saved=$FAKE_HEAD
   git commit -q --allow-empty -m moved            # the shared checkout moves on
-  mkdir -p s; run env PR_NUMBER=7 SCRATCHPAD="$PWD/s" bash c211.sh
+  mkdir -p s; run env SCRATCHPAD="$PWD/s" bash c211.sh
   [ "$status" -eq 0 ]
   [ "$(git -C s/prp-review-clone-pr-7 rev-parse HEAD)" = "$saved" ]
 }
 
+@test "2.1.1 runs again in a later round even when the earlier clone was never cleaned up" {
+  phase20 > p20.sh; clone211 > c211.sh; repo_here
+  run env -u REVIEWED_HEAD_SHA bash p20.sh; [ "$status" -eq 0 ]
+  mkdir -p s
+  run env SCRATCHPAD="$PWD/s" bash c211.sh; [ "$status" -eq 0 ]
+  rm -rf -- s/prp-review-clone-pr-7                 # directory gone, registration left behind
+  run env SCRATCHPAD="$PWD/s" bash c211.sh; [ "$status" -eq 0 ]
+  run env SCRATCHPAD="$PWD/s" bash c211.sh; [ "$status" -eq 0 ]   # and with the clone still present
+  [ "$(git -C s/prp-review-clone-pr-7 rev-parse HEAD)" = "$FAKE_HEAD" ]
+}
+
 @test "2.1.1 starts no clone without a head saved by Phase 2.0" {
   clone211 > c211.sh; repo_here; rm -f .prp-output/reviews/pr-7-reviewed-head
-  mkdir -p s; run env PR_NUMBER=7 SCRATCHPAD="$PWD/s" bash c211.sh
+  mkdir -p s; run env SCRATCHPAD="$PWD/s" bash c211.sh
   [ "$status" -ne 0 ]
   [[ "$output" == *"no reviewed head saved by Phase 2.0"* ]]
   [ ! -e s/prp-review-clone-pr-7 ]

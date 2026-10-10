@@ -419,7 +419,7 @@ Auto-dispatching: performance-analyzer (DB query patterns in 2 files)
 
 ### 2.0 Capture the Reviewed Head (every run, every path)
 
-Invariant: the head this run reviews is captured **once, here, before any agent starts**, whatever path led here (Phase 1.3, a reused context file from Phase 0, `--context`, or agent mode), and it is **the commit the agents read**: the PR head must equal the local checkout's `HEAD`, which 2.1.1 clones for the agents. Every later step reads it from the file below — nothing captures or re-queries it after the agents start. (A head captured at posting time would certify a commit nobody reviewed if a push landed during the review; a PR head that differs from the local `HEAD` would certify a commit the agents never read.)
+Invariant: the head this run reviews is captured **once, here, before any agent starts**, whatever path led here (Phase 1.3, a reused context file from Phase 0, `--context`, or agent mode), and it is **the commit the agents read**: the PR head must equal the local checkout's `HEAD`, and 2.1.1 clones exactly this saved head for the agents. Every later step reads it from the file below — nothing captures or re-queries it after the agents start. (A head captured at posting time would certify a commit nobody reviewed if a push landed during the review; a PR head that differs from the local `HEAD` would certify a commit the agents never read.)
 
 If this block prints FATAL, STOP: start no agent and post nothing. To recover, sync the checkout to the PR head (or push it) and re-run the review from Phase 2.0, including every agent after it.
 
@@ -463,13 +463,18 @@ AUTHOR_HEAD=$(git -C "$AUTHOR_WORKTREE" rev-parse HEAD)
 SAVED_HEAD=$(cat .prp-output/reviews/pr-{NUMBER}-reviewed-head 2>/dev/null) || SAVED_HEAD=""
 [ ${#SAVED_HEAD} -eq 40 ] && printf '%s' "$SAVED_HEAD" | grep -qxE '[0-9a-f]{40}' \
   || { echo "FATAL: no reviewed head saved by Phase 2.0 — run Phase 2.0 first, no agents started" >&2; exit 1; }
-REVIEW_CLONE="${SCRATCHPAD:-/tmp}/prp-review-clone-pr-${PR_NUMBER}"
-rm -rf -- "${REVIEW_CLONE:?}"
+REVIEW_CLONE="${SCRATCHPAD:-/tmp}/prp-review-clone-pr-{NUMBER}"
+# clear an earlier round's clone — its directory AND its worktree registration (3.0's cleanup may not have run)
+git worktree remove --force "$REVIEW_CLONE" 2>/dev/null || true
+rm -rf -- "${REVIEW_CLONE:?}" || { echo "FATAL: cannot remove the old review clone $REVIEW_CLONE — no agents started" >&2; exit 1; }
+git worktree prune || { echo "FATAL: git worktree prune failed — no agents started" >&2; exit 1; }
 git worktree add --detach "$REVIEW_CLONE" "$SAVED_HEAD" \
-  || { echo "FATAL: cannot create the review clone at $SAVED_HEAD — no agents started" >&2; exit 1; }
+  || { echo "FATAL: cannot create the review clone at $SAVED_HEAD (see git's message above; 'git worktree list' shows stale entries) — no agents started" >&2; exit 1; }
 [ "$(git -C "$REVIEW_CLONE" rev-parse HEAD)" = "$SAVED_HEAD" ] \
   || { echo "FATAL: the review clone is not at $SAVED_HEAD — no agents started" >&2; exit 1; }
 ```
+
+If this block prints FATAL, STOP: spawn no agent and post nothing.
 
 Pass `$REVIEW_CLONE` (not `$AUTHOR_WORKTREE`) to every agent prompt as the working
 directory. The context file at `CONTEXT_PATH` is still read from the author tree (it
@@ -846,8 +851,10 @@ if [ "$AUTHOR_STATUS_BEFORE" != "$AUTHOR_STATUS_AFTER" ]; then
   exit 1
 fi
 
-# Clean up clone
-git worktree remove --force "$REVIEW_CLONE" 2>/dev/null || rm -rf "$REVIEW_CLONE"
+# Clean up clone (path recomputed: this may be a fresh shell)
+REVIEW_CLONE="${SCRATCHPAD:-/tmp}/prp-review-clone-pr-{NUMBER}"
+git worktree remove --force "$REVIEW_CLONE" 2>/dev/null || rm -rf -- "${REVIEW_CLONE:?}"
+git worktree prune
 ```
 
 If the check fails, abort the review and report — an agent escaped the clone.
