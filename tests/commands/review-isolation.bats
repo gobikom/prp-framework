@@ -420,39 +420,15 @@ sibling_case() {   # $1 = worktree the review runs from, $2 = worktree the agent
     [ "$status" -eq 0 ]
 }
 
-artifact_commit_case() {   # runs the artifact-commit block in a checkout with a stray staged file
-    block '^### Commit Review Artifact to PR Branch' 1 | sed 's/{NUMBER}/7/g' > "$W/art.sh"
-    git init -q --bare "$W/up.git"
-    # a PR branch, not main (a host pre-push hook may refuse main)
-    git -C "$W/author" switch -q -c feat
-    git -C "$W/author" remote add up "$W/up.git"
-    git -C "$W/author" push -q up "HEAD:refs/heads/feat"
-    git -C "$W/author" fetch -q up && git -C "$W/author" branch -q --set-upstream-to=up/feat feat
-    mkdir -p "$W/author/.prp-output/reviews"
-    printf 'review\n' > "$W/author/.prp-output/reviews/pr-7-agents-review.md"
-    "${ART_SETUP:-:}"                                  # a test may move the checkout first
-    mkdir -p "$W/bin" && printf '#!/bin/sh\necho "feat %s"\n' "${SERVER_HEAD-$HEAD_SHA}" > "$W/bin/gh" && chmod +x "$W/bin/gh"
-    (cd "$W/author" && env -i PATH="$W/bin:$PATH" HOME="$W" GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t \
-        GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t REVIEWED_HEAD_SHA="$HEAD_SHA" bash "$W/art.sh")
-}
-
-@test "the artifact commit holds only the artifacts, never anything else that is staged" {
-    # make_author already has `staged` in the index; that must not ride along
-    run artifact_commit_case
-    [ "$status" -eq 0 ]
-    [[ "$output" == *"committed and pushed"* ]]
-    [ "$(git -C "$W/author" show --name-only --format= HEAD)" = ".prp-output/reviews/pr-7-agents-review.md" ]
-    git -C "$W/author" diff --cached --name-only | grep -qx staged     # still staged, not committed
-    [ "$(git -C "$W/up.git" rev-parse feat)" = "$(git -C "$W/author" rev-parse HEAD)" ]
-}
-
-@test "3.0 waits for every agent, a timeout aborts, and the PR head is re-checked before the artifact commit" {
+@test "3.0 waits for every agent, a timeout aborts, and the artifact step is flagged as unhardened" {
     p3="$(awk '/^### 3[.]0 Verify/{f=1} f&&/^First check the PR itself/{exit} f' "$PROMPT")"
     [[ "$p3" == *"Run 3.0 only after every agent spawned in Phase 2 has returned its result"* ]]
     [[ "$p3" == *"abort the review instead of checking"* ]]
     grep -q '^\*\*If an agent times out or has not returned\*\*: abort the review' "$PROMPT"
+    # the artifact step is base behaviour, flagged and tracked (prp-framework#140)
     ac="$(awk '/^### Commit Review Artifact to PR Branch/{f=1} f&&/^```bash/{exit} f' "$PROMPT")"
-    [[ "$ac" == *"re-checks the PR head on the server itself"* ]]
+    [[ "$ac" == *"NOT covered by the review"* ]]
+    [[ "$ac" == *"prp-framework#140"* ]]
 }
 
 @test "the count headings are checked before the report is committed or posted" {
@@ -482,64 +458,4 @@ artifact_commit_case() {   # runs the artifact-commit block in a checkout with a
     [ "$status" -eq 1 ]
     [[ "$output" == *"cannot read worktree $W/wt-feat"* ]]
     [[ "$output" == *"cannot fingerprint"* ]]
-}
-
-@test "a rejected artifact push aborts the review, loudly and with a non-zero exit" {
-    printf '#!/bin/sh\necho rejected >&2\nexit 1\n' > "$W/hook"
-    run artifact_commit_case_with_hook
-    [ "$status" -eq 1 ]
-    [[ "$output" == *"REVIEW ABORT: the artifact commit or push failed"* ]]
-    [[ "$output" != *"committed and pushed"* ]]
-    grep -q '^If the block below exits non-zero (`REVIEW ABORT`), stop: emit no marker and post nothing.' "$PROMPT"
-}
-
-artifact_commit_case_with_hook() {   # the upstream refuses every push
-    git init -q --bare "$W/up.git"
-    install -m 755 "$W/hook" "$W/up.git/hooks/pre-receive"
-    artifact_commit_case
-}
-
-@test "the artifact is committed only at the reviewed head, on the branch tracking the PR branch" {
-    # on another branch: refused, nothing committed or pushed
-    other() { git -C "$W/author" switch -q -c other; }
-    ART_SETUP=other run artifact_commit_case
-    [ "$status" -eq 1 ]
-    [[ "$output" == *"REVIEW ABORT: this checkout is not the reviewed head"* ]]
-    [ "$(git -C "$W/author" rev-parse HEAD)" = "$HEAD_SHA" ]
-    [ "$(git -C "$W/up.git" rev-parse feat)" = "$HEAD_SHA" ]
-}
-
-@test "an unpushed local commit beyond the reviewed head is never published by the artifact push" {
-    wip() { gc -C "$W/author" commit -q --allow-empty -m "wip: local only"; }
-    ART_SETUP=wip run artifact_commit_case
-    [ "$status" -eq 1 ]
-    [[ "$output" == *"REVIEW ABORT: this checkout is not the reviewed head"* ]]
-    [ "$(git -C "$W/up.git" rev-parse feat)" = "$HEAD_SHA" ]
-}
-
-@test "the artifact step aborts when the server head moved, or an artifact cannot be staged" {
-    SERVER_HEAD=0123456789abcdef0123456789abcdef01234567 run artifact_commit_case
-    [ "$status" -eq 1 ]
-    [[ "$output" == *"REVIEW ABORT: the PR head is now '0123456789abcdef0123456789abcdef01234567'"* ]]
-    [ "$(git -C "$W/up.git" rev-parse feat)" = "$HEAD_SHA" ]
-}
-
-@test "an artifact git cannot stage is a loud abort, not 'nothing new'" {
-    ignore() { printf '.prp-output/\n' >> "$W/author/.git/info/exclude"; }
-    ART_SETUP=ignore run artifact_commit_case
-    [ "$status" -eq 1 ]
-    [[ "$output" == *"REVIEW ABORT: could not stage .prp-output/reviews/pr-7-agents-review.md"* ]]
-    [[ "$output" != *"No new review artifacts"* ]]
-}
-
-@test "re-running the artifact step on an unchanged artifact reports nothing new, and commits nothing" {
-    run artifact_commit_case
-    [ "$status" -eq 0 ]
-    first="$(git -C "$W/author" rev-parse HEAD)"
-    # the reviewed head (and the server's) is now the artifact commit; nothing changed since
-    printf '#!/bin/sh\necho "feat %s"\n' "$first" > "$W/bin/gh"
-    run bash -c "cd '$W/author' && env -i PATH='$W/bin:$PATH' HOME='$W' REVIEWED_HEAD_SHA='$first' bash '$W/art.sh'"
-    [ "$status" -eq 0 ]
-    [[ "$output" == *"NOTE: No new review artifacts"* ]]
-    [ "$(git -C "$W/author" rev-parse HEAD)" = "$first" ]
 }
