@@ -11,6 +11,11 @@
 # pipefail already fails the function). Likewise tree_state's `|| exit 1` on `cd`, on
 # `ls-files -s` and on the loop call, and `worktree list`'s: any git failure they guard also
 # fails a neighbouring guarded command, so dropping one alone changes nothing observable.
+# Also equivalent, each caught by a neighbouring guard or the hash itself: the `missing` line
+# for a vanished worktree, `xargs 2>&1`, the `-n` checks on the fingerprint, failures of
+# for-each-ref / config / --git-common-dir (they break status or rev-parse first), and the
+# clone/mktemp/resolve/toplevel guards in 2.1.1. Untestable here: the non-interactive fetch
+# settings (GIT_TERMINAL_PROMPT=0, GIT_ASKPASS, BatchMode), since a prompt needs a tty.
 #
 # Run: bats tests/commands/review-isolation.bats
 
@@ -78,6 +83,7 @@ run_30() {    # $1 = 2.1.1 output; runs 3.0 in a fresh shell given only the four
     [ -z "$(find "$clone/repo/.git/objects" -type f -links +1)" ]
     run run_30 "$out"
     [ "$status" -eq 0 ]
+    [ "${lines[${#lines[@]}-1]}" = "REPO_CHECK=OK" ]   # the success line collection requires
     [ ! -e "$clone" ]
 }
 
@@ -330,8 +336,13 @@ pr_head_check() {   # $1 = what the stub gh prints ("FAIL" = gh exits 1); [R=...
 @test "results are collected only after both 3.0 checks, and a missing docs table is warned about" {
     rc="$(awk '/^### 3[.]0[.]1 |^## Phase 3: Result Collection/{f=1} f&&/^## Phase 4/{exit} f' "$PROMPT")"
     flat="$(tr '\n' ' ' <<<"$rc" | tr -s ' ')"
-    [[ "$flat" == *'Collect only when this transcript shows `PR_HEAD_CHECK=OK <REVIEWED_HEAD_SHA>` from the first 3.0 block AND the repository check ran to the end without `REVIEW ABORT`.'* ]]
-    [[ "$rc" == *'write no verdict and no marker'* ]]
+    [[ "$flat" == *'Collect only when this transcript shows `PR_HEAD_CHECK=OK <REVIEWED_HEAD_SHA>` from the first 3.0 block AND `REPO_CHECK=OK` from the repository check'* ]]
+    # the edge-case table agrees: a timeout aborts, only an agent's own error is "proceed"
+    grep -q '^| Agent times out or has not returned | Abort the review' "$PROMPT"
+    ! grep -q '^| Agent times out or fails |' "$PROMPT" || false
+    ! grep -q 'failed/timed out' "$PROMPT" || false
+    grep -q '^If this block printed `REVIEW ABORT`, stop: spawn no agent.' "$PROMPT"
+    [[ "$flat" == *'write no verdict and no marker'* ]]
     [[ "$rc" == *'carry the rows into the report (Phase 6)'* ]]
     [[ "$rc" == *'print `WARNING: docs-impact-agent returned no "Documentation Updates Needed" table`'* ]]
 }
@@ -458,4 +469,46 @@ sibling_case() {   # $1 = worktree the review runs from, $2 = worktree the agent
     [ "$status" -eq 1 ]
     [[ "$output" == *"cannot read worktree $W/wt-feat"* ]]
     [[ "$output" == *"cannot fingerprint"* ]]
+}
+
+@test "a per-worktree config change (extensions.worktreeConfig) is seen" {
+    git -C "$W/author" config extensions.worktreeConfig true
+    out="$(run_211)"
+    git -C "$W/author" config --worktree core.hooksPath "$W/elsewhere"
+    run run_30 "$out"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"changed during review"* ]]
+}
+
+@test "an aborting repository check never prints REPO_CHECK=OK" {
+    out="$(run_211)"
+    printf 'more\n' >> "$W/author/tracked"
+    run run_30 "$out"
+    [ "$status" -eq 1 ]
+    [[ "$output" != *"REPO_CHECK=OK"* ]]
+}
+
+@test "a PR head that cannot be checked out in the clone aborts 2.1.1 and leaves no clone" {
+    # the PR commit carries a .gitattributes whose required smudge filter fails on checkout
+    gc -C "$W/author" switch -q -c pr
+    printf 'x\n' > "$W/author/f" && printf 'f filter=boom\n' > "$W/author/.gitattributes"
+    git -C "$W/author" add f .gitattributes && gc -C "$W/author" commit -q -m pr -- f .gitattributes
+    pr="$(git -C "$W/author" rev-parse HEAD)"
+    gc -C "$W/author" switch -q main
+    printf '[filter "boom"]\n\tsmudge = false\n\tclean = cat\n\trequired = true\n' > "$W/.gitconfig"
+    SHA="$pr" run run_211
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"the review clone is not at $pr"* ]]
+    [ -z "$(ls -A "$W/sp")" ]
+}
+
+@test "an unreadable file under info/ is recorded, not fatal, wherever it sorts" {
+    printf '* text\n' > "$W/author/.git/info/attributes"
+    chmod 000 "$W/author/.git/info/attributes"
+    if [ -r "$W/author/.git/info/attributes" ]; then skip "running as a user that can read mode-000 files"; fi
+    out="$(run_211)"
+    [[ "$out" == *"AUTHOR_FINGERPRINT="* ]]
+    run run_30 "$out"
+    chmod 600 "$W/author/.git/info/attributes"
+    [ "$status" -eq 0 ]
 }

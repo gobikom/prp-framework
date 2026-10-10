@@ -490,7 +490,8 @@ author_fingerprint() (   # identical in 2.1.1 and 3.0; prints one hash, or fails
     "${g[@]}" for-each-ref --format='%(refname) %(objectname)' || exit 1
     wts="$("${g[@]}" worktree list --porcelain)" || exit 1
     printf '%s\n' "$wts"
-    "${g[@]}" config --local --list || exit 1
+    # repository and per-worktree config (config.worktree, when extensions.worktreeConfig is on)
+    "${g[@]}" config --list --show-scope | awk '$1 == "local" || $1 == "worktree"' || exit 1
     # every worktree of the repository, not only this one: an agent in the wrong checkout
     # changes a sibling worktree as easily as this one (a bare main entry has no files)
     while IFS= read -r wt; do
@@ -500,7 +501,7 @@ author_fingerprint() (   # identical in 2.1.1 and 3.0; prints one hash, or fails
     # every file under info/ (exclude, attributes, sparse-checkout, ...) and packed-refs
     if [ -f "$common/packed-refs" ]; then "${H[@]}" "$common/packed-refs"; fi
     if [ -d "$common/info" ]; then
-      find "$common/info" -type f | sort | while IFS= read -r f; do "${H[@]}" "$f" 2>&1; done || exit 1
+      find "$common/info" -type f | sort | while IFS= read -r f; do "${H[@]}" "$f" 2>&1 || printf 'unreadable %s\n' "$f"; done || exit 1
     fi
     if [ -d "$common/hooks" ]; then
       find "$common/hooks" \( -type f -o -type l \) | LC_ALL=C sort | while IFS= read -r h; do
@@ -561,6 +562,8 @@ echo "AUTHOR_HEAD=$AUTHOR_HEAD"
 echo "AUTHOR_FINGERPRINT=$AUTHOR_FINGERPRINT"
 echo "REVIEWED_HEAD_SHA=$REVIEWED_HEAD_SHA"
 ```
+
+If this block printed `REVIEW ABORT`, stop: spawn no agent.
 
 Pass `$REVIEW_CLONE/repo` (not `$AUTHOR_WORKTREE`) to every agent prompt as the working
 directory. Copy the Phase 1 context file to `$REVIEW_CLONE/context.md` and use that path as
@@ -838,7 +841,7 @@ Agent(
 
 Do NOT edit, commit or push anything: the review clone has no remote and is deleted after
 the review, so any edit there is lost. Report every documentation change the PR needs under
-"Documentation Updates Needed", with the file, the location and the exact proposed text, so
+'Documentation Updates Needed', with the file, the location and the exact proposed text, so
 the author can make it.
 
 Read the PR context file at: {CONTEXT_PATH}
@@ -1017,7 +1020,8 @@ author_fingerprint() (   # identical in 2.1.1 and 3.0; prints one hash, or fails
     "${g[@]}" for-each-ref --format='%(refname) %(objectname)' || exit 1
     wts="$("${g[@]}" worktree list --porcelain)" || exit 1
     printf '%s\n' "$wts"
-    "${g[@]}" config --local --list || exit 1
+    # repository and per-worktree config (config.worktree, when extensions.worktreeConfig is on)
+    "${g[@]}" config --list --show-scope | awk '$1 == "local" || $1 == "worktree"' || exit 1
     # every worktree of the repository, not only this one: an agent in the wrong checkout
     # changes a sibling worktree as easily as this one (a bare main entry has no files)
     while IFS= read -r wt; do
@@ -1027,7 +1031,7 @@ author_fingerprint() (   # identical in 2.1.1 and 3.0; prints one hash, or fails
     # every file under info/ (exclude, attributes, sparse-checkout, ...) and packed-refs
     if [ -f "$common/packed-refs" ]; then "${H[@]}" "$common/packed-refs"; fi
     if [ -d "$common/info" ]; then
-      find "$common/info" -type f | sort | while IFS= read -r f; do "${H[@]}" "$f" 2>&1; done || exit 1
+      find "$common/info" -type f | sort | while IFS= read -r f; do "${H[@]}" "$f" 2>&1 || printf 'unreadable %s\n' "$f"; done || exit 1
     fi
     if [ -d "$common/hooks" ]; then
       find "$common/hooks" \( -type f -o -type l \) | LC_ALL=C sort | while IFS= read -r h; do
@@ -1049,6 +1053,7 @@ now="$(author_fingerprint)" && [ -n "$now" ] || abort "cannot fingerprint the au
 # are discarded with it.
 # Clean up: the clone is a plain directory, nothing to unregister
 rm -rf -- "$rc"
+echo "REPO_CHECK=OK"
 ```
 
 
@@ -1061,8 +1066,9 @@ clone in place for the investigation; `git -C "$AUTHOR_WORKTREE" status` and
 After all agents complete, collect their outputs. Each agent returns a markdown report with findings.
 
 Collect only when this transcript shows `PR_HEAD_CHECK=OK <REVIEWED_HEAD_SHA>` from the first
-3.0 block AND the repository check ran to the end without `REVIEW ABORT`. If either is
-missing, the review is aborted: report that and write no verdict and no marker.
+3.0 block AND `REPO_CHECK=OK` from the repository check (a run that was killed or timed out
+prints neither). If either is missing, the review is aborted: report that and write no verdict
+and no marker.
 
 **For each agent result:**
 1. Parse the findings table. For the docs-impact agent, also take its "Documentation Updates
@@ -1083,7 +1089,7 @@ missing, the review is aborted: report that and write no verdict and no marker.
 may still write). **If an agent fails** (returned an error): note the failure and proceed with
 available results. Display:
 ```
-WARNING: {agent-type} agent failed/timed out. {aspect} review incomplete.
+WARNING: {agent-type} agent failed. {aspect} review incomplete.
 Consider running {TOOL}:review {NUMBER} {aspect} for a single-session {aspect} review.
 ```
 
@@ -1249,7 +1255,7 @@ Critical/Important counts; the marker step below refuses a report with more than
 1. Fix critical issues first
 2. Address important issues
 3. Consider suggestions
-4. Apply the documentation updates listed above
+4. Apply the documentation updates listed above (when that section is present)
 5. Re-run review after fixes
 ```
 
@@ -1661,7 +1667,8 @@ If implementation report references a Source PRD:
 | `--metrics` with no metrics file | Display "No review metrics found" and EXIT |
 | `--metrics` with PR number | Display metrics first, then proceed with review |
 | Agent tool not available | Fall back to `{TOOL}:review` (single-session sequential) |
-| Agent times out or fails | Note failure, proceed with available results; if core agent failed, force verdict to NEEDS FIXES minimum |
+| Agent times out or has not returned | Abort the review (3.0 must not run while an agent may still write) |
+| Agent returns an error | Note failure, proceed with available results; if core agent failed, force verdict to NEEDS FIXES minimum |
 | `--no-commit` flag provided | Skip auto-commit of review artifact to PR branch. Useful when caller (e.g., run-all) commits artifacts separately |
 | `PRP_RUN_ALL=1` env set | Same as `--no-commit` — run-all handles artifact commits in its own step |
 | Auto-commit fails (push rejected) | WARN but continue — artifact is saved locally and posted to GitHub. Display: "WARNING: Could not push review artifact to PR branch. Commit manually or use safe-merge --skip-review-check." |

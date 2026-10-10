@@ -61,7 +61,8 @@ For each change, search project docs:
 
 ### Step 3: Make Updates Directly
 
-**Don't just report - fix the docs.**
+**Don't just report - fix the docs** (when you run on your own; a task prompt that says not to
+edit wins, see "Commit Process").
 
 | Situation | Action |
 |-----------|--------|
