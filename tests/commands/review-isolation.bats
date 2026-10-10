@@ -225,3 +225,12 @@ guard_case() {   # $1 = REVIEW_CLONE value; the directory must survive
     [[ "$output" == *"inside the author's repository"* ]]
     [ -z "$(ls -A "$W/author/scratch")" ]
 }
+
+@test "an unfetchable PR head aborts naming the remote, never its URL or credentials" {
+    git -C "$W/author" remote add origin "http://user:FAKEPW@127.0.0.1:9/o/r.git"
+    SHA=0123456789abcdef0123456789abcdef01234567 run run_211
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"no remote serves it"* && "$output" == *"origin(fetch failed"* ]]
+    [[ "$output" != *"127.0.0.1"* && "$output" != *"FAKEPW"* && "$output" != *"o/r.git"* ]]
+    [ -z "$(ls -A "$W/sp")" ]
+}

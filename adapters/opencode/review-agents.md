@@ -519,13 +519,16 @@ if ! git -C "$REVIEW_CLONE/repo" cat-file -e "$REVIEWED_HEAD_SHA^{commit}" 2>/de
   tried=""
   for remote in $(git -C "$AUTHOR_WORKTREE" remote); do   # origin, upstream (fork), ...
     url="$(git -C "$AUTHOR_WORKTREE" remote get-url "$remote")" || { tried+=" $remote(no url)"; continue; }
-    # git's last error line, with any credentials in a URL masked; the URL itself is never printed
-    err="$(git -C "$REVIEW_CLONE/repo" fetch --quiet "$url" "pull/$PR_NUMBER/head" 2>&1 >/dev/null \
-           | sed -E 's#://[^/@ ]*@#://***@#g' | tail -n 1)"
+    # only the remote's NAME and a fixed reason are printed: git's error text carries the URL
+    if git -C "$REVIEW_CLONE/repo" fetch --quiet "$url" "pull/$PR_NUMBER/head" >/dev/null 2>&1; then
+      reason="fetched, but $REVIEWED_HEAD_SHA is not pull/$PR_NUMBER/head"
+    else
+      reason="fetch failed (exit $?)"
+    fi
     if git -C "$REVIEW_CLONE/repo" cat-file -e "$REVIEWED_HEAD_SHA^{commit}" 2>/dev/null; then
       fetched=1; break
     fi
-    tried+=" $remote(${err:-fetched, but $REVIEWED_HEAD_SHA is not pull/$PR_NUMBER/head})"
+    tried+=" $remote($reason)"
   done
   [ -n "$fetched" ] || abort_clean "the PR head $REVIEWED_HEAD_SHA is not in the author's repository and no remote serves it; tried:${tried:- no remotes}"
 fi
