@@ -1,7 +1,7 @@
 #!/usr/bin/env bats
 # The review-agents isolation (prompts/review-agents.md, Phase 2.1.1 and 3.0) is executable
 # shell inside a prompt. These tests extract the two blocks and run them for real on a scratch
-# repository, each in its own shell, with 3.0 seeing only the four values 2.1.1 printed — the
+# repository, each in its own shell, with 3.0 seeing only the five values 2.1.1 printed — the
 # way an orchestrator runs them. Scope (stated in the prompt): ACCIDENTAL contamination of the
 # author's repository; a hostile same-user agent is out of scope (prp-framework#138).
 # Each fingerprint component has a change below that ONLY it can see, so removing any one
@@ -51,9 +51,9 @@ run_211() {   # [dir] — runs 2.1.1 in a fresh shell, prints its output
         REVIEWED_HEAD_SHA="${SHA-$HEAD_SHA}" SCRATCHPAD="${SCRATCH:-$W/sp}" bash "$W/211.sh")
 }
 
-run_30() {    # $1 = 2.1.1 output; runs 3.0 in a fresh shell given only the four printed values
+run_30() {    # $1 = 2.1.1 output; runs 3.0 in a fresh shell given only the five printed values
     local vars
-    vars="$(grep -E '^(AUTHOR_WORKTREE|REVIEW_CLONE|AUTHOR_HEAD|AUTHOR_FINGERPRINT)=' <<<"$1")"
+    vars="$(grep -E '^(AUTHOR_WORKTREE|REVIEW_CLONE|AUTHOR_HEAD|AUTHOR_FINGERPRINT|CLONE_BASE)=' <<<"$1")"
     (cd / && env -i PATH="$PATH" HOME="$W" TMPDIR="${TMP30:-$W}" $vars bash "$W/30.sh")
 }
 
@@ -180,7 +180,7 @@ run_30() {    # $1 = 2.1.1 output; runs 3.0 in a fresh shell given only the four
     for f in B a _c Zed 'ä' 'Éb'; do printf 'x\n' > "$W/author/$f"; done
     out="$(cd "$W/author" && env -i PATH="$PATH" HOME="$W" TMPDIR="$W" LC_ALL=C PR_NUMBER=7 \
         REVIEWED_HEAD_SHA="$HEAD_SHA" SCRATCHPAD="$W/sp" bash "$W/211.sh")"
-    vars="$(grep -E '^(AUTHOR_WORKTREE|REVIEW_CLONE|AUTHOR_HEAD|AUTHOR_FINGERPRINT)=' <<<"$out")"
+    vars="$(grep -E '^(AUTHOR_WORKTREE|REVIEW_CLONE|AUTHOR_HEAD|AUTHOR_FINGERPRINT|CLONE_BASE)=' <<<"$out")"
     run env -i PATH="$PATH" HOME="$W" TMPDIR="$W" LC_ALL="$loc" $vars bash "$W/30.sh"
     [ "$status" -eq 0 ]
 }
@@ -248,84 +248,133 @@ guard_case() {   # $1 = REVIEW_CLONE value; the directory must survive
     [ -n "$patch" ] && [ -s "$patch" ]
     grep -q '^+updated$' "$patch"
     grep -q 'docs/guide.txt' "$patch"
-    ! grep -q 'not docs' "$patch"
+    ! grep -q 'not docs' "$patch" || false
     [ ! -e "$clone" ]
 }
 
 @test "no reviewer agent prompt tells the agent to commit or push" {
     agents="$(awk '/^### 2\.2 /{f=1} /^## Phase 3/{f=0} f' "$PROMPT")"
     [ -n "$agents" ]
-    ! grep -niE 'commit and push|git push|push to the PR branch' <<<"$agents"
+    ! grep -niE 'commit and push|git push|push to the PR branch' <<<"$agents" || false
 }
 
-@test "3.0.1 applies the docs patch only at the PR head into a clean index, committing nothing else" {
+author_state() {   # everything 3.0.1 must leave alone in the author's checkout
+    git -C "$W/author" rev-parse HEAD
+    git -C "$W/author" ls-files -s
+    git -C "$W/author" status --porcelain=v1 --ignored
+    git -C "$W/author" diff
+}
+
+run_301() {   # $1 = patch; runs 3.0.1 in a fresh shell at the reviewed head $HEAD_SHA
     block '^### 3[.]0[.]1 ' > "$W/301.sh"
-    git -C "$W/author" reset -q                     # a clean index for the apply case
-    out="$(run_211)"
-    clone="$(sed -n 's/^REVIEW_CLONE=//p' <<<"$out")"
-    printf '# Readme\nupdated\n' > "$clone/repo/README.md"
-    run run_30 "$out"
-    [ "$status" -eq 0 ]
-    patch="$(sed -n 's/^DOCS_PATCH=//p' <<<"$output")"
-    [ -s "$patch" ]
-    cp "$patch" "$W/saved.patch"
-    apply() { (cd / && env -i PATH="$PATH" HOME="$W" AUTHOR_WORKTREE="$W/author" DOCS_PATCH="$patch" REVIEWED_HEAD_SHA="$1" "${@:2}" bash "$W/301.sh"); }
-    # at the PR head, clean index: applied and committed — the commit holds only README.md
-    run apply "$HEAD_SHA" GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
-    [ "$status" -eq 0 ]
-    [ "$(git -C "$W/author" show --name-only --format= HEAD)" = "README.md" ]
-    git -C "$W/author" reset -q --hard "$HEAD_SHA"
-    # the author has something staged: nothing applied, nothing committed
-    cp "$W/saved.patch" "$patch"
-    printf 'mine\n' > "$W/author/mine" && git -C "$W/author" add mine
-    run apply "$HEAD_SHA"
-    [[ "$output" == *"index has staged changes: docs fixes NOT applied"* ]]
-    [ "$(git -C "$W/author" rev-parse HEAD)" = "$HEAD_SHA" ]
-    ! git -C "$W/author" diff --cached --name-only | grep -qx README.md
-    # elsewhere: not applied, the patch is kept
-    git -C "$W/author" reset -q
-    run apply 0123456789abcdef0123456789abcdef01234567
-    [[ "$output" == *"NOT applied; patch kept at $patch"* ]]
-    [ -s "$patch" ]
+    rm -rf "$W/t301" && mkdir "$W/t301"
+    (cd / && env -i PATH="$PATH" HOME="$W" TMPDIR="$W/t301" AUTHOR_WORKTREE="$W/author" DOCS_PATCH="$1" \
+        REVIEWED_HEAD_SHA="${R301-$HEAD_SHA}" bash "$W/301.sh")
 }
 
 docs_case() {   # $1 = shell run inside the clone; prints 3.0.1's output for the exported patch
-    block '^### 3[.]0[.]1 ' > "$W/301.sh"
-    git -C "$W/author" reset -q
     local out clone patch
     out="$(run_211)"
     clone="$(sed -n 's/^REVIEW_CLONE=//p' <<<"$out")"
     (cd "$clone/repo" && eval "$1")
     patch="$(run_30 "$out" | sed -n 's/^DOCS_PATCH=//p')"
     [ -s "$patch" ] || { echo "no patch exported"; return 1; }
-    (cd / && env -i PATH="$PATH" HOME="$W" AUTHOR_WORKTREE="$W/author" DOCS_PATCH="$patch" \
-        REVIEWED_HEAD_SHA="$HEAD_SHA" NO_COMMIT=1 bash "$W/301.sh")
+    cp "$patch" "$W/last.patch"
+    run_301 "$patch"
+}
+
+@test "3.0.1 proposes a valid docs patch and never touches the author's checkout" {
+    before="$(author_state)"
+    run docs_case "printf '# Readme\nupdated\n' > README.md"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"DOCS_FIXES_PROPOSED="* && "$output" == *"apply --index"* ]]
+    [ "$(author_state)" = "$before" ]
+    [[ "$output" == *$'It changes:\nREADME.md'* ]]
+    [ -z "$(ls -A "$W/t301")" ]                     # the throwaway index is removed
+    # the proposed patch is what its apply command says: README.md only, at the reviewed head
+    git -C "$W/author" reset -q
+    git -C "$W/author" apply --index "$W/last.patch"
+    [ "$(git -C "$W/author" diff --cached --name-only)" = "README.md" ]
+}
+
+@test "3.0.1 refuses a patch that does not apply at the reviewed head, without touching the checkout" {
+    before="$(author_state)"
+    R301=0123456789abcdef0123456789abcdef01234567 run docs_case "printf 'x\n' > README.md"
+    [[ "$output" == *"REFUSED"* && "$output" == *"does not apply"* ]]
+    [[ "$output" != *"DOCS_FIXES_PROPOSED"* ]]
+    [ "$(author_state)" = "$before" ]
 }
 
 @test "a user diff.noprefix setting cannot move a docs/ file out of docs/" {
     printf '[diff]\n\tnoprefix = true\n' > "$W/.gitconfig"
     run docs_case "mkdir -p docs/.github/workflows && printf 'x\\n' > docs/.github/workflows/x.yml"
     [ "$status" -eq 0 ]
-    staged="$(git -C "$W/author" diff --cached --name-only)"
-    [[ "$staged" == *"docs/.github/workflows/x.yml"* ]]
-    [[ "$staged" != *$'\n'".github/workflows/x.yml"* && "$staged" != ".github/workflows/x.yml"* ]]
+    [[ "$output" == *"DOCS_FIXES_PROPOSED="* ]]
+    grep -qx '+++ b/docs/.github/workflows/x.yml' "$W/last.patch"
     [ ! -e "$W/author/.github" ]
 }
 
-@test "3.0.1 refuses a docs patch with a symlink or a mode change" {
-    run docs_case "ln -s /etc/passwd evil.md"
-    [[ "$output" == *"NOT applied"* ]]
-    ! git -C "$W/author" diff --cached --name-only | grep -qx evil.md
-    run docs_case "chmod +x doc.md"
-    [[ "$output" == *"NOT applied"* ]]
-    [ "$(git -C "$W/author" ls-files -s doc.md | cut -c1-6)" = 100644 ]
+@test "3.0.1 refuses a new symlink, a retargeted symlink, an executable and a mode change" {
+    # a tracked Markdown symlink at the reviewed head, for the retarget case
+    ln -s doc.md "$W/author/link.md" && git -C "$W/author" add link.md && gc -C "$W/author" commit -q -m link -- link.md
+    HEAD_SHA="$(git -C "$W/author" rev-parse HEAD)"
+    before="$(author_state)"
+    for c in "ln -s /etc/passwd evil.md" "ln -sfn /etc/passwd link.md" \
+             "mkdir -p docs && printf '#!/bin/sh\n' > docs/build.sh && chmod +x docs/build.sh" \
+             "chmod +x doc.md" "rm link.md && printf 'x\n' > link.md"; do
+        run docs_case "$c"
+        [[ "$output" == *"REFUSED"* ]] || { echo "not refused: $c :: $output"; false; }
+        [[ "$output" != *"DOCS_FIXES_PROPOSED"* ]]
+    done
+    [ "$(author_state)" = "$before" ]
+}
+
+@test "3.0.1 refuses a gitlink under docs/" {
+    # an embedded repository: 3.0's add -A stages it as a gitlink
+    run docs_case "git init -q docs/theme && git -C docs/theme -c user.name=t -c user.email=t@t commit -q --allow-empty -m x"
+    [[ "$output" == *"REFUSED"* && "$output" == *"docs/theme"* ]]
+}
+
+@test "a moved doc is exported as a delete plus an add and is proposed" {
+    run docs_case "git mv doc.md moved.md"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"DOCS_FIXES_PROPOSED="* ]]
+    ! grep -q '^rename ' "$W/last.patch" || false
 }
 
 @test "3.0.1 refuses a patch that touches a path outside Markdown/docs" {
-    block '^### 3[.]0[.]1 ' > "$W/301.sh"
-    git -C "$W/author" reset -q
     printf 'diff --git a/scripts/x.sh b/scripts/x.sh\nnew file mode 100644\n--- /dev/null\n+++ b/scripts/x.sh\n@@ -0,0 +1 @@\n+echo hi\n' > "$W/bad.patch"
-    run bash -c "cd / && env -i PATH='$PATH' HOME='$W' AUTHOR_WORKTREE='$W/author' DOCS_PATCH='$W/bad.patch' REVIEWED_HEAD_SHA=$HEAD_SHA bash '$W/301.sh'"
-    [[ "$output" == *"NOT applied"* ]]
+    before="$(author_state)"
+    run run_301 "$W/bad.patch"
+    [[ "$output" == *"REFUSED"* && "$output" == *"scripts/x.sh"* ]]
     [ ! -e "$W/author/scripts/x.sh" ]
+    [ "$(author_state)" = "$before" ]
+}
+
+@test "edits the docs agent commits inside the clone are exported too" {
+    run docs_case "printf '# Readme\ncommitted\n' > README.md && git add README.md && git -c user.name=t -c user.email=t@t commit -q -m d"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"DOCS_FIXES_PROPOSED="* ]]
+    grep -qx '+committed' "$W/last.patch"
+}
+
+@test "a binary file under docs/ is exported whole and proposed" {
+    run docs_case "mkdir -p docs && printf '\\211PNG\\0\\1\\2' > docs/x.png"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"DOCS_FIXES_PROPOSED="* ]]
+    git -C "$W/author" reset -q
+    git -C "$W/author" apply --index "$W/last.patch"
+    [ "$(git -C "$W/author" ls-files -s docs/x.png | cut -c1-6)" = 100644 ]
+}
+
+@test "3.0.1 checks against the reviewed head, not wherever the checkout has moved since" {
+    out="$(run_211)"
+    clone="$(sed -n 's/^REVIEW_CLONE=//p' <<<"$out")"
+    printf 'reviewed\n' > "$clone/repo/doc.md"
+    patch="$(run_30 "$out" | sed -n 's/^DOCS_PATCH=//p')"
+    [ -s "$patch" ]
+    # the author commits a conflicting doc.md after the review started
+    printf 'moved on\n' > "$W/author/doc.md" && gc -C "$W/author" commit -q -m later -- doc.md
+    run run_301 "$patch"
+    [[ "$output" == *"DOCS_FIXES_PROPOSED="* ]]
 }
