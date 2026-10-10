@@ -545,7 +545,6 @@ echo "AUTHOR_WORKTREE=$AUTHOR_WORKTREE"
 echo "REVIEW_CLONE=$REVIEW_CLONE"
 echo "AUTHOR_HEAD=$AUTHOR_HEAD"
 echo "AUTHOR_FINGERPRINT=$AUTHOR_FINGERPRINT"
-echo "CLONE_BASE=$REVIEWED_HEAD_SHA"
 ```
 
 Pass `$REVIEW_CLONE/repo` (not `$AUTHOR_WORKTREE`) to every agent prompt as the working
@@ -560,7 +559,7 @@ it or git -C <REVIEW_CLONE>/repo; a tool call's working directory does not persi
 read or write <AUTHOR_WORKTREE>.`
 
 An agent that ignores the rule and writes in the author's tree is still caught by 3.0. Keep
-the five printed values: Phase 3.0 needs them.
+the four printed values: Phase 3.0 needs them.
 
 ### 2.2 Core Agents (Always — Spawn ALL in Parallel)
 
@@ -831,20 +830,19 @@ Check:
 - Are API changes reflected in documentation?
 - Are configuration changes noted?
 
-If you find stale docs, edit them in your working directory (the review clone) only.
-Do NOT commit or push: the clone has no remote. After the review the orchestrator checks your
-edits and proposes them to the author as a patch. Only Markdown files and files under docs/
-are carried over.
-Display what was updated.
+Do NOT edit, commit or push anything: the review clone has no remote and is deleted after
+the review, so any edit there is lost. Report every documentation change the PR needs under
+"Documentation Updates Needed", with the file, the location and the exact proposed text, so
+the author can make it.
 
 Report findings as structured markdown:
 ## Findings
 | Severity | Issue | File:Line | Fix |
 |----------|-------|-----------|-----|
 
-## Documentation Updates Made
-| File | Change |
-|------|--------|
+## Documentation Updates Needed
+| File | Location | Proposed text |
+|------|----------|---------------|
 
 Use severity levels: Critical, High, Medium, Low"
 )
@@ -920,7 +918,7 @@ Running: $prp-review {NUMBER}
 
 ### 3.0 Verify Author Worktree Integrity
 
-Before collecting results, verify the author's repository was not touched. Fill in the five
+Before collecting results, verify the author's repository was not touched. Fill in the four
 values 2.1.1 printed, from this transcript (never from a file an agent could have written);
 a value that is missing or still a placeholder is an abort, never a pass:
 
@@ -929,12 +927,10 @@ AUTHOR_WORKTREE="${AUTHOR_WORKTREE:-<AUTHOR_WORKTREE printed by 2.1.1>}"
 REVIEW_CLONE="${REVIEW_CLONE:-<REVIEW_CLONE printed by 2.1.1>}"
 AUTHOR_HEAD="${AUTHOR_HEAD:-<AUTHOR_HEAD printed by 2.1.1>}"
 AUTHOR_FINGERPRINT="${AUTHOR_FINGERPRINT:-<AUTHOR_FINGERPRINT printed by 2.1.1>}"
-CLONE_BASE="${CLONE_BASE:-<CLONE_BASE printed by 2.1.1>}"
 abort() { echo "REVIEW ABORT: $*"; exit 1; }
-for v in AUTHOR_WORKTREE REVIEW_CLONE AUTHOR_HEAD AUTHOR_FINGERPRINT CLONE_BASE; do
+for v in AUTHOR_WORKTREE REVIEW_CLONE AUTHOR_HEAD AUTHOR_FINGERPRINT; do
   [[ -n "${!v}" && "${!v}" != "<"* ]] || abort "$v is not filled in"
 done
-[[ "$CLONE_BASE" =~ ^[0-9a-f]{40}$ ]] || abort "CLONE_BASE ($CLONE_BASE) is not a commit SHA"
 # The one destructive command below only ever removes a canonical review clone made by 2.1.1
 rc="$(cd -P -- "$REVIEW_CLONE" 2>/dev/null && pwd)" \
   && [[ "$rc" == "$REVIEW_CLONE" && "$(basename -- "$rc")" =~ ^prp-review-pr-[1-9][0-9]*\.[A-Za-z0-9]{6}$ && -d "$rc/repo/.git" ]] \
@@ -995,23 +991,8 @@ now="$(author_fingerprint)" && [ -n "$now" ] || abort "cannot fingerprint the au
 [ "$now" = "$AUTHOR_FINGERPRINT" ] \
   || abort "the author's repository (files, index, flags, ignored paths, refs, stash, worktrees, local config, info/ or hooks) changed during review"
 
-# Carry the docs-impact agent's edits out of the clone before removing it: Markdown and docs/
-# only, as a patch next to the clone (not inside it); "Propose documentation fixes" uses it.
-# The diff is against CLONE_BASE (the reviewed head the clone was made at), so edits the agent
-# committed inside the clone are carried as well as uncommitted ones.
-# (stage everything in the throwaway clone, then limit the DIFF: an add with a pathspec that
-# matches nothing, e.g. no docs/, fails and stages nothing)
-# (fixed prefixes and no external/textconv/colour diff, whatever the user's git config says:
-# a noprefix patch would lose 'docs/' when applied; no renames, so a moved doc is a delete
-# plus an add, which the checks in 3.0.1 accept)
-git -C "$rc/repo" add -A \
-  && git -C "$rc/repo" -c diff.noprefix=false -c diff.mnemonicPrefix=false diff --cached --binary \
-       --no-renames --no-ext-diff --no-textconv --no-color --src-prefix=a/ --dst-prefix=b/ \
-       "$CLONE_BASE" -- '*.md' docs/ > "$rc.docs.patch" \
-  || abort "could not export the documentation fixes"
-[ -s "$rc.docs.patch" ] || rm -f -- "$rc.docs.patch"
-echo "DOCS_PATCH=$( [ -e "$rc.docs.patch" ] && echo "$rc.docs.patch" )"
-
+# Nothing is carried out of the clone: agents report findings, and edits made in the clone
+# are discarded with it.
 # Clean up: the clone is a plain directory, nothing to unregister
 rm -rf -- "$rc"
 ```
@@ -1021,56 +1002,6 @@ another session working in the same repository (a commit, fetch or branch cleanu
 worktree) also changes refs and worktrees: check that before blaming a reviewer. Leave the
 clone in place for the investigation; `git -C "$AUTHOR_WORKTREE" status` and
 `git -C "$AUTHOR_WORKTREE" for-each-ref` show what changed.
-
-### 3.0.1 Propose Documentation Fixes
-
-If 3.0 printed a non-empty `DOCS_PATCH=`, check the patch and propose it to the author. Never
-apply or commit it here, for two reasons:
-- no reviewer has read it;
-- a docs commit would move the PR head past the reviewed code, and the marker re-bind accepts
-  only this run's own `.prp-output/` artifacts (see "Commit artifacts BEFORE the marker").
-
-The checks run in a throwaway index built from the reviewed head, so the author's index,
-worktree and branch are never touched. A patch that passes goes into the report under
-"Documentation Updates Made", with the paths it changes and its apply command. Every new or
-changed Markdown file in the clone is exported, not only the docs agent's, so the path list is
-what the author checks before applying. The author applies it as an ordinary commit, which
-the next review round covers. A refused patch is reported with its reason and
-stays at its path for inspection.
-
-```bash
-DOCS_PATCH="${DOCS_PATCH:-<DOCS_PATCH printed by 3.0>}"
-A="${AUTHOR_WORKTREE:-<AUTHOR_WORKTREE printed by 2.1.1>}"
-R="${REVIEWED_HEAD_SHA:-<REVIEWED_HEAD_SHA from Phase 1>}"
-if [[ -n "$DOCS_PATCH" && "$DOCS_PATCH" != "<"* && -s "$DOCS_PATCH" ]]; then
-  # apply into a throwaway index at the reviewed head, then list every path it changes. Each
-  # path must be Markdown or under docs/, and must be a regular non-executable file (mode
-  # 100644) or absent, both before and after. So: no symlink (new or retargeted), no gitlink,
-  # no executable, no rename or copy. A path git has to quote (special or non-ASCII characters)
-  # matches neither pattern and is refused.
-  t="$(mktemp -d)" || exit 1
-  if changes="$(export GIT_INDEX_FILE="$t/index"
-        git -C "$A" read-tree "$R" && git -C "$A" apply --cached "$DOCS_PATCH" &&
-        git -C "$A" -c core.quotePath=true diff-index --cached --raw --no-renames "$R")"; then
-    bad="$(awk -F'\t' '{ split($1, m, " ")
-             ok = (m[1] == ":000000" || m[1] == ":100644") && (m[2] == "000000" || m[2] == "100644") &&
-                  ($2 ~ /(^|\/)[^\/]*\.md$/ || $2 ~ /^docs\//)
-             if (!ok) print }' <<<"$changes")"
-  else
-    bad="the patch does not apply at the reviewed head $R, or that commit is not in $A"
-  fi
-  rm -rf -- "$t"
-  if [[ -n "$bad" ]]; then
-    printf 'Docs patch REFUSED, not proposed; kept at %s for inspection:\n%s\n' "$DOCS_PATCH" "$bad"
-  elif [[ -z "$changes" ]]; then
-    echo "The docs patch changes nothing: nothing to propose"
-  else
-    echo "DOCS_FIXES_PROPOSED=$DOCS_PATCH"
-    echo "It changes:"; cut -f2- <<<"$changes"
-    echo "To apply: git -C '$A' apply --index '$DOCS_PATCH', then commit; the next review round covers it"
-  fi
-fi
-```
 
 After all agents complete, collect their outputs. Each agent returns a markdown report with findings.
 
