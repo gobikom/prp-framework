@@ -616,3 +616,46 @@ sibling_case() {   # $1 = worktree the review runs from, $2 = worktree the agent
     [ "$status" -eq 1 ]
     [[ "$output" == *"changed during review"* ]]
 }
+
+@test "a sibling's refs/worktree ref, a moved existing ref, and FETCH_HEAD / ORIG_HEAD are seen" {
+    gc -C "$W/author" worktree add -q -b feat "$W/wt-feat" 2>/dev/null
+    git -C "$W/wt-feat" update-ref refs/worktree/x HEAD
+    first="$(git -C "$W/author" rev-parse HEAD~1)"
+    out="$(run_211)"
+    git -C "$W/wt-feat" update-ref refs/worktree/x "$first"    # an existing ref, moved to another commit
+    run run_30 "$out"
+    [ "$status" -eq 1 ]
+    out="$(run_211)"
+    git -C "$W/wt-feat" update-ref ORIG_HEAD "$first"           # worktree add already wrote ORIG_HEAD = HEAD
+    run run_30 "$out"
+    [ "$status" -eq 1 ]
+    out="$(run_211)"
+    printf '%s\t\tbranch x\n' "$first" > "$W/author/.git/FETCH_HEAD"
+    run run_30 "$out"
+    [ "$status" -eq 1 ]
+}
+
+@test "a sibling worktree's refs/rewritten, and config it includes, are seen" {
+    git -C "$W/author" config extensions.worktreeConfig true
+    gc -C "$W/author" worktree add -q -b feat "$W/wt-feat" 2>/dev/null
+    printf '[core]\n\tx = 1\n' > "$W/author/.git/wtinc.cfg"
+    git -C "$W/wt-feat" config --worktree include.path "$W/author/.git/wtinc.cfg"
+    out="$(run_211)"
+    printf '[core]\n\thooksPath = %s/elsewhere\n' "$W" > "$W/author/.git/wtinc.cfg"
+    run run_30 "$out"
+    [ "$status" -eq 1 ]
+    out="$(run_211)"
+    git -C "$W/wt-feat" update-ref refs/rewritten/x HEAD
+    run run_30 "$out"
+    [ "$status" -eq 1 ]
+}
+
+@test "an includeIf that applies only to a sibling worktree is seen" {
+    gc -C "$W/author" worktree add -q -b feat "$W/wt-feat" 2>/dev/null
+    printf '[core]\n\tx = 1\n' > "$W/author/.git/wtonly.cfg"
+    git -C "$W/author" config "includeIf.gitdir:$W/author/.git/worktrees/wt-feat.path" "$W/author/.git/wtonly.cfg"
+    out="$(run_211)"
+    printf '[core]\n\thooksPath = %s/elsewhere\n' "$W" > "$W/author/.git/wtonly.cfg"
+    run run_30 "$out"
+    [ "$status" -eq 1 ]
+}

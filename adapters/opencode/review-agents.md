@@ -470,12 +470,23 @@ author_fingerprint() (   # identical in 2.1.1 and 3.0; prints one hash, or fails
       || { echo "cannot read worktree $1 (a stale one? see git worktree prune)" >&2; exit 1; }
     # the index itself: object id, mode and stage of every entry (a re-staged edit, a chmod)
     "${g[@]}" ls-files -s -z | tr '\0' '\n' || exit 1
-    # this worktree's own refs (refs/worktree/*, refs/bisect/*), which for-each-ref from another
-    # worktree does not list
-    "${g[@]}" for-each-ref --format='%(refname) %(objectname)' refs/worktree refs/bisect || exit 1
+    # every ref as this worktree sees it, so its own per-worktree refs (refs/worktree/*,
+    # refs/bisect/*, refs/rewritten/*, whatever git treats as per-worktree) are included, and
+    # FETCH_HEAD / ORIG_HEAD, which a stray fetch or reset writes without moving a branch
+    "${g[@]}" for-each-ref --format='%(refname) %(objectname)' || exit 1
+    for pseudo in FETCH_HEAD ORIG_HEAD; do
+      pf="$("${g[@]}" rev-parse --git-path "$pseudo")" || exit 1
+      if [ -f "$pf" ]; then printf '%s ' "$pseudo"; "${H[@]}" "$pf" 2>&1; else printf 'no %s\n' "$pseudo"; fi
+    done
+    # the repository config as this worktree sees it: every line, and its include.path / includeIf
+    # files (includeIf conditions such as gitdir: are evaluated per worktree)
+    "${g[@]}" config --local --list --includes || exit 1
     # this worktree's own config (config.worktree, used when extensions.worktreeConfig is on)
     cw="$("${g[@]}" rev-parse --git-path config.worktree)" || exit 1
-    if [ -f "$cw" ]; then "${H[@]}" "$cw" 2>&1; else printf 'no config.worktree\n'; fi
+    if [ -f "$cw" ]; then
+      "${H[@]}" "$cw" 2>&1
+      "${g[@]}" config --file "$cw" --list --includes || exit 1   # and what it includes
+    else printf 'no config.worktree\n'; fi
     # Mode and contents of modified, untracked and index-flagged (skip-worktree /
     # assume-unchanged) files: a flag, or an edit to an already-dirty or flagged file, leaves
     # the status line unchanged. Symlinks count by target; only regular
@@ -501,9 +512,6 @@ author_fingerprint() (   # identical in 2.1.1 and 3.0; prints one hash, or fails
     "${g[@]}" for-each-ref --format='%(refname) %(objectname)' || exit 1
     wts="$("${g[@]}" worktree list --porcelain)" || exit 1
     printf '%s\n' "$wts"
-    # repository config, every line of it (a multi-line value spans several), including what
-    # its include.path / includeIf files set
-    "${g[@]}" config --local --list --includes || exit 1
     # every worktree of the repository, not only this one: an agent in the wrong checkout
     # changes a sibling worktree as easily as this one (a bare main entry has no files)
     while IFS= read -r wt; do
@@ -1007,12 +1015,23 @@ author_fingerprint() (   # identical in 2.1.1 and 3.0; prints one hash, or fails
       || { echo "cannot read worktree $1 (a stale one? see git worktree prune)" >&2; exit 1; }
     # the index itself: object id, mode and stage of every entry (a re-staged edit, a chmod)
     "${g[@]}" ls-files -s -z | tr '\0' '\n' || exit 1
-    # this worktree's own refs (refs/worktree/*, refs/bisect/*), which for-each-ref from another
-    # worktree does not list
-    "${g[@]}" for-each-ref --format='%(refname) %(objectname)' refs/worktree refs/bisect || exit 1
+    # every ref as this worktree sees it, so its own per-worktree refs (refs/worktree/*,
+    # refs/bisect/*, refs/rewritten/*, whatever git treats as per-worktree) are included, and
+    # FETCH_HEAD / ORIG_HEAD, which a stray fetch or reset writes without moving a branch
+    "${g[@]}" for-each-ref --format='%(refname) %(objectname)' || exit 1
+    for pseudo in FETCH_HEAD ORIG_HEAD; do
+      pf="$("${g[@]}" rev-parse --git-path "$pseudo")" || exit 1
+      if [ -f "$pf" ]; then printf '%s ' "$pseudo"; "${H[@]}" "$pf" 2>&1; else printf 'no %s\n' "$pseudo"; fi
+    done
+    # the repository config as this worktree sees it: every line, and its include.path / includeIf
+    # files (includeIf conditions such as gitdir: are evaluated per worktree)
+    "${g[@]}" config --local --list --includes || exit 1
     # this worktree's own config (config.worktree, used when extensions.worktreeConfig is on)
     cw="$("${g[@]}" rev-parse --git-path config.worktree)" || exit 1
-    if [ -f "$cw" ]; then "${H[@]}" "$cw" 2>&1; else printf 'no config.worktree\n'; fi
+    if [ -f "$cw" ]; then
+      "${H[@]}" "$cw" 2>&1
+      "${g[@]}" config --file "$cw" --list --includes || exit 1   # and what it includes
+    else printf 'no config.worktree\n'; fi
     # Mode and contents of modified, untracked and index-flagged (skip-worktree /
     # assume-unchanged) files: a flag, or an edit to an already-dirty or flagged file, leaves
     # the status line unchanged. Symlinks count by target; only regular
@@ -1038,9 +1057,6 @@ author_fingerprint() (   # identical in 2.1.1 and 3.0; prints one hash, or fails
     "${g[@]}" for-each-ref --format='%(refname) %(objectname)' || exit 1
     wts="$("${g[@]}" worktree list --porcelain)" || exit 1
     printf '%s\n' "$wts"
-    # repository config, every line of it (a multi-line value spans several), including what
-    # its include.path / includeIf files set
-    "${g[@]}" config --local --list --includes || exit 1
     # every worktree of the repository, not only this one: an agent in the wrong checkout
     # changes a sibling worktree as easily as this one (a bare main entry has no files)
     while IFS= read -r wt; do
