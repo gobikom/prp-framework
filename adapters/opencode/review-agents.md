@@ -1195,9 +1195,12 @@ fi
 
 With `--l2-comments`, this run's GitHub output is **three per-pass comments** in the format the L2 verifier (`l2-recipe.sh`, the cloud-delegate skill's recipe) and `safe-merge` read — and nothing else:
 
-- **No artifact commit**: `NO_COMMIT=1` is set; the "Commit Review Artifact to PR Branch" step is skipped. A committed artifact would be read as the review itself and makes the L2 recipe abort.
-- **No marker and no aggregated post**: skip "Emit safe-merge review marker" and "Post to GitHub" below. The `safe-merge-review` marker is written by the L2 verifier after it checks these three comments; a READY marker posted here would make the L2 recipe abort ("a READY marker for <head> is already on the PR"). The aggregated review is still saved locally (`.prp-output/reviews/pr-{NUMBER}-agents-review.md`, untracked).
+- **Set only from the arguments**: `L2_COMMENTS=1` only when `--l2-comments` is in this run's arguments (never inherited from the environment; start from `L2_COMMENTS=0`).
+- **No artifact commit**: `NO_COMMIT=1` is set; skip the "Commit Review Artifact to PR Branch" step entirely (do not run its block). A committed artifact would be read as the review itself and makes the L2 recipe abort.
+- **No marker and no aggregated post**: skip "Emit safe-merge review marker" and "Post to GitHub" below (do not run their blocks). The `safe-merge-review` marker is written by the L2 verifier after it checks these three comments; a READY marker posted here would make the L2 recipe abort ("a READY marker for <head> is already on the PR"). The aggregated review is still saved locally (`.prp-output/reviews/pr-{NUMBER}-agents-review.md`, untracked).
 - **Core passes only**: one comment each for `code-reviewer`, `security-reviewer` and `silent-failure-hunter`, from that agent's own findings in this run (before cross-agent deduplication, so each comment stands alone). A core agent that failed or returned nothing usable is a FATAL for the run: post none of the three, and report it.
+- **With `--since-last-review`**: each comment describes the whole reviewed head, not only the new changes. A pass's counts include its still-open findings carried over by "Finding Merge" (an unresolved earlier Critical is still listed, and counted), and "Could not verify" names the incremental scope (`Incremental: files changed since <previous reviewed head>; earlier open findings carried over`).
+- **Trust model**: the footer is self-asserted text, like the marker. It makes a hand-run review stand out (it has no footer, or a footer that does not match a real run's three comments) and lets `safe-merge` refuse it; it is not a signature.
 
 Each comment body, exactly in this order:
 
@@ -1221,39 +1224,65 @@ Generated-by: prp-review-agents v<PRP_VERSION> run=<RUN_ID> pass=<pass name>
 ```
 
 Rules the L2 verifier enforces (so do them exactly):
-- Line 1 is exactly `Reviewed head: ` + `$REVIEWED_HEAD_SHA` from Phase 1.3 (never re-queried); line 2 is exactly `Passes run: ` + the pass name. No other text on those lines.
-- Exactly one `### Critical Issues (N found)` and one `### Important Issues (N found)` heading, with this pass's counts; no `safe-merge-review` line anywhere in the body.
-- The last line is the `Generated-by:` footer. `RUN_ID` is the same for all three comments of a run and new for every run; `PRP_VERSION` is the installed framework's version.
+- Line 1 is exactly `Reviewed head: ` + `$REVIEWED_HEAD_SHA` from Phase 1.3 (never re-queried); line 2 is exactly `Passes run: ` + the pass name. No other text on those lines, and neither line, nor a `Generated-by:` line, appears anywhere else in the body.
+- Exactly one each of `### Critical Issues (N found)`, `### Important Issues (N found)`, `### Suggestions (N found)` and `### Could not verify`, spelled exactly so; no `safe-merge-review` text anywhere in the body (any case).
+- The last line is the `Generated-by:` footer. `RUN_ID` is the same for all three comments of a run and new for every run; `PRP_VERSION` is the installed framework's release version.
+- Write each body with the Write tool (or a quoted heredoc), never through an unquoted shell string.
 - Post each comment once and never edit it (the verifier rejects an edited comment).
 
-```bash
-# once per run, before the three posts
-[ "${L2_COMMENTS:-0}" = "1" ] || { echo "not an --l2-comments run" >&2; exit 1; }
-PRP_DIR=$(readlink -f .prp 2>/dev/null)
-PRP_VERSION=$( { [ -n "$PRP_DIR" ] && git -C "$PRP_DIR" describe --tags --always 2>/dev/null; } || true )
-PRP_VERSION="${PRP_VERSION#v}"   # tags are v<semver>; the footer adds the v
-[ -n "$PRP_VERSION" ] || { echo "FATAL: cannot determine the prp-framework version (.prp symlink) — no comments posted" >&2; exit 1; }
-RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)-$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n')"
-printf '%s' "$REVIEWED_HEAD_SHA" | grep -qE '^[0-9a-f]{40}$' || { echo "FATAL: REVIEWED_HEAD_SHA invalid — no comments posted" >&2; exit 1; }
-# the PR head must still be the reviewed head (a push during review invalidates the round)
-NOW_HEAD=$(gh pr view {NUMBER} --json headRefOid -q .headRefOid) || NOW_HEAD=""
-[ "$NOW_HEAD" = "$REVIEWED_HEAD_SHA" ] || { echo "FATAL: PR head moved ($REVIEWED_HEAD_SHA -> $NOW_HEAD) — re-run the review, no comments posted" >&2; exit 1; }
+The posting runs as **three separate steps**, because every shell starts fresh; the run values travel in a file, never retyped:
 
-# per pass: write the body above to .prp-output/reviews/pr-{NUMBER}-l2-<pass>.md, check it, post it
+**Step A — start the run** (prints `RUN_ID` and `PRP_VERSION` for the footers and saves them):
+
+```bash
+[ "${L2_COMMENTS:-0}" = "1" ] || { echo "not an --l2-comments run" >&2; exit 1; }
+printf '%s' "$REVIEWED_HEAD_SHA" | grep -qE '^[0-9a-f]{40}$' || { echo "FATAL: REVIEWED_HEAD_SHA invalid — no comments posted" >&2; exit 1; }
+[ -L .prp ] || { echo "FATAL: .prp is not a symlink to the installed prp-framework — no comments posted" >&2; exit 1; }
+PRP_DIR=$(readlink -f .prp) || { echo "FATAL: cannot resolve .prp" >&2; exit 1; }
+PRP_VERSION=$(git -C "$PRP_DIR" describe --tags --match 'v[0-9]*' 2>&1) || { echo "FATAL: cannot read the prp-framework version: $PRP_VERSION — no comments posted" >&2; exit 1; }
+PRP_VERSION="${PRP_VERSION#v}"   # tags are v<semver>; the footer adds the v
+RAND=$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n') && [ ${#RAND} -eq 8 ] || { echo "FATAL: cannot draw a run id" >&2; exit 1; }
+RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)-$RAND"
+ENV_F=".prp-output/reviews/pr-{NUMBER}-l2-run.env"
+printf 'REVIEWED_HEAD_SHA=%s\nPRP_VERSION=%s\nRUN_ID=%s\n' "$REVIEWED_HEAD_SHA" "$PRP_VERSION" "$RUN_ID" > "$ENV_F" || { echo "FATAL: cannot save $ENV_F" >&2; exit 1; }
+cat "$ENV_F"
+```
+
+**Step B — write the three bodies** to `.prp-output/reviews/pr-{NUMBER}-l2-<pass>.md`, using the values Step A printed, in the format above.
+
+**Step C — check all three, then post all three** (nothing is posted unless every body passes):
+
+```bash
+ENV_F=".prp-output/reviews/pr-{NUMBER}-l2-run.env"
+[ -s "$ENV_F" ] || { echo "FATAL: $ENV_F missing — run Step A" >&2; exit 1; }
+. "$ENV_F"
+for v in REVIEWED_HEAD_SHA PRP_VERSION RUN_ID; do [ -n "${!v:-}" ] || { echo "FATAL: $v missing from $ENV_F" >&2; exit 1; }; done
+NOW_HEAD=$(gh pr view {NUMBER} --json headRefOid -q .headRefOid) || { echo "FATAL: cannot read the PR head (gh failed) — nothing posted" >&2; exit 1; }
+[ "$NOW_HEAD" = "$REVIEWED_HEAD_SHA" ] || { echo "FATAL: PR head moved ($REVIEWED_HEAD_SHA -> $NOW_HEAD) — re-run the review, nothing posted" >&2; exit 1; }
+echo x | grep -qP 'x' || { echo "FATAL: this check needs GNU grep -P" >&2; exit 1; }
 for PASS in code-reviewer security-reviewer silent-failure-hunter; do
   F=".prp-output/reviews/pr-{NUMBER}-l2-$PASS.md"
-  [ -s "$F" ] || { echo "FATAL: $F missing — stop, post nothing further" >&2; exit 1; }
-  [ "$(sed -n 1p "$F")" = "Reviewed head: $REVIEWED_HEAD_SHA" ] && [ "$(sed -n 2p "$F")" = "Passes run: $PASS" ] \
-    && [ "$(grep -ciP '^###\s+(Critical|Important) Issues\s+\(\d+ found\)\s*$' "$F")" = 2 ] \
-    && ! grep -q 'safe-merge-review' "$F" \
-    && [ "$(tail -n1 "$F")" = "Generated-by: prp-review-agents v$PRP_VERSION run=$RUN_ID pass=$PASS" ] \
-    || { echo "FATAL: $F is not in the L2 format — stop, post nothing further" >&2; exit 1; }
-  URL=$(gh pr comment {NUMBER} --body-file "$F") || { echo "FATAL: posting the $PASS comment failed" >&2; exit 1; }
+  [ -s "$F" ] || { echo "FATAL: $F missing — nothing posted" >&2; exit 1; }
+  ok=1
+  [ "$(sed -n 1p "$F")" = "Reviewed head: $REVIEWED_HEAD_SHA" ] || ok=0
+  [ "$(sed -n 2p "$F")" = "Passes run: $PASS" ] || ok=0
+  [ "$(grep -c '^Reviewed head:' "$F")" = 1 ] && [ "$(grep -c '^Passes run:' "$F")" = 1 ] && [ "$(grep -c '^Generated-by:' "$F")" = 1 ] || ok=0
+  for h in '### Critical Issues \([0-9]+ found\)' '### Important Issues \([0-9]+ found\)' '### Suggestions \([0-9]+ found\)' '### Could not verify'; do
+    [ "$(grep -cE "^$h[[:space:]]*\$" "$F")" = 1 ] || ok=0
+  done
+  [ "$(grep -ciE '^#+[[:space:]]*(critical|important)[[:space:]]+issues' "$F")" = 2 ] || ok=0
+  ! grep -qi 'safe-merge-review' "$F" || ok=0
+  [ "$(tail -n1 "$F")" = "Generated-by: prp-review-agents v$PRP_VERSION run=$RUN_ID pass=$PASS" ] || ok=0
+  [ "$ok" = 1 ] || { echo "FATAL: $F is not in the L2 format — nothing posted" >&2; exit 1; }
+done
+for PASS in code-reviewer security-reviewer silent-failure-hunter; do
+  URL=$(gh pr comment {NUMBER} --body-file ".prp-output/reviews/pr-{NUMBER}-l2-$PASS.md") \
+    || { echo "FATAL: posting the $PASS comment failed — the round is incomplete; re-run the review (new RUN_ID)" >&2; exit 1; }
   echo "$PASS: $URL"
 done
 ```
 
-Report the three URLs (they are what the L2 report links, one per pass). If a post fails after an earlier one succeeded, the round is incomplete: re-run the review (a new `RUN_ID`), since the verifier requires one run id across all three.
+Report the three URLs (they are what the L2 report links, one per pass). If a post fails after an earlier one succeeded, the round is incomplete: say so on the PR (one plain comment naming the abandoned `RUN_ID`) and re-run the review with a new `RUN_ID`, since the verifier requires one run id across all three.
 
 ### Post to GitHub
 
