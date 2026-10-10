@@ -28,7 +28,11 @@ these are where quality comes from.
 
 PR number and optional aspects: `$ARGUMENTS`
 
-Format: `<pr-number> [aspects: comments|tests|errors|types|code|security|deps|docs|perf|a11y|simplify|all] [--since-last-review] [--metrics] [--no-commit]`
+Format: `<pr-number> [aspects: comments|tests|errors|types|code|security|deps|docs|perf|a11y|simplify|all] [--since-last-review] [--metrics] [--no-commit] [--l2-comments]`
+
+Flags set shell variables used below: `--no-commit` → `NO_COMMIT=1`; `--l2-comments` → `L2_COMMENTS=1` and `NO_COMMIT=1`.
+
+`--l2-comments` (prp-framework#142): post one PR comment per core pass in the L2 format instead of the aggregated review, and never commit review artifacts (it implies `--no-commit`). See "Per-pass L2 comments" under Output.
 
 ## Mission
 
@@ -425,6 +429,28 @@ PROJECT_GUIDELINES = {relevant sections from CLAUDE.md}
 CHANGED_FILES = {list from context file}
 ```
 
+### 2.1.1 Create Detached Clone for Agents
+
+**CRITICAL**: Agents MUST NOT read from the author's live worktree. Create a detached
+clone at the PR head so agents cannot contaminate the working tree (prp-framework#129:
+a reviewer removed the worktree, another staged 6001 junk files).
+
+```bash
+# Record author worktree state BEFORE agents run
+AUTHOR_WORKTREE="$(pwd)"
+AUTHOR_STATUS_BEFORE=$(git -C "$AUTHOR_WORKTREE" status --porcelain)
+AUTHOR_HEAD=$(git -C "$AUTHOR_WORKTREE" rev-parse HEAD)
+
+# Create detached clone under scratchpad
+REVIEW_CLONE="${SCRATCHPAD:-/tmp}/prp-review-clone-pr-${PR_NUMBER}"
+rm -rf "$REVIEW_CLONE"
+git worktree add --detach "$REVIEW_CLONE" HEAD
+```
+
+Pass `$REVIEW_CLONE` (not `$AUTHOR_WORKTREE`) to every agent prompt as the working
+directory. The context file at `CONTEXT_PATH` is still read from the author tree (it
+is written by Phase 1 and is the only file agents need from there).
+
 ### 2.2 Core Agents (Always — Spawn ALL in Parallel)
 
 Spawn these 3 agents simultaneously in a **SINGLE message with multiple Agent tool calls**:
@@ -778,6 +804,30 @@ Running: $prp-review {NUMBER}
 
 ## Phase 3: Result Collection
 
+### 3.0 Verify Author Worktree Integrity
+
+Before collecting results, verify the author's worktree was not contaminated:
+
+```bash
+AUTHOR_STATUS_AFTER=$(git -C "$AUTHOR_WORKTREE" status --porcelain)
+AUTHOR_HEAD_AFTER=$(git -C "$AUTHOR_WORKTREE" rev-parse HEAD)
+
+if [ "$AUTHOR_HEAD" != "$AUTHOR_HEAD_AFTER" ]; then
+  echo "REVIEW ABORT: author worktree HEAD changed during review ($AUTHOR_HEAD → $AUTHOR_HEAD_AFTER)"
+  exit 1
+fi
+if [ "$AUTHOR_STATUS_BEFORE" != "$AUTHOR_STATUS_AFTER" ]; then
+  echo "REVIEW ABORT: author worktree modified during review"
+  diff <(echo "$AUTHOR_STATUS_BEFORE") <(echo "$AUTHOR_STATUS_AFTER") || true
+  exit 1
+fi
+
+# Clean up clone
+git worktree remove --force "$REVIEW_CLONE" 2>/dev/null || rm -rf "$REVIEW_CLONE"
+```
+
+If the check fails, abort the review and report — an agent escaped the clone.
+
 After all agents complete, collect their outputs. Each agent returns a markdown report with findings.
 
 **For each agent result:**
@@ -985,7 +1035,7 @@ mkdir -p .prp-output/reviews
 
 **Default behavior**: After writing the review artifact, commit and push it to the PR branch so `safe-merge` can find it without manual intervention. This step runs BEFORE emitting the safe-merge marker (see "Commit artifacts BEFORE the marker" below) to keep the marker's `head=` SHA aligned with the pushed HEAD.
 
-**Skip with `--no-commit`**: Pass `--no-commit` to skip this step (useful when running review-agents inside a flow that handles artifact commits separately, e.g., `$prp-run-all`).
+**Skip with `--no-commit`** (also implied by `--l2-comments`, which sets `NO_COMMIT=1`): Pass `--no-commit` to skip this step (useful when running review-agents inside a flow that handles artifact commits separately, e.g., `$prp-run-all`).
 
 **Detect run-all context**: If the environment variable `PRP_RUN_ALL=1` is set (injected by `$prp-run-all`), skip auto-commit — run-all commits all artifacts together in its own step. Treat this the same as `--no-commit`.
 
@@ -1015,6 +1065,8 @@ fi
 ```
 
 ### Emit safe-merge review marker (agent-devops#785 gap A)
+
+Skipped with `--l2-comments`: the L2 verifier writes the marker after checking the per-pass comments.
 
 Append a machine-readable, SHA-bound marker as the **last line** of the review file, **before** posting to GitHub. Because the same file is used both as the local artifact and as the `--body-file` for the GitHub post, the marker lands in **both** places. This lets `safe-merge` satisfy its review gate across worktrees / different-cwd repos and for `-R` cross-repo merges (where it currently skips review entirely).
 
@@ -1141,7 +1193,73 @@ else
 fi
 ```
 
+### Per-pass L2 comments (`--l2-comments`, prp-framework#142)
+
+With `--l2-comments`, this run's GitHub output is **three per-pass comments** in the format the L2 verifier (`l2-recipe.sh`, the cloud-delegate skill's recipe) and `safe-merge` read — and nothing else:
+
+- **No artifact commit**: `NO_COMMIT=1` is set; the "Commit Review Artifact to PR Branch" step is skipped. A committed artifact would be read as the review itself and makes the L2 recipe abort.
+- **No marker and no aggregated post**: skip "Emit safe-merge review marker" and "Post to GitHub" below. The `safe-merge-review` marker is written by the L2 verifier after it checks these three comments; a READY marker posted here would make the L2 recipe abort ("a READY marker for <head> is already on the PR"). The aggregated review is still saved locally (`.prp-output/reviews/pr-{NUMBER}-agents-review.md`, untracked).
+- **Core passes only**: one comment each for `code-reviewer`, `security-reviewer` and `silent-failure-hunter`, from that agent's own findings in this run (before cross-agent deduplication, so each comment stands alone). A core agent that failed or returned nothing usable is a FATAL for the run: post none of the three, and report it.
+
+Each comment body, exactly in this order:
+
+```
+Reviewed head: <REVIEWED_HEAD_SHA, 40 hex>
+Passes run: <code-reviewer|security-reviewer|silent-failure-hunter>
+
+### Critical Issues (<N> found)
+<findings or "None.">
+
+### Important Issues (<N> found)
+<findings or "None.">
+
+### Suggestions (<N> found)
+<findings or "None.">
+
+### Could not verify
+<what this pass could not check, or "Nothing.">
+
+Generated-by: prp-review-agents v<PRP_VERSION> run=<RUN_ID> pass=<pass name>
+```
+
+Rules the L2 verifier enforces (so do them exactly):
+- Line 1 is exactly `Reviewed head: ` + `$REVIEWED_HEAD_SHA` from Phase 1.3 (never re-queried); line 2 is exactly `Passes run: ` + the pass name. No other text on those lines.
+- Exactly one `### Critical Issues (N found)` and one `### Important Issues (N found)` heading, with this pass's counts; no `safe-merge-review` line anywhere in the body.
+- The last line is the `Generated-by:` footer. `RUN_ID` is the same for all three comments of a run and new for every run; `PRP_VERSION` is the installed framework's version.
+- Post each comment once and never edit it (the verifier rejects an edited comment).
+
+```bash
+# once per run, before the three posts
+[ "${L2_COMMENTS:-0}" = "1" ] || { echo "not an --l2-comments run" >&2; exit 1; }
+PRP_DIR=$(readlink -f .prp 2>/dev/null)
+PRP_VERSION=$( { [ -n "$PRP_DIR" ] && git -C "$PRP_DIR" describe --tags --always 2>/dev/null; } || true )
+PRP_VERSION="${PRP_VERSION#v}"   # tags are v<semver>; the footer adds the v
+[ -n "$PRP_VERSION" ] || { echo "FATAL: cannot determine the prp-framework version (.prp symlink) — no comments posted" >&2; exit 1; }
+RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)-$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n')"
+printf '%s' "$REVIEWED_HEAD_SHA" | grep -qE '^[0-9a-f]{40}$' || { echo "FATAL: REVIEWED_HEAD_SHA invalid — no comments posted" >&2; exit 1; }
+# the PR head must still be the reviewed head (a push during review invalidates the round)
+NOW_HEAD=$(gh pr view {NUMBER} --json headRefOid -q .headRefOid) || NOW_HEAD=""
+[ "$NOW_HEAD" = "$REVIEWED_HEAD_SHA" ] || { echo "FATAL: PR head moved ($REVIEWED_HEAD_SHA -> $NOW_HEAD) — re-run the review, no comments posted" >&2; exit 1; }
+
+# per pass: write the body above to .prp-output/reviews/pr-{NUMBER}-l2-<pass>.md, check it, post it
+for PASS in code-reviewer security-reviewer silent-failure-hunter; do
+  F=".prp-output/reviews/pr-{NUMBER}-l2-$PASS.md"
+  [ -s "$F" ] || { echo "FATAL: $F missing — stop, post nothing further" >&2; exit 1; }
+  [ "$(sed -n 1p "$F")" = "Reviewed head: $REVIEWED_HEAD_SHA" ] && [ "$(sed -n 2p "$F")" = "Passes run: $PASS" ] \
+    && [ "$(grep -ciP '^###\s+(Critical|Important) Issues\s+\(\d+ found\)\s*$' "$F")" = 2 ] \
+    && ! grep -q 'safe-merge-review' "$F" \
+    && [ "$(tail -n1 "$F")" = "Generated-by: prp-review-agents v$PRP_VERSION run=$RUN_ID pass=$PASS" ] \
+    || { echo "FATAL: $F is not in the L2 format — stop, post nothing further" >&2; exit 1; }
+  URL=$(gh pr comment {NUMBER} --body-file "$F") || { echo "FATAL: posting the $PASS comment failed" >&2; exit 1; }
+  echo "$PASS: $URL"
+done
+```
+
+Report the three URLs (they are what the L2 report links, one per pass). If a post fails after an earlier one succeeded, the round is incomplete: re-run the review (a new `RUN_ID`), since the verifier requires one run id across all three.
+
 ### Post to GitHub
+
+Skipped with `--l2-comments` (see above).
 
 **Self-review detection**: Before posting a formal review, check if the current GitHub user is the PR author:
 ```bash
@@ -1306,6 +1424,7 @@ $prp-review-agents 42 perf a11y               # Performance + accessibility agen
 $prp-review-agents 163 --since-last-review    # Incremental re-review
 $prp-review-agents --metrics                  # View review metrics
 $prp-review-agents 163 --no-commit            # Review without auto-committing artifact
+$prp-review-agents 163 --l2-comments          # One L2-format comment per core pass, no artifact commit, no marker (prp-framework#142)
 ```
 
 ---
@@ -1327,6 +1446,7 @@ $prp-review-agents 163 --no-commit            # Review without auto-committing a
 | Agent tool not available | Fall back to `$prp-review` (single-session sequential) |
 | Agent times out or fails | Note failure, proceed with available results; if core agent failed, force verdict to NEEDS FIXES minimum |
 | `--no-commit` flag provided | Skip auto-commit of review artifact to PR branch. Useful when caller (e.g., run-all) commits artifacts separately |
+| `--l2-comments` flag provided | Implies `--no-commit`; skip the marker and the aggregated post; post one L2-format comment per core pass with the `Generated-by:` footer (see "Per-pass L2 comments") |
 | `PRP_RUN_ALL=1` env set | Same as `--no-commit` — run-all handles artifact commits in its own step |
 | Auto-commit fails (push rejected) | WARN but continue — artifact is saved locally and posted to GitHub. Display: "WARNING: Could not push review artifact to PR branch. Commit manually or use safe-merge --skip-review-check." |
 
