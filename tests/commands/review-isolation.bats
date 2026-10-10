@@ -234,3 +234,48 @@ guard_case() {   # $1 = REVIEW_CLONE value; the directory must survive
     [[ "$output" != *"127.0.0.1"* && "$output" != *"FAKEPW"* && "$output" != *"o/r.git"* ]]
     [ -z "$(ls -A "$W/sp")" ]
 }
+
+@test "the docs agent's edits leave the clone as a Markdown/docs-only patch; the clone is still removed" {
+    out="$(run_211)"
+    clone="$(sed -n 's/^REVIEW_CLONE=//p' <<<"$out")"
+    printf '# Readme\nupdated\n' > "$clone/repo/README.md"
+    mkdir -p "$clone/repo/docs" && printf 'guide\n' > "$clone/repo/docs/guide.txt"
+    printf 'not docs\n' >> "$clone/repo/tracked"
+    run run_30 "$out"
+    [ "$status" -eq 0 ]
+    patch="$(sed -n 's/^DOCS_PATCH=//p' <<<"$output")"
+    [ -n "$patch" ] && [ -s "$patch" ]
+    grep -q '^+updated$' "$patch"
+    grep -q 'docs/guide.txt' "$patch"
+    ! grep -q 'not docs' "$patch"
+    [ ! -e "$clone" ]
+}
+
+@test "no reviewer agent prompt tells the agent to commit or push" {
+    agents="$(awk '/^### 2\.2 /{f=1} /^## Phase 3/{f=0} f' "$PROMPT")"
+    [ -n "$agents" ]
+    ! grep -niE 'commit and push|git push|push to the PR branch' <<<"$agents"
+}
+
+@test "3.0.1 applies the docs patch only when the checkout is at the PR head" {
+    block '^### 3[.]0[.]1 ' > "$W/301.sh"
+    out="$(run_211)"
+    clone="$(sed -n 's/^REVIEW_CLONE=//p' <<<"$out")"
+    printf '# Readme\nupdated\n' > "$clone/repo/README.md"
+    run run_30 "$out"
+    [ "$status" -eq 0 ]
+    patch="$(sed -n 's/^DOCS_PATCH=//p' <<<"$output")"
+    [ -s "$patch" ]
+    cp "$patch" "$W/saved.patch"
+    # at the PR head: applied and staged (NO_COMMIT leaves it uncommitted)
+    run bash -c "cd '$W/author' && DOCS_PATCH='$patch' REVIEWED_HEAD_SHA=$HEAD_SHA NO_COMMIT=1 bash '$W/301.sh'"
+    [ "$status" -eq 0 ]
+    git -C "$W/author" diff --cached --name-only | grep -qx README.md
+    # elsewhere: not applied, the patch is kept
+    git -C "$W/author" reset -q -- README.md && rm -f "$W/author/README.md"
+    cp "$W/saved.patch" "$patch"
+    run bash -c "cd '$W/author' && DOCS_PATCH='$patch' REVIEWED_HEAD_SHA=0123456789abcdef0123456789abcdef01234567 bash '$W/301.sh'"
+    [[ "$output" == *"NOT applied; patch kept at $patch"* ]]
+    ! git -C "$W/author" diff --cached --name-only | grep -qx README.md
+    [ -s "$patch" ]
+}

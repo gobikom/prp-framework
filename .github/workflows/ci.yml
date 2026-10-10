@@ -314,7 +314,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 3
     concurrency:
-      group: ci-red-issue
+      group: ci-red-issue-${{ github.ref }}
       cancel-in-progress: false
     permissions:
       actions: read
@@ -345,7 +345,7 @@ jobs:
           # cannot override a newer verdict. Only success, failure, timed_out and cancelled are
           # verdicts; a cancelled dispatch, or a job cancelled before any step ran, is none. Runs
           # still in progress are not waited for: each run reconciles again when it finishes.
-          verdicts=""; jobless=""; own_seen=""; own_prev=""
+          verdicts=""; jobless=""; own_seen=""; own_prev=""; own_cur=""
           add_run() {   # $1 run id, $2 event, $3 run status, $4 run conclusion
             local jobs jstatus jconclusion jdone jlink jsteps jattempt rank
             jobs="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$1/jobs?filter=all&per_page=100" \
@@ -362,6 +362,8 @@ jobs:
               return 0
             fi
             while read -r jstatus jconclusion jdone jlink jsteps jattempt; do
+              # this attempt has a tests job of its own (any status): it really re-ran the tests
+              [[ "$1" == "$GITHUB_RUN_ID" && "${jattempt:-1}" == "${GITHUB_RUN_ATTEMPT:-1}" ]] && own_cur=1
               [[ "$jstatus" == completed ]] || continue
               # seen = THIS attempt's tests job (an earlier attempt's is already visible on a re-run);
               # own_prev = the latest completed tests job of this run in any attempt
@@ -372,8 +374,10 @@ jobs:
               case "$jconclusion" in success|failure|timed_out|cancelled) ;; *)
                 echo "::notice::run $1's 'bats tests' job ended '$jconclusion': not a verdict"; continue ;;
               esac
-              # cancelled: a push job that ran steps timed out (red); a dispatch, or a job
-              # cancelled before any step ran (e.g. while queued), is no verdict
+              # cancelled: a push job that ran steps counts as red — most often a timeout; a push
+              # cancelled by hand after it started also reads red (errs loud; the next green
+              # clears it); a dispatch, or a job cancelled before any step ran (e.g. while
+              # queued), is no verdict
               [[ "$jconclusion" == cancelled && ( "$2" != push || "${jsteps:-0}" == 0 ) ]] && continue
               # sort key: completion time, then red before green on a tie
               if is_red "$jconclusion" "$2"; then rank=1; else rank=0; fi
@@ -399,15 +403,21 @@ jobs:
             done
           fi
           # Still not visible: a red own result is a candidate stamped with when this job was
-          # queued (right after this run's tests finished: a red report for the head is never
-          # suppressed, and only a genuinely later verdict outranks it); a green one counts only
+          # created — right after this run's tests finished (measured on run 38016819271:
+          # tests completed 02:24:45, this job created 02:24:46) — so a red report for the head is never
+          # suppressed, and only a genuinely later verdict outranks it; a green one counts only
           # when there is no other verdict
           # (an unseen green never outranks a recorded red; the worst case is a stale red the
           # next run clears); a cancelled push cannot be told from a cancel before testing, so
           # it fails the job rather than pass silently.
-          # A re-run of only this job reuses the earlier attempt's tests job: when that recorded job
-          # already has this run's result, it IS this run's verdict and nothing stands in for it.
-          if [[ "$head" == "$GITHUB_SHA" && -z "$own_seen" && -n "$own_prev" && "${own_prev#* }" == "$RESULT" ]]; then
+          # A re-run of only this job reuses the earlier attempt's tests job: when this attempt has
+          # no tests job of its own (in any status) and the earlier one has this run's result, that
+          # recorded job IS this run's verdict and nothing stands in for it. A full re-run whose
+          # tests job the API does not show yet looks the same, so a RED result never takes this
+          # shortcut (it falls through to the red stand-in: at worst a stale red); a reused
+          # cancelled job does, so a reconcile-only re-run does not fail on every attempt.
+          if [[ "$head" == "$GITHUB_SHA" && -z "$own_seen" && -z "$own_cur" && -n "$own_prev" && "${own_prev#* }" == "$RESULT" ]] \
+             && { ! is_red "$RESULT" "$GITHUB_EVENT_NAME" || [[ "$RESULT" == cancelled ]]; }; then
             own_seen=1
           fi
           if [[ "$head" == "$GITHUB_SHA" && -z "$own_seen" ]]; then

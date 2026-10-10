@@ -516,7 +516,10 @@ if ! git -C "$REVIEW_CLONE/repo" cat-file -e "$REVIEWED_HEAD_SHA^{commit}" 2>/de
   for remote in $(git -C "$AUTHOR_WORKTREE" remote); do   # origin, upstream (fork), ...
     url="$(git -C "$AUTHOR_WORKTREE" remote get-url "$remote")" || { tried+=" $remote(no url)"; continue; }
     # only the remote's NAME and a fixed reason are printed: git's error text carries the URL
-    if git -C "$REVIEW_CLONE/repo" fetch --quiet "$url" "pull/$PR_NUMBER/head" >/dev/null 2>&1; then
+    # non-interactive: no credential, passphrase or host-key prompt on the operator's terminal
+    if GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=/bin/false SSH_ASKPASS=/bin/false \
+       GIT_SSH_COMMAND="${GIT_SSH_COMMAND:-ssh} -o BatchMode=yes" \
+       git -C "$REVIEW_CLONE/repo" fetch --quiet "$url" "pull/$PR_NUMBER/head" </dev/null >/dev/null 2>&1; then
       reason="fetched, but $REVIEWED_HEAD_SHA is not pull/$PR_NUMBER/head"
     else
       reason="fetch failed (exit $?)"
@@ -812,7 +815,9 @@ Check:
 - Are API changes reflected in documentation?
 - Are configuration changes noted?
 
-If you find stale docs, make the fixes, commit and push to the PR branch.
+If you find stale docs, edit them in your working directory (the review clone) only.
+Do NOT commit or push: the clone has no remote, and the orchestrator applies your edits to
+the PR branch after the review. Only Markdown files and files under docs/ are carried over.
 Display what was updated.
 
 Report findings as structured markdown:
@@ -971,6 +976,16 @@ now="$(author_fingerprint)" && [ -n "$now" ] || abort "cannot fingerprint the au
 [ "$now" = "$AUTHOR_FINGERPRINT" ] \
   || abort "the author's repository (files, index, flags, ignored paths, refs, stash, worktrees, local config, info/ or hooks) changed during review"
 
+# Carry the docs-impact agent's edits out of the clone before removing it: Markdown and docs/
+# only, as a patch next to the clone (not inside it); "Apply documentation fixes" uses it.
+# (stage everything in the throwaway clone, then limit the DIFF: an add with a pathspec that
+# matches nothing, e.g. no docs/, fails and stages nothing)
+git -C "$rc/repo" add -A \
+  && git -C "$rc/repo" diff --cached --binary -- '*.md' docs/ > "$rc.docs.patch" \
+  || abort "could not export the documentation fixes"
+[ -s "$rc.docs.patch" ] || rm -f -- "$rc.docs.patch"
+echo "DOCS_PATCH=$( [ -e "$rc.docs.patch" ] && echo "$rc.docs.patch" )"
+
 # Clean up: the clone is a plain directory, nothing to unregister
 rm -rf -- "$rc"
 ```
@@ -980,6 +995,27 @@ another session working in the same repository (a commit, fetch or branch cleanu
 worktree) also changes refs and worktrees: check that before blaming a reviewer. Leave the
 clone in place for the investigation; `git -C "$AUTHOR_WORKTREE" status` and
 `git -C "$AUTHOR_WORKTREE" for-each-ref` show what changed.
+
+### 3.0.1 Apply Documentation Fixes
+
+If 3.0 printed a non-empty `DOCS_PATCH=`, apply it to the PR branch. This works only when the
+author's checkout is at the reviewed PR head; otherwise report the patch path instead of
+applying it. The commit is pushed by "Commit Review Artifact to PR Branch" below (with
+`--no-commit` or `PRP_RUN_ALL=1` it is left staged and reported).
+
+```bash
+DOCS_PATCH="${DOCS_PATCH:-<DOCS_PATCH printed by 3.0>}"
+if [[ -n "$DOCS_PATCH" && "$DOCS_PATCH" != "<"* && -s "$DOCS_PATCH" ]]; then
+  if [ "$(git rev-parse HEAD)" = "${REVIEWED_HEAD_SHA:-<REVIEWED_HEAD_SHA from Phase 1>}" ]; then
+    git apply --index "$DOCS_PATCH" || { echo "Docs fixes do not apply cleanly; patch kept at $DOCS_PATCH"; }
+    if ! git diff --cached --quiet && [ "${NO_COMMIT:-0}" != "1" ] && [ "${PRP_RUN_ALL:-0}" != "1" ]; then
+      git commit -m "docs: update documentation for PR #{NUMBER} (docs-impact review)"
+    fi
+  else
+    echo "The checkout is not at the PR head: docs fixes NOT applied; patch kept at $DOCS_PATCH"
+  fi
+fi
+```
 
 After all agents complete, collect their outputs. Each agent returns a markdown report with findings.
 
