@@ -468,6 +468,9 @@ author_fingerprint() (   # identical in 2.1.1 and 3.0; prints one hash, or fails
       || { echo "cannot read worktree $1 (a stale one? see git worktree prune)" >&2; exit 1; }
     # the index itself: object id, mode and stage of every entry (a re-staged edit, a chmod)
     "${g[@]}" ls-files -s -z | tr '\\0' '\\n' || exit 1
+    # this worktree's own refs (refs/worktree/*, refs/bisect/*), which for-each-ref from another
+    # worktree does not list
+    "${g[@]}" for-each-ref --format='%(refname) %(objectname)' refs/worktree refs/bisect || exit 1
     # this worktree's own config (config.worktree, used when extensions.worktreeConfig is on)
     cw="$("${g[@]}" rev-parse --git-path config.worktree)" || exit 1
     if [ -f "$cw" ]; then "${H[@]}" "$cw" 2>&1; else printf 'no config.worktree\\n'; fi
@@ -496,8 +499,9 @@ author_fingerprint() (   # identical in 2.1.1 and 3.0; prints one hash, or fails
     "${g[@]}" for-each-ref --format='%(refname) %(objectname)' || exit 1
     wts="$("${g[@]}" worktree list --porcelain)" || exit 1
     printf '%s\\n' "$wts"
-    # repository config, every line of it (a multi-line value spans several)
-    "${g[@]}" config --local --list || exit 1
+    # repository config, every line of it (a multi-line value spans several), including what
+    # its include.path / includeIf files set
+    "${g[@]}" config --local --list --includes || exit 1
     # every worktree of the repository, not only this one: an agent in the wrong checkout
     # changes a sibling worktree as easily as this one (a bare main entry has no files)
     while IFS= read -r wt; do
@@ -1001,6 +1005,9 @@ author_fingerprint() (   # identical in 2.1.1 and 3.0; prints one hash, or fails
       || { echo "cannot read worktree $1 (a stale one? see git worktree prune)" >&2; exit 1; }
     # the index itself: object id, mode and stage of every entry (a re-staged edit, a chmod)
     "${g[@]}" ls-files -s -z | tr '\\0' '\\n' || exit 1
+    # this worktree's own refs (refs/worktree/*, refs/bisect/*), which for-each-ref from another
+    # worktree does not list
+    "${g[@]}" for-each-ref --format='%(refname) %(objectname)' refs/worktree refs/bisect || exit 1
     # this worktree's own config (config.worktree, used when extensions.worktreeConfig is on)
     cw="$("${g[@]}" rev-parse --git-path config.worktree)" || exit 1
     if [ -f "$cw" ]; then "${H[@]}" "$cw" 2>&1; else printf 'no config.worktree\\n'; fi
@@ -1029,8 +1036,9 @@ author_fingerprint() (   # identical in 2.1.1 and 3.0; prints one hash, or fails
     "${g[@]}" for-each-ref --format='%(refname) %(objectname)' || exit 1
     wts="$("${g[@]}" worktree list --porcelain)" || exit 1
     printf '%s\\n' "$wts"
-    # repository config, every line of it (a multi-line value spans several)
-    "${g[@]}" config --local --list || exit 1
+    # repository config, every line of it (a multi-line value spans several), including what
+    # its include.path / includeIf files set
+    "${g[@]}" config --local --list --includes || exit 1
     # every worktree of the repository, not only this one: an agent in the wrong checkout
     # changes a sibling worktree as easily as this one (a bare main entry has no files)
     while IFS= read -r wt; do
@@ -1061,8 +1069,8 @@ now="$(author_fingerprint)" && [ -n "$now" ] || abort "cannot fingerprint the au
 # Nothing is carried out of the clone: agents report findings, and edits made in the clone
 # are discarded with it.
 # Clean up: the clone is a plain directory, nothing to unregister (an agent may have left
-# read-only directories in it, e.g. a module cache)
-chmod -R u+w -- "$rc" 2>/dev/null
+# read-only or unreadable directories in it, e.g. a module cache)
+chmod -R u+rwX -- "$rc" 2>/dev/null
 rm -rf -- "$rc" || abort "could not remove the review clone $rc"
 echo "REPO_CHECK=OK"
 ```
@@ -1084,10 +1092,11 @@ and no marker.
 **For each agent result:**
 1. Parse the findings table. For the docs-impact agent, also take its "Documentation Updates
    Needed" table and carry the rows into the report (Phase 6) verbatim except for one change:
-   write every `Issues (` as `Issues &#40;`, which GitHub renders the same. This table is the
+   wherever `Issues` (any letter case) is followed by whitespace and `(`, write that `(` as
+   `&#40;`, which GitHub renders the same. That is exactly what safe-merge's count pattern
+   (`###\\s+Critical Issues\\s+\\(`, case-insensitive) needs to stop matching. This table is the
    only place the proposed text survives, because the review clone is deleted, and the escaping
-   stops proposed text from reading as a "### Critical Issues (N found)" heading to safe-merge
-   while leaving any other text, code included, exactly as proposed.
+   leaves any other text, code included, exactly as proposed.
    If the docs-impact agent ran but its output has no "Documentation Updates Needed" heading,
    print `WARNING: docs-impact-agent returned no "Documentation Updates Needed" table` and say
    so in the report: a missing table is not the same as "nothing to update"
@@ -1240,7 +1249,7 @@ After deduplication, categorize all findings:
 | README.md | Usage section | Exact replacement text from the docs-impact agent |
 
 (Omit this section when the docs-impact agent did not run or reported nothing. It is not an
-issue heading, and its `Issues (` is escaped (Phase 3), so it never adds to the
+issue heading, and its `Issues (` forms are escaped (Phase 3), so it never adds to the
 Critical/Important counts; the marker step below refuses a report with more than one of each.)
 
 ### Strengths
@@ -1305,7 +1314,7 @@ mkdir -p .prp-output/reviews
 Once the report is written, and before it is committed or posted anywhere, check its count
 headings. `safe-merge` SUMS every `### Critical Issues (N` and `### Important Issues (N` it
 finds, so the report must hold exactly one of each. On failure, nothing is committed or
-posted: escape the extra ones (`Issues (` as `Issues &#40;`) and run this check again.
+posted: escape the extra ones (the `(` after `Issues` as `&#40;`) and run this check again.
 
 ```bash
 REVIEW_FILE=".prp-output/reviews/pr-{NUMBER}-agents-review.md"
@@ -1473,7 +1482,7 @@ esac
 NCRIT=$(grep -oiP '###\\s+Critical Issues\\s+\\(\\d' "$REVIEW_FILE" | wc -l)
 NIMP=$(grep -oiP '###\\s+Important Issues\\s+\\(\\d' "$REVIEW_FILE" | wc -l)
 if [ "$NCRIT" != 1 ] || [ "$NIMP" != 1 ]; then
-  echo "FATAL: the report has $NCRIT Critical and $NIMP Important count headings, not one of each — marker NOT emitted; escape the extra ones (Issues ( as Issues &#40;)" >&2
+  echo "FATAL: the report has $NCRIT Critical and $NIMP Important count headings, not one of each — marker NOT emitted; escape the extra ones (the ( after Issues as &#40;)" >&2
   VERDICT_TOKEN=""
 fi
 # head must be MARKER_HEAD from the re-bind block above. This regex is a FORMAT

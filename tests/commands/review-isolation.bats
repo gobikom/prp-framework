@@ -16,6 +16,11 @@
 # for-each-ref / config / --git-common-dir (they break status or rev-parse first), and the
 # clone/mktemp/resolve/toplevel guards in 2.1.1. Untestable here: the non-interactive fetch
 # settings (GIT_TERMINAL_PROMPT=0, GIT_ASKPASS, BatchMode), since a prompt needs a tty.
+# Equivalent too: `|| exit 1` on the config.worktree path and on the config line (status and
+# ls-files fail first), its "no config.worktree" branch, -f vs -e and 2>&1 vs 2>/dev/null on
+# its hash (absent, unreadable and readable still differ), and `rm -rf` vs `rm -r` (no tty, no
+# prompt). The info/ loop's `|| printf unreadable` and its `2>&1` each duplicate the other;
+# dropping both is caught by the unreadable-then-deleted test.
 #
 # Run: bats tests/commands/review-isolation.bats
 
@@ -386,9 +391,10 @@ marker_case() {   # $1 = extra text appended to a clean 0/0 report; runs the mar
     grep -q '^approval: print `REVIEW ABORT: no marker emitted` and stop.' "$PROMPT"
 }
 
-@test "Phase 3 tells the orchestrator to escape # in the carried docs rows" {
+@test "Phase 3 tells the orchestrator to escape the count-heading form in the carried docs rows" {
     p3="$(awk '/^\*\*For each agent result:\*\*/{f=1} f&&/^2\. /{exit} f' "$PROMPT")"
-    [[ "$p3" == *'write every `Issues (` as `Issues &#40;`'* ]]
+    flat="$(tr '\n' ' ' <<<"$p3" | tr -s ' ')"
+    [[ "$flat" == *'wherever `Issues` (any letter case) is followed by whitespace and `(`, write that `(` as `&#40;`'* ]]
 }
 
 sibling_case() {   # $1 = worktree the review runs from, $2 = worktree the agent changes; prints 3.0's status
@@ -539,7 +545,9 @@ sibling_case() {   # $1 = worktree the review runs from, $2 = worktree the agent
 @test "a review clone with read-only directories is still removed" {
     out="$(run_211)"
     clone="$(sed -n 's/^REVIEW_CLONE=//p' <<<"$out")"
-    mkdir -p "$clone/repo/cache/sub" && chmod 555 "$clone/repo/cache/sub" "$clone/repo/cache"
+    mkdir -p "$clone/repo/cache/sub" "$clone/repo/locked/d" && chmod 555 "$clone/repo/cache/sub" "$clone/repo/cache"
+    printf 'x\n' > "$clone/repo/locked/d/f"
+    chmod 000 "$clone/repo/locked/d"                   # unreadable, and not empty
     run run_30 "$out"
     [ "$status" -eq 0 ]
     [ "${lines[${#lines[@]}-1]}" = "REPO_CHECK=OK" ]
@@ -585,6 +593,25 @@ sibling_case() {   # $1 = worktree the review runs from, $2 = worktree the agent
     if [ -r "$W/author/.git/info/attributes" ]; then skip "running as a user that can read mode-000 files"; fi
     out="$(run_211)"
     rm -f "$W/author/.git/info/attributes"             # only its 'unreadable' record can show this
+    run run_30 "$out"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"changed during review"* ]]
+}
+
+@test "a value set through a local include file inside .git is seen" {
+    printf '[core]\n\tx = 1\n' > "$W/author/.git/extra.cfg"
+    git -C "$W/author" config include.path extra.cfg
+    out="$(run_211)"
+    printf '[core]\n\thooksPath = %s/elsewhere\n' "$W" > "$W/author/.git/extra.cfg"
+    run run_30 "$out"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"changed during review"* ]]
+}
+
+@test "a sibling worktree's own refs (refs/bisect, refs/worktree) are seen" {
+    gc -C "$W/author" worktree add -q -b feat "$W/wt-feat" 2>/dev/null
+    out="$(run_211)"
+    git -C "$W/wt-feat" update-ref refs/bisect/bad HEAD
     run run_30 "$out"
     [ "$status" -eq 1 ]
     [[ "$output" == *"changed during review"* ]]
