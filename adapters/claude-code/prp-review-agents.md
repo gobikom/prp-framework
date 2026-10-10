@@ -172,10 +172,7 @@ REVIEWED_HEAD_SHA=$(gh pr view {NUMBER} --json headRefOid -q '.headRefOid')
 # surface later as a silent fail-open in the marker re-bind guard.
 printf '%s' "$REVIEWED_HEAD_SHA" | grep -qE '^[0-9a-f]{40}$' || \
   { echo "FATAL: could not capture reviewed head SHA ('$REVIEWED_HEAD_SHA')" >&2; exit 1; }
-# Saved for later steps that run in a fresh shell (--l2-comments Step A reads it from here and never
-# re-queries the PR, which after a push would name a head nobody reviewed).
-mkdir -p .prp-output/reviews && printf '%s\n' "$REVIEWED_HEAD_SHA" > .prp-output/reviews/pr-{NUMBER}-reviewed-head \
-  || { echo "FATAL: cannot save the reviewed head" >&2; exit 1; }
+# Phase 2.0 saves it to .prp-output/reviews/pr-{NUMBER}-reviewed-head for steps that run in a fresh shell.
 
 # Structural diff (compact overview — for agent routing)
 # Use prp-diff if available, otherwise fall back to gh pr diff
@@ -420,6 +417,20 @@ Auto-dispatching: performance-analyzer (DB query patterns in 2 files)
 ## Phase 2: Spawn Parallel Agent Subprocesses
 
 **CRITICAL**: You MUST use the `Agent` tool to spawn these as separate subprocesses. Each agent runs in its own context window with fresh memory. Do NOT attempt to run these as sequential passes in this session — that defeats the purpose of this command. If you want single-session sequential passes, use `/prp-core:prp-review` instead.
+
+### 2.0 Capture the Reviewed Head (every run, every path)
+
+Invariant: the head this run reviews is captured **once, here, before any agent starts**, whatever path led here (Phase 1.3, a reused context file from Phase 0, `--context`, or agent mode), and every later step reads it from the file below — nothing captures or re-queries it after the agents start. (A head captured at posting time would certify a commit nobody reviewed if a push landed during the review.)
+
+```bash
+D=.prp-output/reviews; mkdir -p "$D" || { echo "FATAL: cannot create $D" >&2; exit 1; }
+rm -f "$D/pr-{NUMBER}-reviewed-head" || { echo "FATAL: cannot clear an earlier round's head file" >&2; exit 1; }
+# Phase 1.3 already captured it in this run when Phase 1 ran; otherwise capture it now — still before the agents
+[ -n "${REVIEWED_HEAD_SHA:-}" ] || REVIEWED_HEAD_SHA=$(gh pr view {NUMBER} --json headRefOid -q .headRefOid) || REVIEWED_HEAD_SHA=""
+printf '%s' "$REVIEWED_HEAD_SHA" | grep -qxE '[0-9a-f]{40}' || { echo "FATAL: could not capture the reviewed head ('$REVIEWED_HEAD_SHA') — no agents started" >&2; exit 1; }
+printf '%s\n' "$REVIEWED_HEAD_SHA" > "$D/pr-{NUMBER}-reviewed-head" || { echo "FATAL: cannot save the reviewed head" >&2; exit 1; }
+echo "REVIEWED_HEAD_SHA=$REVIEWED_HEAD_SHA"
+```
 
 ### 2.1 Prepare Agent Context
 
@@ -1237,13 +1248,13 @@ Rules the L2 verifier enforces (so do them exactly):
 
 The posting runs as **three separate steps**, because every shell starts fresh; the run values travel in a file, never retyped:
 
-**Step A — start the run** (run only in an `--l2-comments` run; clears any earlier run's files, reads the reviewed head saved in Phase 1.3, prints `RUN_ID` and `PRP_VERSION` for the footers and saves them):
+**Step A — start the run** (run only in an `--l2-comments` run; clears any earlier run's files, reads the reviewed head saved in Phase 2.0, prints `RUN_ID` and `PRP_VERSION` for the footers and saves them):
 
 ```bash
 D=.prp-output/reviews
 rm -f "$D/pr-{NUMBER}-l2-run.env" "$D/pr-{NUMBER}-l2-run.env.used" "$D"/pr-{NUMBER}-l2-*-reviewer.md "$D/pr-{NUMBER}-l2-silent-failure-hunter.md"
 REVIEWED_HEAD_SHA=$(cat "$D/pr-{NUMBER}-reviewed-head" 2>/dev/null) || REVIEWED_HEAD_SHA=""
-printf '%s' "$REVIEWED_HEAD_SHA" | grep -qE '^[0-9a-f]{40}$' || { echo "FATAL: no reviewed head saved by Phase 1.3 ($D/pr-{NUMBER}-reviewed-head) — re-run the review; never re-query the PR head here" >&2; exit 1; }
+printf '%s' "$REVIEWED_HEAD_SHA" | grep -qE '^[0-9a-f]{40}$' || { echo "FATAL: no reviewed head saved by Phase 2.0 ($D/pr-{NUMBER}-reviewed-head) — re-run the review from Phase 2.0 (the head is captured before the agents, never at posting time)" >&2; exit 1; }
 [ -L .prp ] || { echo "FATAL: .prp is not a symlink to the installed prp-framework — no comments posted" >&2; exit 1; }
 PRP_DIR=$(readlink -f .prp) || { echo "FATAL: cannot resolve .prp" >&2; exit 1; }
 PRP_VERSION=$(git -C "$PRP_DIR" describe --tags --abbrev=0 --match 'v[0-9]*' 2>/dev/null) || { echo "FATAL: cannot read the prp-framework release tag — no comments posted" >&2; exit 1; }

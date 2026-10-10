@@ -35,7 +35,7 @@ EOF
   chmod +x bin/gh
   export PATH="$WORK/bin:$PATH" WORK_LOG="$WORK/posted.log" FAKE_HEAD="$HEAD_SHA"
   : > "$WORK_LOG"
-  printf '%s\n' "$HEAD_SHA" > .prp-output/reviews/pr-7-reviewed-head   # what Phase 1.3 saves
+  printf '%s\n' "$HEAD_SHA" > .prp-output/reviews/pr-7-reviewed-head   # what Phase 2.0 saves
   step A > stepA.sh; step C > stepC.sh
   [ -s stepA.sh ] && [ -s stepC.sh ]
 }
@@ -160,7 +160,7 @@ post() { run bash stepC.sh; }
   [[ "$output" == *"posting the security-reviewer comment failed"* ]]
 }
 
-@test "Step A in a fresh shell takes the reviewed head from the Phase 1.3 file" {
+@test "Step A in a fresh shell takes the reviewed head from the Phase 2.0 file" {
   start; [ "$status" -eq 0 ]
   grep -q "^REVIEWED_HEAD_SHA=$HEAD_SHA\$" .prp-output/reviews/pr-7-l2-run.env
 }
@@ -169,7 +169,7 @@ post() { run bash stepC.sh; }
   rm .prp-output/reviews/pr-7-reviewed-head
   start
   [ "$status" -ne 0 ]
-  [[ "$output" == *"no reviewed head saved by Phase 1.3"* ]]
+  [[ "$output" == *"no reviewed head saved by Phase 2.0"* ]]
 }
 
 @test "Step C cannot be replayed: a second run posts nothing" {
@@ -202,6 +202,36 @@ post() { run bash stepC.sh; }
   start; write_all
   start
   [ ! -e .prp-output/reviews/pr-7-l2-code-reviewer.md ]
+}
+
+phase20() { awk 'index($0, "### 2.0 Capture the Reviewed Head") == 1 {f=1} f && /^```bash$/ {b=1; next} b && /^```$/ {exit} b' "$ADAPTER" | sed 's/{NUMBER}/7/g'; }
+
+@test "Phase 2.0 comes before the agents start (2.1.1)" {
+  a=$(grep -n '^### 2.0 Capture the Reviewed Head' "$ADAPTER" | cut -d: -f1)
+  b=$(grep -n '^### 2.1.1 ' "$ADAPTER" | cut -d: -f1)
+  [ -n "$a" ] && [ -n "$b" ] && [ "$a" -lt "$b" ]
+}
+
+@test "Phase 2.0 keeps the head Phase 1.3 captured in this run" {
+  phase20 > p20.sh
+  FAKE_HEAD=fedcba9876543210fedcba9876543210fedcba98 run env REVIEWED_HEAD_SHA="$HEAD_SHA" bash p20.sh
+  [ "$status" -eq 0 ]
+  [ "$(cat .prp-output/reviews/pr-7-reviewed-head)" = "$HEAD_SHA" ]
+}
+
+@test "Phase 2.0 captures the head when Phase 1 was skipped (reused context), replacing an earlier round's file" {
+  phase20 > p20.sh
+  printf '%s\n' fedcba9876543210fedcba9876543210fedcba98 > .prp-output/reviews/pr-7-reviewed-head
+  run env -u REVIEWED_HEAD_SHA bash p20.sh
+  [ "$status" -eq 0 ]
+  [ "$(cat .prp-output/reviews/pr-7-reviewed-head)" = "$HEAD_SHA" ]
+}
+
+@test "Phase 2.0 fails before any agent when the head cannot be captured" {
+  phase20 > p20.sh
+  GH_FAIL=1 run env -u REVIEWED_HEAD_SHA bash p20.sh
+  [ "$status" -ne 0 ]
+  [ ! -e .prp-output/reviews/pr-7-reviewed-head ]
 }
 
 @test "--l2-comments implies no artifact commit (documented flag mapping)" {
