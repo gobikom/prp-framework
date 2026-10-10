@@ -1,7 +1,10 @@
 # prp-framework CI — a real CI ground for gobikom/prp-framework (นุด, 2026-10-09, zero-touch: a repo
 # with CI lets merger approve on evidence instead of an operator turn). Runs the repo's own
-# test suite on the goko self-hosted runner, the same way gobikom/ops does. The tests get no
-# secrets; only the red-run alert step reads the Telegram credentials, by name, from the host.
+# test suite on a GitHub-hosted runner (this repo is public, so the minutes are free). A FIRST
+# workflow on the self-hosted runner is merger own-definition and can show no CI that predates
+# it (soul-orchestra#1292, closed); moving to goko-runner-prp-framework later is a separate PR
+# that adds a self-hosted workflow beside this one while this one stays live. The tests get no
+# secrets; a red main/dispatch run opens or updates a `ci-red` issue with the run's own token.
 name: CI
 
 on:
@@ -22,7 +25,7 @@ concurrency:
 jobs:
   tests:
     name: bats tests
-    runs-on: [self-hosted, goko]
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     defaults:
       run:
@@ -33,7 +36,14 @@ jobs:
         with:
           persist-credentials: false
 
-      # bats (bats-core) is the runner host's, on its PATH via ~/.npm-global/bin. Every *.bats
+      # bats-core at an exact version (the one the goko host runs), from the npm registry.
+      - name: Install bats
+        timeout-minutes: 3
+        run: |
+          npm install --global --no-audit --no-fund bats@1.13.0
+          [[ "$(bats --version)" == "Bats 1.13.0" ]] || { echo "::error::bats 1.13.0 not installed ($(bats --version 2>&1))"; exit 1; }
+
+      # Every *.bats
       # suite under tests/ runs. Green requires bats to exit 0 AND its JUnit report to count
       # 0 failures, 0 errors and 0 skipped, with at least one test (the suites have no skips,
       # so a skip appearing here is a change to look at, not noise), and to list every @test
@@ -263,33 +273,36 @@ jobs:
           fi
           echo "bats passed (report: $counts)"
 
-      # A red run on main or a manual dispatch reaches the operator on Telegram; a PR's red run
-      # shows on the PR itself. Same channel and credential names as gobikom/ops CI.
-      # Known gap: a run that never gets a runner, or loses it mid-job, never reaches this step,
-      # so it alerts nobody; monitoring runner liveness outside CI is tracked in
-      # gobikom/agent-devops#1230.
-      - name: Alert on a red main/dispatch run
-        if: (failure() || cancelled()) && github.event_name != 'pull_request'
-        timeout-minutes: 1
+  # A red main or dispatch run opens a `ci-red` issue, or comments on the open one, so the
+  # failure is tracked where the repo's work is. A PR's red run shows on the PR itself.
+  # This job holds the only write token (issues: write) and runs no repo code, so the tests
+  # never get it.
+  # Known gap: a run that never starts never reaches this job.
+  alert:
+    name: alert on red main/dispatch
+    needs: tests
+    if: (failure() || cancelled()) && github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    permissions:
+      issues: write
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Open or update the ci-red issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
-          set -uo pipefail
+          set -euo pipefail
           run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
-          msg="⚠️ [ci] gobikom/prp-framework CI did not pass on ${GITHUB_EVENT_NAME} @ ${GITHUB_SHA:0:8} (${{ job.status }}). $run_url"
-          logger -t prp-framework-ci "CI_RED event=$GITHUB_EVENT_NAME sha=$GITHUB_SHA run=$GITHUB_RUN_ID" || true
-          token="$(grep -h '^TK_PSAK_BOT_TOKEN=' "$HOME/.secrets/telegram-bots.env" "$HOME/.secrets/shared.env" 2>/dev/null | head -1 | cut -d= -f2-)" || true
-          chat="$(grep -h '^TELEGRAM_CHAT_ID=' "$HOME/.secrets/shared.env" 2>/dev/null | head -1 | cut -d= -f2-)" || true
-          if [[ -z "$token" || -z "$chat" ]]; then
-            echo "::error::prp-framework CI alert: Telegram credentials not found by name — nobody was told about $run_url"
-            exit 1
+          body="CI did not pass on $GITHUB_EVENT_NAME @ ${GITHUB_SHA:0:8}: $run_url"
+          gh label create ci-red --color B60205 --description "CI red on main or a dispatch run" 2>/dev/null || true
+          n="$(gh issue list --label ci-red --state open --json number --jq '.[0].number // empty')"
+          if [[ -n "$n" ]]; then
+            gh issue comment "$n" --body "$body"
+            echo "commented on ci-red issue #$n"
+          else
+            gh issue create --label ci-red --title "CI red on main" --body "$body"
           fi
-          err="$(mktemp)"
-          code="$(printf 'url = "https://api.telegram.org/bot%s/sendMessage"\n' "$token" \
-            | curl -g -sS -o /dev/null -w '%{http_code}' --max-time 10 -K - \
-                --data-urlencode "chat_id=$chat" --data-urlencode "text=$msg" 2>"$err")" || true
-          unset token
-          if [[ "$code" != "200" ]]; then
-            echo "::error::prp-framework CI alert: Telegram send failed (http=${code:-none}: $(head -c 300 "$err" | sed -E 's#/bot[^/[:space:]]*#/bot<redacted>#g' | tr '\n' ' ')) — nobody was told about $run_url"
-            rm -f "$err"; exit 1
-          fi
-          rm -f "$err"
-          echo "prp-framework CI alert: Telegram sent"
