@@ -286,19 +286,28 @@ jobs:
           fi
           echo "bats passed (report: $counts)"
 
-  # A red main or dispatch run opens a `ci-red` issue, or comments on the open one, and a
-  # green one closes it, so the failure is tracked where the repo's work is and its recovery
-  # shows there too. A PR's red run shows on the PR itself; a manually cancelled run is not
-  # red. These jobs hold the only write token (issues: write) and run no repo code, so the
-  # tests never get it; one concurrency group keeps two runs from opening two issues.
-  # Known gap: a run that never starts never reaches these jobs.
+  # A red run of main (a push, or a dispatch on main) opens a `ci-red` issue, or comments on the
+  # open one, and a green one closes it, so the failure is tracked where the repo's work is and its
+  # recovery shows there too. A PR's red run shows on the PR itself; a dispatch on another branch
+  # and a manually cancelled dispatch touch nothing; a push run that ends cancelled (a timeout —
+  # push runs are never cancelled by concurrency) counts as red. Both jobs act only while the
+  # run's commit is still the head of main, so an older run finishing late, or a queued job that
+  # its concurrency group dropped, can neither close nor open an issue for a state main is no
+  # longer in. They match only issues this workflow opened (author github-actions), hold the only
+  # write token (issues: write, plus contents: read for the head check) and run no repo code, so
+  # the tests never get it.
+  # Known gap: a run that never starts reaches neither job.
   alert:
-    name: alert on red main/dispatch
+    name: alert on red main
     needs: tests
-    if: always() && needs.tests.result == 'failure' && github.event_name != 'pull_request'
+    if: >-
+      always() && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+      && (needs.tests.result == 'failure'
+          || (github.event_name == 'push' && needs.tests.result == 'cancelled'))
     runs-on: ubuntu-24.04
     timeout-minutes: 3
     permissions:
+      contents: read
       issues: write
     concurrency:
       group: ci-red-issue
@@ -311,15 +320,22 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
+          RESULT: ${{ needs.tests.result }}
         run: |
           set -uo pipefail
           run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
-          body="CI did not pass on $GITHUB_EVENT_NAME @ ${GITHUB_SHA:0:8}: $run_url"
+          body="CI $RESULT on $GITHUB_EVENT_NAME, main @ ${GITHUB_SHA:0:8}: $run_url"
           echo "$body" >> "$GITHUB_STEP_SUMMARY"
-          gh label create ci-red --color B60205 --description "CI red on main or a dispatch run" >/dev/null 2>&1 \
+          head="$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)" \
+            || { echo "::warning::could not read the main head; alerting anyway"; head="$GITHUB_SHA"; }
+          if [[ "$head" != "$GITHUB_SHA" ]]; then
+            echo "::notice::main has moved on to ${head:0:8}; its own run reports its state"
+            exit 0
+          fi
+          gh label create ci-red --color B60205 --description "CI red on main" >/dev/null 2>&1 \
             || gh label list --search ci-red --json name --jq '.[].name' | grep -qx ci-red \
             || echo "::warning::could not create the ci-red label"
-          n="$(gh issue list --label ci-red --state open --json number --jq '.[0].number // empty')" \
+          n="$(gh issue list --label ci-red --state open --author app/github-actions --json number --jq '.[0].number // empty')" \
             || { echo "::warning::gh issue list failed; opening a new issue"; n=""; }
           if [[ -n "$n" ]] && gh issue comment "$n" --body "$body"; then
             echo "commented on ci-red issue #$n"
@@ -332,12 +348,13 @@ jobs:
           fi
 
   recover:
-    name: close ci-red on green main/dispatch
+    name: close ci-red on green main
     needs: tests
-    if: needs.tests.result == 'success' && github.event_name != 'pull_request'
+    if: needs.tests.result == 'success' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
     timeout-minutes: 3
     permissions:
+      contents: read
       issues: write
     concurrency:
       group: ci-red-issue
@@ -353,9 +370,15 @@ jobs:
         run: |
           set -uo pipefail
           run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
-          n="$(gh issue list --label ci-red --state open --json number --jq '.[0].number // empty')" \
+          head="$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)" \
+            || { echo "::error::could not read the main head; not closing anything"; exit 1; }
+          if [[ "$head" != "$GITHUB_SHA" ]]; then
+            echo "::notice::main has moved on to ${head:0:8}; its own run reports its state"
+            exit 0
+          fi
+          n="$(gh issue list --label ci-red --state open --author app/github-actions --json number --jq '.[0].number // empty')" \
             || { echo "::error::gh issue list failed; could not check for an open ci-red issue"; exit 1; }
           if [[ -z "$n" ]]; then echo "no open ci-red issue"; exit 0; fi
-          gh issue close "$n" --comment "Green again on $GITHUB_EVENT_NAME @ ${GITHUB_SHA:0:8}: $run_url" \
+          gh issue close "$n" --comment "Green again on $GITHUB_EVENT_NAME, main @ ${GITHUB_SHA:0:8}: $run_url" \
             || { echo "::error::could not close ci-red issue #$n"; exit 1; }
           echo "closed ci-red issue #$n"
