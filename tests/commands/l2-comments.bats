@@ -212,25 +212,43 @@ phase20() { awk 'index($0, "### 2.0 Capture the Reviewed Head") == 1 {f=1} f && 
   [ -n "$a" ] && [ -n "$b" ] && [ "$a" -lt "$b" ]
 }
 
-@test "Phase 2.0 keeps the head Phase 1.3 captured in this run" {
-  phase20 > p20.sh
-  FAKE_HEAD=fedcba9876543210fedcba9876543210fedcba98 run env REVIEWED_HEAD_SHA="$HEAD_SHA" bash p20.sh
+repo_here() { git init -q . && git commit -q --allow-empty -m pr; FAKE_HEAD=$(git rev-parse HEAD); export FAKE_HEAD; }
+
+@test "Phase 2.0 saves the PR head when it is the local HEAD the agents read" {
+  phase20 > p20.sh; repo_here
+  run env -u REVIEWED_HEAD_SHA bash p20.sh
   [ "$status" -eq 0 ]
-  [ "$(cat .prp-output/reviews/pr-7-reviewed-head)" = "$HEAD_SHA" ]
+  [ "$(cat .prp-output/reviews/pr-7-reviewed-head)" = "$FAKE_HEAD" ]
 }
 
-@test "Phase 2.0 captures the head when Phase 1 was skipped (reused context), replacing an earlier round's file" {
-  phase20 > p20.sh
+@test "Phase 2.0 refuses a PR head that is not the local HEAD (no agents, no head file)" {
+  phase20 > p20.sh; repo_here
+  FAKE_HEAD=fedcba9876543210fedcba9876543210fedcba98 run env -u REVIEWED_HEAD_SHA bash p20.sh
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"is not the local HEAD"* ]]
+  [ ! -e .prp-output/reviews/pr-7-reviewed-head ]
+}
+
+@test "Phase 2.0 ignores a REVIEWED_HEAD_SHA inherited from the environment" {
+  phase20 > p20.sh; repo_here
+  run env REVIEWED_HEAD_SHA=fedcba9876543210fedcba9876543210fedcba98 bash p20.sh
+  [ "$status" -eq 0 ]
+  [ "$(cat .prp-output/reviews/pr-7-reviewed-head)" = "$FAKE_HEAD" ]
+}
+
+@test "Phase 2.0 replaces an earlier round's head file (reused context, Phase 1 skipped)" {
+  phase20 > p20.sh; repo_here
   printf '%s\n' fedcba9876543210fedcba9876543210fedcba98 > .prp-output/reviews/pr-7-reviewed-head
   run env -u REVIEWED_HEAD_SHA bash p20.sh
   [ "$status" -eq 0 ]
-  [ "$(cat .prp-output/reviews/pr-7-reviewed-head)" = "$HEAD_SHA" ]
+  [ "$(cat .prp-output/reviews/pr-7-reviewed-head)" = "$FAKE_HEAD" ]
 }
 
 @test "Phase 2.0 fails before any agent when the head cannot be captured" {
-  phase20 > p20.sh
+  phase20 > p20.sh; repo_here
   GH_FAIL=1 run env -u REVIEWED_HEAD_SHA bash p20.sh
   [ "$status" -ne 0 ]
+  [[ "$output" == *"no agents started"* ]]
   [ ! -e .prp-output/reviews/pr-7-reviewed-head ]
 }
 
