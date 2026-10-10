@@ -88,7 +88,7 @@ security-reviewer → silent-failure-hunter → dependency-analyzer
 
 | Agent | Purpose | เมื่อไหร่ใช้ |
 |-------|---------|-------------|
-| **docs-impact-agent** | Update affected docs | หลัง code changes |
+| **docs-impact-agent** | Update affected docs (ใน multi-agent review: report only, ไม่ edit) | หลัง code changes |
 | **accessibility-reviewer** | A11y compliance | UI review |
 
 ### Observability & Research
@@ -714,7 +714,7 @@ Development:
 └── security-reviewer → Security review
 
 Launch:
-├── docs-impact-agent → Update documentation
+├── docs-impact-agent → Update documentation (report only inside a multi-agent review)
 ├── content-marketing-agent → Launch content
 └── personal-brand-agent → Announce on LinkedIn
 ```

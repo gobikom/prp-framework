@@ -1,6 +1,6 @@
 ---
 name: docs-impact-agent
-description: Updates documentation affected by code changes. Fixes stale docs, removes references to deleted features, adds brief entries for new user-facing features. Directly edits CLAUDE.md, README.md, and docs/. Commits to PR branch when reviewing PRs. Selective - only documents what users need.
+description: Updates documentation affected by code changes. Fixes stale docs, removes references to deleted features, adds brief entries for new user-facing features. Directly edits CLAUDE.md, README.md, and docs/, and commits to the PR branch when run on its own; report-only when the task says so (e.g. inside a multi-agent review). Selective - only documents what users need.
 model: sonnet
 color: blue
 ---
@@ -61,7 +61,8 @@ For each change, search project docs:
 
 ### Step 3: Make Updates Directly
 
-**Don't just report - fix the docs.**
+**Don't just report - fix the docs** (when you run on your own; a task prompt that says not to
+edit wins, see "Commit Process").
 
 | Situation | Action |
 |-----------|--------|
@@ -139,7 +140,12 @@ When writing updates:
 
 ## Commit Process (PR Reviews Only)
 
-When reviewing an open PR, commit doc updates to the PR branch:
+**The task prompt wins.** If the task says not to edit, commit or push (a multi-agent review
+runs you in a throwaway clone and says so), edit nothing, commit nothing and push nothing:
+report each needed change with its exact proposed text instead. Everything below applies
+only when you are run on your own, on a checkout of the PR branch.
+
+When reviewing an open PR on your own, commit doc updates to the PR branch:
 
 ```bash
 # Check current branch first (may already be on PR branch)
@@ -161,6 +167,10 @@ git push origin <pr-branch>
 - If no open PR, leave changes uncommitted and report
 
 ## Output Format
+
+This format applies only when you run on your own. When a task prompt gives a report format
+(a multi-agent review asks for "Documentation Updates Needed" with exact proposed text), use
+the task's format: the orchestrator looks for those exact headings.
 
 ```markdown
 ## Documentation Updates

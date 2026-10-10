@@ -26,26 +26,52 @@ teardown() {
 # ─────────────────────────────────────────────
 # 1. Claude Code adapter installation
 # ─────────────────────────────────────────────
-@test "install creates .claude/commands/prp-core/ symlink" {
+# prp-core is a real directory of per-file symlinks, never a directory symlink: a directory
+# symlink let writes reach the framework's source files (#110, agent-devops 2026-06-14).
+@test "install creates .claude/commands/prp-core/ as a real directory, not a symlink" {
     run bash "$INSTALL_SCRIPT"
     [ "$status" -eq 0 ]
-    [ -L "$SANDBOX/.claude/commands/prp-core" ]
+    [ -d "$SANDBOX/.claude/commands/prp-core" ]
+    [ ! -L "$SANDBOX/.claude/commands/prp-core" ]
+    ls "$SANDBOX/.claude/commands/prp-core/"prp-*.md >/dev/null 2>&1
 }
 
-@test "install prp-core symlink points to correct adapter source" {
+@test "install prp-core files symlink to their adapter sources" {
     bash "$INSTALL_SCRIPT"
-    LINK_TARGET="$(readlink "$SANDBOX/.claude/commands/prp-core")"
-    [ "$LINK_TARGET" = "$SANDBOX/prp-framework/adapters/claude-code" ]
+    for f in "$SANDBOX/.claude/commands/prp-core/"prp-*.md; do
+        [ -L "$f" ]
+        [ "$(readlink "$f")" = "$SANDBOX/prp-framework/adapters/claude-code/$(basename "$f")" ]
+    done
 }
 
-@test "install creates .claude/commands/prp-mkt/ symlink" {
+@test "install replaces a legacy prp-core directory symlink without touching the source" {
+    mkdir -p "$SANDBOX/.claude/commands"
+    ln -s "$SANDBOX/prp-framework/adapters/claude-code" "$SANDBOX/.claude/commands/prp-core"
+    src="$SANDBOX/prp-framework/adapters/claude-code"
+    # Every source file's type, path and content, before and after the install.
+    snapshot() { (cd "$src" && find . -printf '%y %p\n' | sort && find . -type f -print0 | sort -z | xargs -0 sha256sum); }
+    before="$(snapshot)"
     bash "$INSTALL_SCRIPT"
+    [ ! -L "$SANDBOX/.claude/commands/prp-core" ]
+    [ -d "$SANDBOX/.claude/commands/prp-core" ]
+    ls "$SANDBOX/.claude/commands/prp-core/"prp-*.md >/dev/null
+    [ -n "$before" ]
+    [ "$(snapshot)" = "$before" ]
+}
+
+# prp-mkt and prp-bot are installed only by the full preset (#101); the default is standard.
+@test "install --full creates .claude/commands/prp-mkt/ and prp-bot/" {
+    bash "$INSTALL_SCRIPT" --full
     [ -L "$SANDBOX/.claude/commands/prp-mkt" ]
+    [ "$(readlink "$SANDBOX/.claude/commands/prp-mkt")" = "$SANDBOX/prp-framework/adapters/claude-code-marketing" ]
+    [ -L "$SANDBOX/.claude/commands/prp-bot" ]
+    [ "$(readlink "$SANDBOX/.claude/commands/prp-bot")" = "$SANDBOX/prp-framework/adapters/claude-code-bot" ]
 }
 
-@test "install creates .claude/commands/prp-bot/ symlink" {
+@test "default (standard) install does not create prp-mkt or prp-bot" {
     bash "$INSTALL_SCRIPT"
-    [ -L "$SANDBOX/.claude/commands/prp-bot" ]
+    [ ! -e "$SANDBOX/.claude/commands/prp-mkt" ]
+    [ ! -e "$SANDBOX/.claude/commands/prp-bot" ]
 }
 
 # ─────────────────────────────────────────────

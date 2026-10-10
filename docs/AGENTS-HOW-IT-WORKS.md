@@ -292,7 +292,7 @@ Context file เก็บอะไร?
 | `performance-analyzer` | Optimization | Bottlenecks + fixes |
 | `pr-test-analyzer` | PR review | Test coverage gaps |
 | `type-design-analyzer` | TypeScript review | Type quality scores |
-| `docs-impact-agent` | หลัง code changes | Updated docs (commits ให้) |
+| `docs-impact-agent` | หลัง code changes | ใน multi-agent review: report doc changes ที่ต้องแก้ (ไม่ edit/commit); รันเดี่ยว: edit + commit ให้ |
 | `accessibility-reviewer` | UI review | WCAG compliance report |
 | `observability-reviewer` | Production readiness | Logging/metrics gaps |
 | `web-researcher` | ต้องการข้อมูลจาก web | Research summary |
