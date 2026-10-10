@@ -467,7 +467,8 @@ author_fingerprint() (   # identical in 2.1.1 and 3.0; prints one hash, or fails
     cd "$1" || exit 1
     printf 'tree %s\n' "$1"
     # --ignored also lists ignored paths that appear (e.g. a stray build or install)
-    "${g[@]}" status --porcelain --ignored || exit 1
+    "${g[@]}" status --porcelain --ignored \
+      || { echo "cannot read worktree $1 (a stale one? see git worktree prune)" >&2; exit 1; }
     # the index itself: object id, mode and stage of every entry (a re-staged edit, a chmod)
     "${g[@]}" ls-files -s -z | tr '\0' '\n' || exit 1
     # Mode and contents of modified, untracked and index-flagged (skip-worktree /
@@ -485,7 +486,10 @@ author_fingerprint() (   # identical in 2.1.1 and 3.0; prints one hash, or fails
                  case "${l:0:1}" in [a-z]|S) printf '%s\0' "${l:2}" ;; esac
                done; } | sort -zu)
     if (( ${#regular[@]} )); then printf '%s\0' "${regular[@]}" | xargs -0 "${H[@]}" 2>&1; fi
-    true   # an unreadable file is recorded by its error line above, not fatal
+    # Not fatal on purpose: an unreadable file is recorded (its mode line and error line), and
+    # the file list's own exit status is not needed (a git that cannot list files has already
+    # failed status and ls-files -s above)
+    true
   )
   {
     # refs, including refs/stash (a new stash entry moves it)
@@ -561,6 +565,7 @@ echo "AUTHOR_WORKTREE=$AUTHOR_WORKTREE"
 echo "REVIEW_CLONE=$REVIEW_CLONE"
 echo "AUTHOR_HEAD=$AUTHOR_HEAD"
 echo "AUTHOR_FINGERPRINT=$AUTHOR_FINGERPRINT"
+echo "REVIEWED_HEAD_SHA=$REVIEWED_HEAD_SHA"
 ```
 
 Pass `$REVIEW_CLONE/repo` (not `$AUTHOR_WORKTREE`) to every agent prompt as the working
@@ -575,7 +580,7 @@ it or git -C <REVIEW_CLONE>/repo; a tool call's working directory does not persi
 read or write <AUTHOR_WORKTREE>.`
 
 An agent that ignores the rule and writes in the author's tree is still caught by 3.0. Keep
-the four printed values: Phase 3.0 needs them.
+the five printed values: Phase 3.0 needs them.
 
 ### 2.2 Core Agents (Always — Spawn ALL in Parallel)
 
@@ -934,12 +939,16 @@ Running: $prp-review {NUMBER}
 
 ### 3.0 Verify Author Worktree Integrity
 
+Run 3.0 only after every agent spawned in Phase 2 has returned its result. An agent that timed
+out, or may still be running in the background, can still write after the check passes:
+abort the review instead of checking.
+
 First check the PR itself: its head on the server must still be the reviewed head. A push
 during the review (an agent pushing from the clone, or anyone else) changes it, and the local
 fingerprint cannot see that. A head that cannot be read is an abort too:
 
 ```bash
-R="${REVIEWED_HEAD_SHA:-<REVIEWED_HEAD_SHA from Phase 1>}"
+R="${REVIEWED_HEAD_SHA:-<REVIEWED_HEAD_SHA printed by 2.1.1>}"
 [[ "$R" =~ ^[0-9a-f]{40}$ ]] || { echo "REVIEW ABORT: REVIEWED_HEAD_SHA is not filled in ('$R')"; exit 1; }
 if ! PR_HEAD_NOW="$(gh pr view {NUMBER} --json headRefOid -q .headRefOid)" || [ -z "$PR_HEAD_NOW" ]; then
   echo "REVIEW ABORT: cannot read the PR head (gh pr view {NUMBER} failed or printed nothing)"; exit 1
@@ -954,7 +963,7 @@ If the head moved, the pushed commits are the evidence:
 what, and the clone is still in place (this check runs before the repository check removes it).
 
 Then verify the author's repository (every worktree of it) was not touched. Fill in the four
-values 2.1.1 printed, from this transcript (never from a file an agent could have written);
+AUTHOR_*/REVIEW_CLONE values 2.1.1 printed, from this transcript (never from a file an agent could have written);
 a value that is missing or still a placeholder is an abort, never a pass:
 
 ```bash
@@ -985,7 +994,8 @@ author_fingerprint() (   # identical in 2.1.1 and 3.0; prints one hash, or fails
     cd "$1" || exit 1
     printf 'tree %s\n' "$1"
     # --ignored also lists ignored paths that appear (e.g. a stray build or install)
-    "${g[@]}" status --porcelain --ignored || exit 1
+    "${g[@]}" status --porcelain --ignored \
+      || { echo "cannot read worktree $1 (a stale one? see git worktree prune)" >&2; exit 1; }
     # the index itself: object id, mode and stage of every entry (a re-staged edit, a chmod)
     "${g[@]}" ls-files -s -z | tr '\0' '\n' || exit 1
     # Mode and contents of modified, untracked and index-flagged (skip-worktree /
@@ -1003,7 +1013,10 @@ author_fingerprint() (   # identical in 2.1.1 and 3.0; prints one hash, or fails
                  case "${l:0:1}" in [a-z]|S) printf '%s\0' "${l:2}" ;; esac
                done; } | sort -zu)
     if (( ${#regular[@]} )); then printf '%s\0' "${regular[@]}" | xargs -0 "${H[@]}" 2>&1; fi
-    true   # an unreadable file is recorded by its error line above, not fatal
+    # Not fatal on purpose: an unreadable file is recorded (its mode line and error line), and
+    # the file list's own exit status is not needed (a git that cannot list files has already
+    # failed status and ls-files -s above)
+    true
   )
   {
     # refs, including refs/stash (a new stash entry moves it)
@@ -1072,7 +1085,9 @@ missing, the review is aborted: report that and write no verdict and no marker.
 
 **If an agent returns no findings**: Note as clean — "No {aspect} issues found."
 
-**If an agent fails or times out**: Note the failure and proceed with available results. Display:
+**If an agent times out or has not returned**: abort the review (3.0 must not run while an agent
+may still write). **If an agent fails** (returned an error): note the failure and proceed with
+available results. Display:
 ```
 WARNING: {agent-type} agent failed/timed out. {aspect} review incomplete.
 Consider running $prp-review {NUMBER} {aspect} for a single-session {aspect} review.
@@ -1275,6 +1290,22 @@ Save aggregated review to `.prp-output/reviews/pr-{NUMBER}-agents-review.md` bef
 mkdir -p .prp-output/reviews
 ```
 
+Once the report is written, and before it is committed or posted anywhere, check its count
+headings. `safe-merge` SUMS every `### Critical Issues (N` and `### Important Issues (N` it
+finds, so the report must hold exactly one of each. On failure, nothing is committed or
+posted: escape the extra ones (`#` as `&#35;`) and run this check again.
+
+```bash
+REVIEW_FILE=".prp-output/reviews/pr-{NUMBER}-agents-review.md"
+NCRIT=$(grep -oiP '###\s+Critical Issues\s+\(\d' "$REVIEW_FILE" | wc -l)
+NIMP=$(grep -oiP '###\s+Important Issues\s+\(\d' "$REVIEW_FILE" | wc -l)
+[ "$NCRIT" = 1 ] && [ "$NIMP" = 1 ] \
+  || { echo "FATAL: the report has $NCRIT Critical and $NIMP Important count headings, not one of each — nothing committed or posted" >&2; exit 1; }
+echo "COUNT_HEADINGS=OK"
+```
+
+The commit step and "Post to GitHub" run only after this printed `COUNT_HEADINGS=OK`.
+
 ### Commit Review Artifact to PR Branch (agent-devops#939)
 
 **Default behavior**: After writing the review artifact, commit and push it to the PR branch so `safe-merge` can find it without manual intervention. This step runs BEFORE emitting the safe-merge marker (see "Commit artifacts BEFORE the marker" below) to keep the marker's `head=` SHA aligned with the pushed HEAD.
@@ -1282,6 +1313,9 @@ mkdir -p .prp-output/reviews
 **Skip with `--no-commit`**: Pass `--no-commit` to skip this step (useful when running review-agents inside a flow that handles artifact commits separately, e.g., `$prp-run-all`).
 
 **Detect run-all context**: If the environment variable `PRP_RUN_ALL=1` is set (injected by `$prp-run-all`), skip auto-commit — run-all commits all artifacts together in its own step. Treat this the same as `--no-commit`.
+
+Right before this step, run the first 3.0 block (the PR-head check) again. It must print
+`PR_HEAD_CHECK=OK` again; otherwise the review is aborted and nothing is committed.
 
 ```bash
 # Auto-commit review artifact to PR branch (unless --no-commit or PRP_RUN_ALL)
@@ -1291,15 +1325,19 @@ if [ "${NO_COMMIT:-0}" != "1" ] && [ "${PRP_RUN_ALL:-0}" != "1" ]; then
   METRICS_FILE=".prp-output/reviews/review-metrics.jsonl"
 
   # Stage review artifacts that exist
-  git add "$REVIEW_FILE" 2>/dev/null
-  git add "$CONTEXT_FILE" 2>/dev/null
-  git add "$METRICS_FILE" 2>/dev/null
+  ARTIFACTS=()
+  for f in "$REVIEW_FILE" "$CONTEXT_FILE" "$METRICS_FILE"; do
+    [ -e "$f" ] && git add -- "$f" 2>/dev/null && ARTIFACTS+=("$f")
+  done
 
-  # Only commit if there are staged changes
-  if ! git diff --cached --quiet 2>/dev/null; then
-    git commit -m "docs: add review artifact for PR #{NUMBER}"
-    git push
-    echo "Review artifact committed and pushed to PR branch."
+  # Commit only these paths (`-- paths`): anything else staged in this checkout, by the author
+  # or by mistake, stays out of the artifact commit
+  if (( ${#ARTIFACTS[@]} )) && ! git diff --cached --quiet -- "${ARTIFACTS[@]}" 2>/dev/null; then
+    if git commit -q -m "docs: add review artifact for PR #{NUMBER}" -- "${ARTIFACTS[@]}" && git push; then
+      echo "Review artifact committed and pushed to PR branch."
+    else
+      echo "FATAL: the artifact commit or push failed; marker NOT emitted until it succeeds" >&2
+    fi
   else
     echo "NOTE: No new review artifacts to commit (already committed or unchanged)."
   fi
@@ -1444,6 +1482,10 @@ fi
 ```
 
 ### Post to GitHub
+
+Post only after the count-heading check under "Save Local Review" printed `COUNT_HEADINGS=OK`.
+If the marker step above printed any `FATAL` and appended no marker, post nothing as an
+approval: print `REVIEW ABORT: no marker emitted` and stop.
 
 **Self-review detection**: Before posting a formal review, check if the current GitHub user is the PR author:
 ```bash

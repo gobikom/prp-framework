@@ -8,7 +8,9 @@
 # component from the prompt fails a test. Two lines are covered redundantly on purpose: 3.0's
 # explicit HEAD comparison (also seen through `worktree list`, which prints each HEAD; kept
 # for its clearer message) and the hooks loop's `|| exit 1` (it is the last step, so
-# pipefail already fails the function).
+# pipefail already fails the function). Likewise tree_state's `|| exit 1` on `cd`, on
+# `ls-files -s` and on the loop call, and `worktree list`'s: any git failure they guard also
+# fails a neighbouring guarded command, so dropping one alone changes nothing observable.
 #
 # Run: bats tests/commands/review-isolation.bats
 
@@ -70,6 +72,7 @@ run_30() {    # $1 = 2.1.1 output; runs 3.0 in a fresh shell given only the four
     [ -d "$clone/repo/.git" ]
     [ -z "$(git -C "$clone/repo" remote)" ]
     [ "$(git -C "$clone/repo" rev-parse HEAD)" = "$HEAD_SHA" ]
+    [[ "$out" == *"REVIEWED_HEAD_SHA=$HEAD_SHA"* ]]   # 3.0's PR-head check takes it from here
     # its own object store: no alternates file, no object hardlinked to the author's
     [ ! -e "$clone/repo/.git/objects/info/alternates" ]
     [ -z "$(find "$clone/repo/.git/objects" -type f -links +1)" ]
@@ -305,23 +308,29 @@ pr_head_check() {   # $1 = what the stub gh prints ("FAIL" = gh exits 1); [R=...
 
 @test "3.0's PR-head check: passes only at the reviewed head, with a distinct abort for each failure" {
     run pr_head_check "$HEAD_SHA"
-    [ "$status" -eq 0 ] && [ "$output" = "PR_HEAD_CHECK=OK $HEAD_SHA" ]
+    [ "$status" -eq 0 ]
+    [ "$output" = "PR_HEAD_CHECK=OK $HEAD_SHA" ]
     grep -q '{NUMBER}' "$W/30pr.raw"                    # the PR number is the orchestrator's to fill
     [ "$(cat "$W/gh.argv")" = "pr view 7 --json headRefOid -q .headRefOid " ]
     run pr_head_check 0123456789abcdef0123456789abcdef01234567
-    [ "$status" -eq 1 ] && [[ "$output" == *"something pushed during the review"* ]]
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"something pushed during the review"* ]]
     run pr_head_check FAIL
-    [ "$status" -eq 1 ] && [[ "$output" == *"cannot read the PR head"* ]]
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"cannot read the PR head"* ]]
     run pr_head_check ""
-    [ "$status" -eq 1 ] && [[ "$output" == *"cannot read the PR head"* ]]
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"cannot read the PR head"* ]]
     # not filled in at all (and gh failing too): never "" = "" passing
     R="" run pr_head_check FAIL
-    [ "$status" -eq 1 ] && [[ "$output" == *"REVIEWED_HEAD_SHA is not filled in"* ]]
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"REVIEWED_HEAD_SHA is not filled in"* ]]
 }
 
 @test "results are collected only after both 3.0 checks, and a missing docs table is warned about" {
     rc="$(awk '/^### 3[.]0[.]1 |^## Phase 3: Result Collection/{f=1} f&&/^## Phase 4/{exit} f' "$PROMPT")"
-    [[ "$rc" == *'Collect only when this transcript shows `PR_HEAD_CHECK=OK <REVIEWED_HEAD_SHA>`'* ]]
+    flat="$(tr '\n' ' ' <<<"$rc" | tr -s ' ')"
+    [[ "$flat" == *'Collect only when this transcript shows `PR_HEAD_CHECK=OK <REVIEWED_HEAD_SHA>` from the first 3.0 block AND the repository check ran to the end without `REVIEW ABORT`.'* ]]
     [[ "$rc" == *'write no verdict and no marker'* ]]
     [[ "$rc" == *'carry the rows into the report (Phase 6)'* ]]
     [[ "$rc" == *'print `WARNING: docs-impact-agent returned no "Documentation Updates Needed" table`'* ]]
@@ -360,6 +369,10 @@ marker_case() {   # $1 = extra text appended to a clean 0/0 report; runs the mar
     run marker_case "| README.md | Output | ### Critical Issues (3 found) |"
     [[ "$output" == *"FATAL: the report has 2 Critical and 1 Important count headings"* ]]
     [[ "$output" != *"safe-merge-review:"* ]]
+    run marker_case "| README.md | Output | ### Important Issues (1 found) |"
+    [[ "$output" == *"FATAL: the report has 1 Critical and 2 Important count headings"* ]]
+    [[ "$output" != *"safe-merge-review:"* ]]
+    grep -q '^approval: print `REVIEW ABORT: no marker emitted` and stop.' "$PROMPT"
 }
 
 @test "Phase 3 tells the orchestrator to escape # in the carried docs rows" {
@@ -405,4 +418,62 @@ sibling_case() {   # $1 = worktree the review runs from, $2 = worktree the agent
     [[ "$out" == *"AUTHOR_FINGERPRINT="* ]]
     run run_30 "$out"
     [ "$status" -eq 0 ]
+}
+
+artifact_commit_case() {   # runs the artifact-commit block in a checkout with a stray staged file
+    block '^### Commit Review Artifact to PR Branch' 1 | sed 's/{NUMBER}/7/g' > "$W/art.sh"
+    git init -q --bare "$W/up.git"
+    # a PR branch, not main (a host pre-push hook may refuse main)
+    git -C "$W/author" switch -q -c feat
+    git -C "$W/author" remote add up "$W/up.git"
+    git -C "$W/author" push -q up "HEAD:refs/heads/feat"
+    git -C "$W/author" fetch -q up && git -C "$W/author" branch -q --set-upstream-to=up/feat feat
+    mkdir -p "$W/author/.prp-output/reviews"
+    printf 'review\n' > "$W/author/.prp-output/reviews/pr-7-agents-review.md"
+    (cd "$W/author" && env -i PATH="$PATH" HOME="$W" GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t \
+        GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t bash "$W/art.sh")
+}
+
+@test "the artifact commit holds only the artifacts, never anything else that is staged" {
+    # make_author already has `staged` in the index; that must not ride along
+    run artifact_commit_case
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"committed and pushed"* ]]
+    [ "$(git -C "$W/author" show --name-only --format= HEAD)" = ".prp-output/reviews/pr-7-agents-review.md" ]
+    git -C "$W/author" diff --cached --name-only | grep -qx staged     # still staged, not committed
+    [ "$(git -C "$W/up.git" rev-parse feat)" = "$(git -C "$W/author" rev-parse HEAD)" ]
+}
+
+@test "3.0 waits for every agent, a timeout aborts, and the PR head is re-checked before the artifact commit" {
+    p3="$(awk '/^### 3[.]0 Verify/{f=1} f&&/^First check the PR itself/{exit} f' "$PROMPT")"
+    [[ "$p3" == *"Run 3.0 only after every agent spawned in Phase 2 has returned its result"* ]]
+    [[ "$p3" == *"abort the review instead of checking"* ]]
+    grep -q '^\*\*If an agent times out or has not returned\*\*: abort the review' "$PROMPT"
+    ac="$(awk '/^### Commit Review Artifact to PR Branch/{f=1} f&&/^```bash/{exit} f' "$PROMPT")"
+    [[ "$ac" == *'run the first 3.0 block (the PR-head check) again. It must print'* ]]
+}
+
+@test "the count headings are checked before the report is committed or posted" {
+    block '^### Save Local Review' 2 | sed 's/{NUMBER}/7/g' > "$W/count.sh"
+    mkdir -p "$W/c/.prp-output/reviews"
+    f="$W/c/.prp-output/reviews/pr-7-agents-review.md"
+    printf '### Critical Issues (0 found)\n### Important Issues (0 found)\n' > "$f"
+    run bash -c "cd '$W/c' && bash '$W/count.sh'"
+    [ "$status" -eq 0 ]
+    [ "$output" = "COUNT_HEADINGS=OK" ]
+    printf '| README.md | x | ### Important Issues (2 found) |\n' >> "$f"
+    run bash -c "cd '$W/c' && bash '$W/count.sh'"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"1 Critical and 2 Important"*"nothing committed or posted"* ]]
+    grep -q '^The commit step and "Post to GitHub" run only after this printed `COUNT_HEADINGS=OK`' "$PROMPT"
+    grep -q '^Post only after the count-heading check under "Save Local Review" printed `COUNT_HEADINGS=OK`' "$PROMPT"
+}
+
+@test "a sibling worktree that git can no longer read aborts 2.1.1, naming it" {
+    gc -C "$W/author" worktree add -q -b feat "$W/wt-feat" 2>/dev/null
+    printf 'gitdir: %s/nowhere\n' "$W" > "$W/wt-feat/.git"   # still listed, but git cannot read it
+    run run_211
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"cannot read worktree $W/wt-feat"* ]]
+    [[ "$output" == *"cannot fingerprint"* ]]
 }
