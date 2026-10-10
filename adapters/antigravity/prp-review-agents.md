@@ -431,11 +431,12 @@ worktree, another staged 6001 junk files). A `git worktree` is NOT enough: it sh
 config, hooks, stash and the worktree list with the author's repository.
 
 **What this guards, and what it does not.** The clone plus the Phase 3.0 fingerprint catch an
-agent that ACCIDENTALLY touches the author's repository: the working tree, the index, refs,
-stash, worktrees, local config, `info/` and hooks. It is not a security boundary against an
-agent that is actively hostile: agents run as the same user, so one could change files git
-ignores (e.g. `.claude/`), global git config or global hooks, which nothing here sees.
-Hardening against that is tracked in prp-framework#138.
+agent that ACCIDENTALLY touches the author's repository: tracked, untracked and index-flagged
+files and their contents, ignored paths that appear (a stray build or install), refs, stash,
+worktrees, local config, `info/` and hooks. Not seen: changes INSIDE an ignored path that
+already existed (e.g. `.claude/`, `node_modules/`), empty directories, global git config and
+global hooks. It is not a security boundary against an agent that is actively hostile: agents
+run as the same user. Hardening against that is tracked in prp-framework#138.
 
 Every value Phase 3.0 needs is PRINTED here and carried into 3.0 as a literal from this
 transcript, never read back from a file: an agent can write files, not this transcript.
@@ -456,25 +457,37 @@ author_fingerprint() (   # identical in 2.1.1 and 3.0; prints one hash, or fails
   g=(git -c core.fsmonitor=false -c core.hooksPath=/dev/null)
   common="$("${g[@]}" rev-parse --git-common-dir)" || exit 1
   case "$common" in /*) ;; *) common="$AUTHOR_WORKTREE/$common" ;; esac
+  files="$(mktemp)" || exit 1
+  trap 'rm -f "$files"' EXIT
   {
     "${g[@]}" rev-parse HEAD || exit 1
-    "${g[@]}" status --porcelain || exit 1
+    # --ignored also lists ignored paths that appear (e.g. a stray build or install)
+    "${g[@]}" status --porcelain --ignored || exit 1
     "${g[@]}" for-each-ref --format='%(refname) %(objectname)' || exit 1
     "${g[@]}" stash list || exit 1
     "${g[@]}" worktree list --porcelain || exit 1
     "${g[@]}" config --local --list || exit 1
-    # contents of modified and untracked files (an edit to an already-dirty file leaves the
-    # status line unchanged); symlinks by target; nothing that is not a regular file is read
-    "${g[@]}" ls-files -m -o --exclude-standard -z | sort -zu | while IFS= read -r -d '' f; do
+    # index flags (skip-worktree / assume-unchanged hide an edit from status)
+    "${g[@]}" ls-files -v -z | tr '\0' '\n' | { grep -aE '^[a-zS] ' || true; } || exit 1
+    # Contents of modified, untracked and flagged files: an edit to an already-dirty or flagged
+    # file leaves the status line unchanged. Symlinks count by target; only regular files are
+    # read, hashed in one batch; a file that cannot be read is recorded by its error line.
+    { "${g[@]}" ls-files -m -o --exclude-standard -z || exit 1
+      "${g[@]}" ls-files -v -z | while IFS= read -r -d '' l; do
+        case "${l:0:1}" in [a-z]|S) printf '%s\0' "${l:2}" ;; esac
+      done || exit 1
+    } | sort -zu | while IFS= read -r -d '' f; do
       if [ -L "$f" ]; then printf 'link %s -> %s\n' "$f" "$(readlink -- "$f")"
-      elif [ -f "$f" ]; then sha256sum -- "$f"
+      elif [ -f "$f" ]; then printf '%s\0' "$f" >> "$files"
       else printf 'other %s\n' "$f"; fi
     done || exit 1
+    xargs -0 -r sha256sum -- < "$files" 2>&1
     for f in "$common/info/exclude" "$common/info/attributes" "$common/packed-refs"; do
       if [ -f "$f" ]; then sha256sum -- "$f"; fi
     done
     if [ -d "$common/hooks" ]; then
-      find "$common/hooks" -type f -printf '%m %p\n' -exec sha256sum -- {} \; | sort || exit 1
+      find "$common/hooks" \( -type f -o -type l \) -printf '%m %y %p %l\n' | sort || exit 1
+      find "$common/hooks" -type f -exec sha256sum -- {} + 2>&1 | sort
     fi
   } | sha256sum | cut -d' ' -f1
 )
@@ -484,14 +497,25 @@ AUTHOR_FINGERPRINT="$(author_fingerprint)" && [ -n "$AUTHOR_FINGERPRINT" ] \
   || abort "cannot fingerprint the author's repository"
 REVIEW_CLONE="$(mktemp -d "${SCRATCHPAD:-${TMPDIR:-/tmp}}/prp-review-pr-${PR_NUMBER}.XXXXXX")" \
   || abort "cannot create the review directory"
+REVIEW_CLONE="$(realpath -e -- "$REVIEW_CLONE")" || abort "cannot resolve the review directory"
+case "$REVIEW_CLONE/" in
+  "$AUTHOR_WORKTREE"/*) rm -rf -- "$REVIEW_CLONE"; abort "SCRATCHPAD/TMPDIR is inside the author's repository; point it outside" ;;
+esac
 
 # A real clone with no remote, detached at the PR head (fetched when the author is elsewhere)
 git clone --quiet --no-local --no-hardlinks "$AUTHOR_WORKTREE" "$REVIEW_CLONE/repo" \
   && git -C "$REVIEW_CLONE/repo" remote remove origin \
   || abort "could not create the review clone"
 if ! git -C "$REVIEW_CLONE/repo" cat-file -e "$REVIEWED_HEAD_SHA^{commit}" 2>/dev/null; then
-  git -C "$REVIEW_CLONE/repo" fetch --quiet "$(git -C "$AUTHOR_WORKTREE" remote get-url origin)" "pull/$PR_NUMBER/head" \
-    || abort "could not fetch PR #$PR_NUMBER into the review clone"
+  fetched=""
+  for remote in $(git -C "$AUTHOR_WORKTREE" remote); do   # origin, upstream (fork), ...
+    url="$(git -C "$AUTHOR_WORKTREE" remote get-url "$remote")" || continue
+    if git -C "$REVIEW_CLONE/repo" fetch --quiet "$url" "pull/$PR_NUMBER/head" 2>/dev/null \
+       && git -C "$REVIEW_CLONE/repo" cat-file -e "$REVIEWED_HEAD_SHA^{commit}" 2>/dev/null; then
+      fetched=1; break
+    fi
+  done
+  [ -n "$fetched" ] || abort "the PR head $REVIEWED_HEAD_SHA is not in the author's repository and no remote serves pull/$PR_NUMBER/head"
 fi
 git -C "$REVIEW_CLONE/repo" checkout --quiet --detach "$REVIEWED_HEAD_SHA" \
   && [ "$(git -C "$REVIEW_CLONE/repo" rev-parse HEAD)" = "$REVIEWED_HEAD_SHA" ] \
@@ -876,7 +900,9 @@ abort() { echo "REVIEW ABORT: $*"; exit 1; }
 for v in AUTHOR_WORKTREE REVIEW_CLONE AUTHOR_HEAD AUTHOR_FINGERPRINT; do
   [[ -n "${!v}" && "${!v}" != "<"* ]] || abort "$v is not filled in"
 done
-[[ "$REVIEW_CLONE" == */prp-review-pr-*.?????? && -d "$REVIEW_CLONE/repo" ]] \
+# The one destructive command below only ever removes a canonical review clone made by 2.1.1
+rc="$(realpath -e -- "$REVIEW_CLONE")" \
+  && [[ "$rc" == "$REVIEW_CLONE" && "$(basename -- "$rc")" =~ ^prp-review-pr-[1-9][0-9]*\.[A-Za-z0-9]{6}$ && -d "$rc/repo/.git" ]] \
   || abort "REVIEW_CLONE ($REVIEW_CLONE) is not a review clone made by 2.1.1"
 
 author_fingerprint() (   # identical in 2.1.1 and 3.0; prints one hash, or fails
@@ -886,25 +912,37 @@ author_fingerprint() (   # identical in 2.1.1 and 3.0; prints one hash, or fails
   g=(git -c core.fsmonitor=false -c core.hooksPath=/dev/null)
   common="$("${g[@]}" rev-parse --git-common-dir)" || exit 1
   case "$common" in /*) ;; *) common="$AUTHOR_WORKTREE/$common" ;; esac
+  files="$(mktemp)" || exit 1
+  trap 'rm -f "$files"' EXIT
   {
     "${g[@]}" rev-parse HEAD || exit 1
-    "${g[@]}" status --porcelain || exit 1
+    # --ignored also lists ignored paths that appear (e.g. a stray build or install)
+    "${g[@]}" status --porcelain --ignored || exit 1
     "${g[@]}" for-each-ref --format='%(refname) %(objectname)' || exit 1
     "${g[@]}" stash list || exit 1
     "${g[@]}" worktree list --porcelain || exit 1
     "${g[@]}" config --local --list || exit 1
-    # contents of modified and untracked files (an edit to an already-dirty file leaves the
-    # status line unchanged); symlinks by target; nothing that is not a regular file is read
-    "${g[@]}" ls-files -m -o --exclude-standard -z | sort -zu | while IFS= read -r -d '' f; do
+    # index flags (skip-worktree / assume-unchanged hide an edit from status)
+    "${g[@]}" ls-files -v -z | tr '\0' '\n' | { grep -aE '^[a-zS] ' || true; } || exit 1
+    # Contents of modified, untracked and flagged files: an edit to an already-dirty or flagged
+    # file leaves the status line unchanged. Symlinks count by target; only regular files are
+    # read, hashed in one batch; a file that cannot be read is recorded by its error line.
+    { "${g[@]}" ls-files -m -o --exclude-standard -z || exit 1
+      "${g[@]}" ls-files -v -z | while IFS= read -r -d '' l; do
+        case "${l:0:1}" in [a-z]|S) printf '%s\0' "${l:2}" ;; esac
+      done || exit 1
+    } | sort -zu | while IFS= read -r -d '' f; do
       if [ -L "$f" ]; then printf 'link %s -> %s\n' "$f" "$(readlink -- "$f")"
-      elif [ -f "$f" ]; then sha256sum -- "$f"
+      elif [ -f "$f" ]; then printf '%s\0' "$f" >> "$files"
       else printf 'other %s\n' "$f"; fi
     done || exit 1
+    xargs -0 -r sha256sum -- < "$files" 2>&1
     for f in "$common/info/exclude" "$common/info/attributes" "$common/packed-refs"; do
       if [ -f "$f" ]; then sha256sum -- "$f"; fi
     done
     if [ -d "$common/hooks" ]; then
-      find "$common/hooks" -type f -printf '%m %p\n' -exec sha256sum -- {} \; | sort || exit 1
+      find "$common/hooks" \( -type f -o -type l \) -printf '%m %y %p %l\n' | sort || exit 1
+      find "$common/hooks" -type f -exec sha256sum -- {} + 2>&1 | sort
     fi
   } | sha256sum | cut -d' ' -f1
 )
@@ -914,10 +952,10 @@ AUTHOR_HEAD_AFTER="$(git -C "$AUTHOR_WORKTREE" rev-parse HEAD)" || abort "author
   || abort "author worktree HEAD changed during review ($AUTHOR_HEAD → $AUTHOR_HEAD_AFTER)"
 now="$(author_fingerprint)" && [ -n "$now" ] || abort "cannot fingerprint the author's repository"
 [ "$now" = "$AUTHOR_FINGERPRINT" ] \
-  || abort "the author's repository (worktree, index, refs, stash, worktrees, local config, info/ or hooks) changed during review"
+  || abort "the author's repository (files, index flags, ignored paths, refs, stash, worktrees, local config, info/ or hooks) changed during review"
 
 # Clean up: the clone is a plain directory, nothing to unregister
-rm -rf "$REVIEW_CLONE"
+rm -rf -- "$rc"
 ```
 
 If the check fails, abort the review and report: an agent escaped the clone. Leave the

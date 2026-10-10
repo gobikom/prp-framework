@@ -292,7 +292,7 @@ jobs:
 
   # The `CI red on main` issue tracks main's CURRENT head. Invariant: after any push or
   # dispatch run of main, the open `CI red on main` issues opened by this workflow reflect the
-  # latest completed run of this workflow for main's current head — red (failed, or a push run
+  # latest run of this workflow for main's current head, judged by its `bats tests` job — red (failed, or a push run
   # that ended cancelled, i.e. timed out): exactly one is open and carries that run's link;
   # green: none is open. Every run re-derives this from the head's state instead of from its own
   # result, so a run that finishes late, or a job that never ran, cannot leave a wrong state
@@ -300,6 +300,9 @@ jobs:
   # head has no run of this workflow (a [skip ci] commit, a push made with a workflow token);
   # then it reports its own red, naming both commits, and never closes on the head's behalf.
   # A dispatch cancelled by hand or by its timeout counts as neither (someone is watching it).
+  # Runs are serialised (one group, never cancelling a running job): two reconcilers at once
+  # could both find no issue and both open one. GitHub may drop a pending job when a newer one
+  # queues; that is safe, because every run re-derives the state from the head.
   # This job holds the only write token (issues: write) and runs no repo code. If it cannot
   # establish the head's state it fails, and the red job is the report.
   # Known gap: a run that never starts reaches no job at all.
@@ -309,6 +312,9 @@ jobs:
     if: always() && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
     timeout-minutes: 3
+    concurrency:
+      group: ci-red-issue
+      cancel-in-progress: false
     permissions:
       actions: read
       contents: read
@@ -335,10 +341,17 @@ jobs:
           else
             latest="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?branch=main&head_sha=$head&per_page=50" \
                 --jq '[.workflow_runs[] | select(.event == "push" or .event == "workflow_dispatch")][0]
-                      // empty | "\(.status) \(.conclusion // "none") \(.event) \(.html_url)"')" \
+                      // empty | "\(.id) \(.event)"')" \
               || fail "could not list this workflow's runs for the main head ${head:0:8}"
             if [[ -n "$latest" ]]; then
-              read -r status state event link <<<"$latest"
+              read -r run_id event <<<"$latest"
+              # judge the head by its tests job, not the whole run: a failure in that run's own
+              # reconcile job must not read as red tests
+              job="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/jobs?per_page=100" \
+                  --jq '[.jobs[] | select(.name == "bats tests")][0] // empty
+                        | "\(.status) \(.conclusion // "none") \(.html_url)"')" \
+                || fail "could not read the jobs of run $run_id for the main head ${head:0:8}"
+              read -r status state link <<<"${job:-queued none -}"
               if [[ "$status" != completed ]]; then
                 echo "::notice::the main head ${head:0:8} has a run in progress; it reconciles the issue"
                 exit 0
@@ -363,7 +376,9 @@ jobs:
             body="CI $state on $event, main @ ${at:0:8}: $link"
             echo "$body" >> "$GITHUB_STEP_SUMMARY"
             if (( ${#issues[@]} == 0 )); then
-              gh label create ci-red --color B60205 --description "CI red on main" >/dev/null 2>&1 || true
+              gh label create ci-red --color B60205 --description "CI red on main" >/dev/null 2>&1 \
+                || gh label list --search ci-red --json name --jq '.[].name' | grep -qx ci-red \
+                || echo "::warning::could not create the ci-red label; opening the issue without it"
               gh issue create --label ci-red --title "$title" --body "$body" \
                 || gh issue create --title "$title" --body "$body" \
                 || fail "could not open a ci-red issue"
