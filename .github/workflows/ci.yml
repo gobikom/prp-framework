@@ -293,11 +293,13 @@ jobs:
   # A red run of main (a push, or a dispatch on main) opens a `ci-red` issue, or comments on the
   # open one, and a green one closes it, so the failure is tracked where the repo's work is and its
   # recovery shows there too. A PR's red run shows on the PR itself; a dispatch on another branch
-  # and a manually cancelled dispatch touch nothing; a push run that ends cancelled (a timeout —
-  # push runs are never cancelled by concurrency) counts as red. Both jobs act only while the
-  # run's commit is still the head of main, so an older run finishing late, or a queued job that
-  # its concurrency group dropped, can neither close nor open an issue for a state main is no
-  # longer in. They find the issue by its exact title among issues this workflow opened (author
+  # and a cancelled dispatch (by hand or by its timeout: someone started it and is watching it)
+  # touch nothing; a push run that ends cancelled (a timeout — push runs are never cancelled by
+  # concurrency) counts as red. recover acts only while the run's commit is still the head of
+  # main, so an older run finishing late, or a queued job its concurrency group dropped, cannot
+  # close the issue for a state main is no longer in. alert stands down for a newer head only
+  # when that head has a run of its own to report; a head with none ([skip ci], a push made
+  # with a workflow token) would otherwise leave this red unreported, so it alerts naming both. They find the issue by its exact title among issues this workflow opened (author
   # github-actions), so one opened without the label is still found and closed; they hold the only
   # write token (issues: write, plus contents: read for the head check) and run no repo code, so
   # the tests never get it.
@@ -312,6 +314,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 3
     permissions:
+      actions: read
       contents: read
       issues: write
     concurrency:
@@ -334,8 +337,13 @@ jobs:
           head="$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)" \
             || { echo "::warning::could not read the main head; alerting anyway"; head="$GITHUB_SHA"; }
           if [[ "$head" != "$GITHUB_SHA" ]]; then
-            echo "::notice::main has moved on to ${head:0:8}; its own run reports its state"
-            exit 0
+            runs="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$head&per_page=1" --jq .total_count)" \
+              || { echo "::warning::could not list runs for ${head:0:8}; alerting"; runs=0; }
+            if [[ "$runs" != 0 ]]; then
+              echo "::notice::main has moved on to ${head:0:8}, which has its own run to report its state"
+              exit 0
+            fi
+            body="$body (main has since moved to ${head:0:8}, which has no CI run of its own)"
           fi
           gh label create ci-red --color B60205 --description "CI red on main" >/dev/null 2>&1 \
             || gh label list --search ci-red --json name --jq '.[].name' | grep -qx ci-red \
