@@ -374,7 +374,7 @@ marker_case() {   # $1 = extra text appended to a clean 0/0 report; runs the mar
     run marker_case ""
     [[ "$output" == *"safe-merge-review: verdict=READY_TO_MERGE critical=0 important=0"* ]]
     # a docs row quoting the heading, carried with # escaped as Phase 3 says: still one of each
-    run marker_case "| README.md | Output | &#35;&#35;&#35; Critical Issues (3 found) |"
+    run marker_case "| README.md | Output | ### Critical Issues &#40;3 found) |"
     [[ "$output" == *"safe-merge-review: verdict=READY_TO_MERGE critical=0 important=0"* ]]
     # the same text unescaped: safe-merge would sum it, so no marker
     run marker_case "| README.md | Output | ### Critical Issues (3 found) |"
@@ -388,7 +388,7 @@ marker_case() {   # $1 = extra text appended to a clean 0/0 report; runs the mar
 
 @test "Phase 3 tells the orchestrator to escape # in the carried docs rows" {
     p3="$(awk '/^\*\*For each agent result:\*\*/{f=1} f&&/^2\. /{exit} f' "$PROMPT")"
-    [[ "$p3" == *'write every `#` as `&#35;`'* ]]
+    [[ "$p3" == *'write every `Issues (` as `Issues &#40;`'* ]]
 }
 
 sibling_case() {   # $1 = worktree the review runs from, $2 = worktree the agent changes; prints 3.0's status
@@ -511,4 +511,81 @@ sibling_case() {   # $1 = worktree the review runs from, $2 = worktree the agent
     run run_30 "$out"
     chmod 600 "$W/author/.git/info/attributes"
     [ "$status" -eq 0 ]
+}
+
+@test "a sibling worktree's own config.worktree change is seen" {
+    git -C "$W/author" config extensions.worktreeConfig true
+    gc -C "$W/author" worktree add -q -b feat "$W/wt-feat" 2>/dev/null
+    out="$(run_211)"
+    git -C "$W/wt-feat" config --worktree core.hooksPath "$W/elsewhere"
+    run run_30 "$out"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"changed during review"* ]]
+}
+
+@test "a change on a later line of a multi-line config value is seen" {
+    git -C "$W/author" config alias.ml "$(printf 'one\ntwo')"
+    out="$(run_211)"
+    git -C "$W/author" config alias.ml "$(printf 'one\nTWO')"
+    run run_30 "$out"
+    [ "$status" -eq 1 ]
+}
+
+@test "submodule internals are declared as not seen" {
+    flat="$(awk '/^\*\*What this guards, and what it does not\.\*\*/{f=1} f&&/^$/{exit} f' "$PROMPT" | tr '\n' ' ')"
+    [[ "$flat" == *"the inside of submodules"* ]]
+}
+
+@test "a review clone with read-only directories is still removed" {
+    out="$(run_211)"
+    clone="$(sed -n 's/^REVIEW_CLONE=//p' <<<"$out")"
+    mkdir -p "$clone/repo/cache/sub" && chmod 555 "$clone/repo/cache/sub" "$clone/repo/cache"
+    run run_30 "$out"
+    [ "$status" -eq 0 ]
+    [ "${lines[${#lines[@]}-1]}" = "REPO_CHECK=OK" ]
+    [ ! -e "$clone" ]
+}
+
+@test "a clone that cannot be removed is an abort, not REPO_CHECK=OK" {
+    out="$(run_211)"
+    clone="$(sed -n 's/^REVIEW_CLONE=//p' <<<"$out")"
+    chmod 555 "$W/sp"                                  # its parent refuses the removal
+    if touch "$W/sp/probe" 2>/dev/null; then rm -f "$W/sp/probe"; chmod 755 "$W/sp"; skip "running as a user that ignores directory modes"; fi
+    run run_30 "$out"
+    chmod 755 "$W/sp"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"could not remove the review clone"* ]]
+    [[ "$output" != *"REPO_CHECK=OK"* ]]
+}
+
+@test "an unreadable info/ directory aborts 2.1.1 with 'cannot fingerprint'" {
+    chmod 000 "$W/author/.git/info"
+    if [ -r "$W/author/.git/info" ]; then chmod 755 "$W/author/.git/info"; skip "running as a user that can read mode-000 directories"; fi
+    run run_211
+    chmod 755 "$W/author/.git/info"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"cannot fingerprint"* ]]
+}
+
+@test "an info/ file unreadable at 2.1.1 and edited afterwards is seen" {
+    printf '* text\n' > "$W/author/.git/info/attributes"
+    chmod 000 "$W/author/.git/info/attributes"
+    if [ -r "$W/author/.git/info/attributes" ]; then skip "running as a user that can read mode-000 files"; fi
+    out="$(run_211)"
+    chmod 644 "$W/author/.git/info/attributes" && printf '* -text\n' > "$W/author/.git/info/attributes"
+    run run_30 "$out"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"changed during review"* ]]
+}
+
+
+@test "an info/ file unreadable at 2.1.1 and deleted afterwards is seen" {
+    printf '* text\n' > "$W/author/.git/info/attributes"
+    chmod 000 "$W/author/.git/info/attributes"
+    if [ -r "$W/author/.git/info/attributes" ]; then skip "running as a user that can read mode-000 files"; fi
+    out="$(run_211)"
+    rm -f "$W/author/.git/info/attributes"             # only its 'unreadable' record can show this
+    run run_30 "$out"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"changed during review"* ]]
 }
