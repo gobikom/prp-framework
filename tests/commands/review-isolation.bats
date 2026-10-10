@@ -70,6 +70,9 @@ run_30() {    # $1 = 2.1.1 output; runs 3.0 in a fresh shell given only the four
     [ -d "$clone/repo/.git" ]
     [ -z "$(git -C "$clone/repo" remote)" ]
     [ "$(git -C "$clone/repo" rev-parse HEAD)" = "$HEAD_SHA" ]
+    # its own object store: no alternates file, no object hardlinked to the author's
+    [ ! -e "$clone/repo/.git/objects/info/alternates" ]
+    [ -z "$(find "$clone/repo/.git/objects" -type f -links +1)" ]
     run run_30 "$out"
     [ "$status" -eq 0 ]
     [ ! -e "$clone" ]
@@ -256,10 +259,62 @@ guard_case() {   # $1 = REVIEW_CLONE value; the directory must survive
     [ -n "$docs" ]
     [[ "$docs" == *"Do NOT edit, commit or push anything"* ]]
     [[ "$docs" == *"## Documentation Updates Needed"* ]]
+    # no instruction to update or edit anything comes before the rule
+    first="$(sed -n '/prompt="/,/Do NOT edit, commit or push anything/p' <<<"$docs" | sed '$d')"
+    [ -n "$first" ]
+    ! grep -qiE '\b(update|edit|fix|apply|commit|push)\b|\bmake the changes\b' <<<"$first" || false
+    grep -q '^Do NOT edit, commit or push anything:' <<<"$docs"   # the rule starts its own line
+    # and the report carries the table, outside the issue headings
+    summary="$(awk '/^### Summary Format/{f=1} f&&/^## Output/{exit} f' "$PROMPT")"
+    [[ "$summary" == *"### Documentation Updates Needed"* ]]
+    [[ "$summary" != *"### Documentation Updates Needed ("* ]]
 }
 
 @test "no reviewer agent prompt tells the agent to commit or push" {
     agents="$(awk '/^### 2\.2 /{f=1} /^## Phase 3/{f=0} f' "$PROMPT")"
     [ -n "$agents" ]
     ! grep -niE 'commit and push|git push|push to the PR branch' <<<"$agents" || false
+}
+
+@test "a PR head fetched from a remote leaves the clone no FETCH_HEAD naming where it came from" {
+    # a commit the author does not have, served only as refs/pull/7/head by a local "server"
+    git init -q --bare "$W/server.git"
+    git clone -q "$W/author" "$W/other" 2>/dev/null
+    gc -C "$W/other" commit -q --allow-empty -m pr
+    pr="$(git -C "$W/other" rev-parse HEAD)"
+    git -C "$W/other" push -q "$W/server.git" "HEAD:refs/pull/7/head"
+    git -C "$W/author" remote add origin "$W/server.git"
+    out="$(SHA="$pr" run_211)"
+    clone="$(sed -n 's/^REVIEW_CLONE=//p' <<<"$out")"
+    [ "$(git -C "$clone/repo" rev-parse HEAD)" = "$pr" ]
+    [ ! -e "$clone/repo/.git/FETCH_HEAD" ]
+    ! grep -rqF "$W/server.git" "$clone/repo/.git" || false
+    rm -rf "$clone"
+}
+
+pr_head_check() {   # $1 = what the stub gh prints ("" = gh fails); runs 3.0's PR-head block
+    awk '/^### 3[.]0 Verify/{f=1} f && /^```bash/{n++; if (n==2) {b=1; next}} b && /^```/{exit} b' "$PROMPT" \
+        | sed 's/{NUMBER}/7/g' > "$W/30pr.sh"
+    mkdir -p "$W/bin"
+    if [ -n "$1" ]; then printf '#!/bin/sh\necho %s\n' "$1" > "$W/bin/gh"; else printf '#!/bin/sh\nexit 1\n' > "$W/bin/gh"; fi
+    chmod +x "$W/bin/gh"
+    (cd / && env -i PATH="$W/bin:$PATH" HOME="$W" REVIEWED_HEAD_SHA="$HEAD_SHA" bash "$W/30pr.sh")
+}
+
+@test "3.0 aborts when the PR head on the server moved during the review, or cannot be read" {
+    run pr_head_check "$HEAD_SHA"
+    [ "$status" -eq 0 ]
+    run pr_head_check 0123456789abcdef0123456789abcdef01234567
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"REVIEW ABORT"*"something pushed during the review"* ]]
+    run pr_head_check ""
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"unreadable"* ]]
+}
+
+@test "the docs agent's own definition defers to a task prompt that forbids editing" {
+    def="$(dirname "$PROMPT")/../adapters/claude-code-agents/docs-impact-agent.md"
+    grep -q 'The task prompt wins' "$def"
+    # the commit instructions sit after that rule, never before it
+    [ "$(grep -n 'The task prompt wins' "$def" | cut -d: -f1)" -lt "$(grep -n 'git push origin' "$def" | cut -d: -f1)" ]
 }

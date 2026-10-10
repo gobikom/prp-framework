@@ -540,6 +540,8 @@ fi
 git -C "$REVIEW_CLONE/repo" checkout --quiet --detach "$REVIEWED_HEAD_SHA" \
   && [ "$(git -C "$REVIEW_CLONE/repo" rev-parse HEAD)" = "$REVIEWED_HEAD_SHA" ] \
   || abort_clean "the review clone is not at $REVIEWED_HEAD_SHA"
+# the clone keeps no record of where the PR head was fetched from (FETCH_HEAD names the URL)
+rm -f -- "$REVIEW_CLONE/repo/.git/FETCH_HEAD"
 
 echo "AUTHOR_WORKTREE=$AUTHOR_WORKTREE"
 echo "REVIEW_CLONE=$REVIEW_CLONE"
@@ -819,7 +821,12 @@ Use severity levels: Critical, High, Medium, Low"
 Agent(
   subagent_type="docs-impact-agent",
   description="Review docs impact PR #{NUMBER}",
-  prompt="Review PR #{NUMBER} and update any documentation affected by code changes.
+  prompt="Review PR #{NUMBER} for documentation affected by code changes, and report what must change.
+
+Do NOT edit, commit or push anything: the review clone has no remote and is deleted after
+the review, so any edit there is lost. Report every documentation change the PR needs under
+"Documentation Updates Needed", with the file, the location and the exact proposed text, so
+the author can make it.
 
 Read the PR context file at: {CONTEXT_PATH}
 Also read CLAUDE.md, README.md, and docs/ directory.
@@ -829,11 +836,6 @@ Check:
 - Are removed features still referenced in docs?
 - Are API changes reflected in documentation?
 - Are configuration changes noted?
-
-Do NOT edit, commit or push anything: the review clone has no remote and is deleted after
-the review, so any edit there is lost. Report every documentation change the PR needs under
-"Documentation Updates Needed", with the file, the location and the exact proposed text, so
-the author can make it.
 
 Report findings as structured markdown:
 ## Findings
@@ -997,7 +999,20 @@ now="$(author_fingerprint)" && [ -n "$now" ] || abort "cannot fingerprint the au
 rm -rf -- "$rc"
 ```
 
-If the check fails, abort the review and report it. Usually an agent escaped the clone, but
+Then check the PR itself: its head on the server must still be the reviewed head. A push
+during the review (an agent pushing from the clone, or anyone else) changes it, and the local
+fingerprint cannot see that. A head that cannot be read is an abort too:
+
+```bash
+PR_HEAD_NOW="$(gh pr view {NUMBER} --json headRefOid -q .headRefOid)" || PR_HEAD_NOW=""
+[ "$PR_HEAD_NOW" = "${REVIEWED_HEAD_SHA:-<REVIEWED_HEAD_SHA from Phase 1>}" ] \
+  || { echo "REVIEW ABORT: the PR head is now '${PR_HEAD_NOW:-unreadable}', not the reviewed $REVIEWED_HEAD_SHA: something pushed during the review"; exit 1; }
+```
+
+If the PR-head check fails, the commits pushed on top of the reviewed head are the evidence:
+`git log {REVIEWED_HEAD_SHA}..<new head>` shows who pushed what.
+
+If the repository check fails, abort the review and report it. Usually an agent escaped the clone, but
 another session working in the same repository (a commit, fetch or branch cleanup in another
 worktree) also changes refs and worktrees: check that before blaming a reviewer. Leave the
 clone in place for the investigation; `git -C "$AUTHOR_WORKTREE" status` and
@@ -1006,7 +1021,9 @@ clone in place for the investigation; `git -C "$AUTHOR_WORKTREE" status` and
 After all agents complete, collect their outputs. Each agent returns a markdown report with findings.
 
 **For each agent result:**
-1. Parse the findings table
+1. Parse the findings table. For the docs-impact agent, also take its "Documentation Updates
+   Needed" table and carry the rows verbatim into the report (Phase 6): it is the only place
+   the proposed text survives, because the review clone is deleted
 2. Map severity to unified levels (Critical → Critical, High → Important, Medium/Low → Suggestions)
 3. Extract file:line references
 4. Note the source agent for each finding
@@ -1148,6 +1165,14 @@ After deduplication, categorize all findings:
 |-------|------------|----------|
 | code-reviewer | Description | `file.ts:line` |
 
+### Documentation Updates Needed
+| File | Location | Proposed text |
+|------|----------|---------------|
+| README.md | Usage section | Exact replacement text from the docs-impact agent |
+
+(Omit this section when the docs-impact agent did not run or reported nothing. It is not an
+issue heading, so it never changes the Critical/Important counts.)
+
 ### Strengths
 - Well-structured error handling
 - Good test coverage for critical paths
@@ -1172,7 +1197,8 @@ After deduplication, categorize all findings:
 1. Fix critical issues first
 2. Address important issues
 3. Consider suggestions
-4. Re-run review after fixes
+4. Apply the documentation updates listed above
+5. Re-run review after fixes
 ```
 
 Note: Agent column may list multiple agents for deduplicated findings (e.g., `code-reviewer, silent-failure-hunter`).

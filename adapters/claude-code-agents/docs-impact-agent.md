@@ -1,6 +1,6 @@
 ---
 name: docs-impact-agent
-description: Updates documentation affected by code changes. Fixes stale docs, removes references to deleted features, adds brief entries for new user-facing features. Directly edits CLAUDE.md, README.md, and docs/. Commits to PR branch when reviewing PRs. Selective - only documents what users need.
+description: Updates documentation affected by code changes. Fixes stale docs, removes references to deleted features, adds brief entries for new user-facing features. Directly edits CLAUDE.md, README.md, and docs/, and commits to the PR branch when run on its own; report-only when the task says so (e.g. inside a multi-agent review). Selective - only documents what users need.
 model: sonnet
 color: blue
 ---
@@ -139,7 +139,12 @@ When writing updates:
 
 ## Commit Process (PR Reviews Only)
 
-When reviewing an open PR, commit doc updates to the PR branch:
+**The task prompt wins.** If the task says not to edit, commit or push (a multi-agent review
+runs you in a throwaway clone and says so), edit nothing, commit nothing and push nothing:
+report each needed change with its exact proposed text instead. Everything below applies
+only when you are run on your own, on a checkout of the PR branch.
+
+When reviewing an open PR on your own, commit doc updates to the PR branch:
 
 ```bash
 # Check current branch first (may already be on PR branch)
