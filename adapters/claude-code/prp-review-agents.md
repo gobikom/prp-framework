@@ -464,11 +464,12 @@ AUTHOR_HEAD=$(git -C "$AUTHOR_WORKTREE" rev-parse HEAD)
 SAVED_HEAD=$(cat .prp-output/reviews/pr-{NUMBER}-reviewed-head 2>/dev/null) || SAVED_HEAD=""
 [ ${#SAVED_HEAD} -eq 40 ] && printf '%s' "$SAVED_HEAD" | grep -qxE '[0-9a-f]{40}' \
   || { echo "FATAL: no reviewed head saved by Phase 2.0 — run Phase 2.0 first, no agents started" >&2; exit 1; }
-REVIEW_CLONE="${SCRATCHPAD:-/tmp}/prp-review-clone-pr-{NUMBER}"
-# clear an earlier round's clone — its directory AND its worktree registration (3.0's cleanup may not have run)
+REVIEW_CLONE="${SCRATCHPAD:-/tmp}/prp-review-clone-$(git rev-parse --path-format=absolute --git-common-dir | sha1sum | cut -c1-12)-pr-{NUMBER}"
+# clear an earlier round's clone of THIS repo (the path is per repo and PR) — its directory AND its worktree
+# registration, which `remove --force` clears even when the directory is gone (3.0's cleanup may not have
+# run). No `git worktree prune`: it would also deregister unrelated worktrees whose directories are missing.
 git worktree remove --force "$REVIEW_CLONE" 2>/dev/null || true
 rm -rf -- "${REVIEW_CLONE:?}" || { echo "FATAL: cannot remove the old review clone $REVIEW_CLONE — no agents started" >&2; exit 1; }
-git worktree prune || { echo "FATAL: git worktree prune failed — no agents started" >&2; exit 1; }
 git worktree add --detach "$REVIEW_CLONE" "$SAVED_HEAD" \
   || { echo "FATAL: cannot create the review clone at $SAVED_HEAD (see git's message above; 'git worktree list' shows stale entries) — no agents started" >&2; exit 1; }
 [ "$(git -C "$REVIEW_CLONE" rev-parse HEAD)" = "$SAVED_HEAD" ] \
@@ -853,9 +854,8 @@ if [ "$AUTHOR_STATUS_BEFORE" != "$AUTHOR_STATUS_AFTER" ]; then
 fi
 
 # Clean up clone (path recomputed: this may be a fresh shell)
-REVIEW_CLONE="${SCRATCHPAD:-/tmp}/prp-review-clone-pr-{NUMBER}"
+REVIEW_CLONE="${SCRATCHPAD:-/tmp}/prp-review-clone-$(git rev-parse --path-format=absolute --git-common-dir | sha1sum | cut -c1-12)-pr-{NUMBER}"
 git worktree remove --force "$REVIEW_CLONE" 2>/dev/null || rm -rf -- "${REVIEW_CLONE:?}"
-git worktree prune
 ```
 
 If the check fails, abort the review and report — an agent escaped the clone.
