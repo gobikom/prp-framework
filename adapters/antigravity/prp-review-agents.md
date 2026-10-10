@@ -983,8 +983,12 @@ now="$(author_fingerprint)" && [ -n "$now" ] || abort "cannot fingerprint the au
 # only, as a patch next to the clone (not inside it); "Apply documentation fixes" uses it.
 # (stage everything in the throwaway clone, then limit the DIFF: an add with a pathspec that
 # matches nothing, e.g. no docs/, fails and stages nothing)
+# (fixed prefixes and no external/textconv/colour diff, whatever the user's git config says:
+# a noprefix patch would lose 'docs/' when applied)
 git -C "$rc/repo" add -A \
-  && git -C "$rc/repo" diff --cached --binary -- '*.md' docs/ > "$rc.docs.patch" \
+  && git -C "$rc/repo" -c diff.noprefix=false -c diff.mnemonicPrefix=false diff --cached --binary \
+       --no-ext-diff --no-textconv --no-color --src-prefix=a/ --dst-prefix=b/ \
+       -- '*.md' docs/ > "$rc.docs.patch" \
   || abort "could not export the documentation fixes"
 [ -s "$rc.docs.patch" ] || rm -f -- "$rc.docs.patch"
 echo "DOCS_PATCH=$( [ -e "$rc.docs.patch" ] && echo "$rc.docs.patch" )"
@@ -1002,20 +1006,34 @@ clone in place for the investigation; `git -C "$AUTHOR_WORKTREE" status` and
 ### 3.0.1 Apply Documentation Fixes
 
 If 3.0 printed a non-empty `DOCS_PATCH=`, apply it to the PR branch. This works only when the
-author's checkout is at the reviewed PR head; otherwise report the patch path instead of
-applying it. The commit is pushed by "Commit Review Artifact to PR Branch" below (with
+author's checkout is at the reviewed PR head and its index has nothing staged; otherwise report
+the patch path instead of applying it. The commit is pushed by "Commit Review Artifact to PR Branch" below (with
 `--no-commit` or `PRP_RUN_ALL=1` it is left staged and reported).
 
 ```bash
 DOCS_PATCH="${DOCS_PATCH:-<DOCS_PATCH printed by 3.0>}"
+A="${AUTHOR_WORKTREE:-<AUTHOR_WORKTREE printed by 2.1.1>}"
 if [[ -n "$DOCS_PATCH" && "$DOCS_PATCH" != "<"* && -s "$DOCS_PATCH" ]]; then
-  if [ "$(git rev-parse HEAD)" = "${REVIEWED_HEAD_SHA:-<REVIEWED_HEAD_SHA from Phase 1>}" ]; then
-    git apply --index "$DOCS_PATCH" || { echo "Docs fixes do not apply cleanly; patch kept at $DOCS_PATCH"; }
-    if ! git diff --cached --quiet && [ "${NO_COMMIT:-0}" != "1" ] && [ "${PRP_RUN_ALL:-0}" != "1" ]; then
-      git commit -m "docs: update documentation for PR #{NUMBER} (docs-impact review)"
+  # only at the PR head and only into a clean index, so nothing of the author's own staged
+  # work can ride along in the docs commit; commit only what this patch applied
+  # the patch may touch only regular Markdown files and files under docs/: no symlink, gitlink,
+  # mode change, rename or copy, and no other path
+  bad="$(git -C "$A" apply --numstat -z "$DOCS_PATCH" | tr '\0' '\n' | cut -f3- \
+         | grep -vE '(^|/)[^/]*\.md$|^docs/' ; git -C "$A" apply --summary "$DOCS_PATCH" \
+         | grep -E 'mode (120000|160000)|mode change|^ *(rename|copy) ')"
+  if [[ -n "$bad" ]] || ! git -C "$A" apply --check "$DOCS_PATCH" 2>/dev/null; then
+    echo "The docs patch touches something other than Markdown/docs, or does not apply: NOT applied; patch kept at $DOCS_PATCH"
+  elif [ "$(git -C "$A" rev-parse HEAD)" = "${REVIEWED_HEAD_SHA:-<REVIEWED_HEAD_SHA from Phase 1>}" ] \
+     && git -C "$A" diff --cached --quiet; then
+    if git -C "$A" apply --index "$DOCS_PATCH"; then
+      if [ "${NO_COMMIT:-0}" != "1" ] && [ "${PRP_RUN_ALL:-0}" != "1" ]; then
+        git -C "$A" commit -q -m "docs: update documentation for PR #{NUMBER} (docs-impact review)"
+      fi
+    else
+      echo "Docs fixes do not apply cleanly: NOT applied; patch kept at $DOCS_PATCH"
     fi
   else
-    echo "The checkout is not at the PR head: docs fixes NOT applied; patch kept at $DOCS_PATCH"
+    echo "The checkout is not at the PR head, or its index has staged changes: docs fixes NOT applied; patch kept at $DOCS_PATCH"
   fi
 fi
 ```

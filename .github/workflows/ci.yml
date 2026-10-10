@@ -365,6 +365,8 @@ jobs:
               # this attempt has a tests job of its own (any status): it really re-ran the tests
               [[ "$1" == "$GITHUB_RUN_ID" && "${jattempt:-1}" == "${GITHUB_RUN_ATTEMPT:-1}" ]] && own_cur=1
               [[ "$jstatus" == completed ]] || continue
+              # a completed job always has completed_at; without it the job cannot be ordered
+              [[ "$jdone" != "-" ]] || fail "run $1's 'bats tests' job is completed but has no completed_at"
               # seen = THIS attempt's tests job (an earlier attempt's is already visible on a re-run);
               # own_prev = the latest completed tests job of this run in any attempt
               if [[ "$1" == "$GITHUB_RUN_ID" ]]; then

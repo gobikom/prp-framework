@@ -33,7 +33,8 @@ make_author() {
     printf 'k\n' > keep
     mkdir sub && printf 's\n' > sub/s
     printf 'built/\n' > .gitignore
-    git add tracked keep sub .gitignore
+    printf '# doc\n' > doc.md
+    git add tracked keep sub .gitignore doc.md
     gc commit -q -m files
     printf 'dirty\n' >> tracked               # a modified tracked file
     printf 'u\n' > untracked                  # an untracked file
@@ -257,8 +258,9 @@ guard_case() {   # $1 = REVIEW_CLONE value; the directory must survive
     ! grep -niE 'commit and push|git push|push to the PR branch' <<<"$agents"
 }
 
-@test "3.0.1 applies the docs patch only when the checkout is at the PR head" {
+@test "3.0.1 applies the docs patch only at the PR head into a clean index, committing nothing else" {
     block '^### 3[.]0[.]1 ' > "$W/301.sh"
+    git -C "$W/author" reset -q                     # a clean index for the apply case
     out="$(run_211)"
     clone="$(sed -n 's/^REVIEW_CLONE=//p' <<<"$out")"
     printf '# Readme\nupdated\n' > "$clone/repo/README.md"
@@ -267,15 +269,63 @@ guard_case() {   # $1 = REVIEW_CLONE value; the directory must survive
     patch="$(sed -n 's/^DOCS_PATCH=//p' <<<"$output")"
     [ -s "$patch" ]
     cp "$patch" "$W/saved.patch"
-    # at the PR head: applied and staged (NO_COMMIT leaves it uncommitted)
-    run bash -c "cd '$W/author' && DOCS_PATCH='$patch' REVIEWED_HEAD_SHA=$HEAD_SHA NO_COMMIT=1 bash '$W/301.sh'"
+    apply() { (cd / && env -i PATH="$PATH" HOME="$W" AUTHOR_WORKTREE="$W/author" DOCS_PATCH="$patch" REVIEWED_HEAD_SHA="$1" "${@:2}" bash "$W/301.sh"); }
+    # at the PR head, clean index: applied and committed — the commit holds only README.md
+    run apply "$HEAD_SHA" GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
     [ "$status" -eq 0 ]
-    git -C "$W/author" diff --cached --name-only | grep -qx README.md
-    # elsewhere: not applied, the patch is kept
-    git -C "$W/author" reset -q -- README.md && rm -f "$W/author/README.md"
+    [ "$(git -C "$W/author" show --name-only --format= HEAD)" = "README.md" ]
+    git -C "$W/author" reset -q --hard "$HEAD_SHA"
+    # the author has something staged: nothing applied, nothing committed
     cp "$W/saved.patch" "$patch"
-    run bash -c "cd '$W/author' && DOCS_PATCH='$patch' REVIEWED_HEAD_SHA=0123456789abcdef0123456789abcdef01234567 bash '$W/301.sh'"
-    [[ "$output" == *"NOT applied; patch kept at $patch"* ]]
+    printf 'mine\n' > "$W/author/mine" && git -C "$W/author" add mine
+    run apply "$HEAD_SHA"
+    [[ "$output" == *"index has staged changes: docs fixes NOT applied"* ]]
+    [ "$(git -C "$W/author" rev-parse HEAD)" = "$HEAD_SHA" ]
     ! git -C "$W/author" diff --cached --name-only | grep -qx README.md
+    # elsewhere: not applied, the patch is kept
+    git -C "$W/author" reset -q
+    run apply 0123456789abcdef0123456789abcdef01234567
+    [[ "$output" == *"NOT applied; patch kept at $patch"* ]]
     [ -s "$patch" ]
+}
+
+docs_case() {   # $1 = shell run inside the clone; prints 3.0.1's output for the exported patch
+    block '^### 3[.]0[.]1 ' > "$W/301.sh"
+    git -C "$W/author" reset -q
+    local out clone patch
+    out="$(run_211)"
+    clone="$(sed -n 's/^REVIEW_CLONE=//p' <<<"$out")"
+    (cd "$clone/repo" && eval "$1")
+    patch="$(run_30 "$out" | sed -n 's/^DOCS_PATCH=//p')"
+    [ -s "$patch" ] || { echo "no patch exported"; return 1; }
+    (cd / && env -i PATH="$PATH" HOME="$W" AUTHOR_WORKTREE="$W/author" DOCS_PATCH="$patch" \
+        REVIEWED_HEAD_SHA="$HEAD_SHA" NO_COMMIT=1 bash "$W/301.sh")
+}
+
+@test "a user diff.noprefix setting cannot move a docs/ file out of docs/" {
+    printf '[diff]\n\tnoprefix = true\n' > "$W/.gitconfig"
+    run docs_case "mkdir -p docs/.github/workflows && printf 'x\\n' > docs/.github/workflows/x.yml"
+    [ "$status" -eq 0 ]
+    staged="$(git -C "$W/author" diff --cached --name-only)"
+    [[ "$staged" == *"docs/.github/workflows/x.yml"* ]]
+    [[ "$staged" != *$'\n'".github/workflows/x.yml"* && "$staged" != ".github/workflows/x.yml"* ]]
+    [ ! -e "$W/author/.github" ]
+}
+
+@test "3.0.1 refuses a docs patch with a symlink or a mode change" {
+    run docs_case "ln -s /etc/passwd evil.md"
+    [[ "$output" == *"NOT applied"* ]]
+    ! git -C "$W/author" diff --cached --name-only | grep -qx evil.md
+    run docs_case "chmod +x doc.md"
+    [[ "$output" == *"NOT applied"* ]]
+    [ "$(git -C "$W/author" ls-files -s doc.md | cut -c1-6)" = 100644 ]
+}
+
+@test "3.0.1 refuses a patch that touches a path outside Markdown/docs" {
+    block '^### 3[.]0[.]1 ' > "$W/301.sh"
+    git -C "$W/author" reset -q
+    printf 'diff --git a/scripts/x.sh b/scripts/x.sh\nnew file mode 100644\n--- /dev/null\n+++ b/scripts/x.sh\n@@ -0,0 +1 @@\n+echo hi\n' > "$W/bad.patch"
+    run bash -c "cd / && env -i PATH='$PATH' HOME='$W' AUTHOR_WORKTREE='$W/author' DOCS_PATCH='$W/bad.patch' REVIEWED_HEAD_SHA=$HEAD_SHA bash '$W/301.sh'"
+    [[ "$output" == *"NOT applied"* ]]
+    [ ! -e "$W/author/scripts/x.sh" ]
 }
