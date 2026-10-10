@@ -37,8 +37,9 @@ jobs:
         with:
           persist-credentials: false
 
-      # bats-core at an exact version (the one the goko host runs), from the release tarball
-      # checked against a pinned sha256, and PyYAML (scripts/generate-adapters.py and the parity
+      # bats-core at an exact version (the one the goko host runs), fetched by git at the commit
+      # its v1.13.0 tag points to and checked against that pinned commit SHA (stable, unlike a
+      # generated archive's checksum), and PyYAML (scripts/generate-adapters.py and the parity
       # tests import it) from a hash-checked wheel (.github/ci-requirements.txt) in a venv whose
       # bin/ goes first on PATH, so `python3` in the tests is that venv's.
       - name: Install bats and PyYAML
@@ -46,10 +47,12 @@ jobs:
         run: |
           tools="$RUNNER_TEMP/tools"
           mkdir -p "$tools"
-          curl -fsSL --retry 3 -o "$tools/bats.tgz" https://github.com/bats-core/bats-core/archive/refs/tags/v1.13.0.tar.gz
-          echo "a85e12b8828271a152b338ca8109aa23493b57950987c8e6dff97ba492772ff3  $tools/bats.tgz" | sha256sum -c -
-          tar -xzf "$tools/bats.tgz" -C "$tools"
-          "$tools/bats-core-1.13.0/install.sh" "$tools/bats" >/dev/null
+          bats_commit=3bca150ec86275d6d9d5a4fd7d48ab8b6c6f3d87  # bats-core tag v1.13.0
+          git init -q "$tools/bats-src"
+          git -C "$tools/bats-src" fetch -q --depth 1 https://github.com/bats-core/bats-core.git "$bats_commit"
+          git -C "$tools/bats-src" checkout -q --detach FETCH_HEAD
+          [[ "$(git -C "$tools/bats-src" rev-parse HEAD)" == "$bats_commit" ]] || { echo "::error::bats source is not commit $bats_commit"; exit 1; }
+          "$tools/bats-src/install.sh" "$tools/bats" >/dev/null
           python3 -m venv "$tools/venv"
           "$tools/venv/bin/pip" install --quiet --disable-pip-version-check \
             --only-binary :all: --require-hashes -r .github/ci-requirements.txt
@@ -294,7 +297,8 @@ jobs:
   # push runs are never cancelled by concurrency) counts as red. Both jobs act only while the
   # run's commit is still the head of main, so an older run finishing late, or a queued job that
   # its concurrency group dropped, can neither close nor open an issue for a state main is no
-  # longer in. They match only issues this workflow opened (author github-actions), hold the only
+  # longer in. They find the issue by its exact title among issues this workflow opened (author
+  # github-actions), so one opened without the label is still found and closed; they hold the only
   # write token (issues: write, plus contents: read for the head check) and run no repo code, so
   # the tests never get it.
   # Known gap: a run that never starts reaches neither job.
@@ -336,7 +340,8 @@ jobs:
           gh label create ci-red --color B60205 --description "CI red on main" >/dev/null 2>&1 \
             || gh label list --search ci-red --json name --jq '.[].name' | grep -qx ci-red \
             || echo "::warning::could not create the ci-red label"
-          n="$(gh issue list --label ci-red --state open --author app/github-actions --json number --jq '.[0].number // empty')" \
+          n="$(gh issue list --state open --author app/github-actions --limit 200 --json number,title \
+                --jq '[.[] | select(.title == "CI red on main")][0].number // empty')" \
             || { echo "::warning::gh issue list failed; opening a new issue"; n=""; }
           if [[ -n "$n" ]] && gh issue comment "$n" --body "$body"; then
             echo "commented on ci-red issue #$n"
@@ -377,9 +382,24 @@ jobs:
             echo "::notice::main has moved on to ${head:0:8}; its own run reports its state"
             exit 0
           fi
-          n="$(gh issue list --label ci-red --state open --author app/github-actions --json number --jq '.[0].number // empty')" \
+          n="$(gh issue list --state open --author app/github-actions --limit 200 --json number,title \
+                --jq '[.[] | select(.title == "CI red on main")][0].number // empty')" \
             || { echo "::error::gh issue list failed; could not check for an open ci-red issue"; exit 1; }
           if [[ -z "$n" ]]; then echo "no open ci-red issue"; exit 0; fi
           gh issue close "$n" --comment "Green again on $GITHUB_EVENT_NAME, main @ ${GITHUB_SHA:0:8}: $run_url" \
             || { echo "::error::could not close ci-red issue #$n"; exit 1; }
           echo "closed ci-red issue #$n"
+
+      # If closing failed, say so on the issue itself, so it does not sit open with main green.
+      - name: Report a failed close on the issue
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -uo pipefail
+          run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          echo "::error::could not close the ci-red issue although main @ ${GITHUB_SHA:0:8} is green: $run_url" | tee -a "$GITHUB_STEP_SUMMARY"
+          n="$(gh issue list --state open --author app/github-actions --limit 200 --json number,title \
+                --jq '[.[] | select(.title == "CI red on main")][0].number // empty')" || exit 1
+          [[ -z "$n" ]] || gh issue comment "$n" --body "main is green at ${GITHUB_SHA:0:8}, but closing this issue failed: $run_url"

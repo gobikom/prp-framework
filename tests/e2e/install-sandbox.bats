@@ -53,6 +53,8 @@ teardown() {
     before="$(snapshot)"
     bash "$INSTALL_SCRIPT"
     [ ! -L "$SANDBOX/.claude/commands/prp-core" ]
+    [ -d "$SANDBOX/.claude/commands/prp-core" ]
+    ls "$SANDBOX/.claude/commands/prp-core/"prp-*.md >/dev/null
     [ -n "$before" ]
     [ "$(snapshot)" = "$before" ]
 }

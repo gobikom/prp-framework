@@ -419,27 +419,63 @@ PROJECT_GUIDELINES = {relevant sections from CLAUDE.md}
 CHANGED_FILES = {list from context file}
 ```
 
-### 2.1.1 Create Detached Clone for Agents
+### 2.1.1 Create an Isolated Clone for Agents
 
-**CRITICAL**: Agents MUST NOT read from the author's live worktree. Create a detached
-clone at the PR head so agents cannot contaminate the working tree (prp-framework#129:
-a reviewer removed the worktree, another staged 6001 junk files).
+**CRITICAL**: Agents MUST NOT read from the author's live worktree. Give them a real
+clone at the PR head, with its own `.git`, so they cannot contaminate the working tree
+or the repository it belongs to (prp-framework#129: a reviewer removed the worktree,
+another staged 6001 junk files). A `git worktree` is NOT enough: it shares refs, config,
+hooks, stash and the worktree list with the author's repository.
+
+Each shell command may run in a fresh shell, so the baseline goes to a file that
+Phase 3.0 reads back. The fingerprint covers what an agent could change outside the
+working tree too: the worktree list, the repository-local config (e.g. a planted
+`core.fsmonitor` or `core.hooksPath`) and the hooks directory. Every git call on the
+author's repository disables fsmonitor and hooks, so a planted one cannot run.
 
 ```bash
-# Record author worktree state BEFORE agents run
+: "${PR_NUMBER:?PR_NUMBER must be set}" "${REVIEWED_HEAD_SHA:?REVIEWED_HEAD_SHA (Phase 1) must be set}"
 AUTHOR_WORKTREE="$(pwd)"
-AUTHOR_STATUS_BEFORE=$(git -C "$AUTHOR_WORKTREE" status --porcelain)
-AUTHOR_HEAD=$(git -C "$AUTHOR_WORKTREE" rev-parse HEAD)
+REVIEW_CLONE="$(mktemp -d "${SCRATCHPAD:-${TMPDIR:-/tmp}}/prp-review-pr-${PR_NUMBER}.XXXXXX")"
+REVIEW_BASELINE="$REVIEW_CLONE.baseline"
+SAFE_GIT=(git -c core.fsmonitor=false -c core.hooksPath=/dev/null -C "$AUTHOR_WORKTREE")
+author_fingerprint() {
+  local common; common="$("${SAFE_GIT[@]}" rev-parse --path-format=absolute --git-common-dir)" || return 1
+  { "${SAFE_GIT[@]}" rev-parse HEAD
+    "${SAFE_GIT[@]}" status --porcelain
+    # contents of every modified and untracked file: an edit to an already-dirty file
+    # leaves the status line unchanged
+    (cd "$AUTHOR_WORKTREE" && "${SAFE_GIT[@]}" ls-files -m -o --exclude-standard -z \
+      | sort -zu | xargs -0r sha256sum --)
+    "${SAFE_GIT[@]}" worktree list --porcelain
+    "${SAFE_GIT[@]}" config --local --list
+    find "$common/hooks" -type f -exec sha256sum {} + 2>/dev/null | sort
+  } | sha256sum
+}
 
-# Create detached clone under scratchpad
-REVIEW_CLONE="${SCRATCHPAD:-/tmp}/prp-review-clone-pr-${PR_NUMBER}"
-rm -rf "$REVIEW_CLONE"
-git worktree add --detach "$REVIEW_CLONE" HEAD
+# Record the author's state BEFORE agents run (to a file: later commands may be new shells)
+{ printf 'AUTHOR_WORKTREE=%q\nREVIEW_CLONE=%q\n' "$AUTHOR_WORKTREE" "$REVIEW_CLONE"
+  printf 'AUTHOR_HEAD=%q\n' "$("${SAFE_GIT[@]}" rev-parse HEAD)"
+  printf 'AUTHOR_FINGERPRINT=%q\n' "$(author_fingerprint)"
+} > "$REVIEW_BASELINE" || { echo "REVIEW ABORT: cannot record the author baseline"; exit 1; }
+"${SAFE_GIT[@]}" status --porcelain > "$REVIEW_BASELINE.status"
+# Agents review exactly the commit Phase 1 recorded; a checkout on another commit is an abort
+[ "$(. "$REVIEW_BASELINE"; echo "$AUTHOR_HEAD")" = "$REVIEWED_HEAD_SHA" ] \
+  || { echo "REVIEW ABORT: the checkout is not at the PR head $REVIEWED_HEAD_SHA"; exit 1; }
+
+# A real clone (own .git, no shared objects, refs or config), detached at the author's HEAD
+git clone --quiet --no-local --no-hardlinks "$AUTHOR_WORKTREE" "$REVIEW_CLONE/repo" \
+  && git -C "$REVIEW_CLONE/repo" checkout --quiet --detach "$REVIEWED_HEAD_SHA" \
+  || { echo "REVIEW ABORT: could not create the review clone"; exit 1; }
+echo "REVIEW_CLONE=$REVIEW_CLONE"
+echo "REVIEW_BASELINE=$REVIEW_BASELINE"
 ```
 
-Pass `$REVIEW_CLONE` (not `$AUTHOR_WORKTREE`) to every agent prompt as the working
-directory. The context file at `CONTEXT_PATH` is still read from the author tree (it
-is written by Phase 1 and is the only file agents need from there).
+Pass `$REVIEW_CLONE/repo` (not `$AUTHOR_WORKTREE`) to every agent prompt as the
+working directory. The context file at `CONTEXT_PATH` is still read from the author
+tree (it is written by Phase 1 and is the only file agents need from there). Note the
+`REVIEW_BASELINE=` path this prints: Phase 3.0 needs it, and a later command may run
+in a new shell where the variable is gone.
 
 ### 2.2 Core Agents (Always — Spawn ALL in Parallel)
 
@@ -799,24 +835,43 @@ Running: {TOOL}:review {NUMBER}
 Before collecting results, verify the author's worktree was not contaminated:
 
 ```bash
-AUTHOR_STATUS_AFTER=$(git -C "$AUTHOR_WORKTREE" status --porcelain)
-AUTHOR_HEAD_AFTER=$(git -C "$AUTHOR_WORKTREE" rev-parse HEAD)
+# Set REVIEW_BASELINE to the literal path 2.1.1 printed (the variable may not survive between
+# commands); a missing baseline is an abort, never a pass
+REVIEW_BASELINE="${REVIEW_BASELINE:-<path printed by 2.1.1>}"
+[ -f "${REVIEW_BASELINE:-}" ] || { echo "REVIEW ABORT: no author baseline (${REVIEW_BASELINE:-unset})"; exit 1; }
+. "$REVIEW_BASELINE"
+SAFE_GIT=(git -c core.fsmonitor=false -c core.hooksPath=/dev/null -C "$AUTHOR_WORKTREE")
+author_fingerprint() {   # identical to 2.1.1
+  local common; common="$("${SAFE_GIT[@]}" rev-parse --path-format=absolute --git-common-dir)" || return 1
+  { "${SAFE_GIT[@]}" rev-parse HEAD
+    "${SAFE_GIT[@]}" status --porcelain
+    # contents of every modified and untracked file: an edit to an already-dirty file
+    # leaves the status line unchanged
+    (cd "$AUTHOR_WORKTREE" && "${SAFE_GIT[@]}" ls-files -m -o --exclude-standard -z \
+      | sort -zu | xargs -0r sha256sum --)
+    "${SAFE_GIT[@]}" worktree list --porcelain
+    "${SAFE_GIT[@]}" config --local --list
+    find "$common/hooks" -type f -exec sha256sum {} + 2>/dev/null | sort
+  } | sha256sum
+}
 
+AUTHOR_HEAD_AFTER="$("${SAFE_GIT[@]}" rev-parse HEAD)" || { echo "REVIEW ABORT: author repository unreadable"; exit 1; }
 if [ "$AUTHOR_HEAD" != "$AUTHOR_HEAD_AFTER" ]; then
   echo "REVIEW ABORT: author worktree HEAD changed during review ($AUTHOR_HEAD → $AUTHOR_HEAD_AFTER)"
   exit 1
 fi
-if [ "$AUTHOR_STATUS_BEFORE" != "$AUTHOR_STATUS_AFTER" ]; then
-  echo "REVIEW ABORT: author worktree modified during review"
-  diff <(echo "$AUTHOR_STATUS_BEFORE") <(echo "$AUTHOR_STATUS_AFTER") || true
+if [ "$AUTHOR_FINGERPRINT" != "$(author_fingerprint)" ]; then
+  echo "REVIEW ABORT: the author's worktree or repository (status, worktrees, local config or hooks) changed during review"
+  diff "$REVIEW_BASELINE.status" <("${SAFE_GIT[@]}" status --porcelain) || true
   exit 1
 fi
 
-# Clean up clone
-git worktree remove --force "$REVIEW_CLONE" 2>/dev/null || rm -rf "$REVIEW_CLONE"
+# Clean up: the clone is a plain directory, nothing to unregister
+rm -rf "$REVIEW_CLONE" "$REVIEW_BASELINE" "$REVIEW_BASELINE.status"
 ```
 
-If the check fails, abort the review and report — an agent escaped the clone.
+If the check fails, abort the review and report — an agent escaped the clone. Leave
+the clone and baseline in place for the investigation.
 
 After all agents complete, collect their outputs. Each agent returns a markdown report with findings.
 
