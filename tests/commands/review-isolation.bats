@@ -5,7 +5,10 @@
 # way an orchestrator runs them. Scope (stated in the prompt): ACCIDENTAL contamination of the
 # author's repository; a hostile same-user agent is out of scope (prp-framework#138).
 # Each fingerprint component has a change below that ONLY it can see, so removing any one
-# component from the prompt fails a test.
+# component from the prompt fails a test. Two lines are covered redundantly on purpose: 3.0's
+# explicit HEAD comparison (also seen through `worktree list`, which prints each HEAD; kept
+# for its clearer message) and the hooks loop's `|| exit 1` (it is the last step, so
+# pipefail already fails the function).
 #
 # Run: bats tests/commands/review-isolation.bats
 
@@ -44,7 +47,7 @@ setup() { make_author; }
 
 run_211() {   # [dir] — runs 2.1.1 in a fresh shell, prints its output
     (cd "${1:-$W/author}" && env -i PATH="$PATH" HOME="$W" TMPDIR="$W" PR_NUMBER=7 \
-        REVIEWED_HEAD_SHA="${SHA:-$HEAD_SHA}" SCRATCHPAD="${SCRATCH:-$W/sp}" bash "$W/211.sh")
+        REVIEWED_HEAD_SHA="${SHA-$HEAD_SHA}" SCRATCHPAD="${SCRATCH:-$W/sp}" bash "$W/211.sh")
 }
 
 run_30() {    # $1 = 2.1.1 output; runs 3.0 in a fresh shell given only the four printed values
@@ -91,6 +94,10 @@ run_30() {    # $1 = 2.1.1 output; runs 3.0 in a fresh shell given only the four
         "chmod +x .git/hooks/pre-x"                       # hook mode
         "printf 'echo\n' >> .git/hooks/pre-x"             # hook contents
         "ln -s /bin/true .git/hooks/post-merge"           # a symlinked hook
+        "printf 'sub/\\n' > .git/info/sparse-checkout"     # any other file under info/
+        "gc commit -q --allow-empty -m x"                 # HEAD moves (a commit)
+        "git checkout -q --detach"                        # HEAD detaches, same commit
+        "git reset -q --soft HEAD~1"                      # HEAD moves back
     )
     for change in "${changes[@]}"; do
         make_author
@@ -98,7 +105,7 @@ run_30() {    # $1 = 2.1.1 output; runs 3.0 in a fresh shell given only the four
         (cd "$W/author" && eval "$change")
         run run_30 "$out"
         [ "$status" -eq 1 ] || { echo "not caught: $change"; return 1; }
-        [[ "$output" == *"REVIEW ABORT"* ]] || { echo "no abort message: $change"; return 1; }
+        [[ "$output" == *"changed during review"* ]] || { echo "wrong abort for: $change: $output"; return 1; }
     done
 }
 
@@ -128,10 +135,53 @@ run_30() {    # $1 = 2.1.1 output; runs 3.0 in a fresh shell given only the four
     [ "$status" -eq 0 ]
 }
 
-@test "bad PR_NUMBER or REVIEWED_HEAD_SHA aborts 2.1.1" {
-    SHA=nothex run run_211
+@test "a malformed REVIEWED_HEAD_SHA aborts 2.1.1 and creates nothing" {
+    for bad in nothex "${HEAD_SHA:0:39}" "${HEAD_SHA}0" "${HEAD_SHA^^}" "${HEAD_SHA:0:7}" ""; do
+        SHA="$bad" run run_211
+        [ "$status" -eq 1 ] || { echo "accepted SHA '$bad'"; return 1; }
+        [[ "$output" == *"REVIEWED_HEAD_SHA is not set"* ]] || { echo "wrong abort for '$bad': $output"; return 1; }
+        [ -z "$(ls -A "$W/sp")" ] || { echo "created something for '$bad'"; return 1; }
+    done
+}
+
+@test "a malformed PR_NUMBER aborts 2.1.1 and creates nothing" {
+    for bad in 0 07 "1/../../x" 7.1 "" "-1"; do
+        run bash -c "cd '$W/author' && env -i PATH='$PATH' HOME='$W' TMPDIR='$W' PR_NUMBER='$bad' \
+            REVIEWED_HEAD_SHA=$HEAD_SHA SCRATCHPAD='$W/sp' bash '$W/211.sh'"
+        [ "$status" -eq 1 ] || { echo "accepted PR_NUMBER '$bad'"; return 1; }
+        [[ "$output" == *"PR_NUMBER is not set"* ]] || { echo "wrong abort for '$bad': $output"; return 1; }
+        [ -z "$(ls -A "$W/sp")" ] || { echo "created something for '$bad'"; return 1; }
+    done
+}
+
+@test "the check itself writes nothing: no index refresh, no planted fsmonitor run" {
+    touch -d '2000-01-01' "$W/author/keep"          # stat-dirty: a plain status would rewrite the index
+    git -C "$W/author" config core.fsmonitor "touch '$W/FSMONITOR-RAN' #"
+    before="$(sha256sum < "$W/author/.git/index")"
+    out="$(run_211)"
+    run run_30 "$out"
+    [ "$status" -eq 0 ]
+    [ "$(sha256sum < "$W/author/.git/index")" = "$before" ]
+    [ ! -e "$W/FSMONITOR-RAN" ]
+}
+
+@test "a component that cannot be read aborts with 'cannot fingerprint', not a pass" {
+    chmod 000 "$W/author/.git/hooks"
+    if [ -r "$W/author/.git/hooks" ]; then chmod 755 "$W/author/.git/hooks"; skip "running as a user that can read mode-000 dirs"; fi
+    run run_211
+    chmod 755 "$W/author/.git/hooks"
     [ "$status" -eq 1 ]
-    [[ "$output" == *"REVIEWED_HEAD_SHA is not set"* ]]
+    [[ "$output" == *"cannot fingerprint"* ]]
+}
+
+@test "the fingerprint does not depend on the locale" {
+    loc="$(locale -a 2>/dev/null | grep -ixm1 'en_US.utf-\?8')" || skip "no en_US UTF-8 locale here"
+    for f in B a _c Zed 'ä' 'Éb'; do printf 'x\n' > "$W/author/$f"; done
+    out="$(cd "$W/author" && env -i PATH="$PATH" HOME="$W" TMPDIR="$W" LC_ALL=C PR_NUMBER=7 \
+        REVIEWED_HEAD_SHA="$HEAD_SHA" SCRATCHPAD="$W/sp" bash "$W/211.sh")"
+    vars="$(grep -E '^(AUTHOR_WORKTREE|REVIEW_CLONE|AUTHOR_HEAD|AUTHOR_FINGERPRINT)=' <<<"$out")"
+    run env -i PATH="$PATH" HOME="$W" TMPDIR="$W" LC_ALL="$loc" $vars bash "$W/30.sh"
+    [ "$status" -eq 0 ]
 }
 
 @test "missing values abort 3.0" {

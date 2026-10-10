@@ -292,19 +292,20 @@ jobs:
 
   # The `CI red on main` issue tracks main's CURRENT head. Invariant: after any push or
   # dispatch run of main, the open `CI red on main` issues opened by this workflow reflect the
-  # NEWEST push/dispatch run of this workflow for main's current head, judged by its `bats tests` job — red (failed, or a push run
-  # that ended cancelled, i.e. timed out): exactly one is open and carries that run's link;
-  # green: none is open. Every run re-derives this from the head's state instead of from its own
-  # result, so a run that finishes late, or a job that never ran, cannot leave a wrong state
-  # behind: the next run repairs it. A run whose commit is no longer the head acts only when the
-  # head has no run of this workflow (a [skip ci] commit, a push made with a workflow token);
-  # then it reports its own red, naming both commits, and never closes on the head's behalf.
-  # A dispatch cancelled by hand or by its timeout counts as neither (someone is watching it).
-  # Runs are serialised (one group, never cancelling a running job): two reconcilers at once
-  # could both find no issue and both open one. GitHub may drop a pending job when a newer one
-  # queues; that is safe, because every run re-derives the state from the head.
-  # This job holds the only write token (issues: write) and runs no repo code. If it cannot
-  # establish the head's state it fails, and the red job is the report.
+  # head's verdict — its most recently completed `bats tests` job among this workflow's push and
+  # dispatch runs for the head commit (latest attempt of each): red (failed, or a push run's job
+  # that ended cancelled, i.e. timed out) -> exactly one is open and carries that job's link;
+  # green -> none is open. Every run re-derives this from the API, never from its own result or
+  # from event order, so a late run, a re-run, or a job that never ran cannot leave a wrong state
+  # behind: the next run repairs it. A cancelled dispatch, or a run cancelled before testing,
+  # is no verdict (someone is watching it). If the head has no verdict yet (a [skip ci] commit,
+  # a push made with a workflow token, or the API not yet showing this run's job), this run's
+  # own result stands in when it IS the head; otherwise a red run reports itself naming both
+  # commits and a green one never closes on the head's behalf. Runs of this job are
+  # serialised: two reconcilers at once could both find no issue and both open one; GitHub may
+  # drop a pending one when a newer one queues, which is safe because every run re-derives the
+  # state. This job holds the only write token (issues: write) and runs no repo code. If it
+  # cannot establish the state it fails, and the red job is the report.
   # Known gap: a run that never starts reaches no job at all.
   ci-red-issue:
     name: reconcile the ci-red issue
@@ -336,40 +337,46 @@ jobs:
           is_red() { [[ "$1" == failure || "$1" == timed_out || ( "$1" == cancelled && "$2" == push ) ]]; }
 
           head="$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)" || fail "could not read the main head"
-          # The newest push/dispatch run of this workflow for the head decides, whichever run
-          # this is: a later dispatch on the same commit supersedes an earlier push.
-          newest="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?branch=main&head_sha=$head&per_page=50" \
-              --jq '[.workflow_runs[] | select(.event == "push" or .event == "workflow_dispatch")] | max_by(.run_number)
-                    // empty | "\(.id) \(.event) \(.status)"')" \
+          # The head's verdict is its most recently COMPLETED `bats tests` job (latest attempt of
+          # each push/dispatch run of this workflow for the head commit), whichever run this is.
+          # A re-run of tests completes later and so counts as newer; re-running only this job
+          # reuses an old tests job and cannot override a newer verdict. A cancelled dispatch,
+          # or a run cancelled before testing, is no verdict. Runs still in progress are not
+          # waited for: each run reconciles again when it finishes.
+          runs="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?branch=main&head_sha=$head&per_page=50" \
+              --jq '.workflow_runs[] | select(.event == "push" or .event == "workflow_dispatch")
+                    | "\(.id) \(.event) \(.status) \(.conclusion // "none")"')" \
             || fail "could not list this workflow's runs for the main head ${head:0:8}"
-          if [[ -n "$newest" ]]; then read -r run_id event run_status <<<"$newest"; else run_id=""; fi
-          if [[ "$run_id" == "$GITHUB_RUN_ID" ]]; then
-            state="$RESULT"; event="$GITHUB_EVENT_NAME"; at="$GITHUB_SHA"; link="$run_url"
-          elif [[ -n "$run_id" ]]; then
-            # judge that run by its tests job, not the whole run: a failure in its own reconcile
-            # job must not read as red tests
-            job="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/jobs?per_page=100" \
+          verdicts=""
+          while read -r rid revent rstatus rconclusion; do
+            [[ -n "$rid" ]] || continue
+            job="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$rid/jobs?filter=latest&per_page=100" \
                 --jq '[.jobs[] | select(.name == "bats tests")][0] // empty
-                      | "\(.status) \(.conclusion // "none") \(.html_url)"')" \
-              || fail "could not read the jobs of run $run_id for the main head ${head:0:8}"
+                      | "\(.status) \(.conclusion // "none") \(.completed_at // "-") \(.html_url) \([.steps[]? | select(.conclusion != null and .conclusion != "skipped")] | length)"')" \
+              || fail "could not read the jobs of run $rid for the main head ${head:0:8}"
             if [[ -z "$job" ]]; then
-              [[ "$run_status" != completed ]] || fail "run $run_id for ${head:0:8} has no 'bats tests' job (renamed?)"
-              echo "::notice::the newest run for ${head:0:8} has not started its tests; it reconciles the issue"
-              exit 0
+              [[ "$rstatus" != completed || "$rconclusion" == cancelled ]] && continue
+              fail "run $rid for ${head:0:8} completed without a 'bats tests' job (renamed?)"
             fi
-            read -r status state link <<<"$job"
-            if [[ "$status" != completed ]]; then
-              echo "::notice::the newest run for ${head:0:8} is still testing; it reconciles the issue"
-              exit 0
-            fi
+            read -r jstatus jconclusion jdone jlink jsteps <<<"$job"
+            [[ "$jstatus" == completed ]] || continue
+            # cancelled: a push job that ran steps timed out (red); a dispatch, or a job
+            # cancelled before any step ran (e.g. while queued), is no verdict
+            [[ "$jconclusion" == cancelled && ( "$revent" != push || "${jsteps:-0}" == 0 ) ]] && continue
+            verdicts+="$jdone $jconclusion $revent $jlink"$'\n'
+          done <<<"$runs"
+          newest="$(printf '%s' "$verdicts" | LC_ALL=C sort -r | head -n 1)"
+          if [[ -n "$newest" ]]; then
+            read -r _ state event link <<<"$newest"
             at="$head"
           elif [[ "$head" == "$GITHUB_SHA" ]]; then
+            # this run's own tests job is not visible in the API yet: use its result
             state="$RESULT"; event="$GITHUB_EVENT_NAME"; at="$GITHUB_SHA"; link="$run_url"
           elif is_red "$RESULT" "$GITHUB_EVENT_NAME"; then
             state="$RESULT"; event="$GITHUB_EVENT_NAME"; at="$GITHUB_SHA"
-            link="$run_url (main has since moved to ${head:0:8}, which has no run of this workflow)"
+            link="$run_url (main has since moved to ${head:0:8}, which has no verdict of this workflow yet)"
           else
-            echo "::notice::main moved on to ${head:0:8}, which has no run of this workflow; an older green run does not close for it"
+            echo "::notice::main is at ${head:0:8}, which has no verdict of this workflow yet; an older green run does not close for it"
             exit 0
           fi
 

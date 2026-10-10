@@ -455,12 +455,14 @@ AUTHOR_WORKTREE="$(git rev-parse --show-toplevel)" || abort "not inside the auth
 author_fingerprint() (   # identical in 2.1.1 and 3.0; prints one hash, or fails
   set -o pipefail
   cd "$AUTHOR_WORKTREE" || exit 1
-  export GIT_OPTIONAL_LOCKS=0
-  g=(git -c core.fsmonitor=false -c core.hooksPath=/dev/null)
+  export LC_ALL=C GIT_OPTIONAL_LOCKS=0   # locale-independent sort order; no index refresh
+  g=(git -c core.fsmonitor=false)   # a planted fsmonitor command must not run (no command here runs hooks)
   common="$("${g[@]}" rev-parse --git-common-dir)" || exit 1
   case "$common" in /*) ;; *) common="$AUTHOR_WORKTREE/$common" ;; esac
+  # GNU (Linux) or BSD (macOS) tools, whichever exist
+  if command -v sha256sum >/dev/null 2>&1; then H=(sha256sum --); else H=(shasum -a 256 --); fi
+  mode() { stat -c %a -- "$1" 2>/dev/null || stat -f %Lp -- "$1"; }
   {
-    "${g[@]}" rev-parse HEAD || exit 1
     # --ignored also lists ignored paths that appear (e.g. a stray build or install)
     "${g[@]}" status --porcelain --ignored || exit 1
     # the index itself: object id, mode and stage of every entry (a re-staged edit, a chmod)
@@ -474,25 +476,28 @@ author_fingerprint() (   # identical in 2.1.1 and 3.0; prints one hash, or fails
     # the status line unchanged. Symlinks count by target; only regular
     # files are read, hashed in one batch (no temp file: TMPDIR may be inside this repository);
     # a file that cannot be read is recorded by its error line.
-    "${g[@]}" ls-files -m -o --exclude-standard -z >/dev/null || exit 1   # fail loudly, not empty
     regular=()
     while IFS= read -r -d '' f; do
       if [ -L "$f" ]; then printf 'link %s -> %s\n' "$f" "$(readlink -- "$f")"
-      elif [ -f "$f" ]; then printf 'mode %s %s\n' "$(stat -c %a -- "$f")" "$f"; regular+=("$f")
+      elif [ -f "$f" ]; then printf 'mode %s %s\n' "$(mode "$f")" "$f"; regular+=("$f")
       else printf 'other %s\n' "$f"; fi
     done < <({ "${g[@]}" ls-files -m -o --exclude-standard -z
                "${g[@]}" ls-files -v -z | while IFS= read -r -d '' l; do
                  case "${l:0:1}" in [a-z]|S) printf '%s\0' "${l:2}" ;; esac
                done; } | sort -zu)
-    if (( ${#regular[@]} )); then printf '%s\0' "${regular[@]}" | xargs -0 sha256sum -- 2>&1; fi
-    for f in "$common/info/exclude" "$common/info/attributes" "$common/packed-refs"; do
-      if [ -f "$f" ]; then sha256sum -- "$f"; fi
-    done
-    if [ -d "$common/hooks" ]; then
-      find "$common/hooks" \( -type f -o -type l \) -printf '%m %y %p %l\n' | sort || exit 1
-      find "$common/hooks" -type f -exec sha256sum -- {} + 2>&1 | sort
+    if (( ${#regular[@]} )); then printf '%s\0' "${regular[@]}" | xargs -0 "${H[@]}" 2>&1; fi
+    # every file under info/ (exclude, attributes, sparse-checkout, ...) and packed-refs
+    if [ -f "$common/packed-refs" ]; then "${H[@]}" "$common/packed-refs"; fi
+    if [ -d "$common/info" ]; then
+      find "$common/info" -type f | sort | while IFS= read -r f; do "${H[@]}" "$f" 2>&1; done || exit 1
     fi
-  } | sha256sum | cut -d' ' -f1
+    if [ -d "$common/hooks" ]; then
+      find "$common/hooks" \( -type f -o -type l \) | LC_ALL=C sort | while IFS= read -r h; do
+        if [ -L "$h" ]; then printf 'hook link %s -> %s\n' "$h" "$(readlink -- "$h")"
+        else printf 'hook %s %s\n' "$(mode "$h")" "$h"; "${H[@]}" "$h" 2>&1; fi
+      done || exit 1
+    fi
+  } | "${H[@]}" | cut -d' ' -f1
 )
 
 AUTHOR_HEAD="$(git -C "$AUTHOR_WORKTREE" rev-parse HEAD)" || abort "cannot read the author's HEAD"
@@ -500,7 +505,7 @@ AUTHOR_FINGERPRINT="$(author_fingerprint)" && [ -n "$AUTHOR_FINGERPRINT" ] \
   || abort "cannot fingerprint the author's repository"
 REVIEW_CLONE="$(mktemp -d "${SCRATCHPAD:-${TMPDIR:-/tmp}}/prp-review-pr-${PR_NUMBER}.XXXXXX")" \
   || abort "cannot create the review directory"
-REVIEW_CLONE="$(realpath -e -- "$REVIEW_CLONE")" || abort "cannot resolve the review directory"
+REVIEW_CLONE="$(cd -P -- "$REVIEW_CLONE" && pwd)" || abort "cannot resolve the review directory"
 case "$REVIEW_CLONE/" in
   "$AUTHOR_WORKTREE"/*) rm -rf -- "$REVIEW_CLONE"; abort "SCRATCHPAD/TMPDIR is inside the author's repository; point it outside" ;;
 esac
@@ -512,14 +517,18 @@ git clone --quiet --no-local --no-hardlinks "$AUTHOR_WORKTREE" "$REVIEW_CLONE/re
   || abort_clean "could not create the review clone"
 if ! git -C "$REVIEW_CLONE/repo" cat-file -e "$REVIEWED_HEAD_SHA^{commit}" 2>/dev/null; then
   fetched=""
+  tried=""
   for remote in $(git -C "$AUTHOR_WORKTREE" remote); do   # origin, upstream (fork), ...
-    url="$(git -C "$AUTHOR_WORKTREE" remote get-url "$remote")" || continue
-    if git -C "$REVIEW_CLONE/repo" fetch --quiet "$url" "pull/$PR_NUMBER/head" 2>/dev/null \
-       && git -C "$REVIEW_CLONE/repo" cat-file -e "$REVIEWED_HEAD_SHA^{commit}" 2>/dev/null; then
+    url="$(git -C "$AUTHOR_WORKTREE" remote get-url "$remote")" || { tried+=" $remote(no url)"; continue; }
+    # git's last error line, with any credentials in a URL masked; the URL itself is never printed
+    err="$(git -C "$REVIEW_CLONE/repo" fetch --quiet "$url" "pull/$PR_NUMBER/head" 2>&1 >/dev/null \
+           | sed -E 's#://[^/@ ]*@#://***@#g' | tail -n 1)"
+    if git -C "$REVIEW_CLONE/repo" cat-file -e "$REVIEWED_HEAD_SHA^{commit}" 2>/dev/null; then
       fetched=1; break
     fi
+    tried+=" $remote(${err:-fetched, but $REVIEWED_HEAD_SHA is not pull/$PR_NUMBER/head})"
   done
-  [ -n "$fetched" ] || abort_clean "the PR head $REVIEWED_HEAD_SHA is not in the author's repository and no remote serves pull/$PR_NUMBER/head"
+  [ -n "$fetched" ] || abort_clean "the PR head $REVIEWED_HEAD_SHA is not in the author's repository and no remote serves it; tried:${tried:- no remotes}"
 fi
 git -C "$REVIEW_CLONE/repo" checkout --quiet --detach "$REVIEWED_HEAD_SHA" \
   && [ "$(git -C "$REVIEW_CLONE/repo" rev-parse HEAD)" = "$REVIEWED_HEAD_SHA" ] \
@@ -905,19 +914,21 @@ for v in AUTHOR_WORKTREE REVIEW_CLONE AUTHOR_HEAD AUTHOR_FINGERPRINT; do
   [[ -n "${!v}" && "${!v}" != "<"* ]] || abort "$v is not filled in"
 done
 # The one destructive command below only ever removes a canonical review clone made by 2.1.1
-rc="$(realpath -e -- "$REVIEW_CLONE")" \
+rc="$(cd -P -- "$REVIEW_CLONE" 2>/dev/null && pwd)" \
   && [[ "$rc" == "$REVIEW_CLONE" && "$(basename -- "$rc")" =~ ^prp-review-pr-[1-9][0-9]*\.[A-Za-z0-9]{6}$ && -d "$rc/repo/.git" ]] \
   || abort "REVIEW_CLONE ($REVIEW_CLONE) is not a review clone made by 2.1.1"
 
 author_fingerprint() (   # identical in 2.1.1 and 3.0; prints one hash, or fails
   set -o pipefail
   cd "$AUTHOR_WORKTREE" || exit 1
-  export GIT_OPTIONAL_LOCKS=0
-  g=(git -c core.fsmonitor=false -c core.hooksPath=/dev/null)
+  export LC_ALL=C GIT_OPTIONAL_LOCKS=0   # locale-independent sort order; no index refresh
+  g=(git -c core.fsmonitor=false)   # a planted fsmonitor command must not run (no command here runs hooks)
   common="$("${g[@]}" rev-parse --git-common-dir)" || exit 1
   case "$common" in /*) ;; *) common="$AUTHOR_WORKTREE/$common" ;; esac
+  # GNU (Linux) or BSD (macOS) tools, whichever exist
+  if command -v sha256sum >/dev/null 2>&1; then H=(sha256sum --); else H=(shasum -a 256 --); fi
+  mode() { stat -c %a -- "$1" 2>/dev/null || stat -f %Lp -- "$1"; }
   {
-    "${g[@]}" rev-parse HEAD || exit 1
     # --ignored also lists ignored paths that appear (e.g. a stray build or install)
     "${g[@]}" status --porcelain --ignored || exit 1
     # the index itself: object id, mode and stage of every entry (a re-staged edit, a chmod)
@@ -931,25 +942,28 @@ author_fingerprint() (   # identical in 2.1.1 and 3.0; prints one hash, or fails
     # the status line unchanged. Symlinks count by target; only regular
     # files are read, hashed in one batch (no temp file: TMPDIR may be inside this repository);
     # a file that cannot be read is recorded by its error line.
-    "${g[@]}" ls-files -m -o --exclude-standard -z >/dev/null || exit 1   # fail loudly, not empty
     regular=()
     while IFS= read -r -d '' f; do
       if [ -L "$f" ]; then printf 'link %s -> %s\n' "$f" "$(readlink -- "$f")"
-      elif [ -f "$f" ]; then printf 'mode %s %s\n' "$(stat -c %a -- "$f")" "$f"; regular+=("$f")
+      elif [ -f "$f" ]; then printf 'mode %s %s\n' "$(mode "$f")" "$f"; regular+=("$f")
       else printf 'other %s\n' "$f"; fi
     done < <({ "${g[@]}" ls-files -m -o --exclude-standard -z
                "${g[@]}" ls-files -v -z | while IFS= read -r -d '' l; do
                  case "${l:0:1}" in [a-z]|S) printf '%s\0' "${l:2}" ;; esac
                done; } | sort -zu)
-    if (( ${#regular[@]} )); then printf '%s\0' "${regular[@]}" | xargs -0 sha256sum -- 2>&1; fi
-    for f in "$common/info/exclude" "$common/info/attributes" "$common/packed-refs"; do
-      if [ -f "$f" ]; then sha256sum -- "$f"; fi
-    done
-    if [ -d "$common/hooks" ]; then
-      find "$common/hooks" \( -type f -o -type l \) -printf '%m %y %p %l\n' | sort || exit 1
-      find "$common/hooks" -type f -exec sha256sum -- {} + 2>&1 | sort
+    if (( ${#regular[@]} )); then printf '%s\0' "${regular[@]}" | xargs -0 "${H[@]}" 2>&1; fi
+    # every file under info/ (exclude, attributes, sparse-checkout, ...) and packed-refs
+    if [ -f "$common/packed-refs" ]; then "${H[@]}" "$common/packed-refs"; fi
+    if [ -d "$common/info" ]; then
+      find "$common/info" -type f | sort | while IFS= read -r f; do "${H[@]}" "$f" 2>&1; done || exit 1
     fi
-  } | sha256sum | cut -d' ' -f1
+    if [ -d "$common/hooks" ]; then
+      find "$common/hooks" \( -type f -o -type l \) | LC_ALL=C sort | while IFS= read -r h; do
+        if [ -L "$h" ]; then printf 'hook link %s -> %s\n' "$h" "$(readlink -- "$h")"
+        else printf 'hook %s %s\n' "$(mode "$h")" "$h"; "${H[@]}" "$h" 2>&1; fi
+      done || exit 1
+    fi
+  } | "${H[@]}" | cut -d' ' -f1
 )
 
 AUTHOR_HEAD_AFTER="$(git -C "$AUTHOR_WORKTREE" rev-parse HEAD)" || abort "author repository unreadable"
