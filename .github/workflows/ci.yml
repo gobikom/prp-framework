@@ -36,12 +36,25 @@ jobs:
         with:
           persist-credentials: false
 
-      # bats-core at an exact version (the one the goko host runs), from the npm registry.
-      - name: Install bats
+      # bats-core at an exact version (the one the goko host runs), from the release tarball
+      # checked against a pinned sha256, and PyYAML (scripts/generate-adapters.py and the parity
+      # tests import it) from a hash-checked wheel (.github/ci-requirements.txt) in a venv whose
+      # bin/ goes first on PATH, so `python3` in the tests is that venv's.
+      - name: Install bats and PyYAML
         timeout-minutes: 3
         run: |
-          npm install --global --no-audit --no-fund bats@1.13.0
-          [[ "$(bats --version)" == "Bats 1.13.0" ]] || { echo "::error::bats 1.13.0 not installed ($(bats --version 2>&1))"; exit 1; }
+          tools="$RUNNER_TEMP/tools"
+          mkdir -p "$tools"
+          curl -fsSL --retry 3 -o "$tools/bats.tgz" https://github.com/bats-core/bats-core/archive/refs/tags/v1.13.0.tar.gz
+          echo "a85e12b8828271a152b338ca8109aa23493b57950987c8e6dff97ba492772ff3  $tools/bats.tgz" | sha256sum -c -
+          tar -xzf "$tools/bats.tgz" -C "$tools"
+          "$tools/bats-core-1.13.0/install.sh" "$tools/bats" >/dev/null
+          python3 -m venv "$tools/venv"
+          "$tools/venv/bin/pip" install --quiet --disable-pip-version-check \
+            --only-binary :all: --require-hashes -r .github/ci-requirements.txt
+          printf '%s\n' "$tools/bats/bin" "$tools/venv/bin" >> "$GITHUB_PATH"
+          [[ "$("$tools/bats/bin/bats" --version)" == "Bats 1.13.0" ]] || { echo "::error::bats 1.13.0 not installed"; exit 1; }
+          "$tools/venv/bin/python3" -c "import yaml" || { echo "::error::PyYAML not importable"; exit 1; }
 
       # Every *.bats
       # suite under tests/ runs. Green requires bats to exit 0 AND its JUnit report to count
@@ -273,19 +286,23 @@ jobs:
           fi
           echo "bats passed (report: $counts)"
 
-  # A red main or dispatch run opens a `ci-red` issue, or comments on the open one, so the
-  # failure is tracked where the repo's work is. A PR's red run shows on the PR itself.
-  # This job holds the only write token (issues: write) and runs no repo code, so the tests
-  # never get it.
-  # Known gap: a run that never starts never reaches this job.
+  # A red main or dispatch run opens a `ci-red` issue, or comments on the open one, and a
+  # green one closes it, so the failure is tracked where the repo's work is and its recovery
+  # shows there too. A PR's red run shows on the PR itself; a manually cancelled run is not
+  # red. These jobs hold the only write token (issues: write) and run no repo code, so the
+  # tests never get it; one concurrency group keeps two runs from opening two issues.
+  # Known gap: a run that never starts never reaches these jobs.
   alert:
     name: alert on red main/dispatch
     needs: tests
-    if: (failure() || cancelled()) && github.event_name != 'pull_request'
+    if: always() && needs.tests.result == 'failure' && github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
     timeout-minutes: 3
     permissions:
       issues: write
+    concurrency:
+      group: ci-red-issue
+      cancel-in-progress: false
     defaults:
       run:
         shell: bash
@@ -295,14 +312,50 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
-          set -euo pipefail
+          set -uo pipefail
           run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
           body="CI did not pass on $GITHUB_EVENT_NAME @ ${GITHUB_SHA:0:8}: $run_url"
-          gh label create ci-red --color B60205 --description "CI red on main or a dispatch run" 2>/dev/null || true
-          n="$(gh issue list --label ci-red --state open --json number --jq '.[0].number // empty')"
-          if [[ -n "$n" ]]; then
-            gh issue comment "$n" --body "$body"
+          echo "$body" >> "$GITHUB_STEP_SUMMARY"
+          gh label create ci-red --color B60205 --description "CI red on main or a dispatch run" >/dev/null 2>&1 \
+            || gh label list --search ci-red --json name --jq '.[].name' | grep -qx ci-red \
+            || echo "::warning::could not create the ci-red label"
+          n="$(gh issue list --label ci-red --state open --json number --jq '.[0].number // empty')" \
+            || { echo "::warning::gh issue list failed; opening a new issue"; n=""; }
+          if [[ -n "$n" ]] && gh issue comment "$n" --body "$body"; then
             echo "commented on ci-red issue #$n"
+          elif gh issue create --label ci-red --title "CI red on main" --body "$body" \
+            || gh issue create --title "CI red on main" --body "$body"; then
+            echo "opened a ci-red issue"
           else
-            gh issue create --label ci-red --title "CI red on main" --body "$body"
+            echo "::error::could not open or update a ci-red issue for $run_url"
+            exit 1
           fi
+
+  recover:
+    name: close ci-red on green main/dispatch
+    needs: tests
+    if: needs.tests.result == 'success' && github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    permissions:
+      issues: write
+    concurrency:
+      group: ci-red-issue
+      cancel-in-progress: false
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Close the open ci-red issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -uo pipefail
+          run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          n="$(gh issue list --label ci-red --state open --json number --jq '.[0].number // empty')" \
+            || { echo "::error::gh issue list failed; could not check for an open ci-red issue"; exit 1; }
+          if [[ -z "$n" ]]; then echo "no open ci-red issue"; exit 0; fi
+          gh issue close "$n" --comment "Green again on $GITHUB_EVENT_NAME @ ${GITHUB_SHA:0:8}: $run_url" \
+            || { echo "::error::could not close ci-red issue #$n"; exit 1; }
+          echo "closed ci-red issue #$n"
