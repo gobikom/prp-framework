@@ -421,61 +421,89 @@ CHANGED_FILES = {list from context file}
 
 ### 2.1.1 Create an Isolated Clone for Agents
 
-**CRITICAL**: Agents MUST NOT read from the author's live worktree. Give them a real
-clone at the PR head, with its own `.git`, so they cannot contaminate the working tree
-or the repository it belongs to (prp-framework#129: a reviewer removed the worktree,
-another staged 6001 junk files). A `git worktree` is NOT enough: it shares refs, config,
-hooks, stash and the worktree list with the author's repository.
+**CRITICAL**: Agents MUST NOT read from or write to the author's live worktree. Give them a
+real clone at the PR head, with its own `.git` and no remote, so an agent's git commands land
+in the clone and not in the author's repository (prp-framework#129: a reviewer removed the
+worktree, another staged 6001 junk files). A `git worktree` is NOT enough: it shares refs,
+config, hooks, stash and the worktree list with the author's repository.
 
-Each shell command may run in a fresh shell, so the baseline goes to a file that
-Phase 3.0 reads back. The fingerprint covers what an agent could change outside the
-working tree too: the worktree list, the repository-local config (e.g. a planted
-`core.fsmonitor` or `core.hooksPath`) and the hooks directory. Every git call on the
-author's repository disables fsmonitor and hooks, so a planted one cannot run.
+**What this guards, and what it does not.** The clone plus the Phase 3.0 fingerprint catch an
+agent that ACCIDENTALLY touches the author's repository: the working tree, the index, refs,
+stash, worktrees, local config, `info/` and hooks. It is not a security boundary against an
+agent that is actively hostile: agents run as the same user, so one could change files git
+ignores (e.g. `.claude/`), global git config or global hooks, which nothing here sees.
+Hardening against that is tracked in prp-framework#138.
+
+Every value Phase 3.0 needs is PRINTED here and carried into 3.0 as a literal from this
+transcript, never read back from a file: an agent can write files, not this transcript.
 
 ```bash
-: "${PR_NUMBER:?PR_NUMBER must be set}" "${REVIEWED_HEAD_SHA:?REVIEWED_HEAD_SHA (Phase 1) must be set}"
-AUTHOR_WORKTREE="$(pwd)"
-REVIEW_CLONE="$(mktemp -d "${SCRATCHPAD:-${TMPDIR:-/tmp}}/prp-review-pr-${PR_NUMBER}.XXXXXX")"
-REVIEW_BASELINE="$REVIEW_CLONE.baseline"
-SAFE_GIT=(git -c core.fsmonitor=false -c core.hooksPath=/dev/null -C "$AUTHOR_WORKTREE")
-author_fingerprint() {
-  local common; common="$("${SAFE_GIT[@]}" rev-parse --path-format=absolute --git-common-dir)" || return 1
-  { "${SAFE_GIT[@]}" rev-parse HEAD
-    "${SAFE_GIT[@]}" status --porcelain
-    # contents of every modified and untracked file: an edit to an already-dirty file
-    # leaves the status line unchanged
-    (cd "$AUTHOR_WORKTREE" && "${SAFE_GIT[@]}" ls-files -m -o --exclude-standard -z \
-      | sort -zu | xargs -0r sha256sum --)
-    "${SAFE_GIT[@]}" worktree list --porcelain
-    "${SAFE_GIT[@]}" config --local --list
-    find "$common/hooks" -type f -exec sha256sum {} + 2>/dev/null | sort
-  } | sha256sum
-}
+# Phase 1 values, as literals: a later command may run in a new shell where they are gone
+PR_NUMBER="${PR_NUMBER:-<PR number>}"
+REVIEWED_HEAD_SHA="${REVIEWED_HEAD_SHA:-<REVIEWED_HEAD_SHA from Phase 1>}"
+abort() { echo "REVIEW ABORT: $*"; exit 1; }
+[[ "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]] || abort "PR_NUMBER is not set"
+[[ "$REVIEWED_HEAD_SHA" =~ ^[0-9a-f]{40}$ ]] || abort "REVIEWED_HEAD_SHA is not set"
+AUTHOR_WORKTREE="$(git rev-parse --show-toplevel)" || abort "not inside the author's repository"
 
-# Record the author's state BEFORE agents run (to a file: later commands may be new shells)
-{ printf 'AUTHOR_WORKTREE=%q\nREVIEW_CLONE=%q\n' "$AUTHOR_WORKTREE" "$REVIEW_CLONE"
-  printf 'AUTHOR_HEAD=%q\n' "$("${SAFE_GIT[@]}" rev-parse HEAD)"
-  printf 'AUTHOR_FINGERPRINT=%q\n' "$(author_fingerprint)"
-} > "$REVIEW_BASELINE" || { echo "REVIEW ABORT: cannot record the author baseline"; exit 1; }
-"${SAFE_GIT[@]}" status --porcelain > "$REVIEW_BASELINE.status"
-# Agents review exactly the commit Phase 1 recorded; a checkout on another commit is an abort
-[ "$(. "$REVIEW_BASELINE"; echo "$AUTHOR_HEAD")" = "$REVIEWED_HEAD_SHA" ] \
-  || { echo "REVIEW ABORT: the checkout is not at the PR head $REVIEWED_HEAD_SHA"; exit 1; }
+author_fingerprint() (   # identical in 2.1.1 and 3.0; prints one hash, or fails
+  set -o pipefail
+  cd "$AUTHOR_WORKTREE" || exit 1
+  export GIT_OPTIONAL_LOCKS=0
+  g=(git -c core.fsmonitor=false -c core.hooksPath=/dev/null)
+  common="$("${g[@]}" rev-parse --git-common-dir)" || exit 1
+  case "$common" in /*) ;; *) common="$AUTHOR_WORKTREE/$common" ;; esac
+  {
+    "${g[@]}" rev-parse HEAD || exit 1
+    "${g[@]}" status --porcelain || exit 1
+    "${g[@]}" for-each-ref --format='%(refname) %(objectname)' || exit 1
+    "${g[@]}" stash list || exit 1
+    "${g[@]}" worktree list --porcelain || exit 1
+    "${g[@]}" config --local --list || exit 1
+    # contents of modified and untracked files (an edit to an already-dirty file leaves the
+    # status line unchanged); symlinks by target; nothing that is not a regular file is read
+    "${g[@]}" ls-files -m -o --exclude-standard -z | sort -zu | while IFS= read -r -d '' f; do
+      if [ -L "$f" ]; then printf 'link %s -> %s\n' "$f" "$(readlink -- "$f")"
+      elif [ -f "$f" ]; then sha256sum -- "$f"
+      else printf 'other %s\n' "$f"; fi
+    done || exit 1
+    for f in "$common/info/exclude" "$common/info/attributes" "$common/packed-refs"; do
+      if [ -f "$f" ]; then sha256sum -- "$f"; fi
+    done
+    if [ -d "$common/hooks" ]; then
+      find "$common/hooks" -type f -printf '%m %p\n' -exec sha256sum -- {} \; | sort || exit 1
+    fi
+  } | sha256sum | cut -d' ' -f1
+)
 
-# A real clone (own .git, no shared objects, refs or config), detached at the author's HEAD
+AUTHOR_HEAD="$(git -C "$AUTHOR_WORKTREE" rev-parse HEAD)" || abort "cannot read the author's HEAD"
+AUTHOR_FINGERPRINT="$(author_fingerprint)" && [ -n "$AUTHOR_FINGERPRINT" ] \
+  || abort "cannot fingerprint the author's repository"
+REVIEW_CLONE="$(mktemp -d "${SCRATCHPAD:-${TMPDIR:-/tmp}}/prp-review-pr-${PR_NUMBER}.XXXXXX")" \
+  || abort "cannot create the review directory"
+
+# A real clone with no remote, detached at the PR head (fetched when the author is elsewhere)
 git clone --quiet --no-local --no-hardlinks "$AUTHOR_WORKTREE" "$REVIEW_CLONE/repo" \
-  && git -C "$REVIEW_CLONE/repo" checkout --quiet --detach "$REVIEWED_HEAD_SHA" \
-  || { echo "REVIEW ABORT: could not create the review clone"; exit 1; }
+  && git -C "$REVIEW_CLONE/repo" remote remove origin \
+  || abort "could not create the review clone"
+if ! git -C "$REVIEW_CLONE/repo" cat-file -e "$REVIEWED_HEAD_SHA^{commit}" 2>/dev/null; then
+  git -C "$REVIEW_CLONE/repo" fetch --quiet "$(git -C "$AUTHOR_WORKTREE" remote get-url origin)" "pull/$PR_NUMBER/head" \
+    || abort "could not fetch PR #$PR_NUMBER into the review clone"
+fi
+git -C "$REVIEW_CLONE/repo" checkout --quiet --detach "$REVIEWED_HEAD_SHA" \
+  && [ "$(git -C "$REVIEW_CLONE/repo" rev-parse HEAD)" = "$REVIEWED_HEAD_SHA" ] \
+  || abort "the review clone is not at $REVIEWED_HEAD_SHA"
+
+echo "AUTHOR_WORKTREE=$AUTHOR_WORKTREE"
 echo "REVIEW_CLONE=$REVIEW_CLONE"
-echo "REVIEW_BASELINE=$REVIEW_BASELINE"
+echo "AUTHOR_HEAD=$AUTHOR_HEAD"
+echo "AUTHOR_FINGERPRINT=$AUTHOR_FINGERPRINT"
 ```
 
-Pass `$REVIEW_CLONE/repo` (not `$AUTHOR_WORKTREE`) to every agent prompt as the
-working directory. The context file at `CONTEXT_PATH` is still read from the author
-tree (it is written by Phase 1 and is the only file agents need from there). Note the
-`REVIEW_BASELINE=` path this prints: Phase 3.0 needs it, and a later command may run
-in a new shell where the variable is gone.
+Pass `$REVIEW_CLONE/repo` (not `$AUTHOR_WORKTREE`) to every agent prompt as the working
+directory. Copy the Phase 1 context file to `$REVIEW_CLONE/context.md` and use that path as
+`{CONTEXT_PATH}` in every agent prompt, so no agent needs any path in the author's tree. Keep
+the four printed values: Phase 3.0 needs them.
 
 ### 2.2 Core Agents (Always — Spawn ALL in Parallel)
 
@@ -832,46 +860,66 @@ Running: {TOOL}:review {NUMBER}
 
 ### 3.0 Verify Author Worktree Integrity
 
-Before collecting results, verify the author's worktree was not contaminated:
+Before collecting results, verify the author's repository was not touched. Fill in the four
+values 2.1.1 printed, from this transcript (never from a file an agent could have written);
+a value that is missing or still a placeholder is an abort, never a pass:
 
 ```bash
-# Set REVIEW_BASELINE to the literal path 2.1.1 printed (the variable may not survive between
-# commands); a missing baseline is an abort, never a pass
-REVIEW_BASELINE="${REVIEW_BASELINE:-<path printed by 2.1.1>}"
-[ -f "${REVIEW_BASELINE:-}" ] || { echo "REVIEW ABORT: no author baseline (${REVIEW_BASELINE:-unset})"; exit 1; }
-. "$REVIEW_BASELINE"
-SAFE_GIT=(git -c core.fsmonitor=false -c core.hooksPath=/dev/null -C "$AUTHOR_WORKTREE")
-author_fingerprint() {   # identical to 2.1.1
-  local common; common="$("${SAFE_GIT[@]}" rev-parse --path-format=absolute --git-common-dir)" || return 1
-  { "${SAFE_GIT[@]}" rev-parse HEAD
-    "${SAFE_GIT[@]}" status --porcelain
-    # contents of every modified and untracked file: an edit to an already-dirty file
-    # leaves the status line unchanged
-    (cd "$AUTHOR_WORKTREE" && "${SAFE_GIT[@]}" ls-files -m -o --exclude-standard -z \
-      | sort -zu | xargs -0r sha256sum --)
-    "${SAFE_GIT[@]}" worktree list --porcelain
-    "${SAFE_GIT[@]}" config --local --list
-    find "$common/hooks" -type f -exec sha256sum {} + 2>/dev/null | sort
-  } | sha256sum
-}
+AUTHOR_WORKTREE="${AUTHOR_WORKTREE:-<AUTHOR_WORKTREE printed by 2.1.1>}"
+REVIEW_CLONE="${REVIEW_CLONE:-<REVIEW_CLONE printed by 2.1.1>}"
+AUTHOR_HEAD="${AUTHOR_HEAD:-<AUTHOR_HEAD printed by 2.1.1>}"
+AUTHOR_FINGERPRINT="${AUTHOR_FINGERPRINT:-<AUTHOR_FINGERPRINT printed by 2.1.1>}"
+abort() { echo "REVIEW ABORT: $*"; exit 1; }
+for v in AUTHOR_WORKTREE REVIEW_CLONE AUTHOR_HEAD AUTHOR_FINGERPRINT; do
+  [[ -n "${!v}" && "${!v}" != "<"* ]] || abort "$v is not filled in"
+done
+[[ "$REVIEW_CLONE" == */prp-review-pr-*.?????? && -d "$REVIEW_CLONE/repo" ]] \
+  || abort "REVIEW_CLONE ($REVIEW_CLONE) is not a review clone made by 2.1.1"
 
-AUTHOR_HEAD_AFTER="$("${SAFE_GIT[@]}" rev-parse HEAD)" || { echo "REVIEW ABORT: author repository unreadable"; exit 1; }
-if [ "$AUTHOR_HEAD" != "$AUTHOR_HEAD_AFTER" ]; then
-  echo "REVIEW ABORT: author worktree HEAD changed during review ($AUTHOR_HEAD → $AUTHOR_HEAD_AFTER)"
-  exit 1
-fi
-if [ "$AUTHOR_FINGERPRINT" != "$(author_fingerprint)" ]; then
-  echo "REVIEW ABORT: the author's worktree or repository (status, worktrees, local config or hooks) changed during review"
-  diff "$REVIEW_BASELINE.status" <("${SAFE_GIT[@]}" status --porcelain) || true
-  exit 1
-fi
+author_fingerprint() (   # identical in 2.1.1 and 3.0; prints one hash, or fails
+  set -o pipefail
+  cd "$AUTHOR_WORKTREE" || exit 1
+  export GIT_OPTIONAL_LOCKS=0
+  g=(git -c core.fsmonitor=false -c core.hooksPath=/dev/null)
+  common="$("${g[@]}" rev-parse --git-common-dir)" || exit 1
+  case "$common" in /*) ;; *) common="$AUTHOR_WORKTREE/$common" ;; esac
+  {
+    "${g[@]}" rev-parse HEAD || exit 1
+    "${g[@]}" status --porcelain || exit 1
+    "${g[@]}" for-each-ref --format='%(refname) %(objectname)' || exit 1
+    "${g[@]}" stash list || exit 1
+    "${g[@]}" worktree list --porcelain || exit 1
+    "${g[@]}" config --local --list || exit 1
+    # contents of modified and untracked files (an edit to an already-dirty file leaves the
+    # status line unchanged); symlinks by target; nothing that is not a regular file is read
+    "${g[@]}" ls-files -m -o --exclude-standard -z | sort -zu | while IFS= read -r -d '' f; do
+      if [ -L "$f" ]; then printf 'link %s -> %s\n' "$f" "$(readlink -- "$f")"
+      elif [ -f "$f" ]; then sha256sum -- "$f"
+      else printf 'other %s\n' "$f"; fi
+    done || exit 1
+    for f in "$common/info/exclude" "$common/info/attributes" "$common/packed-refs"; do
+      if [ -f "$f" ]; then sha256sum -- "$f"; fi
+    done
+    if [ -d "$common/hooks" ]; then
+      find "$common/hooks" -type f -printf '%m %p\n' -exec sha256sum -- {} \; | sort || exit 1
+    fi
+  } | sha256sum | cut -d' ' -f1
+)
+
+AUTHOR_HEAD_AFTER="$(git -C "$AUTHOR_WORKTREE" rev-parse HEAD)" || abort "author repository unreadable"
+[ "$AUTHOR_HEAD" = "$AUTHOR_HEAD_AFTER" ] \
+  || abort "author worktree HEAD changed during review ($AUTHOR_HEAD → $AUTHOR_HEAD_AFTER)"
+now="$(author_fingerprint)" && [ -n "$now" ] || abort "cannot fingerprint the author's repository"
+[ "$now" = "$AUTHOR_FINGERPRINT" ] \
+  || abort "the author's repository (worktree, index, refs, stash, worktrees, local config, info/ or hooks) changed during review"
 
 # Clean up: the clone is a plain directory, nothing to unregister
-rm -rf "$REVIEW_CLONE" "$REVIEW_BASELINE" "$REVIEW_BASELINE.status"
+rm -rf "$REVIEW_CLONE"
 ```
 
-If the check fails, abort the review and report — an agent escaped the clone. Leave
-the clone and baseline in place for the investigation.
+If the check fails, abort the review and report: an agent escaped the clone. Leave the
+clone in place for the investigation; `git -C "$AUTHOR_WORKTREE" status` and
+`git -C "$AUTHOR_WORKTREE" for-each-ref` show what changed.
 
 After all agents complete, collect their outputs. Each agent returns a markdown report with findings.
 

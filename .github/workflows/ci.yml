@@ -290,124 +290,94 @@ jobs:
           fi
           echo "bats passed (report: $counts)"
 
-  # A red run of main (a push, or a dispatch on main) opens a `ci-red` issue, or comments on the
-  # open one, and a green one closes it, so the failure is tracked where the repo's work is and its
-  # recovery shows there too. A PR's red run shows on the PR itself; a dispatch on another branch
-  # and a cancelled dispatch (by hand or by its timeout: someone started it and is watching it)
-  # touch nothing; a push run that ends cancelled (a timeout — push runs are never cancelled by
-  # concurrency) counts as red. recover acts only while the run's commit is still the head of
-  # main, so an older run finishing late, or a queued job its concurrency group dropped, cannot
-  # close the issue for a state main is no longer in. alert stands down for a newer head only
-  # when that head has a run of its own to report; a head with none ([skip ci], a push made
-  # with a workflow token) would otherwise leave this red unreported, so it alerts naming both. They find the issue by its exact title among issues this workflow opened (author
-  # github-actions), so one opened without the label is still found and closed; they hold the only
-  # write token (issues: write, plus contents: read for the head check) and run no repo code, so
-  # the tests never get it.
-  # Known gap: a run that never starts reaches neither job.
-  alert:
-    name: alert on red main
+  # The `CI red on main` issue tracks main's CURRENT head. Invariant: after any push or
+  # dispatch run of main, the open `CI red on main` issues opened by this workflow reflect the
+  # latest completed run of this workflow for main's current head — red (failed, or a push run
+  # that ended cancelled, i.e. timed out): exactly one is open and carries that run's link;
+  # green: none is open. Every run re-derives this from the head's state instead of from its own
+  # result, so a run that finishes late, or a job that never ran, cannot leave a wrong state
+  # behind: the next run repairs it. A run whose commit is no longer the head acts only when the
+  # head has no run of this workflow (a [skip ci] commit, a push made with a workflow token);
+  # then it reports its own red, naming both commits, and never closes on the head's behalf.
+  # A dispatch cancelled by hand or by its timeout counts as neither (someone is watching it).
+  # This job holds the only write token (issues: write) and runs no repo code. If it cannot
+  # establish the head's state it fails, and the red job is the report.
+  # Known gap: a run that never starts reaches no job at all.
+  ci-red-issue:
+    name: reconcile the ci-red issue
     needs: tests
-    if: >-
-      always() && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
-      && (needs.tests.result == 'failure'
-          || (github.event_name == 'push' && needs.tests.result == 'cancelled'))
+    if: always() && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
     timeout-minutes: 3
     permissions:
       actions: read
       contents: read
       issues: write
-    concurrency:
-      group: ci-red-issue
-      cancel-in-progress: false
     defaults:
       run:
         shell: bash
     steps:
-      - name: Open or update the ci-red issue
+      - name: Reconcile with the head's latest run
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           RESULT: ${{ needs.tests.result }}
         run: |
           set -uo pipefail
+          title="CI red on main"
           run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
-          body="CI $RESULT on $GITHUB_EVENT_NAME, main @ ${GITHUB_SHA:0:8}: $run_url"
-          echo "$body" >> "$GITHUB_STEP_SUMMARY"
-          head="$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)" \
-            || { echo "::warning::could not read the main head; alerting anyway"; head="$GITHUB_SHA"; }
-          if [[ "$head" != "$GITHUB_SHA" ]]; then
-            runs="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$head&per_page=1" --jq .total_count)" \
-              || { echo "::warning::could not list runs for ${head:0:8}; alerting"; runs=0; }
-            if [[ "$runs" != 0 ]]; then
-              echo "::notice::main has moved on to ${head:0:8}, which has its own run to report its state"
+          fail() { echo "::error::$* ($run_url)" | tee -a "$GITHUB_STEP_SUMMARY"; exit 1; }
+          is_red() { [[ "$1" == failure || "$1" == timed_out || ( "$1" == cancelled && "$2" == push ) ]]; }
+
+          head="$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)" || fail "could not read the main head"
+          if [[ "$head" == "$GITHUB_SHA" ]]; then
+            state="$RESULT"; event="$GITHUB_EVENT_NAME"; at="$GITHUB_SHA"; link="$run_url"
+          else
+            latest="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?branch=main&head_sha=$head&per_page=50" \
+                --jq '[.workflow_runs[] | select(.event == "push" or .event == "workflow_dispatch")][0]
+                      // empty | "\(.status) \(.conclusion // "none") \(.event) \(.html_url)"')" \
+              || fail "could not list this workflow's runs for the main head ${head:0:8}"
+            if [[ -n "$latest" ]]; then
+              read -r status state event link <<<"$latest"
+              if [[ "$status" != completed ]]; then
+                echo "::notice::the main head ${head:0:8} has a run in progress; it reconciles the issue"
+                exit 0
+              fi
+              at="$head"
+            elif is_red "$RESULT" "$GITHUB_EVENT_NAME"; then
+              state="$RESULT"; event="$GITHUB_EVENT_NAME"; at="$GITHUB_SHA"
+              link="$run_url (main has since moved to ${head:0:8}, which has no run of this workflow)"
+            else
+              echo "::notice::main moved on to ${head:0:8}, which has no run of this workflow; an older green run does not close for it"
               exit 0
             fi
-            body="$body (main has since moved to ${head:0:8}, which has no CI run of its own)"
           fi
-          gh label create ci-red --color B60205 --description "CI red on main" >/dev/null 2>&1 \
-            || gh label list --search ci-red --json name --jq '.[].name' | grep -qx ci-red \
-            || echo "::warning::could not create the ci-red label"
-          n="$(gh issue list --state open --author app/github-actions --limit 200 --json number,title \
-                --jq '[.[] | select(.title == "CI red on main")][0].number // empty')" \
-            || { echo "::warning::gh issue list failed; opening a new issue"; n=""; }
-          if [[ -n "$n" ]] && gh issue comment "$n" --body "$body"; then
-            echo "commented on ci-red issue #$n"
-          elif gh issue create --label ci-red --title "CI red on main" --body "$body" \
-            || gh issue create --title "CI red on main" --body "$body"; then
-            echo "opened a ci-red issue"
+
+          # Open issues with the exact title opened by this workflow, oldest first.
+          open="$(gh issue list --state open --author app/github-actions --limit 200 --json number,title \
+              --jq "[.[] | select(.title == \"$title\") | .number] | sort | .[]")" \
+            || fail "could not list the open ci-red issues"
+          read -r -a issues <<<"$(echo $open)"
+
+          if is_red "$state" "$event"; then
+            body="CI $state on $event, main @ ${at:0:8}: $link"
+            echo "$body" >> "$GITHUB_STEP_SUMMARY"
+            if (( ${#issues[@]} == 0 )); then
+              gh label create ci-red --color B60205 --description "CI red on main" >/dev/null 2>&1 || true
+              gh issue create --label ci-red --title "$title" --body "$body" \
+                || gh issue create --title "$title" --body "$body" \
+                || fail "could not open a ci-red issue"
+            else
+              gh issue comment "${issues[0]}" --body "$body" || fail "could not comment on ci-red issue #${issues[0]}"
+              for n in "${issues[@]:1}"; do
+                gh issue close "$n" --comment "Duplicate of #${issues[0]}." || fail "could not close duplicate ci-red issue #$n"
+              done
+            fi
+          elif [[ "$state" == success ]]; then
+            for n in "${issues[@]}"; do
+              gh issue close "$n" --comment "Green on $event, main @ ${at:0:8}: $link" || fail "could not close ci-red issue #$n"
+            done
+            echo "main @ ${at:0:8} is green; closed ${#issues[@]} ci-red issue(s)"
           else
-            echo "::error::could not open or update a ci-red issue for $run_url"
-            exit 1
+            echo "::notice::the latest run for ${at:0:8} ended '$state' on $event, which is neither red nor green; issue left as is"
           fi
-
-  recover:
-    name: close ci-red on green main
-    needs: tests
-    if: needs.tests.result == 'success' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 3
-    permissions:
-      contents: read
-      issues: write
-    concurrency:
-      group: ci-red-issue
-      cancel-in-progress: false
-    defaults:
-      run:
-        shell: bash
-    steps:
-      - name: Close the open ci-red issue
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-        run: |
-          set -uo pipefail
-          run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
-          head="$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)" \
-            || { echo "::error::could not read the main head; not closing anything"; exit 1; }
-          if [[ "$head" != "$GITHUB_SHA" ]]; then
-            echo "::notice::main has moved on to ${head:0:8}; its own run reports its state"
-            exit 0
-          fi
-          n="$(gh issue list --state open --author app/github-actions --limit 200 --json number,title \
-                --jq '[.[] | select(.title == "CI red on main")][0].number // empty')" \
-            || { echo "::error::gh issue list failed; could not check for an open ci-red issue"; exit 1; }
-          if [[ -z "$n" ]]; then echo "no open ci-red issue"; exit 0; fi
-          gh issue close "$n" --comment "Green again on $GITHUB_EVENT_NAME, main @ ${GITHUB_SHA:0:8}: $run_url" \
-            || { echo "::error::could not close ci-red issue #$n"; exit 1; }
-          echo "closed ci-red issue #$n"
-
-      # If closing failed, say so on the issue itself, so it does not sit open with main green.
-      - name: Report a failed close on the issue
-        if: failure()
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-        run: |
-          set -uo pipefail
-          run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
-          echo "::error::could not close the ci-red issue although main @ ${GITHUB_SHA:0:8} is green: $run_url" | tee -a "$GITHUB_STEP_SUMMARY"
-          n="$(gh issue list --state open --author app/github-actions --limit 200 --json number,title \
-                --jq '[.[] | select(.title == "CI red on main")][0].number // empty')" || exit 1
-          [[ -z "$n" ]] || gh issue comment "$n" --body "main is green at ${GITHUB_SHA:0:8}, but closing this issue failed: $run_url"
