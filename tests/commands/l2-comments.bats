@@ -248,8 +248,28 @@ repo_here() { git init -q . && git commit -q --allow-empty -m pr; FAKE_HEAD=$(gi
   phase20 > p20.sh; repo_here
   GH_FAIL=1 run env -u REVIEWED_HEAD_SHA bash p20.sh
   [ "$status" -ne 0 ]
-  [[ "$output" == *"no agents started"* ]]
+  [[ "$output" == *"cannot read the PR head (gh failed) — no agents started"* ]]
   [ ! -e .prp-output/reviews/pr-7-reviewed-head ]
+}
+
+clone211() { awk 'index($0, "### 2.1.1 ") == 1 {f=1} f && /^```bash$/ {b=1; next} b && /^```$/ {exit} b' "$ADAPTER" | sed 's/{NUMBER}/7/g'; }
+
+@test "2.1.1 clones the agents' tree at the saved head even when HEAD moved after Phase 2.0" {
+  phase20 > p20.sh; clone211 > c211.sh; repo_here
+  run env -u REVIEWED_HEAD_SHA bash p20.sh; [ "$status" -eq 0 ]
+  saved=$FAKE_HEAD
+  git commit -q --allow-empty -m moved            # the shared checkout moves on
+  mkdir -p s; run env PR_NUMBER=7 SCRATCHPAD="$PWD/s" bash c211.sh
+  [ "$status" -eq 0 ]
+  [ "$(git -C s/prp-review-clone-pr-7 rev-parse HEAD)" = "$saved" ]
+}
+
+@test "2.1.1 starts no clone without a head saved by Phase 2.0" {
+  clone211 > c211.sh; repo_here; rm -f .prp-output/reviews/pr-7-reviewed-head
+  mkdir -p s; run env PR_NUMBER=7 SCRATCHPAD="$PWD/s" bash c211.sh
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"no reviewed head saved by Phase 2.0"* ]]
+  [ ! -e s/prp-review-clone-pr-7 ]
 }
 
 @test "--l2-comments implies no artifact commit (documented flag mapping)" {

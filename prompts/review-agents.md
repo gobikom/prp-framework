@@ -423,7 +423,7 @@ If this block prints FATAL, STOP: start no agent and post nothing. To recover, s
 D=.prp-output/reviews; mkdir -p "$D" || { echo "FATAL: cannot create $D" >&2; exit 1; }
 rm -f "$D/pr-{NUMBER}-reviewed-head" || { echo "FATAL: cannot clear an earlier round's head file" >&2; exit 1; }
 # always from the PR (each Bash call is a fresh shell; never from the environment), then bound to the local checkout
-REVIEWED_HEAD_SHA=$(gh pr view {NUMBER} --json headRefOid -q .headRefOid) || REVIEWED_HEAD_SHA=""
+REVIEWED_HEAD_SHA=$(gh pr view {NUMBER} --json headRefOid -q .headRefOid) || { echo "FATAL: cannot read the PR head (gh failed) — no agents started" >&2; exit 1; }
 LOCAL_HEAD=$(git rev-parse HEAD) || LOCAL_HEAD=""
 printf '%s' "$LOCAL_HEAD" | grep -qxE '[0-9a-f]{40}' || { echo "FATAL: cannot read the local HEAD — no agents started" >&2; exit 1; }
 [ "$REVIEWED_HEAD_SHA" = "$LOCAL_HEAD" ] || { echo "FATAL: the PR head ('$REVIEWED_HEAD_SHA') is not the local HEAD ($LOCAL_HEAD) the agents would read — sync the checkout, no agents started" >&2; exit 1; }
@@ -454,10 +454,17 @@ AUTHOR_WORKTREE="$(pwd)"
 AUTHOR_STATUS_BEFORE=$(git -C "$AUTHOR_WORKTREE" status --porcelain)
 AUTHOR_HEAD=$(git -C "$AUTHOR_WORKTREE" rev-parse HEAD)
 
-# Create detached clone under scratchpad
+# Create detached clone under scratchpad, at the head Phase 2.0 saved (never the current HEAD,
+# which may have moved since): the agents read exactly the commit the review certifies
+SAVED_HEAD=$(cat .prp-output/reviews/pr-{NUMBER}-reviewed-head 2>/dev/null) || SAVED_HEAD=""
+[ ${#SAVED_HEAD} -eq 40 ] && printf '%s' "$SAVED_HEAD" | grep -qxE '[0-9a-f]{40}' \
+  || { echo "FATAL: no reviewed head saved by Phase 2.0 — run Phase 2.0 first, no agents started" >&2; exit 1; }
 REVIEW_CLONE="${SCRATCHPAD:-/tmp}/prp-review-clone-pr-${PR_NUMBER}"
-rm -rf "$REVIEW_CLONE"
-git worktree add --detach "$REVIEW_CLONE" HEAD
+rm -rf -- "${REVIEW_CLONE:?}"
+git worktree add --detach "$REVIEW_CLONE" "$SAVED_HEAD" \
+  || { echo "FATAL: cannot create the review clone at $SAVED_HEAD — no agents started" >&2; exit 1; }
+[ "$(git -C "$REVIEW_CLONE" rev-parse HEAD)" = "$SAVED_HEAD" ] \
+  || { echo "FATAL: the review clone is not at $SAVED_HEAD — no agents started" >&2; exit 1; }
 ```
 
 Pass `$REVIEW_CLONE` (not `$AUTHOR_WORKTREE`) to every agent prompt as the working
