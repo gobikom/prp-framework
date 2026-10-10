@@ -1313,8 +1313,11 @@ The commit step and "Post to GitHub" run only after this printed `COUNT_HEADINGS
 
 **Detect run-all context**: If the environment variable `PRP_RUN_ALL=1` is set (injected by `/prp-core:prp-run-all`), skip auto-commit — run-all commits all artifacts together in its own step. Treat this the same as `--no-commit`.
 
-Right before this step, run the first 3.0 block (the PR-head check) again. It must print
-`PR_HEAD_CHECK=OK` again; otherwise the review is aborted and nothing is committed.
+The block re-checks the PR head on the server itself (the same check as 3.0's first block),
+right before it commits: a head that moved, or cannot be read, aborts it.
+If the block below exits non-zero (`REVIEW ABORT`), stop: emit no marker and post nothing.
+A commit that was made but not pushed would otherwise bind the marker to a head GitHub never
+received.
 
 ```bash
 # Auto-commit review artifact to PR branch (unless --no-commit or PRP_RUN_ALL)
@@ -1323,19 +1326,40 @@ if [ "${NO_COMMIT:-0}" != "1" ] && [ "${PRP_RUN_ALL:-0}" != "1" ]; then
   CONTEXT_FILE=".prp-output/reviews/pr-context-$(git branch --show-current).md"
   METRICS_FILE=".prp-output/reviews/review-metrics.jsonl"
 
+  # Commit and push only from the reviewed head, on the branch that tracks the PR's head
+  # branch: from anywhere else, the commit would land on another branch, or the push would
+  # publish unreviewed local commits along with the artifact
+  R="${REVIEWED_HEAD_SHA:-<REVIEWED_HEAD_SHA printed by 2.1.1>}"
+  BRANCH="$(git branch --show-current)"
+  PR_NOW="$(gh pr view {NUMBER} --json headRefName,headRefOid -q '.headRefName + " " + .headRefOid')" || PR_NOW=""
+  PR_BRANCH="${PR_NOW% *}"; PR_HEAD_NOW="${PR_NOW##* }"
+  [ -n "$PR_NOW" ] && [ "$PR_HEAD_NOW" = "$R" ] \
+    || { echo "REVIEW ABORT: the PR head is now '${PR_HEAD_NOW:-unreadable}', not the reviewed $R: artifact not committed" >&2; exit 1; }
+  UP_REMOTE="$(git config "branch.$BRANCH.remote")"
+  UP_MERGE="$(git config "branch.$BRANCH.merge")"
+  if [ "$(git rev-parse HEAD)" != "$R" ] || [ -z "$BRANCH" ] || [ -z "$PR_BRANCH" ] \
+     || [ -z "$UP_REMOTE" ] || [ "$UP_MERGE" != "refs/heads/$PR_BRANCH" ]; then
+    echo "REVIEW ABORT: this checkout is not the reviewed head $R on a branch tracking the PR branch '${PR_BRANCH:-unreadable}': artifact not committed. Check out the PR (gh pr checkout {NUMBER}) and re-run this step, or use --no-commit" >&2
+    exit 1
+  fi
+
   # Stage review artifacts that exist
   ARTIFACTS=()
   for f in "$REVIEW_FILE" "$CONTEXT_FILE" "$METRICS_FILE"; do
-    [ -e "$f" ] && git add -- "$f" 2>/dev/null && ARTIFACTS+=("$f")
+    [ -e "$f" ] || continue
+    git add -- "$f" || { echo "REVIEW ABORT: could not stage $f (ignored, index locked, or unreadable?)" >&2; exit 1; }
+    ARTIFACTS+=("$f")
   done
 
   # Commit only these paths (`-- paths`): anything else staged in this checkout, by the author
   # or by mistake, stays out of the artifact commit
   if (( ${#ARTIFACTS[@]} )) && ! git diff --cached --quiet -- "${ARTIFACTS[@]}" 2>/dev/null; then
-    if git commit -q -m "docs: add review artifact for PR #{NUMBER}" -- "${ARTIFACTS[@]}" && git push; then
+    if git commit -q -m "docs: add review artifact for PR #{NUMBER}" -- "${ARTIFACTS[@]}" \
+       && git push "$UP_REMOTE" "HEAD:$UP_MERGE"; then
       echo "Review artifact committed and pushed to PR branch."
     else
-      echo "FATAL: the artifact commit or push failed; marker NOT emitted until it succeeds" >&2
+      echo "REVIEW ABORT: the artifact commit or push failed: no marker and no post" >&2
+      exit 1
     fi
   else
     echo "NOTE: No new review artifacts to commit (already committed or unchanged)."
