@@ -292,7 +292,7 @@ jobs:
 
   # The `CI red on main` issue tracks main's CURRENT head. Invariant: after any push or
   # dispatch run of main, the open `CI red on main` issues opened by this workflow reflect the
-  # latest run of this workflow for main's current head, judged by its `bats tests` job — red (failed, or a push run
+  # NEWEST push/dispatch run of this workflow for main's current head, judged by its `bats tests` job — red (failed, or a push run
   # that ended cancelled, i.e. timed out): exactly one is open and carries that run's link;
   # green: none is open. Every run re-derives this from the head's state instead of from its own
   # result, so a run that finishes late, or a job that never ran, cannot leave a wrong state
@@ -336,34 +336,41 @@ jobs:
           is_red() { [[ "$1" == failure || "$1" == timed_out || ( "$1" == cancelled && "$2" == push ) ]]; }
 
           head="$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)" || fail "could not read the main head"
-          if [[ "$head" == "$GITHUB_SHA" ]]; then
+          # The newest push/dispatch run of this workflow for the head decides, whichever run
+          # this is: a later dispatch on the same commit supersedes an earlier push.
+          newest="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?branch=main&head_sha=$head&per_page=50" \
+              --jq '[.workflow_runs[] | select(.event == "push" or .event == "workflow_dispatch")] | max_by(.run_number)
+                    // empty | "\(.id) \(.event) \(.status)"')" \
+            || fail "could not list this workflow's runs for the main head ${head:0:8}"
+          if [[ -n "$newest" ]]; then read -r run_id event run_status <<<"$newest"; else run_id=""; fi
+          if [[ "$run_id" == "$GITHUB_RUN_ID" ]]; then
             state="$RESULT"; event="$GITHUB_EVENT_NAME"; at="$GITHUB_SHA"; link="$run_url"
-          else
-            latest="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?branch=main&head_sha=$head&per_page=50" \
-                --jq '[.workflow_runs[] | select(.event == "push" or .event == "workflow_dispatch")][0]
-                      // empty | "\(.id) \(.event)"')" \
-              || fail "could not list this workflow's runs for the main head ${head:0:8}"
-            if [[ -n "$latest" ]]; then
-              read -r run_id event <<<"$latest"
-              # judge the head by its tests job, not the whole run: a failure in that run's own
-              # reconcile job must not read as red tests
-              job="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/jobs?per_page=100" \
-                  --jq '[.jobs[] | select(.name == "bats tests")][0] // empty
-                        | "\(.status) \(.conclusion // "none") \(.html_url)"')" \
-                || fail "could not read the jobs of run $run_id for the main head ${head:0:8}"
-              read -r status state link <<<"${job:-queued none -}"
-              if [[ "$status" != completed ]]; then
-                echo "::notice::the main head ${head:0:8} has a run in progress; it reconciles the issue"
-                exit 0
-              fi
-              at="$head"
-            elif is_red "$RESULT" "$GITHUB_EVENT_NAME"; then
-              state="$RESULT"; event="$GITHUB_EVENT_NAME"; at="$GITHUB_SHA"
-              link="$run_url (main has since moved to ${head:0:8}, which has no run of this workflow)"
-            else
-              echo "::notice::main moved on to ${head:0:8}, which has no run of this workflow; an older green run does not close for it"
+          elif [[ -n "$run_id" ]]; then
+            # judge that run by its tests job, not the whole run: a failure in its own reconcile
+            # job must not read as red tests
+            job="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/jobs?per_page=100" \
+                --jq '[.jobs[] | select(.name == "bats tests")][0] // empty
+                      | "\(.status) \(.conclusion // "none") \(.html_url)"')" \
+              || fail "could not read the jobs of run $run_id for the main head ${head:0:8}"
+            if [[ -z "$job" ]]; then
+              [[ "$run_status" != completed ]] || fail "run $run_id for ${head:0:8} has no 'bats tests' job (renamed?)"
+              echo "::notice::the newest run for ${head:0:8} has not started its tests; it reconciles the issue"
               exit 0
             fi
+            read -r status state link <<<"$job"
+            if [[ "$status" != completed ]]; then
+              echo "::notice::the newest run for ${head:0:8} is still testing; it reconciles the issue"
+              exit 0
+            fi
+            at="$head"
+          elif [[ "$head" == "$GITHUB_SHA" ]]; then
+            state="$RESULT"; event="$GITHUB_EVENT_NAME"; at="$GITHUB_SHA"; link="$run_url"
+          elif is_red "$RESULT" "$GITHUB_EVENT_NAME"; then
+            state="$RESULT"; event="$GITHUB_EVENT_NAME"; at="$GITHUB_SHA"
+            link="$run_url (main has since moved to ${head:0:8}, which has no run of this workflow)"
+          else
+            echo "::notice::main moved on to ${head:0:8}, which has no run of this workflow; an older green run does not close for it"
+            exit 0
           fi
 
           # Open issues with the exact title opened by this workflow, oldest first.

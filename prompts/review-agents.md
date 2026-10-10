@@ -454,31 +454,32 @@ author_fingerprint() (   # identical in 2.1.1 and 3.0; prints one hash, or fails
   g=(git -c core.fsmonitor=false -c core.hooksPath=/dev/null)
   common="$("${g[@]}" rev-parse --git-common-dir)" || exit 1
   case "$common" in /*) ;; *) common="$AUTHOR_WORKTREE/$common" ;; esac
-  files="$(mktemp)" || exit 1
-  trap 'rm -f "$files"' EXIT
   {
     "${g[@]}" rev-parse HEAD || exit 1
     # --ignored also lists ignored paths that appear (e.g. a stray build or install)
     "${g[@]}" status --porcelain --ignored || exit 1
+    # the index itself: object id, mode and stage of every entry (a re-staged edit, a chmod)
+    "${g[@]}" ls-files -s -z | tr '\0' '\n' || exit 1
+    # refs, including refs/stash (a new stash entry moves it)
     "${g[@]}" for-each-ref --format='%(refname) %(objectname)' || exit 1
-    "${g[@]}" stash list || exit 1
     "${g[@]}" worktree list --porcelain || exit 1
     "${g[@]}" config --local --list || exit 1
-    # index flags (skip-worktree / assume-unchanged hide an edit from status)
-    "${g[@]}" ls-files -v -z | tr '\0' '\n' | { grep -aE '^[a-zS] ' || true; } || exit 1
-    # Contents of modified, untracked and flagged files: an edit to an already-dirty or flagged
-    # file leaves the status line unchanged. Symlinks count by target; only regular files are
-    # read, hashed in one batch; a file that cannot be read is recorded by its error line.
-    { "${g[@]}" ls-files -m -o --exclude-standard -z || exit 1
-      "${g[@]}" ls-files -v -z | while IFS= read -r -d '' l; do
-        case "${l:0:1}" in [a-z]|S) printf '%s\0' "${l:2}" ;; esac
-      done || exit 1
-    } | sort -zu | while IFS= read -r -d '' f; do
+    # Mode and contents of modified, untracked and index-flagged (skip-worktree /
+    # assume-unchanged) files: a flag, or an edit to an already-dirty or flagged file, leaves
+    # the status line unchanged. Symlinks count by target; only regular
+    # files are read, hashed in one batch (no temp file: TMPDIR may be inside this repository);
+    # a file that cannot be read is recorded by its error line.
+    "${g[@]}" ls-files -m -o --exclude-standard -z >/dev/null || exit 1   # fail loudly, not empty
+    regular=()
+    while IFS= read -r -d '' f; do
       if [ -L "$f" ]; then printf 'link %s -> %s\n' "$f" "$(readlink -- "$f")"
-      elif [ -f "$f" ]; then printf '%s\0' "$f" >> "$files"
+      elif [ -f "$f" ]; then printf 'mode %s %s\n' "$(stat -c %a -- "$f")" "$f"; regular+=("$f")
       else printf 'other %s\n' "$f"; fi
-    done || exit 1
-    xargs -0 -r sha256sum -- < "$files" 2>&1
+    done < <({ "${g[@]}" ls-files -m -o --exclude-standard -z
+               "${g[@]}" ls-files -v -z | while IFS= read -r -d '' l; do
+                 case "${l:0:1}" in [a-z]|S) printf '%s\0' "${l:2}" ;; esac
+               done; } | sort -zu)
+    if (( ${#regular[@]} )); then printf '%s\0' "${regular[@]}" | xargs -0 sha256sum -- 2>&1; fi
     for f in "$common/info/exclude" "$common/info/attributes" "$common/packed-refs"; do
       if [ -f "$f" ]; then sha256sum -- "$f"; fi
     done
@@ -500,9 +501,10 @@ case "$REVIEW_CLONE/" in
 esac
 
 # A real clone with no remote, detached at the PR head (fetched when the author is elsewhere)
+abort_clean() { rm -rf -- "$REVIEW_CLONE"; abort "$@"; }
 git clone --quiet --no-local --no-hardlinks "$AUTHOR_WORKTREE" "$REVIEW_CLONE/repo" \
   && git -C "$REVIEW_CLONE/repo" remote remove origin \
-  || abort "could not create the review clone"
+  || abort_clean "could not create the review clone"
 if ! git -C "$REVIEW_CLONE/repo" cat-file -e "$REVIEWED_HEAD_SHA^{commit}" 2>/dev/null; then
   fetched=""
   for remote in $(git -C "$AUTHOR_WORKTREE" remote); do   # origin, upstream (fork), ...
@@ -512,11 +514,11 @@ if ! git -C "$REVIEW_CLONE/repo" cat-file -e "$REVIEWED_HEAD_SHA^{commit}" 2>/de
       fetched=1; break
     fi
   done
-  [ -n "$fetched" ] || abort "the PR head $REVIEWED_HEAD_SHA is not in the author's repository and no remote serves pull/$PR_NUMBER/head"
+  [ -n "$fetched" ] || abort_clean "the PR head $REVIEWED_HEAD_SHA is not in the author's repository and no remote serves pull/$PR_NUMBER/head"
 fi
 git -C "$REVIEW_CLONE/repo" checkout --quiet --detach "$REVIEWED_HEAD_SHA" \
   && [ "$(git -C "$REVIEW_CLONE/repo" rev-parse HEAD)" = "$REVIEWED_HEAD_SHA" ] \
-  || abort "the review clone is not at $REVIEWED_HEAD_SHA"
+  || abort_clean "the review clone is not at $REVIEWED_HEAD_SHA"
 
 echo "AUTHOR_WORKTREE=$AUTHOR_WORKTREE"
 echo "REVIEW_CLONE=$REVIEW_CLONE"
@@ -909,31 +911,32 @@ author_fingerprint() (   # identical in 2.1.1 and 3.0; prints one hash, or fails
   g=(git -c core.fsmonitor=false -c core.hooksPath=/dev/null)
   common="$("${g[@]}" rev-parse --git-common-dir)" || exit 1
   case "$common" in /*) ;; *) common="$AUTHOR_WORKTREE/$common" ;; esac
-  files="$(mktemp)" || exit 1
-  trap 'rm -f "$files"' EXIT
   {
     "${g[@]}" rev-parse HEAD || exit 1
     # --ignored also lists ignored paths that appear (e.g. a stray build or install)
     "${g[@]}" status --porcelain --ignored || exit 1
+    # the index itself: object id, mode and stage of every entry (a re-staged edit, a chmod)
+    "${g[@]}" ls-files -s -z | tr '\0' '\n' || exit 1
+    # refs, including refs/stash (a new stash entry moves it)
     "${g[@]}" for-each-ref --format='%(refname) %(objectname)' || exit 1
-    "${g[@]}" stash list || exit 1
     "${g[@]}" worktree list --porcelain || exit 1
     "${g[@]}" config --local --list || exit 1
-    # index flags (skip-worktree / assume-unchanged hide an edit from status)
-    "${g[@]}" ls-files -v -z | tr '\0' '\n' | { grep -aE '^[a-zS] ' || true; } || exit 1
-    # Contents of modified, untracked and flagged files: an edit to an already-dirty or flagged
-    # file leaves the status line unchanged. Symlinks count by target; only regular files are
-    # read, hashed in one batch; a file that cannot be read is recorded by its error line.
-    { "${g[@]}" ls-files -m -o --exclude-standard -z || exit 1
-      "${g[@]}" ls-files -v -z | while IFS= read -r -d '' l; do
-        case "${l:0:1}" in [a-z]|S) printf '%s\0' "${l:2}" ;; esac
-      done || exit 1
-    } | sort -zu | while IFS= read -r -d '' f; do
+    # Mode and contents of modified, untracked and index-flagged (skip-worktree /
+    # assume-unchanged) files: a flag, or an edit to an already-dirty or flagged file, leaves
+    # the status line unchanged. Symlinks count by target; only regular
+    # files are read, hashed in one batch (no temp file: TMPDIR may be inside this repository);
+    # a file that cannot be read is recorded by its error line.
+    "${g[@]}" ls-files -m -o --exclude-standard -z >/dev/null || exit 1   # fail loudly, not empty
+    regular=()
+    while IFS= read -r -d '' f; do
       if [ -L "$f" ]; then printf 'link %s -> %s\n' "$f" "$(readlink -- "$f")"
-      elif [ -f "$f" ]; then printf '%s\0' "$f" >> "$files"
+      elif [ -f "$f" ]; then printf 'mode %s %s\n' "$(stat -c %a -- "$f")" "$f"; regular+=("$f")
       else printf 'other %s\n' "$f"; fi
-    done || exit 1
-    xargs -0 -r sha256sum -- < "$files" 2>&1
+    done < <({ "${g[@]}" ls-files -m -o --exclude-standard -z
+               "${g[@]}" ls-files -v -z | while IFS= read -r -d '' l; do
+                 case "${l:0:1}" in [a-z]|S) printf '%s\0' "${l:2}" ;; esac
+               done; } | sort -zu)
+    if (( ${#regular[@]} )); then printf '%s\0' "${regular[@]}" | xargs -0 sha256sum -- 2>&1; fi
     for f in "$common/info/exclude" "$common/info/attributes" "$common/packed-refs"; do
       if [ -f "$f" ]; then sha256sum -- "$f"; fi
     done
@@ -949,13 +952,15 @@ AUTHOR_HEAD_AFTER="$(git -C "$AUTHOR_WORKTREE" rev-parse HEAD)" || abort "author
   || abort "author worktree HEAD changed during review ($AUTHOR_HEAD → $AUTHOR_HEAD_AFTER)"
 now="$(author_fingerprint)" && [ -n "$now" ] || abort "cannot fingerprint the author's repository"
 [ "$now" = "$AUTHOR_FINGERPRINT" ] \
-  || abort "the author's repository (files, index flags, ignored paths, refs, stash, worktrees, local config, info/ or hooks) changed during review"
+  || abort "the author's repository (files, index, flags, ignored paths, refs, stash, worktrees, local config, info/ or hooks) changed during review"
 
 # Clean up: the clone is a plain directory, nothing to unregister
 rm -rf -- "$rc"
 ```
 
-If the check fails, abort the review and report: an agent escaped the clone. Leave the
+If the check fails, abort the review and report it. Usually an agent escaped the clone, but
+another session working in the same repository (a commit, fetch or branch cleanup in another
+worktree) also changes refs and worktrees: check that before blaming a reviewer. Leave the
 clone in place for the investigation; `git -C "$AUTHOR_WORKTREE" status` and
 `git -C "$AUTHOR_WORKTREE" for-each-ref` show what changed.
 
