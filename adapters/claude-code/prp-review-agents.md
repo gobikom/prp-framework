@@ -509,8 +509,10 @@ author_fingerprint() (   # identical in 2.1.1 and 3.0; prints one hash, or fails
     true
   )
   {
-    # refs, including refs/stash (a new stash entry moves it)
+    # refs, including refs/stash (a new stash entry moves it), and the stash reflog itself (dropping
+    # an older entry or expiring the reflog loses stashed work without moving refs/stash)
     "${g[@]}" for-each-ref --format='%(refname) %(objectname)' || exit 1
+    if [ -f "$common/logs/refs/stash" ]; then "${H[@]}" "$common/logs/refs/stash" 2>&1; else printf 'no stash log\n'; fi
     wts="$("${g[@]}" worktree list --porcelain)" || exit 1
     printf '%s\n' "$wts"
     # every worktree of the repository, not only this one: an agent in the wrong checkout
@@ -1054,8 +1056,10 @@ author_fingerprint() (   # identical in 2.1.1 and 3.0; prints one hash, or fails
     true
   )
   {
-    # refs, including refs/stash (a new stash entry moves it)
+    # refs, including refs/stash (a new stash entry moves it), and the stash reflog itself (dropping
+    # an older entry or expiring the reflog loses stashed work without moving refs/stash)
     "${g[@]}" for-each-ref --format='%(refname) %(objectname)' || exit 1
+    if [ -f "$common/logs/refs/stash" ]; then "${H[@]}" "$common/logs/refs/stash" 2>&1; else printf 'no stash log\n'; fi
     wts="$("${g[@]}" worktree list --porcelain)" || exit 1
     printf '%s\n' "$wts"
     # every worktree of the repository, not only this one: an agent in the wrong checkout

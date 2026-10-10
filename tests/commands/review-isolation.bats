@@ -659,3 +659,13 @@ sibling_case() {   # $1 = worktree the review runs from, $2 = worktree the agent
     run run_30 "$out"
     [ "$status" -eq 1 ]
 }
+
+@test "dropping an older stash entry is seen" {
+    printf 'one\n' >> "$W/author/keep" && git -C "$W/author" stash -q
+    printf 'two\n' >> "$W/author/keep" && git -C "$W/author" stash -q
+    out="$(run_211)"
+    git -C "$W/author" stash drop -q 'stash@{1}'
+    run run_30 "$out"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"changed during review"* ]]
+}
