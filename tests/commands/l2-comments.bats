@@ -33,9 +33,20 @@ fi
 exit 2
 EOF
   chmod +x bin/gh
-  export PATH="$WORK/bin:$PATH" WORK_LOG="$WORK/posted.log" FAKE_HEAD="$HEAD_SHA"
+  # pr-risk-tier stub (agent-devops#1259): prints $FAKE_TIER (default standard); TIER_FAIL=1 prints
+  # "trivial" but exits 1; a set PR_RISK_TIER_GH makes it print standard (callers must scrub it).
+  cat > bin/pr-risk-tier <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$WORK/tier.calls"
+[ -n "${PR_RISK_TIER_GH:-}" ] && { echo standard; exit 0; }
+[ -n "${TIER_FAIL:-}" ] && { echo trivial; exit 1; }
+echo "${FAKE_TIER:-standard}"
+EOF
+  chmod +x bin/pr-risk-tier
+  export PATH="$WORK/bin:$PATH" WORK_LOG="$WORK/posted.log" FAKE_HEAD="$HEAD_SHA" WORK
   : > "$WORK_LOG"
   printf '%s\n' "$HEAD_SHA" > .prp-output/reviews/pr-7-reviewed-head   # what Phase 2.0 saves
+  printf 'standard\n' > .prp-output/reviews/pr-7-tier                    # what 2.0b saves (default)
   step A > stepA.sh; step C > stepC.sh
   [ -s stepA.sh ] && [ -s stepC.sh ]
 }
@@ -44,9 +55,10 @@ teardown() { rm -rf "$WORK"; }
 
 # Step B: write a well-formed body for one pass from the saved run values
 body() {
-  local pass="$1"; . .prp-output/reviews/pr-7-l2-run.env   # the test reads its own fixture file
-  printf 'Reviewed head: %s\nPasses run: %s\n\n### Critical Issues (0 found)\nNone.\n\n### Important Issues (0 found)\nNone.\n\n### Suggestions (0 found)\nNone.\n\n### Could not verify\nNothing.\n\nGenerated-by: prp-review-agents v%s run=%s pass=%s\n' \
-    "$REVIEWED_HEAD_SHA" "$pass" "$PRP_VERSION" "$RUN_ID" "$pass" > ".prp-output/reviews/pr-7-l2-$pass.md"
+  local pass="$1" sfx=""; . .prp-output/reviews/pr-7-l2-run.env   # the test reads its own fixture file
+  [ "${TIER:-}" = trivial ] && sfx=" tier=trivial"
+  printf 'Reviewed head: %s\nPasses run: %s\n\n### Critical Issues (0 found)\nNone.\n\n### Important Issues (0 found)\nNone.\n\n### Suggestions (0 found)\nNone.\n\n### Could not verify\nNothing.\n\nGenerated-by: prp-review-agents v%s run=%s pass=%s%s\n' \
+    "$REVIEWED_HEAD_SHA" "$pass" "$PRP_VERSION" "$RUN_ID" "$pass" "$sfx" > ".prp-output/reviews/pr-7-l2-$pass.md"
 }
 
 start() { run env -u REVIEWED_HEAD_SHA -u L2_COMMENTS bash stepA.sh; }   # a fresh shell: nothing inherited
@@ -305,4 +317,78 @@ clone211() { awk 'index($0, "### 2.1.1 ") == 1 {f=1} f && /^```bash$/ {b=1; next
 
 @test "--l2-comments implies no artifact commit (documented flag mapping)" {
   grep -q -- '`--l2-comments` → `L2_COMMENTS=1` and `NO_COMMIT=1`' "$ADAPTER"
+}
+
+# ---- risk tier (agent-devops#1259) ---------------------------------------------------------------
+phase20b() { awk 'index($0, "### 2.0b Risk Tier") == 1 {f=1} f && /^```bash$/ {b=1; next} b && /^```$/ {exit} b' "$ADAPTER" | sed 's/{NUMBER}/7/g'; }
+trivial_run() { printf 'trivial\n' > .prp-output/reviews/pr-7-tier; export FAKE_TIER=trivial; start; }
+
+@test "2.0b saves trivial only when pr-risk-tier prints trivial at the reviewed head" {
+  phase20b > p20b.sh; rm -f .prp-output/reviews/pr-7-tier
+  FAKE_TIER=trivial run bash p20b.sh
+  [ "$status" -eq 0 ]; [ "$(cat .prp-output/reviews/pr-7-tier)" = trivial ]
+  grep -qx -- "--head $HEAD_SHA 7" "$WORK/tier.calls"
+}
+
+@test "2.0b saves standard on standard, an error, a missing tool, or an inherited PR_RISK_TIER_GH" {
+  phase20b > p20b.sh
+  FAKE_TIER=standard run bash p20b.sh; [ "$(cat .prp-output/reviews/pr-7-tier)" = standard ]
+  TIER_FAIL=1 run bash p20b.sh; [ "$(cat .prp-output/reviews/pr-7-tier)" = standard ]
+  FAKE_TIER=trivial PR_RISK_TIER_GH=/evil/gh run bash p20b.sh; [ "$(cat .prp-output/reviews/pr-7-tier)" = trivial ]   # scrubbed: the stub saw no override
+  rm bin/pr-risk-tier   # and no real one either: a PATH with only the stubs and the system dirs
+  FAKE_TIER=trivial PATH="$WORK/bin:/usr/bin:/bin" run bash p20b.sh; [ "$status" -eq 0 ]; [ "$(cat .prp-output/reviews/pr-7-tier)" = standard ]
+}
+
+@test "2.0b comes after Phase 2.0 and before the agents start (2.1.1)" {
+  a=$(grep -n '^### 2.0 Capture' "$ADAPTER" | cut -d: -f1); b=$(grep -n '^### 2.0b Risk Tier' "$ADAPTER" | cut -d: -f1)
+  c=$(grep -n '^### 2.1.1 ' "$ADAPTER" | cut -d: -f1)
+  [ -n "$b" ] && [ "$a" -lt "$b" ] && [ "$b" -lt "$c" ]
+}
+
+@test "Step A records the tier; no saved tier means no run" {
+  trivial_run; [ "$status" -eq 0 ]; grep -qx 'TIER=trivial' .prp-output/reviews/pr-7-l2-run.env
+  rm .prp-output/reviews/pr-7-tier; start
+  [ "$status" -ne 0 ]; [[ "$output" == *"no tier saved by 2.0b"* ]]
+}
+
+@test "a trivial run posts exactly one code-reviewer comment with tier=trivial" {
+  trivial_run; body code-reviewer; post
+  [ "$status" -eq 0 ]
+  [ "$(wc -l < "$WORK_LOG")" -eq 1 ]
+  [ "$(tail -n1 .prp-output/reviews/pr-7-l2-code-reviewer.md | sed -E 's/.* (pass=.*)/\1/')" = "pass=code-reviewer tier=trivial" ]
+}
+
+@test "a trivial run whose classifier now says standard posts nothing" {
+  trivial_run; body code-reviewer
+  FAKE_TIER=standard post
+  [ "$status" -ne 0 ]; [[ "$output" == *"no longer says trivial"* ]]
+  [ "$(wc -l < "$WORK_LOG")" -eq 0 ]
+}
+
+@test "a trivial run with the classifier failing or missing posts nothing" {
+  trivial_run; body code-reviewer
+  TIER_FAIL=1 post; [ "$status" -ne 0 ]; [ "$(wc -l < "$WORK_LOG")" -eq 0 ]
+  rm bin/pr-risk-tier
+  PATH="$WORK/bin:/usr/bin:/bin" post; [ "$status" -ne 0 ]; [ "$(wc -l < "$WORK_LOG")" -eq 0 ]
+}
+
+@test "a tier=trivial footer in a standard run is rejected" {
+  start; write_all
+  sed -i '$ s/$/ tier=trivial/' .prp-output/reviews/pr-7-l2-code-reviewer.md
+  post
+  [ "$status" -ne 0 ]; [[ "$output" == *"footer"* ]]; [ "$(wc -l < "$WORK_LOG")" -eq 0 ]
+}
+
+@test "a trivial run's footer without tier=trivial is rejected" {
+  trivial_run; body code-reviewer
+  sed -i '$ s/ tier=trivial$//' .prp-output/reviews/pr-7-l2-code-reviewer.md
+  post
+  [ "$status" -ne 0 ]; [ "$(wc -l < "$WORK_LOG")" -eq 0 ]
+}
+
+@test "a run file whose TIER is edited to something else posts nothing" {
+  start; write_all
+  sed -i 's/^TIER=standard$/TIER=lite/' .prp-output/reviews/pr-7-l2-run.env
+  post
+  [ "$status" -ne 0 ]; [[ "$output" == *"not a valid run file"* ]]
 }

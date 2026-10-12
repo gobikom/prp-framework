@@ -433,6 +433,26 @@ printf '%s\\n' "$REVIEWED_HEAD_SHA" > "$D/pr-{NUMBER}-reviewed-head" || { echo "
 echo "REVIEWED_HEAD_SHA=$REVIEWED_HEAD_SHA"
 ```
 
+### 2.0b Risk Tier (`--l2-comments` only, agent-devops#1259)
+
+Invariant: the review tier is computed by `pr-risk-tier` (gobikom/ops) from the diff at the reviewed head, never chosen by the reviewer or the author. `trivial` is saved only when the tool prints exactly `trivial` and exits 0; anything else (the tool missing, an error, `standard`) is `standard`. A trivial PR changes nothing but bare version lines in version files and the one `PROJECT.md` Status line, so it gets **one pass (`code-reviewer`)**; every other PR keeps the three core passes. Step C re-runs the tool before posting, so a stale tier file cannot post a one-pass round.
+
+Run it in every `--l2-comments` run, right after 2.0 and before any agent starts. Without `--l2-comments` the tier is always `standard`: run nothing here.
+
+```bash
+D=.prp-output/reviews
+REVIEWED_HEAD_SHA=$(cat "$D/pr-{NUMBER}-reviewed-head" 2>/dev/null) || REVIEWED_HEAD_SHA=""
+printf '%s' "$REVIEWED_HEAD_SHA" | grep -qxE '[0-9a-f]{40}' || { echo "FATAL: run Phase 2.0 first — no agents started" >&2; exit 1; }
+TIER=standard
+if command -v pr-risk-tier >/dev/null 2>&1; then
+  T=$(env -u PR_RISK_TIER_GH pr-risk-tier --head "$REVIEWED_HEAD_SHA" {NUMBER} 2>"$D/pr-{NUMBER}-tier.err") && [ "$T" = trivial ] && TIER=trivial
+fi
+printf '%s\\n' "$TIER" > "$D/pr-{NUMBER}-tier" || { echo "FATAL: cannot save the tier — no agents started" >&2; exit 1; }
+echo "TIER=$TIER"
+```
+
+With `TIER=trivial`, 2.2 spawns only Agent 1 (`code-reviewer`), 2.3 spawns nothing, and the run posts one per-pass comment (see "Per-pass L2 comments").
+
 ### 2.1 Prepare Agent Context
 
 Before spawning agents, prepare the shared context information:
@@ -481,7 +501,7 @@ is written by Phase 1 and is the only file agents need from there).
 
 ### 2.2 Core Agents (Always — Spawn ALL in Parallel)
 
-Spawn these 3 agents simultaneously in a **SINGLE message with multiple Agent tool calls**:
+Spawn these 3 agents simultaneously in a **SINGLE message with multiple Agent tool calls** (when 2.0b saved `TIER=trivial`, spawn Agent 1 only, and no conditional agents):
 
 **Agent 1 — Code Quality**:
 ```
@@ -873,7 +893,7 @@ WARNING: {agent-type} agent failed/timed out. {aspect} review incomplete.
 Consider running /review {NUMBER} {aspect} for a single-session {aspect} review.
 ```
 
-**CRITICAL**: If any **core agent** (code-reviewer, security-reviewer, silent-failure-hunter) fails, the final verdict MUST be at minimum NEEDS FIXES with caveat: "Review incomplete — {agent-type} did not complete. Verdict may be optimistic." A READY TO MERGE verdict is never valid when a core agent is missing.
+**CRITICAL**: If any **core agent** (code-reviewer, security-reviewer, silent-failure-hunter) fails, the final verdict MUST be at minimum NEEDS FIXES with caveat: "Review incomplete — {agent-type} did not complete. Verdict may be optimistic." A READY TO MERGE verdict is never valid when a core agent is missing. (At `TIER=trivial` the one core agent is `code-reviewer`.)
 
 ---
 
@@ -1230,6 +1250,7 @@ With `--l2-comments`, this run's GitHub output is **three per-pass comments** in
 - **No artifact commit**: `NO_COMMIT=1` is set; skip the "Commit Review Artifact to PR Branch" step entirely (do not run its block). A committed artifact would be read as the review itself and makes the L2 recipe abort.
 - **No marker and no aggregated post**: skip "Emit safe-merge review marker" and "Post to GitHub" below (do not run their blocks). The `safe-merge-review` marker is written by the L2 verifier after it checks these three comments; a READY marker posted here would make the L2 recipe abort ("a READY marker for <head> is already on the PR"). The aggregated review is still saved locally (`.prp-output/reviews/pr-{NUMBER}-agents-review.md`, untracked).
 - **Core passes only**: one comment each for `code-reviewer`, `security-reviewer` and `silent-failure-hunter`, from that agent's own findings in this run (before cross-agent deduplication, so each comment stands alone). A core agent that failed or returned nothing usable is a FATAL for the run: post none of the three, and report it.
+- **Trivial tier** (2.0b saved `TIER=trivial`): exactly one comment, `code-reviewer`, whose footer ends in ` tier=trivial`. Step C re-runs `pr-risk-tier` at the reviewed head and posts nothing unless it still says `trivial`. safe-merge and merger recompute the tier themselves and never trust the footer (agent-devops#1259).
 - **With `--since-last-review`**: each comment describes the whole reviewed head, not only the new changes. A pass's counts include its still-open findings carried over by "Finding Merge" (an unresolved earlier Critical is still listed, and counted), and "Could not verify" names the incremental scope (`Incremental: files changed since <previous reviewed head>; earlier open findings carried over`).
 - **Trust model**: the footer is self-asserted text, like the marker. It makes a hand-run review stand out (it has no footer, or a footer that does not match a real run's three comments), and the L2 verifier and `safe-merge` refuse such a round once they check it (agent-devops#1243); it is not a signature.
 
@@ -1251,13 +1272,13 @@ Passes run: <code-reviewer|security-reviewer|silent-failure-hunter>
 ### Could not verify
 <what this pass could not check, or "Nothing.">
 
-Generated-by: prp-review-agents v<PRP_VERSION> run=<RUN_ID> pass=<pass name>
+Generated-by: prp-review-agents v<PRP_VERSION> run=<RUN_ID> pass=<pass name>[ tier=trivial]
 ```
 
 Rules the L2 verifier enforces (so do them exactly):
 - Line 1 is exactly `Reviewed head: ` + `$REVIEWED_HEAD_SHA` saved by Phase 2.0 (never re-queried); line 2 is exactly `Passes run: ` + the pass name. No other text on those lines, and neither line, nor a `Generated-by:` line, appears anywhere else in the body.
 - Exactly one each of `### Critical Issues (N found)`, `### Important Issues (N found)`, `### Suggestions (N found)` and `### Could not verify`, spelled exactly so; no `safe-merge-review` text anywhere in the body (any case).
-- The last line is the `Generated-by:` footer. `RUN_ID` is the same for all three comments of a run and new for every run; `PRP_VERSION` is the installed framework's release version.
+- The last line is the `Generated-by:` footer. `RUN_ID` is the same for all three comments of a run and new for every run; `PRP_VERSION` is the installed framework's release version. ` tier=trivial` is appended only in a trivial run, whose one comment is `code-reviewer`.
 - Write each body with the Write tool (or a quoted heredoc), never through an unquoted shell string.
 - Post each comment once and never edit it (the verifier rejects an edited comment).
 
@@ -1277,11 +1298,13 @@ PRP_VERSION="${PRP_VERSION#v}"   # the latest release tag reachable from the ins
 printf '%s' "$PRP_VERSION" | grep -qE '^[0-9]+\\.[0-9]+\\.[0-9]+([.-][0-9A-Za-z.-]+)?$' || { echo "FATAL: release tag '$PRP_VERSION' is not a version" >&2; exit 1; }
 RAND=$(od -An -N4 -tx1 /dev/urandom | tr -d ' \\n') && [ ${#RAND} -eq 8 ] || { echo "FATAL: cannot draw a run id" >&2; exit 1; }
 RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)-$RAND"
-printf 'REVIEWED_HEAD_SHA=%s\\nPRP_VERSION=%s\\nRUN_ID=%s\\n' "$REVIEWED_HEAD_SHA" "$PRP_VERSION" "$RUN_ID" > "$D/pr-{NUMBER}-l2-run.env" || { echo "FATAL: cannot save the run file" >&2; exit 1; }
+TIER=$(cat "$D/pr-{NUMBER}-tier" 2>/dev/null) || TIER=""
+case "$TIER" in trivial|standard) ;; *) echo "FATAL: no tier saved by 2.0b ($D/pr-{NUMBER}-tier) — run 2.0b, then the agents" >&2; exit 1 ;; esac
+printf 'REVIEWED_HEAD_SHA=%s\\nPRP_VERSION=%s\\nRUN_ID=%s\\nTIER=%s\\n' "$REVIEWED_HEAD_SHA" "$PRP_VERSION" "$RUN_ID" "$TIER" > "$D/pr-{NUMBER}-l2-run.env" || { echo "FATAL: cannot save the run file" >&2; exit 1; }
 cat "$D/pr-{NUMBER}-l2-run.env"
 ```
 
-**Step B — write the three bodies** to `.prp-output/reviews/pr-{NUMBER}-l2-<pass>.md`, using the values Step A printed, in the format above (with `--since-last-review`, the previous reviewed head for the incremental note is the `Reviewed head:` of the last review round on the PR).
+**Step B — write the bodies** to `.prp-output/reviews/pr-{NUMBER}-l2-<pass>.md`, using the values Step A printed, in the format above: three at `TIER=standard`, only `code-reviewer` (footer ending ` tier=trivial`) at `TIER=trivial` (with `--since-last-review`, the previous reviewed head for the incremental note is the `Reviewed head:` of the last review round on the PR).
 
 **Step C — check all three, then post all three** (nothing is posted unless every body passes; the run file is consumed before the first post, so a replay cannot post a run twice):
 
@@ -1290,16 +1313,24 @@ D=.prp-output/reviews
 ENV_F="$D/pr-{NUMBER}-l2-run.env"
 [ -s "$ENV_F" ] || { echo "FATAL: $ENV_F missing — run Step A (a run file is used once; after a failed post, start a new run)" >&2; exit 1; }
 # parse, never execute: exactly three known keys with validated values
-REVIEWED_HEAD_SHA=$(sed -n 's/^REVIEWED_HEAD_SHA=//p' "$ENV_F"); PRP_VERSION=$(sed -n 's/^PRP_VERSION=//p' "$ENV_F"); RUN_ID=$(sed -n 's/^RUN_ID=//p' "$ENV_F")
-[ "$(wc -l < "$ENV_F")" -eq 3 ] \\
+REVIEWED_HEAD_SHA=$(sed -n 's/^REVIEWED_HEAD_SHA=//p' "$ENV_F"); PRP_VERSION=$(sed -n 's/^PRP_VERSION=//p' "$ENV_F"); RUN_ID=$(sed -n 's/^RUN_ID=//p' "$ENV_F"); TIER=$(sed -n 's/^TIER=//p' "$ENV_F")
+[ "$(wc -l < "$ENV_F")" -eq 4 ] \\
   && printf '%s' "$REVIEWED_HEAD_SHA" | grep -qxE '[0-9a-f]{40}' \\
   && printf '%s' "$PRP_VERSION" | grep -qxE '[0-9]+\\.[0-9]+\\.[0-9]+([.-][0-9A-Za-z.-]+)?' \\
   && printf '%s' "$RUN_ID" | grep -qxE '[0-9]{8}T[0-9]{6}Z-[0-9a-f]{8}' \\
+  && printf '%s' "$TIER" | grep -qxE 'trivial|standard' \\
   || { echo "FATAL: $ENV_F is not a valid run file" >&2; exit 1; }
 [ "$(cat "$D/pr-{NUMBER}-reviewed-head" 2>/dev/null)" = "$REVIEWED_HEAD_SHA" ] || { echo "FATAL: the run file is not from this review (reviewed head differs) — run Step A" >&2; exit 1; }
 NOW_HEAD=$(gh pr view {NUMBER} --json headRefOid -q .headRefOid) || { echo "FATAL: cannot read the PR head (gh failed) — nothing posted" >&2; exit 1; }
 [ "$NOW_HEAD" = "$REVIEWED_HEAD_SHA" ] || { echo "FATAL: PR head moved ($REVIEWED_HEAD_SHA -> $NOW_HEAD) — re-run the review, nothing posted" >&2; exit 1; }
-for PASS in code-reviewer security-reviewer silent-failure-hunter; do
+PASSES="code-reviewer security-reviewer silent-failure-hunter"; SUFFIX=""
+if [ "$TIER" = trivial ]; then
+  # the gate's own classifier, again, at the reviewed head: a stale or edited tier file posts nothing
+  T=$(env -u PR_RISK_TIER_GH pr-risk-tier --head "$REVIEWED_HEAD_SHA" {NUMBER}) && [ "$T" = trivial ] \\
+    || { echo "FATAL: pr-risk-tier no longer says trivial at $REVIEWED_HEAD_SHA — re-run the review from 2.0b (three passes), nothing posted" >&2; exit 1; }
+  PASSES="code-reviewer"; SUFFIX=" tier=trivial"
+fi
+for PASS in $PASSES; do
   F="$D/pr-{NUMBER}-l2-$PASS.md"
   [ -s "$F" ] || { echo "FATAL: $F missing — nothing posted" >&2; exit 1; }
   why=""
@@ -1311,12 +1342,12 @@ for PASS in code-reviewer security-reviewer silent-failure-hunter; do
   done
   [ "$(grep -ciE '^[[:space:]]*#+[[:space:]]*(critical|important)[[:space:]]+issues' "$F")" = 2 ] || why="$why extra severity heading"
   ! grep -qi 'safe-merge-review' "$F" || why="$why safe-merge-review text"
-  [ "$(tail -n1 "$F")" = "Generated-by: prp-review-agents v$PRP_VERSION run=$RUN_ID pass=$PASS" ] || why="$why footer"
+  [ "$(tail -n1 "$F")" = "Generated-by: prp-review-agents v$PRP_VERSION run=$RUN_ID pass=$PASS$SUFFIX" ] || why="$why footer"
   [ -z "$why" ] || { echo "FATAL: $F is not in the L2 format ($why) — nothing posted" >&2; exit 1; }
 done
 mv "$ENV_F" "$ENV_F.used" || { echo "FATAL: cannot consume the run file — nothing posted" >&2; exit 1; }
 POSTED=""
-for PASS in code-reviewer security-reviewer silent-failure-hunter; do
+for PASS in $PASSES; do
   URL=$(gh pr comment {NUMBER} --body-file "$D/pr-{NUMBER}-l2-$PASS.md") \\
     || { echo "FATAL: posting the $PASS comment failed — run $RUN_ID is abandoned (already posted: ${POSTED:-none}); post one plain comment saying so and start a new run (Step A)" >&2; exit 1; }
   POSTED="$POSTED $URL"
@@ -1324,7 +1355,7 @@ for PASS in code-reviewer security-reviewer silent-failure-hunter; do
 done
 ```
 
-Report the three URLs (they are what the L2 report links, one per pass). If a post fails after an earlier one succeeded, the round is incomplete: say so on the PR (one plain comment naming the abandoned `RUN_ID`) and re-run the review with a new `RUN_ID`, since the verifier requires one run id across all three.
+Report the posted URLs (they are what the L2 report links, one per pass: three, or one at the trivial tier). If a post fails after an earlier one succeeded, the round is incomplete: say so on the PR (one plain comment naming the abandoned `RUN_ID`) and re-run the review with a new `RUN_ID`, since the verifier requires one run id across all three.
 
 ### Post to GitHub
 
