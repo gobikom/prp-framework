@@ -27,6 +27,13 @@ jobs:
     name: bats tests
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    # Some suites (tests/commands/l2-comments.bats) commit in throwaway repos; a hosted
+    # runner has no git identity, so give the job one (environment only, no global config).
+    env:
+      GIT_AUTHOR_NAME: prp-ci
+      GIT_AUTHOR_EMAIL: prp-ci@users.noreply.github.com
+      GIT_COMMITTER_NAME: prp-ci
+      GIT_COMMITTER_EMAIL: prp-ci@users.noreply.github.com
     defaults:
       run:
         shell: bash  # bash --noprofile --norc -eo pipefail
