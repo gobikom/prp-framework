@@ -403,7 +403,9 @@ PROMPTS_DIR="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)/prompts"
 # ─────────────────────────────────────────────
 
 @test "run-all.md documents state file path" {
-    grep -q "prp-run-all.state.md" "$PROMPTS_DIR/run-all.md"
+    # The path scripts/prp-run-all-state.sh uses (moved from .claude/ in b197962).
+    grep -qF ".prp-output/state/run-all.state.md" "$PROMPTS_DIR/run-all.md"
+    grep -qF 'STATE_FILE=".prp-output/state/run-all.state.md"' "$PROMPTS_DIR/../scripts/prp-run-all-state.sh"
 }
 
 @test "run-all.md documents lock file mechanism" {

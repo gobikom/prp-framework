@@ -1,0 +1,500 @@
+# prp-framework CI — a real CI ground for gobikom/prp-framework (นุด, 2026-10-09, zero-touch: a repo
+# with CI lets merger approve on evidence instead of an operator turn). Runs the repo's own
+# test suite on a GitHub-hosted runner (this repo is public, so the minutes are free). A FIRST
+# workflow on the self-hosted runner is merger own-definition and can show no CI that predates
+# it (soul-orchestra#1292, closed); moving to goko-runner-prp-framework later is a separate PR
+# that adds a self-hosted workflow beside this one while this one stays live. The tests get no
+# secrets; a red main/dispatch run opens or updates a `ci-red` issue with the run's own token.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# PR runs share one group per PR, so a new push cancels that PR's older run; each push to
+# main keeps its own group (its SHA), so every main SHA keeps its own CI result.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  tests:
+    name: bats tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash  # bash --noprofile --norc -eo pipefail
+    steps:
+      - name: Checkout
+        timeout-minutes: 3
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+        with:
+          persist-credentials: false
+
+      # bats-core at an exact version (the one the goko host runs), fetched by git at the commit
+      # its v1.13.0 tag points to and checked against that pinned commit SHA (stable, unlike a
+      # generated archive's checksum), and PyYAML (scripts/generate-adapters.py and the parity
+      # tests import it) from a hash-checked wheel (.github/ci-requirements.txt) in a venv whose
+      # bin/ goes first on PATH, so `python3` in the tests is that venv's.
+      - name: Install bats and PyYAML
+        timeout-minutes: 3
+        run: |
+          tools="$RUNNER_TEMP/tools"
+          mkdir -p "$tools"
+          bats_commit=3bca150ec86275d6d9d5a4fd7d48ab8b6c6f3d87  # bats-core tag v1.13.0
+          git init -q "$tools/bats-src"
+          git -C "$tools/bats-src" fetch -q --depth 1 https://github.com/bats-core/bats-core.git "$bats_commit"
+          git -C "$tools/bats-src" checkout -q --detach FETCH_HEAD
+          [[ "$(git -C "$tools/bats-src" rev-parse HEAD)" == "$bats_commit" ]] || { echo "::error::bats source is not commit $bats_commit"; exit 1; }
+          "$tools/bats-src/install.sh" "$tools/bats" >/dev/null
+          python3 -m venv "$tools/venv"
+          "$tools/venv/bin/pip" install --quiet --disable-pip-version-check \
+            --only-binary :all: --require-hashes -r .github/ci-requirements.txt
+          printf '%s\n' "$tools/bats/bin" "$tools/venv/bin" >> "$GITHUB_PATH"
+          [[ "$("$tools/bats/bin/bats" --version)" == "Bats 1.13.0" ]] || { echo "::error::bats 1.13.0 not installed"; exit 1; }
+          "$tools/venv/bin/python3" -c "import yaml" || { echo "::error::PyYAML not importable"; exit 1; }
+
+      # Every *.bats
+      # suite under tests/ runs. Green requires bats to exit 0 AND its JUnit report to count
+      # 0 failures, 0 errors and 0 skipped, with at least one test (the suites skip only where
+      # the runner cannot test, e.g. a permission test run as root, so a skip here is a change
+      # to look at, not noise), and to list every @test
+      # each *.bats file declares, by name (extra reported tests are fine); an @test in a
+      # file bats does not run is red too. Each test counts once, keyed by suite + name. The counts come from
+      # the report bats writes, never from parsing its console text.
+      - name: Run the bats suites
+        timeout-minutes: 15
+        run: |
+          command -v bats >/dev/null || { echo "::error::bats not found on the runner PATH"; exit 1; }
+          out="$RUNNER_TEMP/bats-report"
+          rm -rf "$out"; mkdir -p "$out"
+          rc=0
+          bats -r tests --report-formatter junit -o "$out" || rc=$?
+          verdict=0
+          counts=$(python3 -I - "$out/report.xml" tests <<'PY'
+          import pathlib, re, sys, xml.etree.ElementTree as ET
+          try:
+              root = ET.parse(sys.argv[1]).getroot()
+          except Exception as e:
+              print(f"JUnit report unreadable ({type(e).__name__})")
+              sys.exit(1)
+          suites = [root] if root.tag == "testsuite" else root.findall("testsuite")
+          n = {k: sum(int(s.get(k, 0)) for s in suites) for k in ("tests", "failures", "errors")}
+          # One outcome per test (suite + name), whatever number of <testcase> elements exist.
+          outcome = {}
+          for s in suites:
+              for tc in s.iter("testcase"):
+                  marks = outcome.setdefault((s.get("name"), tc.get("classname"), tc.get("name")), set())
+                  for c in tc:
+                      if c.tag in ("failure", "error"):
+                          marks.add("bad")
+                      elif c.tag == "skipped":
+                          marks.add("skip")
+          kinds = ["bad" if "bad" in m else "skip" if "skip" in m else "pass" for m in outcome.values()]
+          n["skipped"], passed = kinds.count("skip"), kinds.count("pass")
+          print(" ".join(f"{k}={v}" for k, v in n.items()) + f" passed={passed}")
+          # Every @test a suite declares must be in that suite's report, BY NAME: a .bats file
+          # that exits at top level, a test that is never registered, or a test file bats never
+          # picks up (not *.bats) would otherwise vanish. A declaration is an `@test <name> {`
+          # line, indented or not, as bats accepts it (one-line bodies included). Names are read as bats evaluates
+          # them (see split_name): exact names match exactly, and a name with runtime
+          # expansions matches as a pattern of its literal text, assigned by maximum bipartite
+          # matching (greedy first, then iterative augmenting paths; literal text is matched by
+          # a linear scan). A name with no literal text cannot be verified and is red. Extra
+          # reported tests (bats_test_function, loops) are fine. Docs (*.md) under tests/ are not
+          # scanned for stray declarations. Known red-not-green limits, none present today: an
+          # `@test ... {` line inside a heredoc counts as a declaration, and an unescaped `"`
+          # inside a double-quoted name ends it, so that declaration fails to match.
+          DECL = re.compile(r"""[ \t]*@test\s+(?:"((?:[^"\\]|\\.)*)"|'([^']*)'|(\S.*?))\s*\{""")
+          ESCAPABLE = set('\\$"`')
+
+
+          def _closing(raw, i, opener, closer):
+              """Index just past the delimiter matching raw[i] == opener, or len(raw)."""
+              depth = 0
+              while i < len(raw):
+                  c = raw[i]
+                  if c == "\\":
+                      i += 2
+                      continue
+                  if c == opener:
+                      depth += 1
+                  elif c == closer:
+                      depth -= 1
+                      if depth == 0:
+                          return i + 1
+                  i += 1
+              return len(raw)
+
+
+          def split_name(raw):
+              """Literal segments of a bats test name, with each runtime expansion as a gap.
+
+              bats evaluates every name as a double-quoted bash string, whatever quoting the
+              declaration used, so the same rules apply to all of them: a backslash escapes
+              \\ $ " ` and stays literal before anything else; $name, $<special>, ${..}, $(..)
+              and `..` are expansions, nested delimiters included.
+              """
+              lits, cur, i = [], [], 0
+              while i < len(raw):
+                  c = raw[i]
+                  if c == "\\" and i + 1 < len(raw):
+                      nxt = raw[i + 1]
+                      cur.append(nxt if nxt in ESCAPABLE else c + nxt)
+                      i += 2
+                      continue
+                  if c == "$" and i + 1 < len(raw):
+                      nxt = raw[i + 1]
+                      if nxt == "{":
+                          end = _closing(raw, i + 1, "{", "}")
+                      elif nxt == "(":
+                          end = _closing(raw, i + 1, "(", ")")
+                      elif nxt.isalpha() or nxt == "_":
+                          end = i + 1
+                          while end < len(raw) and (raw[end].isalnum() or raw[end] == "_"):
+                              end += 1
+                      elif nxt in "0123456789@*#?$!-":
+                          end = i + 2
+                      else:
+                          cur.append(c)
+                          i += 1
+                          continue
+                      lits.append("".join(cur))
+                      cur, i = [], end
+                      continue
+                  if c == "`":
+                      end = raw.find("`", i + 1)
+                      end = len(raw) if end == -1 else end + 1
+                      lits.append("".join(cur))
+                      cur, i = [], end
+                      continue
+                  cur.append(c)
+                  i += 1
+              lits.append("".join(cur))
+              return lits
+
+
+          def declared_name(m):
+              dq, sq, bare = m.groups()
+              raw = dq if dq is not None else sq if sq is not None else bare
+              # The JUnit reader normalises a tab inside an attribute value to a space, so compare the
+              # same way (a tab in a test name would otherwise always look missing).
+              return [lit.replace("\t", " ") for lit in split_name(raw)]
+
+
+          def match(declared, reported):
+              """Problems for declared names (lists of literal segments) not found in reported.
+
+              One literal segment is an exact name. More segments form a pattern whose gaps match
+              anything. A name with no literal text at all cannot be tied to one test and is a
+              problem by itself. Patterns are assigned to reported names by maximum bipartite
+              matching, so the outcome does not depend on order.
+              """
+              problems, pool = [], list(reported)
+              exact = [x[0] for x in declared if len(x) == 1]
+              patterns = [x for x in declared if len(x) > 1]
+              for name in exact:
+                  if name in pool:
+                      pool.remove(name)
+                  else:
+                      problems.append(f"declared test not in the report: {name!r}")
+              shapes = []
+              for lits in patterns:
+                  if not "".join(lits):
+                      problems.append("declared test name has no literal text, so it cannot be verified: "
+                                      + repr("<expansion>" * (len(lits) - 1)))
+                      continue
+                  shapes.append(lits)
+
+              def fits(lits, name):
+                  # Every gap matches anything, so a leftmost scan for each literal is exact (linear).
+                  first, *mid, last = lits
+                  if not name.startswith(first) or len(name) < len(first) + len(last):
+                      return False
+                  pos, end = len(first), len(name) - len(last)
+                  for lit in mid:
+                      pos = name.find(lit, pos, end)
+                      if pos < 0:
+                          return False
+                      pos += len(lit)
+                  return name.endswith(last)
+
+              edges = [[j for j, r in enumerate(pool) if fits(lits, r)] for lits in shapes]
+              owner = {}  # reported index -> pattern index
+              holds = {}  # pattern index -> reported index (the inverse of owner)
+              for p in range(len(shapes)):
+                  free = next((j for j in edges[p] if j not in owner), None)
+                  if free is not None:  # greedy first: most patterns take a free name directly
+                      owner[free], holds[p] = p, free
+                      continue
+                  # Iterative augmenting path (Kuhn's algorithm), so no recursion limit applies.
+                  parent, seen, stack, found = {}, set(), [(p, iter(edges[p]))], None
+                  while stack and found is None:
+                      q, it = stack[-1]
+                      for j in it:
+                          if j in seen:
+                              continue
+                          seen.add(j)
+                          parent[j] = q
+                          if j not in owner:
+                              found = j
+                          else:
+                              stack.append((owner[j], iter(edges[owner[j]])))
+                          break
+                      else:
+                          stack.pop()
+                  if found is None:
+                      problems.append("declared test not in the report: pattern "
+                                      + repr("<expansion>".join(shapes[p])))
+                      continue
+                  j = found
+                  while True:
+                      q = parent[j]
+                      prev = holds.get(q)
+                      owner[j], holds[q] = q, j
+                      if q == p:
+                          break
+                      j = prev
+              return problems
+
+
+          declared, problems = {}, []
+          for f in sorted(pathlib.Path(sys.argv[2]).rglob("*")):
+              if not f.is_file() or f.suffix == ".md":
+                  continue
+              names = [declared_name(m) for m in map(DECL.match, f.read_text(errors="replace").splitlines()) if m]
+              rel = f.relative_to(sys.argv[2]).as_posix()
+              if f.suffix == ".bats":
+                  declared[rel] = names
+              elif names:
+                  problems.append(f"{rel}: {len(names)} @test outside a .bats file")
+          reported = {s.get("name"): [tc.get("name") for tc in s.iter("testcase")] for s in suites}
+          for rel, names in declared.items():
+              problems += [f"{rel}: {x}" for x in match(names, reported.get(rel, []))]
+
+          for p in problems:
+              print(f"::error::{p}", file=sys.stderr)
+          ok = (passed > 0 and n["skipped"] == 0 and n["failures"] == n["errors"] == 0
+                and "bad" not in kinds and not problems)
+          sys.exit(0 if ok else 1)
+          PY
+          ) || verdict=$?
+          if [ "$rc" -ne 0 ] || [ "$verdict" -ne 0 ]; then
+            echo "::error::bats did not pass (exit=$rc, report: ${counts:-none})"
+            exit 1
+          fi
+          echo "bats passed (report: $counts)"
+
+  # The `CI red on main` issue tracks main's CURRENT head. Invariant: after any push or
+  # dispatch run of main, the open `CI red on main` issues opened by this workflow reflect the
+  # head's verdict — its most recently completed `bats tests` job (any attempt) among this workflow's push and
+  # dispatch runs for the head commit (every attempt of each): red (failed, or a push run's job
+  # that ended cancelled, i.e. timed out) -> exactly one is open and carries that job's link;
+  # green -> none is open. Every run re-derives this from the API, never from its own result or
+  # from event order, so a late run, a re-run, or a job that never ran cannot leave a wrong state
+  # behind: the next run repairs it. A cancelled dispatch, or a run cancelled before testing,
+  # is no verdict (someone is watching it). If the head has no verdict yet (a [skip ci] commit,
+  # a push made with a workflow token, or the API not yet showing this run's job), this run's
+  # own result stands in when it IS the head; otherwise a red run reports itself naming both
+  # commits and a green one never closes on the head's behalf. Runs of this job are
+  # serialised: two reconcilers at once could both find no issue and both open one; GitHub may
+  # drop a pending one when a newer one queues, which is safe because every run re-derives the
+  # state. This job holds the only write token (issues: write) and runs no repo code. If it
+  # cannot establish the state it fails, and the red job is the report.
+  # Known gap: a run that never starts reaches no job at all.
+  ci-red-issue:
+    name: reconcile the ci-red issue
+    needs: tests
+    if: always() && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    concurrency:
+      group: ci-red-issue-${{ github.ref }}
+      cancel-in-progress: false
+    permissions:
+      actions: read
+      contents: read
+      issues: write
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Reconcile with the head's latest run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RESULT: ${{ needs.tests.result }}
+        run: |
+          set -uo pipefail
+          title="CI red on main"
+          run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          fail() { echo "::error::$* ($run_url)" | tee -a "$GITHUB_STEP_SUMMARY"; exit 1; }
+          is_red() { [[ "$1" == failure || "$1" == timed_out || ( "$1" == cancelled && "$2" == push ) ]]; }
+
+          head="$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)" || fail "could not read the main head"
+          # The head's verdict is its most recently COMPLETED `bats tests` job across EVERY attempt
+          # of each push/dispatch run of this workflow for the head commit, whichever run this
+          # is: a re-run of tests completes later and counts as newer; an attempt with no verdict
+          # (re-run cancelled before testing, still running) falls back to the earlier attempts'
+          # results instead of hiding them; re-running only this job reuses an old tests job and
+          # cannot override a newer verdict. Only success, failure, timed_out and cancelled are
+          # verdicts; a cancelled dispatch, or a job cancelled before any step ran, is none. Runs
+          # still in progress are not waited for: each run reconciles again when it finishes.
+          verdicts=""; jobless=""; own_seen=""; own_prev=""; own_cur=""
+          add_run() {   # $1 run id, $2 event, $3 run status, $4 run conclusion
+            local jobs jstatus jconclusion jdone jlink jsteps jattempt rank
+            jobs="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$1/jobs?filter=all&per_page=100" \
+                --jq '.jobs[] | select(.name == "bats tests")
+                      | "\(.status) \(.conclusion // "none") \(.completed_at // "-") \(.html_url) \([.steps[]? | select(.conclusion != null and .conclusion != "skipped")] | length) \(.run_attempt // 1)"')" \
+              || fail "could not read the jobs of run $1 for the main head ${head:0:8}"
+            if [[ -z "$jobs" ]]; then
+              # no tests job: still starting, cancelled while queued, or a run that failed to
+              # start (startup_failure) or was renamed — no verdict, but never silently
+              if [[ "$3" == completed && "$4" != cancelled ]]; then
+                echo "::warning::run $1 for ${head:0:8} ended '$4' without a 'bats tests' job"
+                jobless+=" $1"
+              fi
+              return 0
+            fi
+            while read -r jstatus jconclusion jdone jlink jsteps jattempt; do
+              # this attempt has a tests job of its own (any status): it really re-ran the tests
+              [[ "$1" == "$GITHUB_RUN_ID" && "${jattempt:-1}" == "${GITHUB_RUN_ATTEMPT:-1}" ]] && own_cur=1
+              [[ "$jstatus" == completed ]] || continue
+              # a completed job always has completed_at; without it the job cannot be ordered
+              [[ "$jdone" != "-" ]] || fail "run $1's 'bats tests' job is completed but has no completed_at"
+              # seen = THIS attempt's tests job (an earlier attempt's is already visible on a re-run);
+              # own_prev = the latest completed tests job of this run in any attempt
+              if [[ "$1" == "$GITHUB_RUN_ID" ]]; then
+                [[ "${jattempt:-1}" == "${GITHUB_RUN_ATTEMPT:-1}" ]] && own_seen=1
+                [[ -z "$own_prev" || "$jdone" > "${own_prev%% *}" ]] && own_prev="$jdone $jconclusion"
+              fi
+              case "$jconclusion" in success|failure|timed_out|cancelled) ;; *)
+                echo "::notice::run $1's 'bats tests' job ended '$jconclusion': not a verdict"; continue ;;
+              esac
+              # cancelled: a push job that ran steps counts as red — most often a timeout; a push
+              # cancelled by hand after it started also reads red (errs loud; the next green
+              # clears it); a dispatch, or a job cancelled before any step ran (e.g. while
+              # queued), is no verdict
+              [[ "$jconclusion" == cancelled && ( "$2" != push || "${jsteps:-0}" == 0 ) ]] && continue
+              # sort key: completion time, then red before green on a tie
+              if is_red "$jconclusion" "$2"; then rank=1; else rank=0; fi
+              verdicts+="$jdone $rank $jconclusion $2 $jlink"$'\n'
+            done <<<"$jobs"
+            return 0
+          }
+          runs="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?branch=main&head_sha=$head&per_page=50" \
+              --jq '.workflow_runs[] | select(.event == "push" or .event == "workflow_dispatch")
+                    | "\(.id) \(.event) \(.status) \(.conclusion // "none")"')" \
+            || fail "could not list this workflow's runs for the main head ${head:0:8}"
+          while read -r rid revent rstatus rconclusion; do
+            [[ -n "$rid" ]] || continue
+            add_run "$rid" "$revent" "$rstatus" "$rconclusion"
+          done <<<"$runs"
+          # This run's own tests job finished before this job started, but the API may lag:
+          # wait up to a minute for it to show, so its real result (with its steps) is used.
+          if [[ "$head" == "$GITHUB_SHA" && -z "$own_seen" ]]; then
+            for _ in 1 2 3 4 5 6; do
+              sleep 10
+              add_run "$GITHUB_RUN_ID" "$GITHUB_EVENT_NAME" in_progress none
+              [[ -n "$own_seen" ]] && break
+            done
+          fi
+          # Still not visible: a red own result is a candidate stamped with when this job was
+          # created — right after this run's tests finished (measured on run 38016819271:
+          # tests completed 02:24:45, this job created 02:24:46) — so a red report for the head is never
+          # suppressed, and only a genuinely later verdict outranks it; a green one counts only
+          # when there is no other verdict
+          # (an unseen green never outranks a recorded red; the worst case is a stale red the
+          # next run clears); a cancelled push cannot be told from a cancel before testing, so
+          # it fails the job rather than pass silently.
+          # A re-run of only this job reuses the earlier attempt's tests job: when this attempt has
+          # no tests job of its own (in any status) and the earlier one has this run's result, that
+          # recorded job IS this run's verdict and nothing stands in for it. A full re-run whose
+          # tests job the API does not show yet looks the same, so a RED result never takes this
+          # shortcut (it falls through to the red stand-in: at worst a stale red); a reused
+          # cancelled job does, so a reconcile-only re-run does not fail on every attempt.
+          if [[ "$head" == "$GITHUB_SHA" && -z "$own_seen" && -z "$own_cur" && -n "$own_prev" && "${own_prev#* }" == "$RESULT" ]] \
+             && { ! is_red "$RESULT" "$GITHUB_EVENT_NAME" || [[ "$RESULT" == cancelled ]]; }; then
+            own_seen=1
+          fi
+          if [[ "$head" == "$GITHUB_SHA" && -z "$own_seen" ]]; then
+            if [[ "$RESULT" == cancelled && "$GITHUB_EVENT_NAME" == push ]]; then
+              fail "this push run's tests ended cancelled and its job is not visible in the API: timeout or cancel? re-run this job"
+            elif is_red "$RESULT" "$GITHUB_EVENT_NAME"; then
+              queued="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs?filter=latest&per_page=100" \
+                  --jq '[.jobs[] | select(.name == "reconcile the ci-red issue")][0].created_at // empty')" \
+                || fail "could not read this run's jobs"
+              verdicts+="${queued:-$(date -u +%Y-%m-%dT%H:%M:%SZ)} 1 $RESULT $GITHUB_EVENT_NAME $run_url"$'\n'
+            elif [[ "$RESULT" == success && -z "$verdicts" ]]; then
+              verdicts+="$(date -u +%Y-%m-%dT%H:%M:%SZ) 0 $RESULT $GITHUB_EVENT_NAME $run_url"$'\n'
+            fi
+          fi
+          newest="$(printf '%s' "$verdicts" | LC_ALL=C sort -r | head -n 1)"
+          if [[ -n "$newest" ]]; then
+            read -r _ _ state event link <<<"$newest"
+            at="$head"
+          elif [[ -n "$jobless" ]]; then
+            fail "the main head ${head:0:8} has no verdict, and run(s)$jobless ended without a 'bats tests' job (renamed? failed to start?)"
+          elif [[ "$head" == "$GITHUB_SHA" ]]; then
+            echo "::notice::no verdict for ${head:0:8} yet (tests cancelled or not visible); nothing to reconcile"
+            exit 0
+          else
+            # This run is stale and the head has no verdict: report this run's own red, naming
+            # both commits. A cancelled push is red only if its tests job ran steps (a timeout).
+            own_red=""
+            if [[ "$RESULT" == cancelled && "$GITHUB_EVENT_NAME" == push ]]; then
+              own_job="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs?filter=latest&per_page=100" \
+                  --jq '[.jobs[] | select(.name == "bats tests")][0] // empty
+                        | "\(.status) \(.conclusion // "none") \(.completed_at // "-") \(.html_url) \([.steps[]? | select(.conclusion != null and .conclusion != "skipped")] | length) \(.run_attempt // 1)"')" \
+                || fail "could not read this run's jobs"
+              read -r ostatus _ _ _ osteps _ <<<"$own_job"
+              [[ "${ostatus:-}" == completed ]] \
+                || fail "this push run's tests ended cancelled and its job is not visible in the API: timeout or cancel? re-run this job"
+              [[ "${osteps:-0}" != 0 ]] && own_red=1
+            elif is_red "$RESULT" "$GITHUB_EVENT_NAME"; then
+              own_red=1
+            fi
+            if [[ -z "$own_red" ]]; then
+              echo "::notice::main is at ${head:0:8}, which has no verdict of this workflow yet; this run is not red, so nothing to reconcile"
+              exit 0
+            fi
+            state="$RESULT"; event="$GITHUB_EVENT_NAME"; at="$GITHUB_SHA"
+            link="$run_url (main has since moved to ${head:0:8}, which has no verdict of this workflow yet)"
+          fi
+
+          # Open issues with the exact title opened by this workflow, oldest first.
+          open="$(gh issue list --state open --author app/github-actions --limit 200 --json number,title \
+              --jq "[.[] | select(.title == \"$title\") | .number] | sort | .[]")" \
+            || fail "could not list the open ci-red issues"
+          read -r -a issues <<<"$(echo $open)"
+
+          if is_red "$state" "$event"; then
+            body="CI $state on $event, main @ ${at:0:8}: $link"
+            echo "$body" >> "$GITHUB_STEP_SUMMARY"
+            if (( ${#issues[@]} == 0 )); then
+              gh label create ci-red --color B60205 --description "CI red on main" >/dev/null 2>&1 \
+                || gh label list --search ci-red --json name --jq '.[].name' | grep -qx ci-red \
+                || echo "::warning::could not create the ci-red label; opening the issue without it"
+              gh issue create --label ci-red --title "$title" --body "$body" \
+                || gh issue create --title "$title" --body "$body" \
+                || fail "could not open a ci-red issue"
+            else
+              gh issue comment "${issues[0]}" --body "$body" || fail "could not comment on ci-red issue #${issues[0]}"
+              for n in "${issues[@]:1}"; do
+                gh issue close "$n" --comment "Duplicate of #${issues[0]}." || fail "could not close duplicate ci-red issue #$n"
+              done
+            fi
+          elif [[ "$state" == success ]]; then
+            for n in "${issues[@]}"; do
+              gh issue close "$n" --comment "Green on $event, main @ ${at:0:8}: $link${jobless:+ (run(s)$jobless for this commit ended without a 'bats tests' job)}" || fail "could not close ci-red issue #$n"
+            done
+            echo "main @ ${at:0:8} is green; closed ${#issues[@]} ci-red issue(s)"
+          else
+            echo "::notice::the latest run for ${at:0:8} ended '$state' on $event, which is neither red nor green; issue left as is"
+          fi
