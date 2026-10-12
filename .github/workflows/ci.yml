@@ -318,7 +318,12 @@ jobs:
   ci-red-issue:
     name: reconcile the ci-red issue
     needs: tests
-    if: always() && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    # Runs on EVERY run and exits 0 at once unless this is a main push/dispatch (first lines of
+    # the script). A job-level `if:` would leave a `skipped` check-run on every PR head, and
+    # merger counts skipped as not green (merger-policy.yaml, NOTHING RED AT THE HEAD). On a
+    # fork PR the token is read-only whatever this job asks for; a same-repo PR author already
+    # controls this file; the job checks out and runs no repo code.
+    if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 3
     concurrency:
@@ -339,6 +344,10 @@ jobs:
           RESULT: ${{ needs.tests.result }}
         run: |
           set -uo pipefail
+          if [[ "$GITHUB_EVENT_NAME" == pull_request || "$GITHUB_REF" != refs/heads/main ]]; then
+            echo "::notice::$GITHUB_EVENT_NAME on $GITHUB_REF: the ci-red issue tracks main only; nothing to reconcile"
+            exit 0
+          fi
           title="CI red on main"
           run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
           fail() { echo "::error::$* ($run_url)" | tee -a "$GITHUB_STEP_SUMMARY"; exit 1; }
