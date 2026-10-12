@@ -1,0 +1,4 @@
+# Python packages for CI (.github/workflows/ci.yml): PyYAML for scripts/generate-adapters.py and the
+# adapter parity tests, the version the goko host runs; hash of the cp312 manylinux x86_64 wheel
+# (ubuntu-24.04's python3), checked by pip --require-hashes.
+PyYAML==6.0.1 --hash=sha256:6c22bec3fbe2524cde73d7ada88f6566758a8f7227bfbf93a408a9d86bcc12a0
