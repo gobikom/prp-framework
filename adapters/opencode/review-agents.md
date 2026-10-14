@@ -484,19 +484,25 @@ Run in every review (L2 and aggregated mode). A missing ledger file means 0 reco
 ```bash
 D=.prp-output/reviews
 ROUNDS_FILE="$D/pr-{NUMBER}-review-rounds"
-if [ -f "$ROUNDS_FILE" ]; then
+if [ -e "$ROUNDS_FILE" ] || [ -L "$ROUNDS_FILE" ]; then
+  [ -f "$ROUNDS_FILE" ] \
+    || { echo "FATAL: $ROUNDS_FILE exists but is not a regular file — refusing to start a round; fix the path by hand" >&2; exit 1; }
   ROUNDS=$(sed -n 's/^round=//p' "$ROUNDS_FILE" | tail -n1)
-  [ "$(wc -l < "$ROUNDS_FILE")" -eq 1 ] && printf '%s' "$ROUNDS" | grep -qxE '[0-9]+' \
-    || { echo "FATAL: $ROUNDS_FILE is not a valid rounds ledger (expected one line 'round=<int>') — refusing to start a round; fix the file by hand" >&2; exit 1; }
+  [ "$(wc -l < "$ROUNDS_FILE")" -eq 1 ] && printf '%s' "$ROUNDS" | grep -qxE '0|[1-9][0-9]*' \
+    || { echo "FATAL: $ROUNDS_FILE is not a valid rounds ledger (expected one line 'round=<int>', base-10, no leading zeros) — refusing to start a round; fix the file by hand" >&2; exit 1; }
+  ROUNDS=$((10#$ROUNDS))
   [ "$ROUNDS" -lt 10 ] \
     || { echo "FATAL: round 11 refused — 10 review rounds already recorded for PR #{NUMBER} (see $ROUNDS_FILE). Cap is 10 (prp-framework#151). Fix forward: land the current fixes, or open a fresh PR, or ask a human to decide." >&2; exit 1; }
 else
   ROUNDS=0
 fi
+# Clear the last run's recording markers so a completed round can never be double-counted
+# (Step Cb / Step Cb-agg rewrite them for THIS run; a stale marker would make that a no-op).
+rm -f "$D/pr-{NUMBER}-round-recorded" "$D/pr-{NUMBER}-agg-run.env" 2>/dev/null
 echo "REVIEW_ROUND=$((ROUNDS + 1)) of 10 (recorded: $ROUNDS)"
 ```
 
-If this block prints FATAL, STOP: start no agent, post nothing, record no round. The next round's number (`REVIEW_ROUND`) feeds the metrics line (`"round"`) and the round record. `--since-last-review` at an unchanged head consumes no round — Phase 0.5 exits before this block runs.
+If this block prints FATAL, STOP: start no agent, post nothing, record no round. The next round's number (`REVIEW_ROUND`) feeds the metrics line (`"round"`) and the round record. `--since-last-review` at an unchanged head consumes no round — Phase 0.5 exits before this block runs. The ledger is per checkout (`.prp-output/` is local and gitignored), like the other review state files.
 
 ### 2.0b Risk Tier (`--l2-comments` only, agent-devops#1259)
 
@@ -535,17 +541,25 @@ Invariant: no probe can extend a round without bound. Every reviewer pass of THI
 
 ```bash
 D=.prp-output/reviews
-BUDGET_MIN="${PRP_REVIEW_PASS_BUDGET_MIN:-20}"
-printf '%s' "$BUDGET_MIN" | grep -qxE '[0-9]+' && [ "$BUDGET_MIN" -ge 1 ] && [ "$BUDGET_MIN" -le 240 ] \
-  || { echo "FATAL: PRP_REVIEW_PASS_BUDGET_MIN must be an integer 1..240 (got '$BUDGET_MIN') — fail-closed, no agents started (prp-framework#151)" >&2; exit 1; }
+# empty is NOT the default: only an unset variable takes 20 (a set-but-empty value fails closed below)
+if [ -z "${PRP_REVIEW_PASS_BUDGET_MIN+x}" ]; then BUDGET_MIN=20; else BUDGET_MIN="$PRP_REVIEW_PASS_BUDGET_MIN"; fi
+# base-10, no leading zeros (08 would parse as octal and abort; 020 would silently mean 16)
+printf '%s' "$BUDGET_MIN" | grep -qxE '0|[1-9][0-9]*' || BUDGET_MIN=""
+[ -n "$BUDGET_MIN" ] && [ "$BUDGET_MIN" -ge 1 ] && [ "$BUDGET_MIN" -le 240 ] \
+  || { echo "FATAL: PRP_REVIEW_PASS_BUDGET_MIN must be a base-10 integer 1..240 with no leading zeros (got '${PRP_REVIEW_PASS_BUDGET_MIN:-}')" >&2; echo "FATAL: fail-closed — no agents started (prp-framework#151)" >&2; exit 1; }
+BUDGET_MIN=$((10#$BUDGET_MIN))
 rm -f "$D/pr-{NUMBER}-pass-deadline"
-DEADLINE_EPOCH=$(( $(date +%s) + BUDGET_MIN * 60 ))
+NOW=$(date +%s) || { echo "FATAL: cannot read the clock — no agents started" >&2; exit 1; }
+printf '%s' "$NOW" | grep -qxE '0|[1-9][0-9]*' || { echo "FATAL: date +%s gave garbage ('$NOW') — no agents started" >&2; exit 1; }
+DEADLINE_EPOCH=$(( NOW + BUDGET_MIN * 60 ))
+printf '%s' "$DEADLINE_EPOCH" | grep -qxE '0|[1-9][0-9]*' || { echo "FATAL: derived deadline is invalid ('$DEADLINE_EPOCH') — no agents started" >&2; exit 1; }
 printf 'deadline=%s\nbudget_min=%s\n' "$DEADLINE_EPOCH" "$BUDGET_MIN" > "$D/pr-{NUMBER}-pass-deadline" \
   || { echo "FATAL: cannot save the pass deadline" >&2; exit 1; }
+[ -s "$D/pr-{NUMBER}-pass-deadline" ] || { echo "FATAL: the pass deadline file is empty — no agents started" >&2; exit 1; }
 echo "PASS_BUDGET_MIN=$BUDGET_MIN DEADLINE_EPOCH=$DEADLINE_EPOCH"
 ```
 
-Fail-closed on garbage: an unset/valid-integer budget proceeds (default 20); anything that is not an integer 1..240 is FATAL — no agents started. The budget covers ALL passes of the round together (they run in parallel and the round is one wake — see "One Wake Per Round"); the deadline is one epoch saved once per run, never re-derived by an agent. Every reviewer prompt in 2.2 and 2.3 must carry the timebox line:
+Fail-closed on garbage: an unset/valid-integer budget proceeds (default 20); anything that is not a base-10 integer 1..240 without leading zeros is FATAL — no agents started, no deadline file written. The budget covers ALL passes of the round together (they run in parallel and the round is one wake — see "One Wake Per Round"); the deadline is one epoch saved once per run, never re-derived by an agent. Every reviewer prompt in 2.2 and 2.3 must carry the timebox line:
 
 ```
 Timebox: this pass runs under a ${PASS_BUDGET_MIN}-minute wall-clock budget for the round (deadline epoch ${DEADLINE_EPOCH}).
@@ -1493,7 +1507,7 @@ done
 
 After the loop prints the last URL, run **Step Cb** below in the same turn — that is what counts the round. A failed post above exits before Step Cb: an incomplete round consumes no round.
 
-**Step Cb — record the round (prp-framework#151, Part 2.2)**. The ledger keeps exactly one line, `round=<n>`; a sibling marker file makes the append idempotent per run id (a crash after posting cannot double-count; a re-run of Step Cb for the same run is a no-op):
+**Step Cb — record the round, L2 mode (prp-framework#151, Part 2.2)**. The ledger keeps exactly one line, `round=<n>`; a sibling marker file makes the append idempotent per run id (a crash after posting cannot double-count; a re-run of Step Cb for the same run is a no-op). The marker is written FIRST and the ledger second — a failure between the two leaves the marker set and the round uncounted, which is safe (a later 2.0a clears the stale marker, and the next completed round records cleanly); the reverse order could double-count:
 
 ```bash
 D=.prp-output/reviews
@@ -1504,19 +1518,61 @@ printf '%s' "$RUN_ID" | grep -qxE '[0-9]{8}T[0-9]{6}Z-[0-9a-f]{8}' \
   || { echo "FATAL: no consumed run file — cannot record the round; record by hand: round=<n+1>" >&2; exit 1; }
 [ "$(cat "$REC_FILE" 2>/dev/null)" = "$RUN_ID" ] && { echo "round already recorded for run $RUN_ID — no-op"; exit 0; }
 CURRENT=0
-if [ -f "$ROUNDS_FILE" ]; then
+if [ -e "$ROUNDS_FILE" ] || [ -L "$ROUNDS_FILE" ]; then
+  [ -f "$ROUNDS_FILE" ] || { echo "FATAL: $ROUNDS_FILE exists but is not a regular file — round NOT recorded; fix the path by hand" >&2; exit 1; }
   [ "$(wc -l < "$ROUNDS_FILE")" -eq 1 ] || { echo "FATAL: $ROUNDS_FILE is not a valid rounds ledger (expected one line 'round=<int>') — fix by hand, round NOT recorded" >&2; exit 1; }
   CURRENT=$(sed -n 's/^round=//p' "$ROUNDS_FILE")
-  printf '%s' "$CURRENT" | grep -qxE '[0-9]+' || { echo "FATAL: $ROUNDS_FILE is not a valid rounds ledger (expected one line 'round=<int>') — fix by hand, round NOT recorded" >&2; exit 1; }
+  printf '%s' "$CURRENT" | grep -qxE '0|[1-9][0-9]*' || { echo "FATAL: $ROUNDS_FILE is not a valid rounds ledger (base-10, no leading zeros) — fix by hand, round NOT recorded" >&2; exit 1; }
+  CURRENT=$((10#$CURRENT))
 fi
 NEXT=$((CURRENT + 1))
 [ "$NEXT" -le 10 ] || { echo "FATAL: round 11 cannot be recorded — cap is 10 (prp-framework#151)" >&2; exit 1; }
-printf 'round=%s\n' "$NEXT" > "$ROUNDS_FILE" && printf '%s\n' "$RUN_ID" > "$REC_FILE" \
-  || { echo "FATAL: cannot write the rounds ledger — record by hand: round=$NEXT" >&2; exit 1; }
+printf '%s\n' "$RUN_ID" > "$REC_FILE" || { echo "FATAL: cannot write the recorded-run marker — round NOT recorded; do not re-run Step Cb without checking the ledger by hand" >&2; exit 1; }
+printf 'round=%s\n' "$NEXT" > "$ROUNDS_FILE" || { echo "FATAL: cannot write the rounds ledger (marker holds $RUN_ID) — record by hand: round=$NEXT, then leave the marker" >&2; exit 1; }
 echo "RECORDED_ROUND=$NEXT"
 ```
 
-In aggregated mode (no `--l2-comments`) the same recording runs after the aggregated review is posted to GitHub and the metrics line is appended, with `RUN_ID` taken as the ISO timestamp of the post (the marker file gets that string); everything else is identical.
+A FATAL here after a successful post leaves the round uncounted — report the FATAL text verbatim in the final output so the operator can record `round=<n+1>` by hand; never silently continue.
+
+**Step Cb-agg — record the round, aggregated mode (no `--l2-comments`; prp-framework#151, Part 2.2)**. This block NEVER reads the L2 `.used` run file — it has its own run file, `pr-{NUMBER}-agg-run.env`, minted once per round (2.0a cleared any earlier one, so no stale run id can leak across rounds or from an L2 run). First invocation mints the run id and stops; after the aggregated post and the metrics append, re-run it in the same turn to record:
+
+```bash
+D=.prp-output/reviews
+ROUNDS_FILE="$D/pr-{NUMBER}-review-rounds"
+REC_FILE="$D/pr-{NUMBER}-round-recorded"
+ENV_F="$D/pr-{NUMBER}-agg-run.env"
+if [ -s "$ENV_F" ]; then
+  [ "$(wc -l < "$ENV_F")" -eq 1 ] || { echo "FATAL: $ENV_F is not a valid aggregated run file — round NOT recorded; record by hand: round=<n+1>" >&2; exit 1; }
+  AGG_RUN_ID=$(sed -n 's/^AGG_RUN_ID=//p' "$ENV_F")
+  printf '%s' "$AGG_RUN_ID" | grep -qxE '[0-9]{8}T[0-9]{6}Z-[0-9a-f]{8}' \
+    || { echo "FATAL: $ENV_F has a bad run id ('$AGG_RUN_ID') — round NOT recorded; record by hand" >&2; exit 1; }
+else
+  RAND=$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n') && [ ${#RAND} -eq 8 ] \
+    || { echo "FATAL: cannot draw a run id — round NOT recorded; record by hand: round=<n+1>" >&2; exit 1; }
+  AGG_RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)-$RAND"
+  printf '%s' "$AGG_RUN_ID" | grep -qxE '[0-9]{8}T[0-9]{6}Z-[0-9a-f]{8}' \
+    || { echo "FATAL: minted run id is malformed ('$AGG_RUN_ID') — round NOT recorded" >&2; exit 1; }
+  printf 'AGG_RUN_ID=%s\n' "$AGG_RUN_ID" > "$ENV_F" || { echo "FATAL: cannot save the aggregated run file — round NOT recorded" >&2; exit 1; }
+  echo "AGG_RUN_ID=$AGG_RUN_ID (post the aggregated review, then re-run this block to record the round)"
+  exit 0
+fi
+[ "$(cat "$REC_FILE" 2>/dev/null)" = "$AGG_RUN_ID" ] && { echo "round already recorded for run $AGG_RUN_ID — no-op"; exit 0; }
+CURRENT=0
+if [ -e "$ROUNDS_FILE" ] || [ -L "$ROUNDS_FILE" ]; then
+  [ -f "$ROUNDS_FILE" ] || { echo "FATAL: $ROUNDS_FILE exists but is not a regular file — round NOT recorded; fix the path by hand" >&2; exit 1; }
+  [ "$(wc -l < "$ROUNDS_FILE")" -eq 1 ] || { echo "FATAL: $ROUNDS_FILE is not a valid rounds ledger (expected one line 'round=<int>') — fix by hand, round NOT recorded" >&2; exit 1; }
+  CURRENT=$(sed -n 's/^round=//p' "$ROUNDS_FILE")
+  printf '%s' "$CURRENT" | grep -qxE '0|[1-9][0-9]*' || { echo "FATAL: $ROUNDS_FILE is not a valid rounds ledger (base-10, no leading zeros) — fix by hand, round NOT recorded" >&2; exit 1; }
+  CURRENT=$((10#$CURRENT))
+fi
+NEXT=$((CURRENT + 1))
+[ "$NEXT" -le 10 ] || { echo "FATAL: round 11 cannot be recorded — cap is 10 (prp-framework#151)" >&2; exit 1; }
+printf '%s\n' "$AGG_RUN_ID" > "$REC_FILE" || { echo "FATAL: cannot write the recorded-run marker — round NOT recorded; do not re-run this block without checking the ledger by hand" >&2; exit 1; }
+printf 'round=%s\n' "$NEXT" > "$ROUNDS_FILE" || { echo "FATAL: cannot write the rounds ledger (marker holds $AGG_RUN_ID) — record by hand: round=$NEXT, then leave the marker" >&2; exit 1; }
+echo "RECORDED_ROUND=$NEXT"
+```
+
+A failed aggregated post records no round: the minted run file simply never reaches the recording re-run, and 2.0a clears it at the start of the next round (a re-run before posting would reuse the same `AGG_RUN_ID`, so at most one round is counted per minted id). A FATAL after a successful post must be reported verbatim, same as L2 mode.
 
 Report the posted URLs (they are what the L2 report links, one per pass: three, or one at the trivial tier). If a post fails after an earlier one succeeded, the round is incomplete: say so on the PR (one plain comment naming the abandoned `RUN_ID`) and re-run the review with a new `RUN_ID`, since the verifier requires one run id across all three.
 
@@ -1576,7 +1632,7 @@ mkdir -p .prp-output/reviews
 echo '{...}' >> .prp-output/reviews/review-metrics.jsonl || echo "WARNING: Failed to append review metrics. Review results are saved, but metrics tracking is incomplete."
 ```
 
-In aggregated mode (no `--l2-comments`), the metrics append is also the trigger to record the completed round — run Step Cb's ledger block right after this append, in the same turn, with `RUN_ID` set to the post's ISO timestamp (the `.used`-run-file lookup simply will not find a file, so substitute the timestamp; the idempotence marker file stores that string). A failed aggregated post records no round, same as L2 mode.
+In aggregated mode (no `--l2-comments`), the metrics append is also the trigger to record the completed round — run **Step Cb-agg** (the aggregated-mode recording block under "Per-pass L2 comments"→Step Cb) right after this append, in the same turn. It mints its own run id in `pr-{NUMBER}-agg-run.env` on first invocation and records on the re-run; it never touches the L2 `.used` file. A failed aggregated post records no round, same as L2 mode.
 
 ### `--metrics` Flag: Aggregate Summary
 
@@ -1718,12 +1774,14 @@ PRP_REVIEW_PASS_BUDGET_MIN=5 /prp:review-agents 163   # 5-minute wall-clock budg
 | `PRP_RUN_ALL=1` env set | Same as `--no-commit` — run-all handles artifact commits in its own step |
 | Auto-commit fails (push rejected) | WARN but continue — artifact is saved locally and posted to GitHub. Display: "WARNING: Could not push review artifact to PR branch. Commit manually or use safe-merge --skip-review-check." |
 | 10 review rounds already recorded (2.0a) | FATAL "round 11 refused" — no agents spawned, nothing posted. Fix forward: land fixes, open a fresh PR, or ask a human |
-| Rounds ledger garbage (not one `round=<int>` line, or value ≥ 10) | FATAL — fail closed, refuse to start; fix the file by hand, never reset silently |
-| `PRP_REVIEW_PASS_BUDGET_MIN` garbage (non-integer, 0, >240) | FATAL — fail-closed, no agents started (2.1a) |
+| Rounds ledger garbage (not one base-10 `round=<int>` line, leading zeros, or value ≥ 10) | FATAL — fail closed, refuse to start; fix the file by hand, never reset silently |
+| Ledger path exists but is not a regular file (dir/dangling symlink) | FATAL — fail closed; fix the path by hand |
+| `PRP_REVIEW_PASS_BUDGET_MIN` garbage (non-integer, leading zeros like 08/010, 0, >240) | FATAL — fail-closed, no agents started, no deadline file (2.1a; 08 would parse octal and 010 would silently mean 8 — both rejected) |
 | Pass budget expires mid-probe | The pass reports what it has; unfinished probes go under `## Cut probes` → one follow-up issue (3.5); the round is never extended |
 | One pass cut by the deadline, others finish | Existing incomplete-round rules: verdict floor NEEDS FIXES (aggregated) / L2 run posts nothing; finished passes' results kept; cut probes still collected for 3.5; round NOT recorded |
 | A post fails after an earlier one succeeded | Round incomplete (existing rule): plain comment naming the abandoned RUN_ID, new RUN_ID re-run; Step Cb never ran, so no round is consumed |
-| Step Cb runs twice for the same run | No-op — the recorded-run marker file makes the append idempotent |
+| Step Cb / Step Cb-agg runs twice for the same run | No-op — the recorded-run marker file makes the append idempotent |
+| Aggregated run with a stale L2 `.used` file present | Harmless — Step Cb-agg never reads `.used`; 2.0a cleared the agg run file, so a fresh run id is minted |
 | `--since-last-review` at an unchanged head | Phase 0.5 exits "nothing to re-review" BEFORE 2.0a — no round consumed |
 
 ---
