@@ -132,3 +132,85 @@ keep passing untouched.
 
 - Part 2.3 allow rules for scratch probes (blocked on soul-orchestra#1338/#1347).
 - AC5 24 h post-rollout token measurement (needs the fleet running the new skill).
+
+---
+
+# Re-plan (round 2) — round recording as a whole mechanism
+
+Trigger: round-2 Important (run 20261014T203855Z-3599cc1d, silent-failure-hunter) is the same
+family as round 1: **a review round can complete without being recorded**. Step Cb-agg needed
+two runs (first mints the run id and exits 0, second records), its only call site ran it once
+after the post, and 2.0a deleted the run file at every round start — so the single call only
+minted and the aggregated round was never counted. Per the review stop rule we stop patching
+and re-plan the mechanism.
+
+**Invariant: every review round that posts results is recorded in the ledger exactly once, in
+ONE step, in EVERY mode (--l2-comments and aggregated); the ledger is data that is validated,
+never evaluated; round 11 is refused before any agent runs.**
+
+## Design constraints
+
+a. **Recording is a single call.** The run id is MINTED at round start (2.0a, which already
+   runs in both modes) and saved to `pr-{N}-curr-run.env`; the recording step (Step Cb for
+   L2, Step Cb-agg for aggregated) CONSUMES it in one run after the last post. There is no
+   "re-run this block" path and no `exit 0` without recording: a missing/unreadable run file
+   at record time is a FATAL with a non-zero exit (a posted-but-unrecorded round must be
+   visible, never silently absorbed). After recording, the run file is removed — a second
+   invocation of the same recording step finds no run file and FATALs (loud, never a no-op
+   that could mask a lost record). The recorded-run marker (`pr-{N}-round-recorded`) still
+   holds the last recorded run id for humans; it is no longer load-bearing for control flow.
+
+b. **Ledger parse.** `tail -n 1` ONLY; the line must match `^round=(0|[1-9][0-9]?)$` exactly
+   (max two digits — `round=999…` cannot wrap arithmetic because it is rejected before any
+   arithmetic exists). Anything else → FATAL, fail closed. Ledger text is never placed into
+   `$(( ))`, `[[ ]]` arithmetic, `eval`, or an array index: it is compared to the regex
+   FIRST, and only the two-character-bounded match is then read with `10#`. Same regex at
+   all three sites (2.0a, Step Cb, Step Cb-agg). A multi-line ledger (any second line,
+   including a second `round=` line) is invalid → FATAL (the ledger is one line by
+   construction; a stray line means hand-editing or corruption — refuse, never guess).
+
+c. **Ordering + retry.** Chosen order: **ledger first (tmp + `mv`), marker second** — with
+   tmp+`mv` both writes are atomic, and the failure modes become: ledger-write fails →
+   nothing recorded, retry re-records exactly once (run file still present); marker-write
+   fails → the ROUND IS RECORDED (ledger advanced) and the FATAL says so explicitly ("round
+   recorded; only the bookkeeping marker failed") — a marker is cosmetic, losing it never
+   loses a round, and a retry after that FATAL finds the run file gone and FATALs loudly
+   rather than double-recording (the ledger's own value is the single source of truth for
+   2.0a). This inverts the round-1 "marker first" choice deliberately: round 1 protected
+   against double-counting by宁可 losing a round; the round-2 Invariant makes losing a round
+   the worse failure, and double-counting is now impossible anyway because the run file is
+   consumed (removed) before the ledger write is attempted... concretely: read run id →
+   validate → compute NEXT from ledger → write ledger atomically → remove run file → write
+   marker. A crash anywhere before the ledger write leaves the run file for a clean retry; a
+   crash after leaves a recorded round.
+
+d. **Non-regular paths.** A directory/dangling symlink at the ledger, marker, or run-file
+   path → FATAL with a clear message (the `-e`/`-L` + `-f` checks already in 2.0a are kept
+   and extended to the new files and to both recording steps).
+
+## Boundary arms (one bats test each)
+
+1. Single call records — aggregated: 2.0a mints, one Step Cb-agg run after a post records.
+2. Single call records — l2: Step A/C leave `.used`; one Step Cb run records.
+3. Stale run file from a previous round: 2.0a's mint REPLACES it (clear-then-mint), and the
+   new id, not the stale one, lands in the marker.
+4. Run file missing at record time → non-zero + FATAL (both modes), nothing recorded.
+5. Multi-line ledger → FATAL (state: any second line invalidates).
+6. Ledger `a[$(touch PWNED)]` → FATAL, and PWNED is NOT created (validation never evaluates).
+7. Ledger `round=99999999999999999999` (20 digits) → FATAL (regex caps at two digits).
+8. Ledger `round=08` → FATAL (leading zero).
+9. `round=10` recorded → the NEXT 2.0a refuses round 11 before agents.
+10. Ledger write fails after "marker" — retry semantics: simulate ledger-unwritable at first
+    attempt (run file survives), then writable → the retry records exactly once.
+11. Marker path is a directory → FATAL (round already recorded by then; message says so).
+
+## File changes
+
+- `prompts/review-agents.md`: 2.0a (mint `pr-{N}-curr-run.env` for BOTH modes; strict regex;
+  keep the round-recorded/agg-run.env cleanup for one release), Step Cb and Step Cb-agg
+  (single-call consumers; new ordering; FATALs), metrics note, edge-case rows, success
+  criteria. The old `pr-{N}-agg-run.env` mint-in-recorder logic is deleted.
+- `tests/commands/review-rounds.bats`: the arms above (several replace the round-1 tests
+  whose behaviour legitimately changed: "first invocation mints…", "third run is a no-op",
+  "no consumed run file records nothing" → now non-zero).
+- Adapters regenerated; CHANGELOG Unreleased entry amended.

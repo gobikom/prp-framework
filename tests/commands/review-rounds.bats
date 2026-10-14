@@ -224,58 +224,65 @@ EOF
 
 # ─── Step Cb round recording ──────────────────────────────────────
 
-used_run() {  # simulate Step A + Step C having consumed the run file
+mint() {  # simulate 2.0a's mint for THIS round (cap.sh mints when the ledger is valid)
+  bash cap.sh >/dev/null
+  [ -s .prp-output/reviews/pr-7-curr-run.env ]
+}
+
+mint_only() {  # mint a run file directly, for tests whose ledger is deliberately corrupt
+  printf 'RUN_ID=%s\n' "$(date -u +%Y%m%dT%H%M%SZ)$(printf '%08x' $((RANDOM * 32768 + RANDOM)))" > /dev/null
+  printf 'RUN_ID=20260101T000000Z-%s\n' "$(printf '%08x' $((RANDOM * 32768 + RANDOM)))" > .prp-output/reviews/pr-7-curr-run.env
+}
+
+used_run() {  # L2 mode: Step A reused the 2.0a id; Step C consumed it into .used
   printf 'REVIEWED_HEAD_SHA=%s\nPRP_VERSION=9.9.9\nRUN_ID=%s\n' \
     "0123456789abcdef0123456789abcdef01234567" "$1" > .prp-output/reviews/pr-7-l2-run.env.used
 }
 
-@test "a completed posting records the round" {
-  used_run 20260101T000000Z-aaaaaaaa
+curr_id() { sed -n 's/^RUN_ID=//p' .prp-output/reviews/pr-7-curr-run.env; }
+
+@test "l2: a single Step Cb call after the post records the round" {
+  mint
+  ID=$(curr_id)
+  used_run "$ID"
   run bash record.sh
   [ "$status" -eq 0 ]
-  [[ "$output" == "RECORDED_ROUND=1" ]]
+  [[ "$output" == *"RECORDED_ROUND=1 run=$ID"* ]]
   [ "$(cat .prp-output/reviews/pr-7-review-rounds)" = "round=1" ]
-  [ "$(cat .prp-output/reviews/pr-7-round-recorded)" = "20260101T000000Z-aaaaaaaa" ]
+  [ "$(cat .prp-output/reviews/pr-7-round-recorded)" = "$ID" ]
+  [ ! -e .prp-output/reviews/pr-7-curr-run.env ]   # consumed
 }
 
-@test "recording is idempotent per run id" {
-  used_run 20260101T000000Z-aaaaaaaa
+@test "l2: a second Step Cb call for the same round FATALs (no silent no-op)" {
+  mint
+  used_run "$(curr_id)"
   bash record.sh >/dev/null
   run bash record.sh
-  [ "$status" -eq 0 ]
-  [[ "$output" == *"no-op"* ]]
-  [ "$(cat .prp-output/reviews/pr-7-review-rounds)" = "round=1" ]
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"no run id minted by 2.0a"* ]]
+  [ "$(cat .prp-output/reviews/pr-7-review-rounds)" = "round=1" ]   # unchanged
 }
 
-@test "a new run increments the ledger" {
-  used_run 20260101T000000Z-aaaaaaaa
-  bash record.sh >/dev/null
-  used_run 20260101T010101Z-bbbbbbbb
+@test "l2: a missing run file at record time is a non-zero FATAL" {
   run bash record.sh
-  [ "$status" -eq 0 ]
-  [[ "$output" == "RECORDED_ROUND=2" ]]
-  [ "$(cat .prp-output/reviews/pr-7-review-rounds)" = "round=2" ]
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"no run id minted by 2.0a"* ]]
+  [ ! -f .prp-output/reviews/pr-7-review-rounds ]
 }
 
 @test "recording round 11 is refused (a failed post consumes nothing, cap holds)" {
   printf 'round=10\n' > .prp-output/reviews/pr-7-review-rounds
-  used_run 20260101T000000Z-aaaaaaaa
+  mint_only
+  used_run "$(sed -n 's/^RUN_ID=//p' .prp-output/reviews/pr-7-curr-run.env)"
   run bash record.sh
   [ "$status" -ne 0 ]
   [[ "$output" == *"round 11 cannot be recorded"* ]]
   [ "$(cat .prp-output/reviews/pr-7-review-rounds)" = "round=10" ]
 }
 
-@test "no consumed run file records nothing" {
-  run bash record.sh
-  [ "$status" -ne 0 ]
-  [[ "$output" == *"no consumed run file"* ]]
-  [ ! -f .prp-output/reviews/pr-7-review-rounds ]
-}
-
 @test "a garbage ledger refuses to record" {
   printf 'round=x\n' > .prp-output/reviews/pr-7-review-rounds
-  used_run 20260101T000000Z-aaaaaaaa
+  mint_only
   run bash record.sh
   [ "$status" -ne 0 ]
   [[ "$output" == *"not a valid rounds ledger"* ]]
@@ -284,73 +291,175 @@ used_run() {  # simulate Step A + Step C having consumed the run file
 
 @test "a leading-zero ledger refuses to record (no octal parse)" {
   printf 'round=08\n' > .prp-output/reviews/pr-7-review-rounds
-  used_run 20260101T000000Z-aaaaaaaa
+  mint_only
   run bash record.sh
   [ "$status" -ne 0 ]
   [[ "$output" == *"not a valid rounds ledger"* ]]
   [ "$(cat .prp-output/reviews/pr-7-review-rounds)" = "round=08" ]
 }
 
+@test "an overlong ledger value is refused, not wrapped" {
+  printf 'round=99999999999999999999\n' > .prp-output/reviews/pr-7-review-rounds
+  run bash cap.sh
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"not a valid rounds ledger"* ]]
+  printf 'round=100\n' > .prp-output/reviews/pr-7-review-rounds
+  mint_only
+  run bash record.sh
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"not a valid rounds ledger"* ]]
+}
+
+@test "a multi-line ledger is refused" {
+  printf 'round=1\nround=2\n' > .prp-output/reviews/pr-7-review-rounds
+  run bash cap.sh
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"expected exactly one line"* ]]
+  mint_only
+  run bash record.sh
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"expected exactly one line"* ]]
+}
+
+@test "ledger text is never evaluated: a[$(touch PWNED)] FATALs and PWNED is not created" {
+  printf 'a[$(touch PWNED)]\n' > .prp-output/reviews/pr-7-review-rounds
+  run bash cap.sh
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"not a valid rounds ledger"* ]]
+  [ ! -e PWNED ]
+  mint_only
+  run bash record.sh
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"not a valid rounds ledger"* ]]
+  [ ! -e PWNED ]
+}
+
+@test "ledger-write failure leaves the run file; the retry records exactly once" {
+  mint
+  ID=$(curr_id)
+  chmod 555 .prp-output/reviews           # unwritable dir: no tmp file can be created
+  run bash record.sh
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"cannot write the pending record"* ]] || [[ "$output" == *"cannot write the rounds ledger"* ]]
+  [ -s .prp-output/reviews/pr-7-curr-run.env ]   # run file intact for the retry
+  [ ! -f .prp-output/reviews/pr-7-review-rounds ]
+  chmod 755 .prp-output/reviews
+  run bash record.sh
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"RECORDED_ROUND=1 run=$ID"* ]]
+  [ "$(cat .prp-output/reviews/pr-7-review-rounds)" = "round=1" ]
+  [ ! -e .prp-output/reviews/pr-7-curr-run.env ] # consumed by the successful retry
+}
+
+@test "a crash between the ledger write and cleanup resumes without double-counting" {
+  mint
+  ID=$(curr_id)
+  # simulate the crash state: pending frozen, ledger advanced, run file NOT yet consumed
+  printf 'run=%s\nnext=1\n' "$ID" > .prp-output/reviews/pr-7-record-pending
+  printf 'round=1\n' > .prp-output/reviews/pr-7-review-rounds
+  run bash record.sh
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"RECORDED_ROUND=1 run=$ID"* ]]   # resumed the FROZEN next, not 1+1
+  [ "$(cat .prp-output/reviews/pr-7-review-rounds)" = "round=1" ]
+  [ ! -e .prp-output/reviews/pr-7-record-pending ]
+  [ ! -e .prp-output/reviews/pr-7-curr-run.env ]
+}
+
+@test "a pending record from ANOTHER run blocks recording" {
+  mint
+  printf 'run=20200101T000000Z-other000\nnext=3\n' > .prp-output/reviews/pr-7-record-pending
+  run bash record.sh
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"belongs to another run"* ]]
+  [ ! -f .prp-output/reviews/pr-7-review-rounds ]
+}
+
+@test "a pending record blocks the next 2.0a round" {
+  printf 'run=20200101T000000Z-other000\nnext=3\n' > .prp-output/reviews/pr-7-record-pending
+  run bash cap.sh
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"recording did not finish"* ]]
+}
+
+@test "a marker path that is a directory FATALs (and says the round is recorded)" {
+  mint
+  ID=$(curr_id)
+  mkdir -p .prp-output/reviews/pr-7-round-recorded
+  run bash record.sh
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"round recorded"* ]] || [[ "$output" == *"not a regular file"* ]]
+  [ "$(cat .prp-output/reviews/pr-7-review-rounds)" = "round=1" ]   # the ledger was written first
+  [ ! -e .prp-output/reviews/pr-7-record-pending ]                    # cleanup ran
+}
+
 # ─── Step Cb-agg: aggregated mode (no --l2-comments) ──────────────
 
-@test "aggregated mode: first invocation mints a run id and records nothing" {
+@test "agg: a single Step Cb-agg call after the post records the round" {
+  mint
+  ID=$(curr_id)
   run bash recordagg.sh
   [ "$status" -eq 0 ]
-  [[ "$output" == *"AGG_RUN_ID="*"re-run this block to record the round"* ]]
-  [ -f .prp-output/reviews/pr-7-agg-run.env ]
-  [ ! -f .prp-output/reviews/pr-7-review-rounds ]
-  [ ! -f .prp-output/reviews/pr-7-round-recorded ]
+  [[ "$output" == *"RECORDED_ROUND=1 run=$ID"* ]]
+  [ "$(cat .prp-output/reviews/pr-7-review-rounds)" = "round=1" ]
+  [ "$(cat .prp-output/reviews/pr-7-round-recorded)" = "$ID" ]
+  [ ! -e .prp-output/reviews/pr-7-curr-run.env ]   # consumed
 }
 
-@test "aggregated mode: the re-run after posting records the round exactly once" {
+@test "agg: a second call for the same round FATALs (no silent no-op)" {
+  mint
   bash recordagg.sh >/dev/null
   run bash recordagg.sh
-  [ "$status" -eq 0 ]
-  [[ "$output" == "RECORDED_ROUND=1" ]]
-  [ "$(cat .prp-output/reviews/pr-7-review-rounds)" = "round=1" ]
-  # third run is a no-op
-  run bash recordagg.sh
-  [ "$status" -eq 0 ]
-  [[ "$output" == *"no-op"* ]]
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"no run id minted by 2.0a"* ]]
   [ "$(cat .prp-output/reviews/pr-7-review-rounds)" = "round=1" ]
 }
 
-@test "aggregated mode: a stale L2 .used file changes nothing" {
+@test "agg: a stale run file from a previous round is replaced by 2.0a's mint" {
+  printf 'RUN_ID=20260101T000000Z-stale012\n' > .prp-output/reviews/pr-7-curr-run.env
+  printf '20250101T000000Z-older999\n' > .prp-output/reviews/pr-7-round-recorded
+  bash cap.sh >/dev/null   # 2.0a of the new round: clears, mints a FRESH id
+  ID=$(curr_id)
+  [ "$ID" != "20260101T000000Z-stale012" ]
+  run bash recordagg.sh
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"RECORDED_ROUND=1 run=$ID"* ]]
+  [ "$(cat .prp-output/reviews/pr-7-round-recorded)" = "$ID" ]   # the NEW id, not the stale one
+}
+
+@test "agg: a stale L2 .used file changes nothing" {
   printf 'REVIEWED_HEAD_SHA=%s\nPRP_VERSION=9.9.9\nRUN_ID=%s\n' \
     "0123456789abcdef0123456789abcdef01234567" "20260101T000000Z-stale012" > .prp-output/reviews/pr-7-l2-run.env.used
+  mint
+  ID=$(curr_id)
   run bash recordagg.sh
   [ "$status" -eq 0 ]
-  [[ "$output" == *"AGG_RUN_ID="*"re-run this block to record the round"* ]]
-  AGG=$(sed -n 's/^AGG_RUN_ID=//p' .prp-output/reviews/pr-7-agg-run.env)
-  [ "$AGG" != "20260101T000000Z-stale012" ]
-  bash recordagg.sh >/dev/null
-  [ "$(cat .prp-output/reviews/pr-7-review-rounds)" = "round=1" ]
-  [ "$(cat .prp-output/reviews/pr-7-round-recorded)" = "$AGG" ]
+  [[ "$output" == *"RECORDED_ROUND=1 run=$ID"* ]]
+  [ "$(cat .prp-output/reviews/pr-7-round-recorded)" = "$ID" ]
 }
 
-@test "aggregated mode: round 11 is refused" {
+@test "agg: round 11 is refused" {
   printf 'round=10\n' > .prp-output/reviews/pr-7-review-rounds
-  bash recordagg.sh >/dev/null
+  mint_only
   run bash recordagg.sh
   [ "$status" -ne 0 ]
   [[ "$output" == *"round 11 cannot be recorded"* ]]
   [ "$(cat .prp-output/reviews/pr-7-review-rounds)" = "round=10" ]
 }
 
-@test "aggregated mode: a garbage agg run file records nothing" {
-  printf 'AGG_RUN_ID=not-a-run-id\n' > .prp-output/reviews/pr-7-agg-run.env
+@test "agg: a missing run file at record time is a non-zero FATAL" {
   run bash recordagg.sh
   [ "$status" -ne 0 ]
-  [[ "$output" == *"bad run id"* ]]
+  [[ "$output" == *"no run id minted by 2.0a"* ]]
   [ ! -f .prp-output/reviews/pr-7-review-rounds ]
 }
 
-@test "aggregated mode: a second round increments via a fresh minted id" {
-  bash recordagg.sh >/dev/null && bash recordagg.sh >/dev/null   # round 1 recorded
-  rm -f .prp-output/reviews/pr-7-agg-run.env                      # 2.0a of the next round cleared it
-  bash recordagg.sh >/dev/null                                    # mint round 2's id
-  run bash recordagg.sh
-  [ "$status" -eq 0 ]
-  [[ "$output" == "RECORDED_ROUND=2" ]]
-  [ "$(cat .prp-output/reviews/pr-7-review-rounds)" = "round=2" ]
+@test "round=10 recorded means the next 2.0a refuses round 11" {
+  printf 'round=9\n' > .prp-output/reviews/pr-7-review-rounds
+  mint
+  bash recordagg.sh >/dev/null   # records round=10
+  [ "$(cat .prp-output/reviews/pr-7-review-rounds)" = "round=10" ]
+  rm -f .prp-output/reviews/pr-7-curr-run.env   # (recordagg consumed it already; belt and braces)
+  run bash cap.sh
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"round 11 refused"* ]]
 }
