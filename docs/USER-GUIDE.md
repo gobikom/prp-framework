@@ -758,7 +758,7 @@ run-all สร้าง state file `.prp-output/state/run-all.state.md` เพ�
 
 **Output**: `.prp-output/reviews/pr-{number}-agents-review.md`
 
-**รอบการ review มีขอบเขตเสมอ** (prp-framework#151): หนึ่งรอบ = caller ถูกปลุกหนึ่งครั้ง (dispatch ครั้งเดียว รอแบบ blocking ไม่มี status ping ระหว่างรอ) · probe ทุกตัวอยู่ใน budget `PRP_REVIEW_PASS_BUDGET_MIN` นาที (default 20, 1..240, ค่าอื่น FATAL) — probe ที่ไม่ทันกลายเป็น follow-up issue เดียว · สูงสุด 10 รอบต่อ PR (รอบที่ 11 ถูกปฏิเสธ)
+**รอบการ review มีขอบเขตเสมอ** (prp-framework#151): หนึ่งรอบ = caller ถูกปลุกหนึ่งครั้ง (dispatch ครั้งเดียว รอแบบ blocking ไม่มี status ping ระหว่างรอ) · probe ทุกตัวอยู่ใน budget `PRP_REVIEW_PASS_BUDGET_MIN` นาที (default 20, 1..240, ค่าอื่น FATAL) — probe ที่ไม่ทันกลายเป็น follow-up issue เดียว · (ตัวจำกัดจำนวนรอบ 10 รอบแยกไปที่ #154)
 
 ---
 

@@ -1,7 +1,8 @@
 # Plan: prp-framework#151 — One wake per review round, probe timebox, enforced round cap, no idle status pings
 
-Scope: Part 1 (one caller wake per round), 2.1 (probe timebox), 2.2 (enforced round cap), 2.4 (no idle status pings).
+Scope: Part 1 (one caller wake per round), 2.1 (probe timebox), 2.4 (no idle status pings).
 **Part 2.3 (allow rules for scratch probes) is OUT of scope** — it waits on soul-orchestra#1338/#1347 (same settings generator).
+**UPDATE (round 3, 2026-10-15): Part 2.2 (enforced round cap / round ledger) was scope-cut out of this PR to #154** after three review rounds in that mechanism; the round-1/2 history below documents what was tried and why it was cut.
 
 **Invariant: a review round costs the caller one context read, no probe can extend a round without bound, and no 11th round can run.**
 
