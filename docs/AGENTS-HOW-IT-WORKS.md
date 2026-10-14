@@ -391,6 +391,8 @@ PRP มี multi-agent review 2 แบบที่ต่างกัน:
 
 **เป้าหมาย**: ตรวจ diff ก่อน merge
 
+**ขอบเขตของหนึ่งรอบ** (prp-framework#151): dispatch ทุก pass ใน message เดียว → รอแบบ blocking → caller ตื่นครั้งเดียวพร้อมผลครบ (ไม่มี status ping ระหว่างรอ) · probe ทั้งรอบอยู่ใน budget `PRP_REVIEW_PASS_BUDGET_MIN` นาที (default 20) — probe ที่ไม่ทันถูกตัดเป็น follow-up issue เดียว · บันทึกจำนวนรอบใน `.prp-output/reviews/pr-{N}-review-rounds` และรอบที่ 11 ถูกปฏิเสธ
+
 ```
 Flow:
 

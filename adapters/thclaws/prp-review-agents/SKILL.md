@@ -34,6 +34,8 @@ Flags set shell variables used below: `--no-commit` → `NO_COMMIT=1`; `--l2-com
 
 `--l2-comments` (prp-framework#142): post one PR comment per core pass in the L2 format instead of the aggregated review, and never commit review artifacts (it implies `--no-commit`). See "Per-pass L2 comments" under Output.
 
+Environment: `PRP_REVIEW_PASS_BUDGET_MIN` (optional) — wall-clock budget in minutes for the round's reviewer passes (2.1a). Integer 1..240, default 20. Anything else is a FATAL (fail-closed, no agents started). Rounds are capped at 10 (2.0a); the 11th is refused.
+
 ## Mission
 
 Perform a deep, comprehensive PR code review by **spawning specialized Agent subprocesses in parallel**. Each agent runs in its own isolated context window with fresh memory, enabling deep file exploration beyond the diff.
@@ -309,6 +311,44 @@ Suggested splits based on file categories:
 
 ---
 
+## One Wake Per Round (prp-framework#151, Part 1 + 2.4)
+
+Invariant: a review round costs the caller one context read. The calling (main) session
+dispatches this round, waits, and is woken ONCE with the completed result — not once per
+reviewer. Every rule below follows from that.
+
+**Wake discipline** (applies to core AND conditional agents):
+
+- **Dispatch all passes of the round in ONE message.** The core agents are already spawned in
+  a single message (2.2); conditional agents join that same message (or, when their need is
+  only discovered after diff analysis, are dispatched in one further message — never one
+  message per agent).
+- **Take no caller turn between dispatch and completion.** After the dispatch message returns,
+  the session waits. It does not write status lines, does not collect partial results, does
+  not respond to per-agent completion notifications with separate turns, and does not poll.
+  Collection (Phase 3) starts only after ALL agents of the round have returned.
+- **Blocking wait is the mechanism, not a suggestion.** With the Agent tool, the parallel
+  calls in one message already block until all results return — keep it that way. When the
+  runtime can only launch reviewers as background shells (one completion notification per
+  shell), the wake cost moves to the caller; in that case, launch all shells, then block on
+  ALL of them in the SAME turn — e.g. `wait "$pid1" "$pid2" "$pid3"`, or a poll loop
+  (`while kill -0 "$pid1" || kill -0 "$pid2"; do sleep 30; done`), or
+  `tail --pid=<pid> -f /dev/null` per shell — so the single completion wake carries every
+  result. Never `wait` one shell at a time and report between waits.
+- **No idle status pings (Part 2.4).** Report on state changes only: one dispatch line at
+  dispatch, one completion summary when the round is done. Never post or emit "still
+  waiting on {agent}", never relay per-agent progress, never ping the caller (or a watchdog)
+  merely to say the review is running. If a human asks for status, answer — but do not
+  volunteer idle pings.
+- **One round record, one decision.** After the single completion wake, the caller writes the
+  round's record (ledger append, metrics, verdict) and makes the round decision in that same
+  turn. There is no second wake for "the round finished".
+
+This section changes WHEN the caller is woken, not WHAT the round produces: agent dispatch,
+per-pass L2 comments, provenance footers, artifacts and the safe-merge marker are unchanged.
+
+---
+
 ## Per-File Review Checklist
 
 For EVERY changed file, the relevant agent should check against these 8 categories:
@@ -437,6 +477,29 @@ printf '%s\n' "$REVIEWED_HEAD_SHA" > "$D/pr-{NUMBER}-reviewed-head" || { echo "F
 echo "REVIEWED_HEAD_SHA=$REVIEWED_HEAD_SHA"
 ```
 
+### 2.0a Round Cap (prp-framework#151, Part 2.2)
+
+Invariant: no 11th round can run. The 10-round cap is enforced by the skill, not only by prose: the number of completed review rounds on this PR lives in `.prp-output/reviews/pr-{NUMBER}-review-rounds` (one line, `round=<n>`), and this block refuses to start an 11th round BEFORE any agent runs (right after 2.0's head capture, before 2.0b). A round is only COUNTED when its posting completed (the ledger is appended by Step C / the aggregated post — never here); this block only reads.
+
+Run in every review (L2 and aggregated mode). A missing ledger file means 0 recorded rounds (first review). Fail closed on any anomaly — a garbage or over-cap ledger must never be "reset and continued":
+
+```bash
+D=.prp-output/reviews
+ROUNDS_FILE="$D/pr-{NUMBER}-review-rounds"
+if [ -f "$ROUNDS_FILE" ]; then
+  ROUNDS=$(sed -n 's/^round=//p' "$ROUNDS_FILE" | tail -n1)
+  [ "$(wc -l < "$ROUNDS_FILE")" -eq 1 ] && printf '%s' "$ROUNDS" | grep -qxE '[0-9]+' \
+    || { echo "FATAL: $ROUNDS_FILE is not a valid rounds ledger (expected one line 'round=<int>') — refusing to start a round; fix the file by hand" >&2; exit 1; }
+  [ "$ROUNDS" -lt 10 ] \
+    || { echo "FATAL: round 11 refused — 10 review rounds already recorded for PR #{NUMBER} (see $ROUNDS_FILE). Cap is 10 (prp-framework#151). Fix forward: land the current fixes, or open a fresh PR, or ask a human to decide." >&2; exit 1; }
+else
+  ROUNDS=0
+fi
+echo "REVIEW_ROUND=$((ROUNDS + 1)) of 10 (recorded: $ROUNDS)"
+```
+
+If this block prints FATAL, STOP: start no agent, post nothing, record no round. The next round's number (`REVIEW_ROUND`) feeds the metrics line (`"round"`) and the round record. `--since-last-review` at an unchanged head consumes no round — Phase 0.5 exits before this block runs.
+
 ### 2.0b Risk Tier (`--l2-comments` only, agent-devops#1259)
 
 Invariant: the review tier is computed by `pr-risk-tier` (gobikom/ops) from the diff at the reviewed head, never chosen by the reviewer or the author. `trivial` is saved only when the tool prints exactly `trivial` and exits 0; anything else (the tool missing, an error, `standard`) is `standard`. A trivial PR changes nothing but bare version lines in version files and the one `PROJECT.md` Status line, so it gets **one pass (`code-reviewer`)**; every other PR keeps the three core passes. Step C re-runs the tool before posting, so a stale tier file cannot post a one-pass round.
@@ -467,6 +530,34 @@ PR_NUMBER = {extracted from Phase 1}
 PROJECT_GUIDELINES = {relevant sections from CLAUDE.md}
 CHANGED_FILES = {list from context file}
 ```
+
+### 2.1a Pass Timebox (prp-framework#151, Part 2.1)
+
+Invariant: no probe can extend a round without bound. Every reviewer pass of THIS run runs against one shared wall-clock budget, resolved once here and carried in every agent prompt (2.2/2.3). When the budget expires, agents report what they have; inconclusive probes become ONE follow-up issue (3.5) instead of blocking or extending the round.
+
+```bash
+D=.prp-output/reviews
+BUDGET_MIN="${PRP_REVIEW_PASS_BUDGET_MIN:-20}"
+printf '%s' "$BUDGET_MIN" | grep -qxE '[0-9]+' && [ "$BUDGET_MIN" -ge 1 ] && [ "$BUDGET_MIN" -le 240 ] \
+  || { echo "FATAL: PRP_REVIEW_PASS_BUDGET_MIN must be an integer 1..240 (got '$BUDGET_MIN') — fail-closed, no agents started (prp-framework#151)" >&2; exit 1; }
+rm -f "$D/pr-{NUMBER}-pass-deadline"
+DEADLINE_EPOCH=$(( $(date +%s) + BUDGET_MIN * 60 ))
+printf 'deadline=%s\nbudget_min=%s\n' "$DEADLINE_EPOCH" "$BUDGET_MIN" > "$D/pr-{NUMBER}-pass-deadline" \
+  || { echo "FATAL: cannot save the pass deadline" >&2; exit 1; }
+echo "PASS_BUDGET_MIN=$BUDGET_MIN DEADLINE_EPOCH=$DEADLINE_EPOCH"
+```
+
+Fail-closed on garbage: an unset/valid-integer budget proceeds (default 20); anything that is not an integer 1..240 is FATAL — no agents started. The budget covers ALL passes of the round together (they run in parallel and the round is one wake — see "One Wake Per Round"); the deadline is one epoch saved once per run, never re-derived by an agent. Every reviewer prompt in 2.2 and 2.3 must carry the timebox line:
+
+```
+Timebox: this pass runs under a ${PASS_BUDGET_MIN}-minute wall-clock budget for the round (deadline epoch ${DEADLINE_EPOCH}).
+Check the remaining budget BEFORE starting any new probe; a probe that cannot finish in the remaining budget is not started.
+When the budget expires: report the findings you already have; list any probe you could not finish under a "## Cut probes"
+heading (one line each: what you were trying to verify, and why it matters). Never block on an interactive prompt, and never
+let a probe extend the round — a cut probe becomes a follow-up issue, not a blocker.
+```
+
+A pass that reports with `## Cut probes` is a completed pass (its findings stand); a pass cut off mid-flight by the deadline is a timed-out pass (Phase 3's incomplete-round rules apply). Boundary: the budget gates STARTING probes, not finishing analysis already done — a pass that finishes exactly at the deadline epoch stands as completed.
 
 ### 2.1.1 Create Detached Clone for Agents
 
@@ -514,6 +605,8 @@ Agent(
   description="Review PR #{NUMBER} code quality",
   prompt="Review PR #{NUMBER} for project guideline compliance, bugs, and quality issues.
 
+Timebox: this pass runs under a ${PASS_BUDGET_MIN}-minute wall-clock budget for the round (deadline epoch ${DEADLINE_EPOCH}, from 2.1a). Check the remaining budget BEFORE starting any new probe; a probe that cannot finish in the remaining budget is not started. When the budget expires: report the findings you already have and list any probe you could not finish under a "## Cut probes" heading (one line each: what you were trying to verify, and why it matters). Never block on an interactive prompt, and never let a probe extend the round — a cut probe becomes a follow-up issue, not a blocker.
+
 Read the PR context file at: {CONTEXT_PATH}
 This file contains the PR diff, changed files list, and project guidelines.
 
@@ -558,6 +651,8 @@ Agent(
   description="Review PR #{NUMBER} security",
   prompt="Review PR #{NUMBER} for security vulnerabilities.
 
+Timebox: this pass runs under a ${PASS_BUDGET_MIN}-minute wall-clock budget for the round (deadline epoch ${DEADLINE_EPOCH}, from 2.1a). Check the remaining budget BEFORE starting any new probe; a probe that cannot finish in the remaining budget is not started. When the budget expires: report the findings you already have and list any probe you could not finish under a "## Cut probes" heading (one line each: what you were trying to verify, and why it matters). Never block on an interactive prompt, and never let a probe extend the round — a cut probe becomes a follow-up issue, not a blocker.
+
 Read the PR context file at: {CONTEXT_PATH}
 This file contains the PR diff, changed files list, and project guidelines.
 
@@ -593,6 +688,8 @@ Agent(
   subagent_type="silent-failure-hunter",
   description="Hunt silent failures PR #{NUMBER}",
   prompt="Hunt for silent failures and inadequate error handling in PR #{NUMBER}.
+
+Timebox: this pass runs under a ${PASS_BUDGET_MIN}-minute wall-clock budget for the round (deadline epoch ${DEADLINE_EPOCH}, from 2.1a). Check the remaining budget BEFORE starting any new probe; a probe that cannot finish in the remaining budget is not started. When the budget expires: report the findings you already have and list any probe you could not finish under a "## Cut probes" heading (one line each: what you were trying to verify, and why it matters). Never block on an interactive prompt, and never let a probe extend the round — a cut probe becomes a follow-up issue, not a blocker.
 
 Read the PR context file at: {CONTEXT_PATH}
 This file contains the PR diff, changed files list, and project guidelines.
@@ -646,6 +743,8 @@ Agent(
   description="Analyze dependencies PR #{NUMBER}",
   prompt="Analyze dependencies in PR #{NUMBER} for security and health.
 
+Timebox: this pass runs under a ${PASS_BUDGET_MIN}-minute wall-clock budget for the round (deadline epoch ${DEADLINE_EPOCH}, from 2.1a). Check the remaining budget BEFORE starting any new probe; a probe that cannot finish in the remaining budget is not started. When the budget expires: report the findings you already have and list any probe you could not finish under a "## Cut probes" heading (one line each: what you were trying to verify, and why it matters). Never block on an interactive prompt, and never let a probe extend the round — a cut probe becomes a follow-up issue, not a blocker.
+
 Read the PR context file at: {CONTEXT_PATH}
 
 Check for:
@@ -672,6 +771,8 @@ Agent(
   subagent_type="accessibility-reviewer",
   description="Review accessibility PR #{NUMBER}",
   prompt="Review UI code in PR #{NUMBER} for WCAG 2.1 compliance.
+
+Timebox: this pass runs under a ${PASS_BUDGET_MIN}-minute wall-clock budget for the round (deadline epoch ${DEADLINE_EPOCH}, from 2.1a). Check the remaining budget BEFORE starting any new probe; a probe that cannot finish in the remaining budget is not started. When the budget expires: report the findings you already have and list any probe you could not finish under a "## Cut probes" heading (one line each: what you were trying to verify, and why it matters). Never block on an interactive prompt, and never let a probe extend the round — a cut probe becomes a follow-up issue, not a blocker.
 
 Read the PR context file at: {CONTEXT_PATH}
 Also read the actual source files for full component context.
@@ -702,6 +803,8 @@ Agent(
   description="Analyze performance PR #{NUMBER}",
   prompt="Analyze PR #{NUMBER} for performance issues.
 
+Timebox: this pass runs under a ${PASS_BUDGET_MIN}-minute wall-clock budget for the round (deadline epoch ${DEADLINE_EPOCH}, from 2.1a). Check the remaining budget BEFORE starting any new probe; a probe that cannot finish in the remaining budget is not started. When the budget expires: report the findings you already have and list any probe you could not finish under a "## Cut probes" heading (one line each: what you were trying to verify, and why it matters). Never block on an interactive prompt, and never let a probe extend the round — a cut probe becomes a follow-up issue, not a blocker.
+
 Read the PR context file at: {CONTEXT_PATH}
 Also read the actual source files for full context.
 
@@ -730,6 +833,8 @@ Agent(
   subagent_type="type-design-analyzer",
   description="Analyze type design PR #{NUMBER}",
   prompt="Analyze type design in PR #{NUMBER}.
+
+Timebox: this pass runs under a ${PASS_BUDGET_MIN}-minute wall-clock budget for the round (deadline epoch ${DEADLINE_EPOCH}, from 2.1a). Check the remaining budget BEFORE starting any new probe; a probe that cannot finish in the remaining budget is not started. When the budget expires: report the findings you already have and list any probe you could not finish under a "## Cut probes" heading (one line each: what you were trying to verify, and why it matters). Never block on an interactive prompt, and never let a probe extend the round — a cut probe becomes a follow-up issue, not a blocker.
 
 Read the PR context file at: {CONTEXT_PATH}
 Also read the actual source files for full type context.
@@ -763,6 +868,8 @@ Agent(
   description="Review docs impact PR #{NUMBER}",
   prompt="Review PR #{NUMBER} and update any documentation affected by code changes.
 
+Timebox: this pass runs under a ${PASS_BUDGET_MIN}-minute wall-clock budget for the round (deadline epoch ${DEADLINE_EPOCH}, from 2.1a). Check the remaining budget BEFORE starting any new probe; a probe that cannot finish in the remaining budget is not started. When the budget expires: report the findings you already have and list any probe you could not finish under a "## Cut probes" heading (one line each: what you were trying to verify, and why it matters). Never block on an interactive prompt, and never let a probe extend the round — a cut probe becomes a follow-up issue, not a blocker.
+
 Read the PR context file at: {CONTEXT_PATH}
 Also read CLAUDE.md, README.md, and docs/ directory.
 
@@ -795,6 +902,8 @@ Agent(
   description="Analyze comments PR #{NUMBER}",
   prompt="Analyze code comments in PR #{NUMBER} for accuracy, completeness, and long-term value.
 
+Timebox: this pass runs under a ${PASS_BUDGET_MIN}-minute wall-clock budget for the round (deadline epoch ${DEADLINE_EPOCH}, from 2.1a). Check the remaining budget BEFORE starting any new probe; a probe that cannot finish in the remaining budget is not started. When the budget expires: report the findings you already have and list any probe you could not finish under a "## Cut probes" heading (one line each: what you were trying to verify, and why it matters). Never block on an interactive prompt, and never let a probe extend the round — a cut probe becomes a follow-up issue, not a blocker.
+
 Read the PR context file at: {CONTEXT_PATH}
 Also read the actual source files to verify comments match code behavior.
 
@@ -819,6 +928,8 @@ Agent(
   subagent_type="pr-test-analyzer",
   description="Analyze test coverage PR #{NUMBER}",
   prompt="Analyze test coverage for PR #{NUMBER}.
+
+Timebox: this pass runs under a ${PASS_BUDGET_MIN}-minute wall-clock budget for the round (deadline epoch ${DEADLINE_EPOCH}, from 2.1a). Check the remaining budget BEFORE starting any new probe; a probe that cannot finish in the remaining budget is not started. When the budget expires: report the findings you already have and list any probe you could not finish under a "## Cut probes" heading (one line each: what you were trying to verify, and why it matters). Never block on an interactive prompt, and never let a probe extend the round — a cut probe becomes a follow-up issue, not a blocker.
 
 Read the PR context file at: {CONTEXT_PATH}
 Also read the actual test files and the code they test.
@@ -898,6 +1009,29 @@ Consider running /prp-review {NUMBER} {aspect} for a single-session {aspect} rev
 ```
 
 **CRITICAL**: If any **core agent** (code-reviewer, security-reviewer, silent-failure-hunter) fails, the final verdict MUST be at minimum NEEDS FIXES with caveat: "Review incomplete — {agent-type} did not complete. Verdict may be optimistic." A READY TO MERGE verdict is never valid when a core agent is missing. (At `TIER=trivial` the one core agent is `code-reviewer`.)
+
+**Collection discipline (One Wake Per Round)**: collect ALL agent results in the SAME turn as the single completion wake — parse findings, merge `## Cut probes` sections, aggregate, record the round. Do not interleave collection with waiting, and do not emit per-agent status updates along the way (2.4).
+
+**Cut probes**: a pass that returned with a `## Cut probes` heading is a completed pass — its findings stand, and its cut-probe lines are collected for 3.5. A pass cut off mid-flight by the 2.1a deadline is a timed-out pass — the failure rules above apply, its cut probes are still collected for 3.5, and the round is NOT recorded in the rounds ledger (recording happens only after a completed posting).
+
+### 3.5 Follow-up Issue for Cut Probes (prp-framework#151, Part 2.1)
+
+If ANY pass of this run reported cut probes (or a pass was cut by the deadline with probes still open), open exactly ONE GitHub follow-up issue for the run — never one issue per probe, never a blocker for this round:
+
+```bash
+D=.prp-output/reviews
+# CUT_PROBES_COUNT and the body come from the collection step above (one entry per cut probe,
+# each naming the pass and what was being verified). With no cut probes, this block runs nothing.
+if [ "${CUT_PROBES_COUNT:-0}" -gt 0 ]; then
+  printf '%s\n' "Review follow-up for PR #{NUMBER} (round ${REVIEW_ROUND:-?}, run ${RUN_ID:-unknown}) — probes cut by the pass timebox (prp-framework#151). These were NOT verified this round; they are inconclusive, not findings:" "" "${CUT_PROBES_BODY:-}" > "$D/pr-{NUMBER}-cut-probes.md"
+  gh issue create -R "$(git remote get-url origin | sed -E 's#.*github.com[:/]##; s#\.git$##')" \
+    -t "review-followup: cut probes from PR #{NUMBER} round ${REVIEW_ROUND:-?}" \
+    --body-file "$D/pr-{NUMBER}-cut-probes.md" \
+    || echo "WARNING: could not create the cut-probes follow-up issue — body saved at $D/pr-{NUMBER}-cut-probes.md; create it by hand"
+fi
+```
+
+Link the issue URL in the round record and count the probes in the metrics line (`"cut_probes"`). A cut probe never blocks the round, never extends it, and never counts as a finding; a follow-up issue is only created when at least one probe was cut.
 
 ---
 
@@ -1359,6 +1493,33 @@ for PASS in $PASSES; do
 done
 ```
 
+After the loop prints the last URL, run **Step Cb** below in the same turn — that is what counts the round. A failed post above exits before Step Cb: an incomplete round consumes no round.
+
+**Step Cb — record the round (prp-framework#151, Part 2.2)**. The ledger keeps exactly one line, `round=<n>`; a sibling marker file makes the append idempotent per run id (a crash after posting cannot double-count; a re-run of Step Cb for the same run is a no-op):
+
+```bash
+D=.prp-output/reviews
+ROUNDS_FILE="$D/pr-{NUMBER}-review-rounds"
+REC_FILE="$D/pr-{NUMBER}-round-recorded"
+RUN_ID=$(sed -n 's/^RUN_ID=//p' "$D/pr-{NUMBER}-l2-run.env.used" 2>/dev/null)
+printf '%s' "$RUN_ID" | grep -qxE '[0-9]{8}T[0-9]{6}Z-[0-9a-f]{8}' \
+  || { echo "FATAL: no consumed run file — cannot record the round; record by hand: round=<n+1>" >&2; exit 1; }
+[ "$(cat "$REC_FILE" 2>/dev/null)" = "$RUN_ID" ] && { echo "round already recorded for run $RUN_ID — no-op"; exit 0; }
+CURRENT=0
+if [ -f "$ROUNDS_FILE" ]; then
+  [ "$(wc -l < "$ROUNDS_FILE")" -eq 1 ] || { echo "FATAL: $ROUNDS_FILE is not a valid rounds ledger (expected one line 'round=<int>') — fix by hand, round NOT recorded" >&2; exit 1; }
+  CURRENT=$(sed -n 's/^round=//p' "$ROUNDS_FILE")
+  printf '%s' "$CURRENT" | grep -qxE '[0-9]+' || { echo "FATAL: $ROUNDS_FILE is not a valid rounds ledger (expected one line 'round=<int>') — fix by hand, round NOT recorded" >&2; exit 1; }
+fi
+NEXT=$((CURRENT + 1))
+[ "$NEXT" -le 10 ] || { echo "FATAL: round 11 cannot be recorded — cap is 10 (prp-framework#151)" >&2; exit 1; }
+printf 'round=%s\n' "$NEXT" > "$ROUNDS_FILE" && printf '%s\n' "$RUN_ID" > "$REC_FILE" \
+  || { echo "FATAL: cannot write the rounds ledger — record by hand: round=$NEXT" >&2; exit 1; }
+echo "RECORDED_ROUND=$NEXT"
+```
+
+In aggregated mode (no `--l2-comments`) the same recording runs after the aggregated review is posted to GitHub and the metrics line is appended, with `RUN_ID` taken as the ISO timestamp of the post (the marker file gets that string); everything else is identical.
+
 Report the posted URLs (they are what the L2 report links, one per pass: three, or one at the trivial tier). If a post fails after an earlier one succeeded, the round is incomplete: say so on the PR (one plain comment naming the abandoned `RUN_ID`) and re-run the review with a new `RUN_ID`, since the verifier requires one run id across all three.
 
 ### Post to GitHub
@@ -1392,7 +1553,7 @@ If `PR_AUTHOR == CURRENT_USER`: skip `gh pr review` (GitHub blocks self-approval
 After publishing to GitHub, append one JSONL line to `.prp-output/reviews/review-metrics.jsonl`:
 
 ```json
-{"timestamp":"2026-03-14T10:30:00Z","pr_number":163,"branch":"feature/auth","review_type":"agents","verdict":"NEEDS_FIXES","total_issues":5,"critical":1,"important":2,"suggestions":2,"agents_run":["code-reviewer","security-reviewer","silent-failure-hunter"],"conditional_agents":["accessibility-reviewer"],"incremental":false,"large_pr":false,"lines_changed":342,"files_changed":8}
+{"timestamp":"2026-03-14T10:30:00Z","pr_number":163,"branch":"feature/auth","review_type":"agents","verdict":"NEEDS_FIXES","total_issues":5,"critical":1,"important":2,"suggestions":2,"agents_run":["code-reviewer","security-reviewer","silent-failure-hunter"],"conditional_agents":["accessibility-reviewer"],"incremental":false,"large_pr":false,"lines_changed":342,"files_changed":8,"round":2,"cut_probes":0}
 ```
 
 **Fields**:
@@ -1408,12 +1569,16 @@ After publishing to GitHub, append one JSONL line to `.prp-output/reviews/review
 - `incremental` — Whether `--since-last-review` was used
 - `large_pr` — Whether large PR strategy was applied
 - `lines_changed`, `files_changed` — PR size metrics
+- `round` — The review round number (`REVIEW_ROUND` from 2.0a; the ledger records it only after the posting completed)
+- `cut_probes` — Count of probes cut by the pass timebox (2.1a), recorded in the 3.5 follow-up issue
 
 ```bash
 # Append (creates file if not exists)
 mkdir -p .prp-output/reviews
 echo '{...}' >> .prp-output/reviews/review-metrics.jsonl || echo "WARNING: Failed to append review metrics. Review results are saved, but metrics tracking is incomplete."
 ```
+
+In aggregated mode (no `--l2-comments`), the metrics append is also the trigger to record the completed round — run Step Cb's ledger block right after this append, in the same turn, with `RUN_ID` set to the post's ISO timestamp (the `.used`-run-file lookup simply will not find a file, so substitute the timestamp; the idempotence marker file stores that string). A failed aggregated post records no round, same as L2 mode.
 
 ### `--metrics` Flag: Aggregate Summary
 
@@ -1529,6 +1694,7 @@ If implementation report references a Source PRD:
 /prp-review-agents --metrics                  # View review metrics
 /prp-review-agents 163 --no-commit            # Review without auto-committing artifact
 /prp-review-agents 163 --l2-comments          # One L2-format comment per core pass, no artifact commit, no marker (prp-framework#142)
+PRP_REVIEW_PASS_BUDGET_MIN=5 /prp-review-agents 163   # 5-minute wall-clock budget for the round's passes (2.1a)
 ```
 
 ---
@@ -1553,6 +1719,14 @@ If implementation report references a Source PRD:
 | `--l2-comments` flag provided | Implies `--no-commit`; skip the marker and the aggregated post; post one L2-format comment per core pass with the `Generated-by:` footer (see "Per-pass L2 comments") |
 | `PRP_RUN_ALL=1` env set | Same as `--no-commit` — run-all handles artifact commits in its own step |
 | Auto-commit fails (push rejected) | WARN but continue — artifact is saved locally and posted to GitHub. Display: "WARNING: Could not push review artifact to PR branch. Commit manually or use safe-merge --skip-review-check." |
+| 10 review rounds already recorded (2.0a) | FATAL "round 11 refused" — no agents spawned, nothing posted. Fix forward: land fixes, open a fresh PR, or ask a human |
+| Rounds ledger garbage (not one `round=<int>` line, or value ≥ 10) | FATAL — fail closed, refuse to start; fix the file by hand, never reset silently |
+| `PRP_REVIEW_PASS_BUDGET_MIN` garbage (non-integer, 0, >240) | FATAL — fail-closed, no agents started (2.1a) |
+| Pass budget expires mid-probe | The pass reports what it has; unfinished probes go under `## Cut probes` → one follow-up issue (3.5); the round is never extended |
+| One pass cut by the deadline, others finish | Existing incomplete-round rules: verdict floor NEEDS FIXES (aggregated) / L2 run posts nothing; finished passes' results kept; cut probes still collected for 3.5; round NOT recorded |
+| A post fails after an earlier one succeeded | Round incomplete (existing rule): plain comment naming the abandoned RUN_ID, new RUN_ID re-run; Step Cb never ran, so no round is consumed |
+| Step Cb runs twice for the same run | No-op — the recorded-run marker file makes the append idempotent |
+| `--since-last-review` at an unchanged head | Phase 0.5 exits "nothing to re-review" BEFORE 2.0a — no round consumed |
 
 ---
 
@@ -1585,3 +1759,6 @@ If implementation report references a Source PRD:
 - METRICS_COLLECTED: Review metrics appended to JSONL with review_type="agents"
 - RECOMMENDATION_CLEAR: Verdict with rationale
 - FALLBACK_AVAILABLE: Graceful fallback to /prp-review when Agent tool unavailable
+- ONE_WAKE_PER_ROUND: All passes dispatched in one message; no caller turn between dispatch and completion; no idle status pings (prp-framework#151)
+- ROUND_CAP_ENFORCED: Round 11 refused by 2.0a; a round recorded only after a completed posting (Step Cb)
+- PASS_TIMEBOX_ENFORCED: Every reviewer prompt carries the 2.1a budget; cut probes land in one follow-up issue (3.5), never extend a round
