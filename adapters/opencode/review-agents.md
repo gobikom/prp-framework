@@ -550,9 +550,11 @@ Check the remaining budget BEFORE starting any new probe; a probe that cannot fi
 When the budget expires: report the findings you already have; list any probe you could not finish under a "## Cut probes"
 heading (one line each: what you were trying to verify, and why it matters). Never block on an interactive prompt, and never
 let a probe extend the round — a cut probe becomes a follow-up issue, not a blocker.
+END your output with one exact closing line (nothing after it): "PASS COMPLETE: <pass name>" — substitute the pass name
+literally for <pass name>. A pass whose output lacks that closing line is treated as FAILED, whatever its findings say.
 ```
 
-A pass that reports with `## Cut probes` is a completed pass (its findings stand); a pass cut off mid-flight by the deadline is a timed-out pass (Phase 3's incomplete-round rules apply). Boundary: the budget gates STARTING probes, not finishing analysis already done — a pass that finishes exactly at the deadline epoch stands as completed.
+A pass that reports with `## Cut probes` AND the `PASS COMPLETE:` closing line is a completed pass (its findings stand); a pass cut off mid-flight never emits the closing line, so Phase 3's completion check treats it as a FAILED pass. Boundary: the budget gates STARTING probes, not finishing analysis already done — a pass that finishes exactly at the deadline epoch emits its closing line and stands as completed.
 
 ### 2.1.1 Create Detached Clone for Agents
 
@@ -600,7 +602,7 @@ Agent(
   description="Review PR #{NUMBER} code quality",
   prompt="Review PR #{NUMBER} for project guideline compliance, bugs, and quality issues.
 
-Timebox: this pass runs under a ${PASS_BUDGET_MIN}-minute wall-clock budget for the round (deadline epoch ${DEADLINE_EPOCH}, from 2.1a). Check the remaining budget BEFORE starting any new probe; a probe that cannot finish in the remaining budget is not started. When the budget expires: report the findings you already have and list any probe you could not finish under a "## Cut probes" heading (one line each: what you were trying to verify, and why it matters). Never block on an interactive prompt, and never let a probe extend the round — a cut probe becomes a follow-up issue, not a blocker.
+Timebox: this pass runs under a ${PASS_BUDGET_MIN}-minute wall-clock budget for the round (deadline epoch ${DEADLINE_EPOCH}, from 2.1a). Check the remaining budget BEFORE starting any new probe; a probe that cannot finish in the remaining budget is not started. When the budget expires: report the findings you already have and list any probe you could not finish under a "## Cut probes" heading (one line each: what you were trying to verify, and why it matters). Never block on an interactive prompt, and never let a probe extend the round — a cut probe becomes a follow-up issue, not a blocker. END your output with one exact closing line (nothing after it): "PASS COMPLETE: <pass name>" — substitute your pass name literally; output lacking that line is treated as a FAILED pass.
 
 Read the PR context file at: {CONTEXT_PATH}
 This file contains the PR diff, changed files list, and project guidelines.
@@ -646,7 +648,7 @@ Agent(
   description="Review PR #{NUMBER} security",
   prompt="Review PR #{NUMBER} for security vulnerabilities.
 
-Timebox: this pass runs under a ${PASS_BUDGET_MIN}-minute wall-clock budget for the round (deadline epoch ${DEADLINE_EPOCH}, from 2.1a). Check the remaining budget BEFORE starting any new probe; a probe that cannot finish in the remaining budget is not started. When the budget expires: report the findings you already have and list any probe you could not finish under a "## Cut probes" heading (one line each: what you were trying to verify, and why it matters). Never block on an interactive prompt, and never let a probe extend the round — a cut probe becomes a follow-up issue, not a blocker.
+Timebox: this pass runs under a ${PASS_BUDGET_MIN}-minute wall-clock budget for the round (deadline epoch ${DEADLINE_EPOCH}, from 2.1a). Check the remaining budget BEFORE starting any new probe; a probe that cannot finish in the remaining budget is not started. When the budget expires: report the findings you already have and list any probe you could not finish under a "## Cut probes" heading (one line each: what you were trying to verify, and why it matters). Never block on an interactive prompt, and never let a probe extend the round — a cut probe becomes a follow-up issue, not a blocker. END your output with one exact closing line (nothing after it): "PASS COMPLETE: <pass name>" — substitute your pass name literally; output lacking that line is treated as a FAILED pass.
 
 Read the PR context file at: {CONTEXT_PATH}
 This file contains the PR diff, changed files list, and project guidelines.
@@ -684,7 +686,7 @@ Agent(
   description="Hunt silent failures PR #{NUMBER}",
   prompt="Hunt for silent failures and inadequate error handling in PR #{NUMBER}.
 
-Timebox: this pass runs under a ${PASS_BUDGET_MIN}-minute wall-clock budget for the round (deadline epoch ${DEADLINE_EPOCH}, from 2.1a). Check the remaining budget BEFORE starting any new probe; a probe that cannot finish in the remaining budget is not started. When the budget expires: report the findings you already have and list any probe you could not finish under a "## Cut probes" heading (one line each: what you were trying to verify, and why it matters). Never block on an interactive prompt, and never let a probe extend the round — a cut probe becomes a follow-up issue, not a blocker.
+Timebox: this pass runs under a ${PASS_BUDGET_MIN}-minute wall-clock budget for the round (deadline epoch ${DEADLINE_EPOCH}, from 2.1a). Check the remaining budget BEFORE starting any new probe; a probe that cannot finish in the remaining budget is not started. When the budget expires: report the findings you already have and list any probe you could not finish under a "## Cut probes" heading (one line each: what you were trying to verify, and why it matters). Never block on an interactive prompt, and never let a probe extend the round — a cut probe becomes a follow-up issue, not a blocker. END your output with one exact closing line (nothing after it): "PASS COMPLETE: <pass name>" — substitute your pass name literally; output lacking that line is treated as a FAILED pass.
 
 Read the PR context file at: {CONTEXT_PATH}
 This file contains the PR diff, changed files list, and project guidelines.
@@ -738,7 +740,7 @@ Agent(
   description="Analyze dependencies PR #{NUMBER}",
   prompt="Analyze dependencies in PR #{NUMBER} for security and health.
 
-Timebox: this pass runs under a ${PASS_BUDGET_MIN}-minute wall-clock budget for the round (deadline epoch ${DEADLINE_EPOCH}, from 2.1a). Check the remaining budget BEFORE starting any new probe; a probe that cannot finish in the remaining budget is not started. When the budget expires: report the findings you already have and list any probe you could not finish under a "## Cut probes" heading (one line each: what you were trying to verify, and why it matters). Never block on an interactive prompt, and never let a probe extend the round — a cut probe becomes a follow-up issue, not a blocker.
+Timebox: this pass runs under a ${PASS_BUDGET_MIN}-minute wall-clock budget for the round (deadline epoch ${DEADLINE_EPOCH}, from 2.1a). Check the remaining budget BEFORE starting any new probe; a probe that cannot finish in the remaining budget is not started. When the budget expires: report the findings you already have and list any probe you could not finish under a "## Cut probes" heading (one line each: what you were trying to verify, and why it matters). Never block on an interactive prompt, and never let a probe extend the round — a cut probe becomes a follow-up issue, not a blocker. END your output with one exact closing line (nothing after it): "PASS COMPLETE: <pass name>" — substitute your pass name literally; output lacking that line is treated as a FAILED pass.
 
 Read the PR context file at: {CONTEXT_PATH}
 
@@ -767,7 +769,7 @@ Agent(
   description="Review accessibility PR #{NUMBER}",
   prompt="Review UI code in PR #{NUMBER} for WCAG 2.1 compliance.
 
-Timebox: this pass runs under a ${PASS_BUDGET_MIN}-minute wall-clock budget for the round (deadline epoch ${DEADLINE_EPOCH}, from 2.1a). Check the remaining budget BEFORE starting any new probe; a probe that cannot finish in the remaining budget is not started. When the budget expires: report the findings you already have and list any probe you could not finish under a "## Cut probes" heading (one line each: what you were trying to verify, and why it matters). Never block on an interactive prompt, and never let a probe extend the round — a cut probe becomes a follow-up issue, not a blocker.
+Timebox: this pass runs under a ${PASS_BUDGET_MIN}-minute wall-clock budget for the round (deadline epoch ${DEADLINE_EPOCH}, from 2.1a). Check the remaining budget BEFORE starting any new probe; a probe that cannot finish in the remaining budget is not started. When the budget expires: report the findings you already have and list any probe you could not finish under a "## Cut probes" heading (one line each: what you were trying to verify, and why it matters). Never block on an interactive prompt, and never let a probe extend the round — a cut probe becomes a follow-up issue, not a blocker. END your output with one exact closing line (nothing after it): "PASS COMPLETE: <pass name>" — substitute your pass name literally; output lacking that line is treated as a FAILED pass.
 
 Read the PR context file at: {CONTEXT_PATH}
 Also read the actual source files for full component context.
@@ -798,7 +800,7 @@ Agent(
   description="Analyze performance PR #{NUMBER}",
   prompt="Analyze PR #{NUMBER} for performance issues.
 
-Timebox: this pass runs under a ${PASS_BUDGET_MIN}-minute wall-clock budget for the round (deadline epoch ${DEADLINE_EPOCH}, from 2.1a). Check the remaining budget BEFORE starting any new probe; a probe that cannot finish in the remaining budget is not started. When the budget expires: report the findings you already have and list any probe you could not finish under a "## Cut probes" heading (one line each: what you were trying to verify, and why it matters). Never block on an interactive prompt, and never let a probe extend the round — a cut probe becomes a follow-up issue, not a blocker.
+Timebox: this pass runs under a ${PASS_BUDGET_MIN}-minute wall-clock budget for the round (deadline epoch ${DEADLINE_EPOCH}, from 2.1a). Check the remaining budget BEFORE starting any new probe; a probe that cannot finish in the remaining budget is not started. When the budget expires: report the findings you already have and list any probe you could not finish under a "## Cut probes" heading (one line each: what you were trying to verify, and why it matters). Never block on an interactive prompt, and never let a probe extend the round — a cut probe becomes a follow-up issue, not a blocker. END your output with one exact closing line (nothing after it): "PASS COMPLETE: <pass name>" — substitute your pass name literally; output lacking that line is treated as a FAILED pass.
 
 Read the PR context file at: {CONTEXT_PATH}
 Also read the actual source files for full context.
@@ -829,7 +831,7 @@ Agent(
   description="Analyze type design PR #{NUMBER}",
   prompt="Analyze type design in PR #{NUMBER}.
 
-Timebox: this pass runs under a ${PASS_BUDGET_MIN}-minute wall-clock budget for the round (deadline epoch ${DEADLINE_EPOCH}, from 2.1a). Check the remaining budget BEFORE starting any new probe; a probe that cannot finish in the remaining budget is not started. When the budget expires: report the findings you already have and list any probe you could not finish under a "## Cut probes" heading (one line each: what you were trying to verify, and why it matters). Never block on an interactive prompt, and never let a probe extend the round — a cut probe becomes a follow-up issue, not a blocker.
+Timebox: this pass runs under a ${PASS_BUDGET_MIN}-minute wall-clock budget for the round (deadline epoch ${DEADLINE_EPOCH}, from 2.1a). Check the remaining budget BEFORE starting any new probe; a probe that cannot finish in the remaining budget is not started. When the budget expires: report the findings you already have and list any probe you could not finish under a "## Cut probes" heading (one line each: what you were trying to verify, and why it matters). Never block on an interactive prompt, and never let a probe extend the round — a cut probe becomes a follow-up issue, not a blocker. END your output with one exact closing line (nothing after it): "PASS COMPLETE: <pass name>" — substitute your pass name literally; output lacking that line is treated as a FAILED pass.
 
 Read the PR context file at: {CONTEXT_PATH}
 Also read the actual source files for full type context.
@@ -863,7 +865,7 @@ Agent(
   description="Review docs impact PR #{NUMBER}",
   prompt="Review PR #{NUMBER} and update any documentation affected by code changes.
 
-Timebox: this pass runs under a ${PASS_BUDGET_MIN}-minute wall-clock budget for the round (deadline epoch ${DEADLINE_EPOCH}, from 2.1a). Check the remaining budget BEFORE starting any new probe; a probe that cannot finish in the remaining budget is not started. When the budget expires: report the findings you already have and list any probe you could not finish under a "## Cut probes" heading (one line each: what you were trying to verify, and why it matters). Never block on an interactive prompt, and never let a probe extend the round — a cut probe becomes a follow-up issue, not a blocker.
+Timebox: this pass runs under a ${PASS_BUDGET_MIN}-minute wall-clock budget for the round (deadline epoch ${DEADLINE_EPOCH}, from 2.1a). Check the remaining budget BEFORE starting any new probe; a probe that cannot finish in the remaining budget is not started. When the budget expires: report the findings you already have and list any probe you could not finish under a "## Cut probes" heading (one line each: what you were trying to verify, and why it matters). Never block on an interactive prompt, and never let a probe extend the round — a cut probe becomes a follow-up issue, not a blocker. END your output with one exact closing line (nothing after it): "PASS COMPLETE: <pass name>" — substitute your pass name literally; output lacking that line is treated as a FAILED pass.
 
 Read the PR context file at: {CONTEXT_PATH}
 Also read CLAUDE.md, README.md, and docs/ directory.
@@ -897,7 +899,7 @@ Agent(
   description="Analyze comments PR #{NUMBER}",
   prompt="Analyze code comments in PR #{NUMBER} for accuracy, completeness, and long-term value.
 
-Timebox: this pass runs under a ${PASS_BUDGET_MIN}-minute wall-clock budget for the round (deadline epoch ${DEADLINE_EPOCH}, from 2.1a). Check the remaining budget BEFORE starting any new probe; a probe that cannot finish in the remaining budget is not started. When the budget expires: report the findings you already have and list any probe you could not finish under a "## Cut probes" heading (one line each: what you were trying to verify, and why it matters). Never block on an interactive prompt, and never let a probe extend the round — a cut probe becomes a follow-up issue, not a blocker.
+Timebox: this pass runs under a ${PASS_BUDGET_MIN}-minute wall-clock budget for the round (deadline epoch ${DEADLINE_EPOCH}, from 2.1a). Check the remaining budget BEFORE starting any new probe; a probe that cannot finish in the remaining budget is not started. When the budget expires: report the findings you already have and list any probe you could not finish under a "## Cut probes" heading (one line each: what you were trying to verify, and why it matters). Never block on an interactive prompt, and never let a probe extend the round — a cut probe becomes a follow-up issue, not a blocker. END your output with one exact closing line (nothing after it): "PASS COMPLETE: <pass name>" — substitute your pass name literally; output lacking that line is treated as a FAILED pass.
 
 Read the PR context file at: {CONTEXT_PATH}
 Also read the actual source files to verify comments match code behavior.
@@ -924,7 +926,7 @@ Agent(
   description="Analyze test coverage PR #{NUMBER}",
   prompt="Analyze test coverage for PR #{NUMBER}.
 
-Timebox: this pass runs under a ${PASS_BUDGET_MIN}-minute wall-clock budget for the round (deadline epoch ${DEADLINE_EPOCH}, from 2.1a). Check the remaining budget BEFORE starting any new probe; a probe that cannot finish in the remaining budget is not started. When the budget expires: report the findings you already have and list any probe you could not finish under a "## Cut probes" heading (one line each: what you were trying to verify, and why it matters). Never block on an interactive prompt, and never let a probe extend the round — a cut probe becomes a follow-up issue, not a blocker.
+Timebox: this pass runs under a ${PASS_BUDGET_MIN}-minute wall-clock budget for the round (deadline epoch ${DEADLINE_EPOCH}, from 2.1a). Check the remaining budget BEFORE starting any new probe; a probe that cannot finish in the remaining budget is not started. When the budget expires: report the findings you already have and list any probe you could not finish under a "## Cut probes" heading (one line each: what you were trying to verify, and why it matters). Never block on an interactive prompt, and never let a probe extend the round — a cut probe becomes a follow-up issue, not a blocker. END your output with one exact closing line (nothing after it): "PASS COMPLETE: <pass name>" — substitute your pass name literally; output lacking that line is treated as a FAILED pass.
 
 Read the PR context file at: {CONTEXT_PATH}
 Also read the actual test files and the code they test.
@@ -1005,25 +1007,44 @@ Consider running /prp:review {NUMBER} {aspect} for a single-session {aspect} rev
 
 **CRITICAL**: If any **core agent** (code-reviewer, security-reviewer, silent-failure-hunter) fails, the final verdict MUST be at minimum NEEDS FIXES with caveat: "Review incomplete — {agent-type} did not complete. Verdict may be optimistic." A READY TO MERGE verdict is never valid when a core agent is missing. (At `TIER=trivial` the one core agent is `code-reviewer`.)
 
-**Collection discipline (One Wake Per Round)**: collect ALL agent results in the SAME turn as the single completion wake — parse findings, merge `## Cut probes` sections, aggregate, record the round. Do not interleave collection with waiting, and do not emit per-agent status updates along the way (2.4).
+**Collection discipline (One Wake Per Round)**: collect ALL agent results in the SAME turn as the single completion wake — check each pass's status and `PASS COMPLETE:` closing line, parse findings, merge `## Cut probes` sections, aggregate. Do not interleave collection with waiting, and do not emit per-agent status updates along the way (2.4).
 
-**Cut probes**: a pass that returned with a `## Cut probes` heading is a completed pass — its findings stand, and its cut-probe lines are collected for 3.5. A pass cut off mid-flight by the 2.1a deadline is a timed-out pass — the failure rules above apply, and its cut probes are still collected for 3.5.
+**Cut probes**: a pass that returned with a `## Cut probes` heading is a completed pass — its findings stand, and its cut-probe lines are collected for 3.5. A pass cut off mid-flight by the 2.1a deadline is a timed-out pass — the failure rules above apply, and its cut probes are still collected for 3.5 (as one entry: "pass X timed out at the budget, probes unknown").
+
+**Completion check (never count a cut pass as clean)**: for EVERY pass, verify BOTH (a) its collected exit status is 0 — statuses are collected per shell, never from a single multi-pid `wait` — and (b) its output ENDS with the exact closing line `PASS COMPLETE: <pass name>` (nothing after it). A pass failing either check — missing closing line, empty reply, non-zero status — is a **FAILED pass**: apply the failed-agent handling above, never the "no findings → note as clean" branch. A core pass that fails the check makes the verdict at minimum NEEDS FIXES ("Review incomplete — {pass} did not complete"), and an L2 run posts nothing for it. Report the per-pass status and closing-line check results in the completion summary.
 
 ### 3.5 Follow-up Issue for Cut Probes (prp-framework#151, Part 2.1)
 
-If ANY pass of this run reported cut probes (or a pass was cut by the deadline with probes still open), open exactly ONE GitHub follow-up issue for the run — never one issue per probe, never a blocker for this round:
+If ANY pass of this run reported cut probes (or a pass was cut by the deadline with probes still open — record that as one entry: "pass X timed out at the budget, probes unknown"), open exactly ONE GitHub follow-up issue for the run — never one issue per probe, never a blocker for this round.
+
+**Write the body with the Write tool or a quoted heredoc, never an unquoted shell string** — probe text quotes PR-derived content, and a line like `$(curl …|sh)` must never become command substitution on the review host. The body is written to a temp file **OUTSIDE the repo checkout** (`mktemp` under `${TVD:-/tmp}`) — never under `.prp-output/`: the review runs inside the PR's own tree, `.prp-output/reviews/*` is tracked in this repo, so a PR could commit that path as a symlink and redirect the write at a writable target, or make the post leak a readable file. Write and post are chained; every exit status is checked; nothing is posted when the write fails:
 
 ```bash
-D=.prp-output/reviews
-# CUT_PROBES_COUNT and the body come from the collection step above (one entry per cut probe,
-# each naming the pass and what was being verified). With no cut probes, this block runs nothing.
-if [ "${CUT_PROBES_COUNT:-0}" -gt 0 ]; then
-  printf '%s\n' "Review follow-up for PR #{NUMBER} — probes cut by the pass timebox (prp-framework#151). These were NOT verified this round; they are inconclusive, not findings:" "" "${CUT_PROBES_BODY:-}" > "$D/pr-{NUMBER}-cut-probes.md"
-  gh issue create -R "$(git remote get-url origin | sed -E 's#.*github.com[:/]##; s#\.git$##')" \
-    -t "review-followup: cut probes from PR #{NUMBER}" \
-    --body-file "$D/pr-{NUMBER}-cut-probes.md" \
-    || echo "WARNING: could not create the cut-probes follow-up issue — body saved at $D/pr-{NUMBER}-cut-probes.md; create it by hand"
+TVD="$(mktemp -d "${TVD:-/tmp}/prp-cut-probes.XXXXXX")" \
+  || { echo "FATAL: cannot create a temp dir for the cut-probes body — the follow-up was NOT posted; create the issue by hand" >&2; exit 1; }
+BODY_F="$TVD/body.md"
+# CUT_PROBES_COUNT is a base-10 integer, no leading zeros — anything else fails closed (like the budget).
+if printf '%s' "${CUT_PROBES_COUNT:+set}" | grep -q set && ! printf '%s' "${CUT_PROBES_COUNT:-0}" | grep -qxE '0|[1-9][0-9]*'; then
+  echo "FATAL: CUT_PROBES_COUNT must be a base-10 integer with no leading zeros (got '${CUT_PROBES_COUNT:-}') — the collection step above must pass a real count; the follow-up was NOT posted" >&2; rm -rf -- "$TVD"; exit 1
 fi
+printf '%s' "${CUT_PROBES_COUNT:-0}" | grep -qxE '0|[1-9][0-9]*' || { echo "no cut probes — no follow-up issue"; rm -rf -- "$TVD"; exit 0; }
+[ "${CUT_PROBES_COUNT:-0}" -gt 0 ] || { echo "no cut probes — no follow-up issue"; rm -rf -- "$TVD"; exit 0; }
+# Write the body as a QUOTED heredoc (never an unquoted string: probe text quotes PR-derived
+# content, and $(…) must not become command substitution). One entry per cut probe, each naming
+# the pass and what was being verified; substitute the collected entries for the marker line.
+cat > "$BODY_F" <<'PRP_CUT_PROBES_BODY'
+Review follow-up for PR #{NUMBER} — probes cut by the pass timebox (prp-framework#151).
+These were NOT verified this round; they are inconclusive, not findings:
+
+PRP_CUT_PROBES_ENTRIES
+PRP_CUT_PROBES_BODY
+[ -s "$BODY_F" ] && [ -f "$BODY_F" ] && [ ! -L "$BODY_F" ] \
+  || { echo "FATAL: $BODY_F is missing, empty or not a regular file — the follow-up was NOT posted and nothing was saved; create the issue by hand" >&2; rm -rf -- "$TVD"; exit 1; }
+gh issue create -R "$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null || git remote get-url origin | sed -E 's#.*github.com[:/]##; s#\.git$##')" \
+  -t "review-followup: cut probes from PR #{NUMBER}" \
+  --body-file "$BODY_F" \
+  && rm -rf -- "$TVD" \
+  || { echo "WARNING: could not create the cut-probes follow-up issue — the body is still at $BODY_F; create it by hand or re-run gh" >&2; exit 0; }
 ```
 
 Link the issue URL in the round record and count the probes in the metrics line (`"cut_probes"`). A cut probe never blocks the round, never extends it, and never counts as a finding; a follow-up issue is only created when at least one probe was cut.
@@ -1688,8 +1709,10 @@ PRP_REVIEW_PASS_BUDGET_MIN=5 /prp:review-agents 163   # 5-minute wall-clock budg
 | `PRP_REVIEW_PASS_BUDGET_MIN` garbage (non-integer, leading zeros like 08/010, 0, >240) | FATAL — fail-closed, no agents started, no deadline file (2.1a; 08 would parse octal and 010 would silently mean 8 — both rejected) |
 | `--since-last-review` at an unchanged head | Phase 0.5 exits "nothing to re-review" before any agent runs |
 | Pass budget expires mid-probe | The pass reports what it has; unfinished probes go under `## Cut probes` → one follow-up issue (3.5); the round is never extended |
-| One pass cut by the deadline, others finish | Existing incomplete-round rules: verdict floor NEEDS FIXES (aggregated) / L2 run posts nothing; finished passes' results kept; cut probes still collected for 3.5 |
+| One pass cut by the deadline, others finish | The cut pass has no `PASS COMPLETE:` closing line → FAILED pass: verdict floor NEEDS FIXES (aggregated) / L2 run posts nothing; finished passes' results kept; cut probes still collected for 3.5 |
 | The pass-deadline path is a symlink or non-regular file | FATAL — the timebox write refuses to follow symlinks (no `.tmp` write-through); fix the path by hand |
+| A pass reply without the exact `PASS COMPLETE: <pass name>` closing line (or with a non-zero shell status) | FAILED pass — failed-agent handling, never "no findings → clean"; a core pass failing it floors the verdict at NEEDS FIXES |
+| A single multi-pid `wait` used for the background-shell pattern | Wrong — it returns only the last pid's status; collect each shell's status individually (per-pid `wait` or `.rc` files) |
 
 ---
 
@@ -1723,4 +1746,4 @@ PRP_REVIEW_PASS_BUDGET_MIN=5 /prp:review-agents 163   # 5-minute wall-clock budg
 - RECOMMENDATION_CLEAR: Verdict with rationale
 - FALLBACK_AVAILABLE: Graceful fallback to /prp:review when Agent tool unavailable
 - ONE_WAKE_PER_ROUND: All passes dispatched in one message; no caller turn between dispatch and completion; no idle status pings (prp-framework#151)
-- PASS_TIMEBOX_ENFORCED: Every reviewer prompt carries the 2.1a budget; cut probes land in one follow-up issue (3.5), never extend a round
+- PASS_TIMEBOX_ENFORCED: Every reviewer prompt carries the 2.1a budget and ends with the `PASS COMPLETE: <pass name>` closing line; a pass lacking the line (or with non-zero status) is FAILED, never clean; cut probes land in one follow-up issue (3.5), never extend a round

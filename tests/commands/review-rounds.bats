@@ -23,15 +23,17 @@ setup() {
   # gh stub: issue create logs its args; nothing else is needed by these blocks.
   cat > bin/gh <<'EOF'
 #!/usr/bin/env bash
-if [ "$1" = "issue" ] && [ "$2" = "create" ]; then
+if [ "$1 $2" = "issue create" ]; then
   echo "$@" >> "$ISSUE_LOG"
   echo "https://github.com/o/r/issues/$(( $(wc -l < "$ISSUE_LOG") ))"
   exit 0
 fi
+if [ "$1 $2" = "repo view" ]; then echo "o/r"; exit 0; fi
 exit 2
 EOF
   chmod +x bin/gh
-  export PATH="$WORK/bin:$PATH" ISSUE_LOG="$WORK/issues.log"
+  export PATH="$WORK/bin:$PATH" ISSUE_LOG="$WORK/issues.log" TVD="$WORK/tvd"
+  mkdir -p "$TVD"
   : > "$ISSUE_LOG"
   block "### 2.1a" > budget.sh
   block "### 3.5" > followup.sh
@@ -49,6 +51,10 @@ teardown() { rm -rf "$WORK"; }
   grep -q "No idle status pings" "$ADAPTER"
   # every reviewer prompt carries the timebox: 1 template in 2.1a + 10 agent prompts
   [ "$(grep -c 'Timebox: this pass runs under' "$ADAPTER")" -eq 11 ]
+  # every reviewer prompt (plus the 2.1a template) ends with the PASS COMPLETE closing line
+  [ "$(grep -c 'END your output with one exact closing line' "$ADAPTER")" -eq 11 ]
+  grep -q "PASS COMPLETE: <pass name>" "$ADAPTER"
+  grep -q 'Completion check (never count a cut pass as clean)' "$ADAPTER"
 }
 
 @test "no Part 2.2 machinery remains in the adapter (scope-cut to 154)" {
@@ -148,31 +154,68 @@ teardown() { rm -rf "$WORK"; }
   [ -z "$(ls -A .prp-output/reviews | grep -F 'pass-deadline.')" ]
 }
 
-# ─── 3.5 follow-up issue for cut probes ───────────────────────────
+# ─── 3.5 follow-up issue for cut probes (out-of-tree body) ────────
 
-@test "cut probes create exactly one follow-up issue carrying every probe" {
-  export CUT_PROBES_COUNT=2 CUT_PROBES_BODY="- [security-reviewer] reachability of the /admin route
-- [silent-failure-hunter] exit-code path of the cleanup script"
+body() {  # the collection step writes the body with the Write tool / quoted heredoc
+  d=$(ls -dt "$TVD"/prp-cut-probes.* 2>/dev/null | head -1)
+  printf 'Review follow-up for PR #7 — probes cut by the pass timebox.\n\n%s\n' "$1" > "$d/body.md"
+}
+
+@test "cut probes create exactly one follow-up issue, body written outside the repo tree" {
+  export CUT_PROBES_COUNT=2
   run bash followup.sh
   [ "$status" -eq 0 ]
   [ "$(wc -l < "$ISSUE_LOG")" -eq 1 ]
   [[ "$output" == *"issues/1"* ]]
   run grep -c "review-followup: cut probes from PR #7" "$ISSUE_LOG"
   [ "$output" -eq 1 ]
-  grep -q "reachability of the /admin route" .prp-output/reviews/pr-7-cut-probes.md
-  grep -q "exit-code path of the cleanup script" .prp-output/reviews/pr-7-cut-probes.md
+  # the body never landed in the repo's .prp-output tree
+  [ ! -e .prp-output/reviews/pr-7-cut-probes.md ]
 }
 
 @test "no cut probes create no issue" {
   export CUT_PROBES_COUNT=0
   run bash followup.sh
   [ "$status" -eq 0 ]
+  [[ "$output" == *"no cut probes"* ]]
   [ "$(wc -l < "$ISSUE_LOG")" -eq 0 ]
-  [ ! -f .prp-output/reviews/pr-7-cut-probes.md ]
 }
 
-@test "a failing gh issue create warns but does not fail the round" {
-  export CUT_PROBES_COUNT=1 CUT_PROBES_BODY="- probe"
+@test "a garbage CUT_PROBES_COUNT fails closed instead of silently skipping" {
+  for bad in abc "2 3" 08; do
+    export CUT_PROBES_COUNT="$bad"
+    run bash followup.sh
+    [ "$status" -ne 0 ] || { echo "count '$bad' was accepted"; return 1; }
+  done
+  [ "$(wc -l < "$ISSUE_LOG")" -eq 0 ]
+}
+
+@test "a planted symlink at the old in-tree path is never followed and the victim is untouched" {
+  victim="$WORK/victim.txt"
+  printf 'do-not-overwrite\n' > "$victim"
+  mkdir -p .prp-output/reviews
+  ln -s "$victim" .prp-output/reviews/pr-7-cut-probes.md
+  export CUT_PROBES_COUNT=1
+  run bash followup.sh
+  [ "$status" -eq 0 ]
+  [ "$(cat "$victim")" = "do-not-overwrite" ]          # victim untouched
+  [ "$(wc -l < "$ISSUE_LOG")" -eq 1 ]                  # the issue still posted, from the out-of-tree body
+  [ -L .prp-output/reviews/pr-7-cut-probes.md ]        # the planted link itself is left alone
+}
+
+@test "a write failure posts nothing and never claims the body was saved" {
+  export CUT_PROBES_COUNT=2
+  chmod 555 "$TVD"   # the temp dir cannot be created -> the body write fails before gh runs
+  run bash followup.sh
+  chmod 755 "$TVD"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"the follow-up was NOT posted"* ]]
+  [[ "$output" != *"saved"* ]]                          # no false 'saved' message
+  [ "$(wc -l < "$ISSUE_LOG")" -eq 0 ]                   # nothing posted
+}
+
+@test "a failing gh issue create warns and keeps the body at the temp path" {
+  export CUT_PROBES_COUNT=1
   cat > bin/gh <<'EOF'
 #!/usr/bin/env bash
 exit 1
@@ -181,5 +224,24 @@ EOF
   run bash followup.sh
   [ "$status" -eq 0 ]
   [[ "$output" == *"WARNING: could not create the cut-probes follow-up issue"* ]]
-  [ -f .prp-output/reviews/pr-7-cut-probes.md ]
+  d=$(ls -dt "$TVD"/prp-cut-probes.* 2>/dev/null | head -1)
+  [ -n "$d" ] && [ -f "$d/body.md" ]                    # body kept for a by-hand retry
+}
+
+# ─── PASS COMPLETE closing line (Phase 3 completion check) ────────
+
+@test "a pass output without the PASS COMPLETE closing line is a FAILED pass" {
+  out="### Critical Issues (0 found)\nNone."
+  # simulate the Phase 3 check on a reply lacking the closing line
+  printf '%b' "$out\n" > "$WORK/pass-reply.md"
+  ! tail -n 1 "$WORK/pass-reply.md" | grep -qxE "PASS COMPLETE: code-reviewer"
+  # a core pass failing the check -> verdict floor NEEDS FIXES (prompt prescribes this; the
+  # structure test below pins the rule text exists)
+  grep -q "Completion check (never count a cut pass as clean)" "$ADAPTER"
+  grep -q "FAILED pass" "$ADAPTER"
+}
+
+@test "a pass output with the exact closing line counts as completed" {
+  printf '### Critical Issues (0 found)\nNone.\nPASS COMPLETE: code-reviewer\n' > "$WORK/pass-reply.md"
+  tail -n 1 "$WORK/pass-reply.md" | grep -qxE "PASS COMPLETE: code-reviewer"
 }
