@@ -758,6 +758,8 @@ run-all สร้าง state file `.prp-output/state/run-all.state.md` เพ�
 
 **Output**: `.prp-output/reviews/pr-{number}-agents-review.md`
 
+**รอบการ review ตื่นครั้งเดียวเสมอ** (prp-framework#151): หนึ่งรอบ = caller ถูกปลุกหนึ่งครั้ง (dispatch ครั้งเดียว รอแบบ blocking ไม่มี status ping ระหว่างรอ) · (pass timebox กับตัวจำกัดจำนวนรอบแยกไปที่ #154)
+
 ---
 
 ## Debugging & Issues

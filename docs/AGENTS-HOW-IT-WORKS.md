@@ -391,6 +391,8 @@ PRP มี multi-agent review 2 แบบที่ต่างกัน:
 
 **เป้าหมาย**: ตรวจ diff ก่อน merge
 
+**ขอบเขตของหนึ่งรอบ** (prp-framework#151): dispatch ทุก pass ใน message เดียว → รอแบบ blocking → caller ตื่นครั้งเดียวพร้อมผลครบ (ไม่มี status ping ระหว่างรอ) · (pass timebox กับตัวจำกัดจำนวนรอบแยกไปที่ #154)
+
 ```
 Flow:
 

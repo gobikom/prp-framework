@@ -308,6 +308,47 @@ Suggested splits based on file categories:
 
 ---
 
+## One Wake Per Round (prp-framework#151, Part 1 + 2.4)
+
+Invariant: a review round costs the caller one context read. The calling (main) session
+dispatches this round, waits, and is woken ONCE with the completed result — not once per
+reviewer. Every rule below follows from that.
+
+**Wake discipline** (applies to core AND conditional agents):
+
+- **Dispatch all passes of the round in ONE message.** The core agents are already spawned in
+  a single message (2.2); conditional agents join that same message (or, when their need is
+  only discovered after diff analysis, are dispatched in one further message — never one
+  message per agent).
+- **Take no caller turn between dispatch and completion.** After the dispatch message returns,
+  the session waits. It does not write status lines, does not collect partial results, does
+  not respond to per-agent completion notifications with separate turns, and does not poll.
+  Collection (Phase 3) starts only after ALL agents of the round have returned.
+- **Blocking wait is the mechanism, not a suggestion.** With the Agent tool, the parallel
+  calls in one message already block until all results return — keep it that way. When the
+  runtime can only launch reviewers as background shells (one completion notification per
+  shell), the wake cost moves to the caller; in that case, launch all shells, then wait for
+  ALL of them as ONE blocking unit in the SAME turn, and do not report between waits — the
+  single completion wake carries every result. A `wait` over several pids at once returns
+  only the LAST pid's status, which can hide a failed pass: collect each shell's own status
+  (one `wait` per pid, or one `.rc` file per shell) so the existing failed/timed-out agent
+  handling sees every failure. A non-zero or missing pass status counts as a failed pass —
+  the existing handling applies. This changes WHEN the caller wakes, not how failures are
+  judged: a pass that fails or returns nothing usable is handled exactly as before.
+- **No idle status pings (Part 2.4).** Report on state changes only: one dispatch line at
+  dispatch, one completion summary when the round is done. Never post or emit "still
+  waiting on {agent}", never relay per-agent progress, never ping the caller (or a watchdog)
+  merely to say the review is running. If a human asks for status, answer — but do not
+  volunteer idle pings.
+- **One round record, one decision.** After the single completion wake, the caller writes the
+  round's record (metrics, verdict) and makes the round decision in that same
+  turn. There is no second wake for "the round finished".
+
+This section changes WHEN the caller is woken, not WHAT the round produces: agent dispatch,
+per-pass L2 comments, provenance footers, artifacts and the safe-merge marker are unchanged.
+
+---
+
 ## Per-File Review Checklist
 
 For EVERY changed file, the relevant agent should check against these 8 categories:
@@ -1584,5 +1625,7 @@ If implementation report references a Source PRD:
 - METRICS_COLLECTED: Review metrics appended to JSONL with review_type="agents"
 - RECOMMENDATION_CLEAR: Verdict with rationale
 - FALLBACK_AVAILABLE: Graceful fallback to /prp-core:prp-review when Agent tool unavailable
+- ONE_WAKE_PER_ROUND: All passes dispatched in one message; no caller turn between dispatch and completion; no idle status pings (prp-framework#151)
+
 
 </process>
