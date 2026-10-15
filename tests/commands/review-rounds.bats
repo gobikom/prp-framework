@@ -2,9 +2,11 @@
 # Behaviour tests for prp-review-agents round discipline (prp-framework#151,
 # Parts 1 / 2.1 / 2.4 only — Part 2.2, the enforced round cap, was scope-cut to
 # gobikom/prp-framework#154). Covered here: the 2.1a pass timebox (base-10,
-# fail-closed, symlink-safe deadline write) and the 3.5 cut-probes follow-up
-# issue. The bash fences are extracted from the generated claude-code adapter
-# and run as separate shells — as an agent does.
+# fail-closed, symlink-safe deadline write), the 2.1b round status dir, the
+# 3.1/3.2 per-pass completion proof (status files + one mechanical gate), and
+# the 3.5 cut-probes follow-up issue (file-assembled body, no heredoc, no
+# interpolation of reviewer-derived bytes). The bash fences are extracted from
+# the generated claude-code adapter and run as separate shells — as an agent does.
 #
 # Run: bats tests/commands/review-rounds.bats
 
@@ -37,7 +39,8 @@ EOF
   : > "$ISSUE_LOG"
   block "### 2.1a" > budget.sh
   block "### 3.5" > followup.sh
-  [ -s budget.sh ] && [ -s followup.sh ]
+  block "### 3.2" > gate.sh
+  [ -s budget.sh ] && [ -s followup.sh ] && [ -s gate.sh ]
 }
 
 teardown() { rm -rf "$WORK"; }
@@ -57,6 +60,26 @@ teardown() { rm -rf "$WORK"; }
   grep -q 'Completion check (never count a cut pass as clean)' "$ADAPTER"
 }
 
+@test "the pass name in every PASS COMPLETE prompt is a pinned literal, never free text" {
+  # 10 agent prompts pin their own subagent_type; the 2.1a template keeps the placeholder
+  [ "$(grep -c 'is the fixed pass name; never paraphrase' "$ADAPTER")" -eq 10 ]
+  for p in code-reviewer security-reviewer silent-failure-hunter dependency-analyzer \
+           accessibility-reviewer performance-analyzer type-design-analyzer \
+           docs-impact-agent comment-analyzer pr-test-analyzer; do
+    grep -q "PASS COMPLETE: $p" "$ADAPTER"
+  done
+}
+
+@test "no multi-pid wait is prescribed anywhere; the per-pid pattern is" {
+  # the prescriptive example is per-pid waits; the multi-pid form appears ONLY inside
+  # the FORBIDDEN-explanation prose (quoted there without dollar signs)
+  ! grep -qF 'wait "$pid1" "$pid2"' "$ADAPTER"
+  ! grep -qF 'wait "$pid1" "$pid2" "$pid3"' "$ADAPTER"
+  grep -qF 'wait "$pid1"; rc1=$?; wait "$pid2"; rc2=$?; wait "$pid3"; rc3=$?' "$ADAPTER"
+  grep -q "Never report between waits" "$ADAPTER"
+  grep -q "multi-pid form is FORBIDDEN" "$ADAPTER"
+}
+
 @test "no Part 2.2 machinery remains in the adapter (scope-cut to 154)" {
   ! grep -q "2\.0a" "$ADAPTER"
   ! grep -q "Step Cb" "$ADAPTER"
@@ -65,7 +88,7 @@ teardown() { rm -rf "$WORK"; }
   ! grep -q "round-recorded" "$ADAPTER"
   ! grep -q "review-rounds" "$ADAPTER"
   ! grep -q "round 11" "$ADAPTER"
-  # exactly ONE 'If this block prints FATAL' note for 2.0/2.1.1 (no duplicated paragraphs)
+  # exactly TWO 'If this block prints FATAL' notes for 2.0/2.1.1 (no duplicated paragraphs)
   [ "$(grep -c 'If this block prints FATAL' "$ADAPTER")" -eq 2 ]
   # no glued-sentence artefacts from the removed sections
   ! grep -q 'every mode\.A ' "$ADAPTER"
@@ -154,39 +177,241 @@ teardown() { rm -rf "$WORK"; }
   [ -z "$(ls -A .prp-output/reviews | grep -F 'pass-deadline.')" ]
 }
 
-# ─── 3.5 follow-up issue for cut probes (out-of-tree body) ────────
+# ─── 2.1b round status dir + 3.1 writer + 3.2 completion gate ─────
 
-body() {  # the collection step writes the body with the Write tool / quoted heredoc
-  d=$(ls -dt "$TVD"/prp-cut-probes.* 2>/dev/null | head -1)
-  printf 'Review follow-up for PR #7 — probes cut by the pass timebox.\n\n%s\n' "$1" > "$d/body.md"
+statusdir_setup() {  # all three passes complete: the post-allowed fixture
+  SD="$(mktemp -d)"
+  printf '%s\n' "$SD" > .prp-output/reviews/pr-7-status-dir
+  printf 'standard\n' > .prp-output/reviews/pr-7-tier
+  for p in code-reviewer security-reviewer silent-failure-hunter; do
+    printf 'pass=%s\nrc=0\ncomplete=yes\n' "$p" > "$SD/$p.status"
+  done
+  export SD
 }
 
-@test "cut probes create exactly one follow-up issue, body written outside the repo tree" {
-  export CUT_PROBES_COUNT=2
+@test "2.1b mints an out-of-tree status dir and saves its path symlink-safe" {
+  block "### 2.1b" > sdir.sh
+  [ -s sdir.sh ]
+  victim="$WORK/victim.txt"; printf 'keep\n' > "$victim"
+  ln -s "$victim" .prp-output/reviews/pr-7-status-dir
+  run bash sdir.sh
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"is a symlink"* ]]
+  [ "$(cat "$victim")" = "keep" ]
+  rm .prp-output/reviews/pr-7-status-dir
+  # production default: TVD unset → the dir is minted under /tmp, OUTSIDE the repo tree
+  run env -u TVD bash sdir.sh
+  [ "$status" -eq 0 ]
+  [[ "$output" == "STATUS_DIR="* ]]
+  dir=$(cat .prp-output/reviews/pr-7-status-dir)
+  case "$dir" in
+    /tmp/prp-round-status.??????) : ;;                 # mktemp-minted, unpredictable suffix
+    *) echo "unexpected status dir: $dir"; return 1 ;;
+  esac
+  [ -d "$dir" ] && [ ! -L "$dir" ]
+  [ "$(stat -c %a "$dir")" = "700" ]
+  rm -rf -- "$dir"
+}
+
+@test "3.2 boundary: all three complete → the gate passes (post allowed)" {
+  statusdir_setup
+  run bash gate.sh
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"completion proven for: code-reviewer security-reviewer silent-failure-hunter"* ]]
+}
+
+@test "3.2 boundary: one pass rc=1 → FATAL, nothing posted" {
+  statusdir_setup
+  printf 'pass=code-reviewer\nrc=1\ncomplete=yes\n' > "$SD/code-reviewer.status"
+  run bash gate.sh
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"code-reviewer did not complete"* ]]
+}
+
+@test "3.2 boundary: one pass missing its completion line (complete=no) → FATAL" {
+  statusdir_setup
+  printf 'pass=security-reviewer\nrc=0\ncomplete=no\n' > "$SD/security-reviewer.status"
+  run bash gate.sh
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"security-reviewer did not complete"* ]]
+}
+
+@test "3.2 boundary: one status file missing → FATAL" {
+  statusdir_setup
+  rm "$SD/silent-failure-hunter.status"
+  run bash gate.sh
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"silent-failure-hunter.status missing"* ]]
+}
+
+@test "3.2 boundary: a symlinked status path is refused and the target untouched" {
+  statusdir_setup
+  victim="$WORK/victim2.txt"; printf 'do-not-overwrite\n' > "$victim"
+  rm "$SD/security-reviewer.status"
+  ln -s "$victim" "$SD/security-reviewer.status"
+  run bash gate.sh
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"is a symlink"* ]]
+  [ "$(cat "$victim")" = "do-not-overwrite" ]   # victim untouched
+  [ -L "$SD/security-reviewer.status" ]         # the link itself is left for hand repair
+}
+
+@test "3.2 boundary: wrong pass name in the status file → FATAL" {
+  statusdir_setup
+  printf 'pass=code-review\nrc=0\ncomplete=yes\n' > "$SD/code-reviewer.status"
+  run bash gate.sh
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"code-reviewer did not complete"* ]]
+}
+
+@test "3.2 boundary: no tier / no status dir → FATAL (unproven, nothing posted)" {
+  statusdir_setup
+  rm .prp-output/reviews/pr-7-tier
+  run bash gate.sh
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"no tier saved by 2.0b"* ]]
+  statusdir_setup
+  rm .prp-output/reviews/pr-7-status-dir
+  run bash gate.sh
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"no status dir saved by 2.1b"* ]]
+}
+
+@test "3.2 at TIER=trivial gates on the one core pass only" {
+  statusdir_setup
+  printf 'trivial\n' > .prp-output/reviews/pr-7-tier
+  rm "$SD/security-reviewer.status" "$SD/silent-failure-hunter.status"
+  run bash gate.sh
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"completion proven for: code-reviewer"* ]]
+}
+
+@test "3.1 records pass/rc/complete from the pass outputs and per-pid statuses" {
+  block "### 3.1" > writer.sh
+  [ -s writer.sh ]
+  SD="$(mktemp -d)"
+  printf '%s\n' "$SD" > .prp-output/reviews/pr-7-status-dir
+  printf '## Findings\nnone\nPASS COMPLETE: code-reviewer\n' > "$SD/code-reviewer.out"
+  printf '## Findings\nnone\nPASS COMPLETE: security-reviewer\n' > "$SD/security-reviewer.out"
+  printf '## Findings\nnone\n' > "$SD/silent-failure-hunter.out"   # no closing line
+  export SD rc1=0 rc2=0 rc3=0
+  run bash writer.sh
+  [ "$status" -eq 0 ]
+  [ "$(cat "$SD/code-reviewer.status")" = "$(printf 'pass=code-reviewer\nrc=0\ncomplete=yes')" ]
+  [ "$(cat "$SD/security-reviewer.status")" = "$(printf 'pass=security-reviewer\nrc=0\ncomplete=yes')" ]
+  [ "$(cat "$SD/silent-failure-hunter.status")" = "$(printf 'pass=silent-failure-hunter\nrc=0\ncomplete=no')" ]
+}
+
+@test "3.1 with a non-zero per-pid status records rc=1 (the gate then refuses to post)" {
+  block "### 3.1" > writer.sh
+  SD="$(mktemp -d)"
+  printf '%s\n' "$SD" > .prp-output/reviews/pr-7-status-dir
+  for p in code-reviewer security-reviewer silent-failure-hunter; do
+    printf 'PASS COMPLETE: %s\n' "$p" > "$SD/$p.out"
+  done
+  export SD rc1=1 rc2=0 rc3=0
+  run bash writer.sh
+  [ "$status" -eq 0 ]
+  [ "$(sed -n 2p "$SD/code-reviewer.status")" = "rc=1" ]
+  printf 'standard\n' > .prp-output/reviews/pr-7-tier
+  run bash gate.sh
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"code-reviewer did not complete"* ]]
+}
+
+# ─── 3.5 follow-up issue for cut probes (file-assembled body) ─────
+
+entries() {  # the collection step writes the entries file with the Write tool
+  printf '%s\n' "$@" > "$TVD/prp-cut-probes-entries.md"
+}
+
+@test "cut probes create exactly one follow-up issue, body assembled out-of-tree by concatenation" {
+  entries '1. probe: does X handle Y (code-reviewer)' '2. probe: Z edge case (security-reviewer)'
+  export CUT_PROBES_COUNT=2 CUT_PROBES_ENTRIES_F="$TVD/prp-cut-probes-entries.md"
   run bash followup.sh
   [ "$status" -eq 0 ]
   [ "$(wc -l < "$ISSUE_LOG")" -eq 1 ]
-  [[ "$output" == *"issues/1"* ]]
-  run grep -c "review-followup: cut probes from PR #7" "$ISSUE_LOG"
-  [ "$output" -eq 1 ]
-  # the body never landed in the repo's .prp-output tree
-  [ ! -e .prp-output/reviews/pr-7-cut-probes.md ]
+  [[ "$output" == *"cut-probes follow-up posted"* ]]
+  # the posted body: header + entries + footer, assembled by cat/printf — and the probe
+  # lines appear as literal text (bytes flowed file→file)
+  d=$(ls -dt "$TVD"/prp-cut-probes.* 2>/dev/null | head -1)   # already removed on success
+  [ -z "${d:-}" ] || [ ! -f "$d/body.md" ]
+  [ ! -e .prp-output/reviews/pr-7-cut-probes.md ]   # nothing in the repo tree
+}
+
+@test "a probe line equal to any heredoc delimiter is inert text, not a terminator" {
+  # 3.5 uses NO heredoc at all now — pin that, and prove the adversarial line survives
+  # as literal bytes through the file→file assembly
+  ! grep -q "PRP_CUT_PROBES_BODY" "$ADAPTER"
+  ! grep -q "PRP_HDR" "$ADAPTER"
+  entries '1. probe: PRP_CUT_PROBES_BODY' '2. probe: PRP_HDR' '3. probe: EOF'
+  export CUT_PROBES_COUNT=3 CUT_PROBES_ENTRIES_F="$TVD/prp-cut-probes-entries.md"
+  cat > bin/gh <<'EOF'
+#!/usr/bin/env bash
+if [ "$1 $2" = "issue create" ]; then
+  f=""; while [ $# -gt 0 ]; do [ "$1" = "--body-file" ] && f="$2"; shift; done
+  cp "$f" "$ISSUE_LOG.body"
+  echo "https://github.com/o/r/issues/1"
+  exit 0
+fi
+if [ "$1 $2" = "repo view" ]; then echo "o/r"; exit 0; fi
+exit 2
+EOF
+  chmod +x bin/gh
+  run bash followup.sh
+  [ "$status" -eq 0 ]
+  [ -f "$ISSUE_LOG.body" ]
+  grep -qF '1. probe: PRP_CUT_PROBES_BODY' "$ISSUE_LOG.body"
+  grep -qF '2. probe: PRP_HDR' "$ISSUE_LOG.body"
+  grep -qF '3. probe: EOF' "$ISSUE_LOG.body"
+  grep -qF 'Review follow-up for PR #7' "$ISSUE_LOG.body"
 }
 
 @test "no cut probes create no issue" {
-  export CUT_PROBES_COUNT=0
+  export CUT_PROBES_COUNT=0 CUT_PROBES_ENTRIES_F="$TVD/prp-cut-probes-entries.md"
   run bash followup.sh
   [ "$status" -eq 0 ]
   [[ "$output" == *"no cut probes"* ]]
   [ "$(wc -l < "$ISSUE_LOG")" -eq 0 ]
 }
 
+@test "an unset CUT_PROBES_COUNT also means no probes (no issue, exit 0)" {
+  run env -u CUT_PROBES_COUNT bash followup.sh
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"no cut probes"* ]]
+  [ "$(wc -l < "$ISSUE_LOG")" -eq 0 ]
+}
+
+@test "a set-but-empty or multi-line CUT_PROBES_COUNT is FATAL, never 'no cut probes'" {
+  for bad in "" "2 3" "$(printf '2\n3')"; do
+    export CUT_PROBES_COUNT="$bad" CUT_PROBES_ENTRIES_F="$TVD/prp-cut-probes-entries.md"
+    run bash followup.sh
+    [ "$status" -ne 0 ] || { echo "count '$bad' was accepted"; return 1; }
+    [[ "$output" == *"CUT_PROBES_COUNT must be"* ]]
+  done
+  [ "$(wc -l < "$ISSUE_LOG")" -eq 0 ]
+}
+
 @test "a garbage CUT_PROBES_COUNT fails closed instead of silently skipping" {
-  for bad in abc "2 3" 08; do
-    export CUT_PROBES_COUNT="$bad"
+  for bad in abc 08 010 -3; do
+    export CUT_PROBES_COUNT="$bad" CUT_PROBES_ENTRIES_F="$TVD/prp-cut-probes-entries.md"
     run bash followup.sh
     [ "$status" -ne 0 ] || { echo "count '$bad' was accepted"; return 1; }
   done
+  [ "$(wc -l < "$ISSUE_LOG")" -eq 0 ]
+}
+
+@test "a missing or empty entries file posts nothing (collection step never ran)" {
+  export CUT_PROBES_COUNT=2 CUT_PROBES_ENTRIES_F="$TVD/no-such-entries.md"
+  run bash followup.sh
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"missing or empty"* ]]
+  [ "$(wc -l < "$ISSUE_LOG")" -eq 0 ]
+  : > "$TVD/prp-cut-probes-entries.md"
+  export CUT_PROBES_ENTRIES_F="$TVD/prp-cut-probes-entries.md"
+  run bash followup.sh
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"missing or empty"* ]]
   [ "$(wc -l < "$ISSUE_LOG")" -eq 0 ]
 }
 
@@ -195,7 +420,8 @@ body() {  # the collection step writes the body with the Write tool / quoted her
   printf 'do-not-overwrite\n' > "$victim"
   mkdir -p .prp-output/reviews
   ln -s "$victim" .prp-output/reviews/pr-7-cut-probes.md
-  export CUT_PROBES_COUNT=1
+  entries '1. probe: X'
+  export CUT_PROBES_COUNT=1 CUT_PROBES_ENTRIES_F="$TVD/prp-cut-probes-entries.md"
   run bash followup.sh
   [ "$status" -eq 0 ]
   [ "$(cat "$victim")" = "do-not-overwrite" ]          # victim untouched
@@ -204,7 +430,8 @@ body() {  # the collection step writes the body with the Write tool / quoted her
 }
 
 @test "a write failure posts nothing and never claims the body was saved" {
-  export CUT_PROBES_COUNT=2
+  entries '1. probe: X' '2. probe: Y'
+  export CUT_PROBES_COUNT=2 CUT_PROBES_ENTRIES_F="$TVD/prp-cut-probes-entries.md"
   chmod 555 "$TVD"   # the temp dir cannot be created -> the body write fails before gh runs
   run bash followup.sh
   chmod 755 "$TVD"
@@ -214,16 +441,18 @@ body() {  # the collection step writes the body with the Write tool / quoted her
   [ "$(wc -l < "$ISSUE_LOG")" -eq 0 ]                   # nothing posted
 }
 
-@test "a failing gh issue create warns and keeps the body at the temp path" {
-  export CUT_PROBES_COUNT=1
+@test "a failing gh issue create is a non-zero ERROR and keeps the body for retry" {
+  entries '1. probe: X'
+  export CUT_PROBES_COUNT=1 CUT_PROBES_ENTRIES_F="$TVD/prp-cut-probes-entries.md"
   cat > bin/gh <<'EOF'
 #!/usr/bin/env bash
 exit 1
 EOF
   chmod +x bin/gh
   run bash followup.sh
-  [ "$status" -eq 0 ]
-  [[ "$output" == *"WARNING: could not create the cut-probes follow-up issue"* ]]
+  [ "$status" -ne 0 ]                                   # a failed post is an error, never swallowed
+  [[ "$output" == *"FATAL: could not create the cut-probes follow-up issue"* ]]
+  [[ "$output" == *"still at"* ]]
   d=$(ls -dt "$TVD"/prp-cut-probes.* 2>/dev/null | head -1)
   [ -n "$d" ] && [ -f "$d/body.md" ]                    # body kept for a by-hand retry
 }
@@ -231,12 +460,9 @@ EOF
 # ─── PASS COMPLETE closing line (Phase 3 completion check) ────────
 
 @test "a pass output without the PASS COMPLETE closing line is a FAILED pass" {
-  out="### Critical Issues (0 found)\nNone."
-  # simulate the Phase 3 check on a reply lacking the closing line
-  printf '%b' "$out\n" > "$WORK/pass-reply.md"
+  printf '%b' '### Critical Issues (0 found)\nNone.\n' > "$WORK/pass-reply.md"
   ! tail -n 1 "$WORK/pass-reply.md" | grep -qxE "PASS COMPLETE: code-reviewer"
-  # a core pass failing the check -> verdict floor NEEDS FIXES (prompt prescribes this; the
-  # structure test below pins the rule text exists)
+  # the real check is 3.1/3.2 (see above); this pins the rule text exists in the prompt
   grep -q "Completion check (never count a cut pass as clean)" "$ADAPTER"
   grep -q "FAILED pass" "$ADAPTER"
 }

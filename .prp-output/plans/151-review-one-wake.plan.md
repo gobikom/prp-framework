@@ -215,3 +215,109 @@ d. **Non-regular paths.** A directory/dangling symlink at the ledger, marker, or
   whose behaviour legitimately changed: "first invocation mints…", "third run is a no-op",
   "no consumed run file records nothing" → now non-zero).
 - Adapters regenerated; CHANGELOG Unreleased entry amended.
+
+---
+
+## Re-plan (round 5) — completion proof via per-pass status files, not prose
+
+Trigger: round-5 review (run 20261015T063457Z-5ed59349, head f4415ee) — SECOND consecutive
+round with a completion-signal finding. code-reviewer Important (6186073498) and
+silent-failure-hunter Important (6186074212), same root cause: the One Wake section still
+prescribes `wait "$pid1" "$pid2" "$pid3"` (and poll / `tail --pid` variants that yield no
+per-shell status), contradicting the completion check at :1010 ("statuses are collected per
+shell, never from a single multi-pid `wait`"). Editing the example alone already failed once
+(round 4) — this round RE-PLANS the completion-signal mechanism.
+
+### Invariant (the thing that must be true, mechanically)
+
+**No review result is posted unless EVERY core pass is proven complete — its own exit status
+was 0 AND its output ends with its exact `PASS COMPLETE: <pass>` closing line. That proof is
+checked by ONE bash check run right before posting (Step C), not by prose.**
+
+Design consequences:
+- The proof artifacts are FILES, not memory: each pass writes a per-pass status file into a
+  `mktemp -d` directory OUTSIDE the PR checkout (same symlink-safety posture as the 3.5
+  body: no PR-planted path, no symlink-following; refuse non-regular paths).
+- Step C (aggregated post) runs ONE mechanical bash check over ALL core status files and
+  posts NOTHING (FATAL, existing failed-agent handling) if any file is missing, records a
+  non-zero exit, or lacks the completion line. The check parses the files; it never trusts
+  the caller's narrative.
+- Per-shell status collection: exactly one `wait` per pid, each immediately followed by
+  `rc_N=$?`. A multi-pid `wait` (returns only the LAST pid's status) is FORBIDDEN everywhere
+  — example, alternatives, and prose. Poll loops and `tail --pid` MAY be used for blocking
+  ONLY if each shell writes its own `.rc` file (status still comes from a file per shell).
+- The pass name inside `PASS COMPLETE: <pass>` is a FIXED LITERAL per agent prompt
+  (`code-reviewer`, `security-reviewer`, `silent-failure-hunter`, and the conditional-pass
+  literals) — no free-text substitution, so a name written from memory cannot diverge from
+  the name the check greps for. Formatting variants (fence, bold, trailing space) fail the
+  exact-line check — that is intended (fail closed); the prompt says "one exact closing
+  line (nothing after it)".
+
+### Status-file design
+
+Each pass, as its final act in the same shell that ran the pass, writes
+`$STATUS_DIR/<pass>.status` with exactly three lines:
+
+```
+pass=<fixed pass name>
+rc=<exit status of that shell's own wait>
+complete=yes|no        # yes iff that pass's collected output ends with "PASS COMPLETE: <pass>"
+```
+
+`STATUS_DIR=$(mktemp -d "${TVD:-/tmp}/prp-round-status.XXXXXX")` is minted ONCE per round by
+the dispatch turn, before any reviewer shell starts; it is outside the repo tree, mode 0700,
+and each `.status` path is validated (`-f`, non-symlink) before being read. The Step C check
+loops over the pass list, requires every status file to exist, be a regular non-symlink
+file, match `^pass=<name>$` on line 1, `^rc=0$` on line 2, and `^complete=yes$` on line 3;
+ANY deviation is a FATAL "review incomplete — {pass} did not complete", routing to the
+failed-agent handling (verdict floor NEEDS FIXES for core passes; L2 run posts nothing).
+
+### Boundary arms (one bats test each)
+
+1. all 3 passes complete (rc=0, complete=yes, correct names) → post ALLOWED (check exits 0,
+   gh sees the bodies)
+2. one pass rc≠0 → FATAL, nothing posted
+3. one pass `complete=no` (missing closing line) → FATAL, nothing posted
+4. one status FILE missing → FATAL, nothing posted
+5. a status path is a symlink → refused; the symlink target is UNTOUCHED (victim file
+   content identical)
+6. wrong pass name in the line (`complete=yes` but `pass=code-review` — the check's name
+   must equal the expected literal) → FATAL, nothing posted
+
+Plus 3.5 arms (see below): delimiter-injection body posts as literal text; failed post exits
+non-zero; empty/multi-line CUT_PROBES_COUNT FATALs.
+
+### 3.5 cut-probes re-plan (psak's security finding + silent-failure arms)
+
+- NO reviewer-derived text through a heredoc or shell variable. The collected entries live
+  in a FILE written by the collection step (Write tool / `printf '%s'` of a file's bytes —
+  never interpolated into the command line). The 3.5 block reads that file's bytes with
+  `cat` and writes them to `$TVD/body.md` via `printf '%s' "$(cat …)"` … no — reading
+  through a command substitution re-exposes nothing but still routes the bytes through a
+  shell variable; the chosen mechanism is: the block CONCATENATES fixed-header + entries
+  file + fixed-footer with `cat` into the body file (bytes flow file→file, never through
+  word-splitting or a heredoc), and posts with `--body-file`. A probe line equal to any
+  delimiter is therefore inert text.
+- Failed `gh issue create` → exit NON-ZERO (a swallowed post failure is a silent failure);
+  the body file is kept at its temp path for a by-hand retry.
+- `CUT_PROBES_COUNT` unset → "no cut probes", exit 0 (legitimate). Set but EMPTY or
+  MULTI-LINE or non-base-10 → FATAL (the collection step must pass a real single-line count;
+  garbage never means "zero probes").
+- Placeholder guard: the body must not contain the literal `PRP_CUT_PROBES_ENTRIES` marker
+  after assembly (unsubstituted placeholder would otherwise pass `-s`).
+
+### Test 18/19 quality note (review Suggestions; partially in scope as test hygiene)
+
+Test 18's local `tail | grep` re-implementation is replaced by boundary tests that run the
+REAL Step C check fence extracted from the adapter (same `block()` mechanism as budget/followup
+tests). The dead `body()` helper is removed; its arms move to the new 3.5 arms. The prose
+assertions about "no multi-pid wait" become a grep arm: the adapter must NOT contain
+`wait "$pid1" "$pid2"` (any multi-pid wait form) and MUST contain the per-pid pattern.
+
+### Non-goals (→ #153 leftovers, one comment, with source links)
+
+- Deadline read-back (a pass overrunning the deadline but emitting the line) — Low.
+- `.prp-output/reviews/` symlink-following on tier/marker/metrics writes (pre-existing,
+  security-reviewer Medium) — file as follow-up.
+- Whether the Write tool follows a pre-planted symlink at
+  `pr-<N>-agents-review.md` (unknown, out of scope).
