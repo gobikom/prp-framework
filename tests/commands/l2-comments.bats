@@ -47,10 +47,6 @@ EOF
   : > "$WORK_LOG"
   printf '%s\n' "$HEAD_SHA" > .prp-output/reviews/pr-7-reviewed-head   # what Phase 2.0 saves
   printf 'standard\n' > .prp-output/reviews/pr-7-tier                    # what 2.0b saves (default)
-  SD="$(mktemp -d)"; printf '%s\n' "$SD" > .prp-output/reviews/pr-7-status-dir   # what 2.1b saves
-  for p in code-reviewer security-reviewer silent-failure-hunter; do               # what 3.1 records
-    printf 'pass=%s\nrc=0\ncomplete=yes\n' "$p" > "$SD/$p.status"
-  done
   step A > stepA.sh; step C > stepC.sh
   [ -s stepA.sh ] && [ -s stepC.sh ]
 }
@@ -388,35 +384,6 @@ trivial_run() { printf 'trivial\n' > .prp-output/reviews/pr-7-tier; export FAKE_
   sed -i '$ s/ tier=trivial$//' .prp-output/reviews/pr-7-l2-code-reviewer.md
   post
   [ "$status" -ne 0 ]; [ "$(wc -l < "$WORK_LOG")" -eq 0 ]
-}
-
-@test "the Step C completion gate blocks the post when a pass never recorded a status file" {
-  start; write_all
-  rm "$SD"/silent-failure-hunter.status
-  post
-  [ "$status" -ne 0 ]
-  [[ "$output" == *"never recorded; review incomplete"* ]]
-  [ "$(wc -l < "$WORK_LOG")" -eq 0 ]
-}
-
-@test "the Step C completion gate blocks the post when a core pass has rc=1" {
-  start; write_all
-  printf 'pass=code-reviewer\nrc=1\ncomplete=yes\n' > "$SD/code-reviewer.status"
-  post
-  [ "$status" -ne 0 ]
-  [[ "$output" == *"code-reviewer did not complete"* ]]
-  [ "$(wc -l < "$WORK_LOG")" -eq 0 ]
-}
-
-@test "the Step C completion gate refuses a symlinked status file and leaves the victim untouched" {
-  start; write_all
-  victim="$WORK/victim.txt"; printf 'do-not-overwrite\n' > "$victim"
-  rm "$SD"/security-reviewer.status; ln -s "$victim" "$SD/security-reviewer.status"
-  post
-  [ "$status" -ne 0 ]
-  [[ "$output" == *"is a symlink"* ]]
-  [ "$(cat "$victim")" = "do-not-overwrite" ]
-  [ "$(wc -l < "$WORK_LOG")" -eq 0 ]
 }
 
 @test "a run file whose TIER is edited to something else posts nothing" {

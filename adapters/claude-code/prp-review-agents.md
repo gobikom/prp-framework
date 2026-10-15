@@ -33,8 +33,6 @@ Flags set shell variables used below: `--no-commit` → `NO_COMMIT=1`; `--l2-com
 
 `--l2-comments` (prp-framework#142): post one PR comment per core pass in the L2 format instead of the aggregated review, and never commit review artifacts (it implies `--no-commit`). See "Per-pass L2 comments" under Output.
 
-Environment: `PRP_REVIEW_PASS_BUDGET_MIN` (optional) — wall-clock budget in minutes for the round's reviewer passes (2.1a). Integer 1..240, default 20. Anything else is a FATAL (fail-closed, no agents started).
-
 ## Mission
 
 Perform a deep, comprehensive PR code review by **spawning specialized Agent subprocesses in parallel**. Each agent runs in its own isolated context window with fresh memory, enabling deep file exploration beyond the diff.
@@ -326,21 +324,16 @@ reviewer. Every rule below follows from that.
   the session waits. It does not write status lines, does not collect partial results, does
   not respond to per-agent completion notifications with separate turns, and does not poll.
   Collection (Phase 3) starts only after ALL agents of the round have returned.
-- **Blocking wait is the mechanism, not a suggestion — with a per-shell status for every pass.**
-  With the Agent tool, the parallel calls in one message already block until all results
-  return — keep it that way. When the runtime can only launch reviewers as background shells
-  (one completion notification per shell), the wake cost moves to the caller; in that case,
-  launch all shells, then block on ALL of them in the SAME turn, collecting each shell's OWN
-  exit status — per-pid waits, one `wait` per pid, each followed immediately by its status:
-  `wait "$pid1"; rc1=$?; wait "$pid2"; rc2=$?; wait "$pid3"; rc3=$?`. A multi-pid
-  `wait` (`wait p1 p2 p3`) returns ONLY the last pid's status — an earlier failed pass
-  would be invisible — so the multi-pid form is FORBIDDEN (Phase 3's completion check rejects
-  it). Poll loops (`while kill -0 …; do sleep 30; done`) and `tail --pid=<pid> -f /dev/null`
-  yield no exit status at all: they may be used for blocking ONLY when each reviewer shell
-  writes its own `.rc` file (`reviewer.sh …; echo $? > "$STATUS_DIR/<pass>.rc"`), so every
-  status still comes from a file, one per shell. Never report between waits — the single
-  completion wake carries every result, statuses included; the collection turn then records
-  each pass's status file (3.1), which the 3.2 gate checks before anything is posted.
+- **Blocking wait is the mechanism, not a suggestion.** With the Agent tool, the parallel
+  calls in one message already block until all results return — keep it that way. When the
+  runtime can only launch reviewers as background shells (one completion notification per
+  shell), the wake cost moves to the caller; in that case, launch all shells, then wait for
+  ALL of them as ONE blocking unit in the SAME turn, and do not report between waits — the
+  single completion wake carries every result. A `wait` over several pids at once returns
+  only the LAST pid's status, which can hide a failed pass: collect each shell's own status
+  (one `wait` per pid, or one `.rc` file per shell) so the existing failed/timed-out agent
+  handling sees every failure. This changes WHEN the caller wakes, not how failures are
+  judged: a pass that fails or returns nothing usable is handled exactly as before.
 - **No idle status pings (Part 2.4).** Report on state changes only: one dispatch line at
   dispatch, one completion summary when the round is done. Never post or emit "still
   waiting on {agent}", never relay per-agent progress, never ping the caller (or a watchdog)
@@ -514,78 +507,6 @@ PROJECT_GUIDELINES = {relevant sections from CLAUDE.md}
 CHANGED_FILES = {list from context file}
 ```
 
-### 2.1a Pass Timebox (prp-framework#151, Part 2.1)
-
-Invariant: no probe can extend a round without bound. Every reviewer pass of THIS run runs against one shared wall-clock budget, resolved once here and carried in every agent prompt (2.2/2.3). When the budget expires, agents report what they have; inconclusive probes become ONE follow-up issue (3.5) instead of blocking or extending the round.
-
-```bash
-D=.prp-output/reviews
-# empty is NOT the default: only an unset variable takes 20 (a set-but-empty value fails closed below)
-if [ -z "${PRP_REVIEW_PASS_BUDGET_MIN+x}" ]; then BUDGET_MIN=20; else BUDGET_MIN="$PRP_REVIEW_PASS_BUDGET_MIN"; fi
-# base-10, no leading zeros (08 would parse as octal and abort; 020 would silently mean 16)
-printf '%s' "$BUDGET_MIN" | grep -qxE '0|[1-9][0-9]*' || BUDGET_MIN=""
-[ -n "$BUDGET_MIN" ] && [ "$BUDGET_MIN" -ge 1 ] && [ "$BUDGET_MIN" -le 240 ] \
-  || { echo "FATAL: PRP_REVIEW_PASS_BUDGET_MIN must be a base-10 integer 1..240 with no leading zeros (got '${PRP_REVIEW_PASS_BUDGET_MIN:-}')" >&2; echo "FATAL: fail-closed — no agents started (prp-framework#151)" >&2; exit 1; }
-BUDGET_MIN=$((10#$BUDGET_MIN))
-DEADLINE_F="$D/pr-{NUMBER}-pass-deadline"
-# Symlink-safe write: refuse to write through a symlink at the deadline path (a PR-planted
-# link there must never redirect this write), and never follow one left by an earlier round.
-if [ -L "$DEADLINE_F" ]; then echo "FATAL: $DEADLINE_F is a symlink — refusing to write through it; remove the link by hand" >&2; exit 1; fi
-if [ -e "$DEADLINE_F" ] && [ ! -f "$DEADLINE_F" ]; then echo "FATAL: $DEADLINE_F exists and is not a regular file — fix the path by hand" >&2; exit 1; fi
-rm -f -- "$DEADLINE_F" || { echo "FATAL: cannot clear the old $DEADLINE_F" >&2; exit 1; }
-NOW=$(date +%s) || { echo "FATAL: cannot read the clock — no agents started" >&2; exit 1; }
-printf '%s' "$NOW" | grep -qxE '0|[1-9][0-9]*' || { echo "FATAL: date +%s gave garbage ('$NOW') — no agents started" >&2; exit 1; }
-DEADLINE_EPOCH=$(( NOW + BUDGET_MIN * 60 ))
-printf '%s' "$DEADLINE_EPOCH" | grep -qxE '0|[1-9][0-9]*' || { echo "FATAL: derived deadline is invalid ('$DEADLINE_EPOCH') — no agents started" >&2; exit 1; }
-# mktemp gives an unpredictable, collision-free path (never a pre-planted symlink), then mv -n
-# into place; a regular file at the destination is replaced only by rename, not written through.
-DEADLINE_TMP=$(mktemp "$D/.pr-{NUMBER}-pass-deadline.XXXXXX") \
-  || { echo "FATAL: cannot create a temp file in $D — no agents started" >&2; exit 1; }
-printf 'deadline=%s\nbudget_min=%s\n' "$DEADLINE_EPOCH" "$BUDGET_MIN" > "$DEADLINE_TMP" \
-  || { echo "FATAL: cannot save the pass deadline" >&2; rm -f -- "$DEADLINE_TMP"; exit 1; }
-[ -s "$DEADLINE_TMP" ] || { echo "FATAL: the pass deadline file is empty — no agents started" >&2; rm -f -- "$DEADLINE_TMP"; exit 1; }
-chmod 644 -- "$DEADLINE_TMP" 2>/dev/null
-mv -f -- "$DEADLINE_TMP" "$DEADLINE_F" \
-  || { echo "FATAL: cannot move the pass deadline into place" >&2; rm -f -- "$DEADLINE_TMP"; exit 1; }
-echo "PASS_BUDGET_MIN=$BUDGET_MIN DEADLINE_EPOCH=$DEADLINE_EPOCH"
-```
-
-Fail-closed on garbage: an unset/valid-integer budget proceeds (default 20); anything that is not a base-10 integer 1..240 without leading zeros is FATAL — no agents started, no deadline file written. The budget covers ALL passes of the round together (they run in parallel and the round is one wake — see "One Wake Per Round"); the deadline is one epoch saved once per run, never re-derived by an agent. Every reviewer prompt in 2.2 and 2.3 must carry the timebox line:
-
-```
-Timebox: this pass runs under a ${PASS_BUDGET_MIN}-minute wall-clock budget for the round (deadline epoch ${DEADLINE_EPOCH}).
-Check the remaining budget BEFORE starting any new probe; a probe that cannot finish in the remaining budget is not started.
-When the budget expires: report the findings you already have; list any probe you could not finish under a "## Cut probes"
-heading (one line each: what you were trying to verify, and why it matters). Never block on an interactive prompt, and never
-let a probe extend the round — a cut probe becomes a follow-up issue, not a blocker.
-END your output with one exact closing line (nothing after it): "PASS COMPLETE: <pass name>" — in each agent
-prompt below, <pass name> is replaced by that agent's FIXED subagent_type literal (e.g.
-"PASS COMPLETE: code-reviewer"); it is never paraphrased, fenced, bolded or translated.
-A pass whose output lacks that closing line is treated as FAILED, whatever its findings say.
-```
-
-A pass that reports with `## Cut probes` AND the `PASS COMPLETE:` closing line is a completed pass (its findings stand); a pass cut off mid-flight never emits the closing line, so Phase 3's completion check treats it as a FAILED pass. Boundary: the budget gates STARTING probes, not finishing analysis already done — a pass that finishes exactly at the deadline epoch emits its closing line and stands as completed.
-
-### 2.1b Round Status Dir (mint before any reviewer shell starts)
-
-The completion proof (3.1 / 3.2) needs a place a PR can plant nothing at: the dispatch turn
-mints ONE round status dir, outside the repo tree (unpredictable `mktemp -d` path, mode
-0700). Only its PATH is recorded in-tree — a pointer file written through the same
-symlink-refusing discipline as the deadline file. Run this immediately after 2.1a, before
-any reviewer shell starts; if it prints FATAL, start no agent and post nothing.
-
-```bash
-D=.prp-output/reviews
-STATUS_DIR=$(mktemp -d "${TVD:-/tmp}/prp-round-status.XXXXXX") \
-  || { echo "FATAL: cannot create the round status dir — no agents started" >&2; exit 1; }
-F="$D/pr-{NUMBER}-status-dir"
-[ -L "$F" ] && { echo "FATAL: $F is a symlink — refusing to write through it; remove the link by hand" >&2; exit 1; }
-[ -e "$F" ] && [ ! -f "$F" ] && { echo "FATAL: $F exists and is not a regular file — fix the path by hand" >&2; exit 1; }
-printf '%s\n' "$STATUS_DIR" > "$F" \
-  || { echo "FATAL: cannot save the status dir path — no agents started" >&2; exit 1; }
-echo "STATUS_DIR=$STATUS_DIR"
-```
-
 ### 2.1.1 Create Detached Clone for Agents
 
 **CRITICAL**: Agents MUST NOT read from the author's live worktree. Create a detached
@@ -632,8 +553,6 @@ Agent(
   description="Review PR #{NUMBER} code quality",
   prompt="Review PR #{NUMBER} for project guideline compliance, bugs, and quality issues.
 
-Timebox: this pass runs under a ${PASS_BUDGET_MIN}-minute wall-clock budget for the round (deadline epoch ${DEADLINE_EPOCH}, from 2.1a). Check the remaining budget BEFORE starting any new probe; a probe that cannot finish in the remaining budget is not started. When the budget expires: report the findings you already have and list any probe you could not finish under a "## Cut probes" heading (one line each: what you were trying to verify, and why it matters). Never block on an interactive prompt, and never let a probe extend the round — a cut probe becomes a follow-up issue, not a blocker. END your output with one exact closing line (nothing after it): "PASS COMPLETE: code-reviewer" — code-reviewer is the fixed pass name; never paraphrase, fence, bold or translate it. Output lacking that exact line is treated as a FAILED pass.
-
 Read the PR context file at: {CONTEXT_PATH}
 This file contains the PR diff, changed files list, and project guidelines.
 
@@ -678,8 +597,6 @@ Agent(
   description="Review PR #{NUMBER} security",
   prompt="Review PR #{NUMBER} for security vulnerabilities.
 
-Timebox: this pass runs under a ${PASS_BUDGET_MIN}-minute wall-clock budget for the round (deadline epoch ${DEADLINE_EPOCH}, from 2.1a). Check the remaining budget BEFORE starting any new probe; a probe that cannot finish in the remaining budget is not started. When the budget expires: report the findings you already have and list any probe you could not finish under a "## Cut probes" heading (one line each: what you were trying to verify, and why it matters). Never block on an interactive prompt, and never let a probe extend the round — a cut probe becomes a follow-up issue, not a blocker. END your output with one exact closing line (nothing after it): "PASS COMPLETE: security-reviewer" — security-reviewer is the fixed pass name; never paraphrase, fence, bold or translate it. Output lacking that exact line is treated as a FAILED pass.
-
 Read the PR context file at: {CONTEXT_PATH}
 This file contains the PR diff, changed files list, and project guidelines.
 
@@ -715,8 +632,6 @@ Agent(
   subagent_type="silent-failure-hunter",
   description="Hunt silent failures PR #{NUMBER}",
   prompt="Hunt for silent failures and inadequate error handling in PR #{NUMBER}.
-
-Timebox: this pass runs under a ${PASS_BUDGET_MIN}-minute wall-clock budget for the round (deadline epoch ${DEADLINE_EPOCH}, from 2.1a). Check the remaining budget BEFORE starting any new probe; a probe that cannot finish in the remaining budget is not started. When the budget expires: report the findings you already have and list any probe you could not finish under a "## Cut probes" heading (one line each: what you were trying to verify, and why it matters). Never block on an interactive prompt, and never let a probe extend the round — a cut probe becomes a follow-up issue, not a blocker. END your output with one exact closing line (nothing after it): "PASS COMPLETE: silent-failure-hunter" — silent-failure-hunter is the fixed pass name; never paraphrase, fence, bold or translate it. Output lacking that exact line is treated as a FAILED pass.
 
 Read the PR context file at: {CONTEXT_PATH}
 This file contains the PR diff, changed files list, and project guidelines.
@@ -770,8 +685,6 @@ Agent(
   description="Analyze dependencies PR #{NUMBER}",
   prompt="Analyze dependencies in PR #{NUMBER} for security and health.
 
-Timebox: this pass runs under a ${PASS_BUDGET_MIN}-minute wall-clock budget for the round (deadline epoch ${DEADLINE_EPOCH}, from 2.1a). Check the remaining budget BEFORE starting any new probe; a probe that cannot finish in the remaining budget is not started. When the budget expires: report the findings you already have and list any probe you could not finish under a "## Cut probes" heading (one line each: what you were trying to verify, and why it matters). Never block on an interactive prompt, and never let a probe extend the round — a cut probe becomes a follow-up issue, not a blocker. END your output with one exact closing line (nothing after it): "PASS COMPLETE: dependency-analyzer" — dependency-analyzer is the fixed pass name; never paraphrase, fence, bold or translate it. Output lacking that exact line is treated as a FAILED pass.
-
 Read the PR context file at: {CONTEXT_PATH}
 
 Check for:
@@ -798,8 +711,6 @@ Agent(
   subagent_type="accessibility-reviewer",
   description="Review accessibility PR #{NUMBER}",
   prompt="Review UI code in PR #{NUMBER} for WCAG 2.1 compliance.
-
-Timebox: this pass runs under a ${PASS_BUDGET_MIN}-minute wall-clock budget for the round (deadline epoch ${DEADLINE_EPOCH}, from 2.1a). Check the remaining budget BEFORE starting any new probe; a probe that cannot finish in the remaining budget is not started. When the budget expires: report the findings you already have and list any probe you could not finish under a "## Cut probes" heading (one line each: what you were trying to verify, and why it matters). Never block on an interactive prompt, and never let a probe extend the round — a cut probe becomes a follow-up issue, not a blocker. END your output with one exact closing line (nothing after it): "PASS COMPLETE: accessibility-reviewer" — accessibility-reviewer is the fixed pass name; never paraphrase, fence, bold or translate it. Output lacking that exact line is treated as a FAILED pass.
 
 Read the PR context file at: {CONTEXT_PATH}
 Also read the actual source files for full component context.
@@ -830,8 +741,6 @@ Agent(
   description="Analyze performance PR #{NUMBER}",
   prompt="Analyze PR #{NUMBER} for performance issues.
 
-Timebox: this pass runs under a ${PASS_BUDGET_MIN}-minute wall-clock budget for the round (deadline epoch ${DEADLINE_EPOCH}, from 2.1a). Check the remaining budget BEFORE starting any new probe; a probe that cannot finish in the remaining budget is not started. When the budget expires: report the findings you already have and list any probe you could not finish under a "## Cut probes" heading (one line each: what you were trying to verify, and why it matters). Never block on an interactive prompt, and never let a probe extend the round — a cut probe becomes a follow-up issue, not a blocker. END your output with one exact closing line (nothing after it): "PASS COMPLETE: performance-analyzer" — performance-analyzer is the fixed pass name; never paraphrase, fence, bold or translate it. Output lacking that exact line is treated as a FAILED pass.
-
 Read the PR context file at: {CONTEXT_PATH}
 Also read the actual source files for full context.
 
@@ -860,8 +769,6 @@ Agent(
   subagent_type="type-design-analyzer",
   description="Analyze type design PR #{NUMBER}",
   prompt="Analyze type design in PR #{NUMBER}.
-
-Timebox: this pass runs under a ${PASS_BUDGET_MIN}-minute wall-clock budget for the round (deadline epoch ${DEADLINE_EPOCH}, from 2.1a). Check the remaining budget BEFORE starting any new probe; a probe that cannot finish in the remaining budget is not started. When the budget expires: report the findings you already have and list any probe you could not finish under a "## Cut probes" heading (one line each: what you were trying to verify, and why it matters). Never block on an interactive prompt, and never let a probe extend the round — a cut probe becomes a follow-up issue, not a blocker. END your output with one exact closing line (nothing after it): "PASS COMPLETE: type-design-analyzer" — type-design-analyzer is the fixed pass name; never paraphrase, fence, bold or translate it. Output lacking that exact line is treated as a FAILED pass.
 
 Read the PR context file at: {CONTEXT_PATH}
 Also read the actual source files for full type context.
@@ -895,8 +802,6 @@ Agent(
   description="Review docs impact PR #{NUMBER}",
   prompt="Review PR #{NUMBER} and update any documentation affected by code changes.
 
-Timebox: this pass runs under a ${PASS_BUDGET_MIN}-minute wall-clock budget for the round (deadline epoch ${DEADLINE_EPOCH}, from 2.1a). Check the remaining budget BEFORE starting any new probe; a probe that cannot finish in the remaining budget is not started. When the budget expires: report the findings you already have and list any probe you could not finish under a "## Cut probes" heading (one line each: what you were trying to verify, and why it matters). Never block on an interactive prompt, and never let a probe extend the round — a cut probe becomes a follow-up issue, not a blocker. END your output with one exact closing line (nothing after it): "PASS COMPLETE: docs-impact-agent" — docs-impact-agent is the fixed pass name; never paraphrase, fence, bold or translate it. Output lacking that exact line is treated as a FAILED pass.
-
 Read the PR context file at: {CONTEXT_PATH}
 Also read CLAUDE.md, README.md, and docs/ directory.
 
@@ -929,8 +834,6 @@ Agent(
   description="Analyze comments PR #{NUMBER}",
   prompt="Analyze code comments in PR #{NUMBER} for accuracy, completeness, and long-term value.
 
-Timebox: this pass runs under a ${PASS_BUDGET_MIN}-minute wall-clock budget for the round (deadline epoch ${DEADLINE_EPOCH}, from 2.1a). Check the remaining budget BEFORE starting any new probe; a probe that cannot finish in the remaining budget is not started. When the budget expires: report the findings you already have and list any probe you could not finish under a "## Cut probes" heading (one line each: what you were trying to verify, and why it matters). Never block on an interactive prompt, and never let a probe extend the round — a cut probe becomes a follow-up issue, not a blocker. END your output with one exact closing line (nothing after it): "PASS COMPLETE: comment-analyzer" — comment-analyzer is the fixed pass name; never paraphrase, fence, bold or translate it. Output lacking that exact line is treated as a FAILED pass.
-
 Read the PR context file at: {CONTEXT_PATH}
 Also read the actual source files to verify comments match code behavior.
 
@@ -955,8 +858,6 @@ Agent(
   subagent_type="pr-test-analyzer",
   description="Analyze test coverage PR #{NUMBER}",
   prompt="Analyze test coverage for PR #{NUMBER}.
-
-Timebox: this pass runs under a ${PASS_BUDGET_MIN}-minute wall-clock budget for the round (deadline epoch ${DEADLINE_EPOCH}, from 2.1a). Check the remaining budget BEFORE starting any new probe; a probe that cannot finish in the remaining budget is not started. When the budget expires: report the findings you already have and list any probe you could not finish under a "## Cut probes" heading (one line each: what you were trying to verify, and why it matters). Never block on an interactive prompt, and never let a probe extend the round — a cut probe becomes a follow-up issue, not a blocker. END your output with one exact closing line (nothing after it): "PASS COMPLETE: pr-test-analyzer" — pr-test-analyzer is the fixed pass name; never paraphrase, fence, bold or translate it. Output lacking that exact line is treated as a FAILED pass.
 
 Read the PR context file at: {CONTEXT_PATH}
 Also read the actual test files and the code they test.
@@ -1027,7 +928,7 @@ After all agents complete, collect their outputs. Each agent returns a markdown 
 3. Extract file:line references
 4. Note the source agent for each finding
 
-**If an agent returns no findings**: Note as clean — "No {aspect} issues found." (a pass counts as clean ONLY after the completion check below proves it completed — rc=0 AND the exact closing line).
+**If an agent returns no findings**: Note as clean — "No {aspect} issues found."
 
 **If an agent fails or times out**: Note the failure and proceed with available results. Display:
 ```
@@ -1036,123 +937,6 @@ Consider running /prp-core:prp-review {NUMBER} {aspect} for a single-session {as
 ```
 
 **CRITICAL**: If any **core agent** (code-reviewer, security-reviewer, silent-failure-hunter) fails, the final verdict MUST be at minimum NEEDS FIXES with caveat: "Review incomplete — {agent-type} did not complete. Verdict may be optimistic." A READY TO MERGE verdict is never valid when a core agent is missing. (At `TIER=trivial` the one core agent is `code-reviewer`.)
-
-**Collection discipline (One Wake Per Round)**: collect ALL agent results in the SAME turn as the single completion wake — collect each pass's own exit status (per-pid waits, One Wake), run the 3.1 writer so every pass's status file is recorded, parse findings, merge `## Cut probes` sections, aggregate. Do not interleave collection with waiting, and do not emit per-agent status updates along the way (2.4).
-
-**Cut probes**: a pass that returned with a `## Cut probes` heading is a completed pass — its findings stand, and its cut-probe lines are collected for 3.5. A pass cut off mid-flight by the 2.1a deadline is a timed-out pass — the failure rules above apply, and its cut probes are still collected for 3.5 (as one entry: "pass X timed out at the budget, probes unknown").
-
-**Completion check (never count a cut pass as clean)**: for EVERY pass, verify BOTH (a) its own exit status is 0 — collected per shell: one `wait` per pid immediately followed by its `$?`, or one `.rc` file per shell; a single multi-pid `wait` is forbidden because it returns only the LAST pid's status — and (b) its output ENDS with the exact closing line `PASS COMPLETE: <pass name>` (nothing after it), where `<pass name>` is the FIXED literal pinned in that pass's prompt (2.2 / 2.3). The proof is mechanical, never prose: 3.1 records one status file per pass (`pass=` / `rc=` / `complete=`), and the 3.2 completion gate — ONE bash check over all core status files — runs immediately before ANY post (the aggregated post and the L2 Step C alike, where it is inlined) and posts NOTHING when any status file is missing, not `rc=0`, not `complete=yes`, carries the wrong pass name, or sits at a symlinked/non-regular path. A pass failing either check — missing closing line, empty reply, non-zero status — is a **FAILED pass**: apply the failed-agent handling above, never the "no findings → note as clean" branch. A core pass that fails the check makes the verdict at minimum NEEDS FIXES ("Review incomplete — {pass} did not complete"), and an L2 run posts nothing for it. Report the per-pass status and closing-line check results in the completion summary.
-
-### 3.1 Record Per-Pass Status (the completion proof)
-
-Each pass's completion is a FILE, not a memory: in the same turn as the single completion
-wake (One Wake), after the per-pid waits, the caller records one status file per pass in the
-round status dir minted by 2.1b (out-of-tree, unpredictable path — a PR can plant nothing
-there). Background-shell passes write their own `<pass>.out` (the launch redirects the
-pass's output there); Agent-tool replies are saved to `<pass>.out` in this same turn with
-the Write tool. `rc1..rc3` come from the per-pid waits; conditional passes get the same
-treatment with their own fixed literals.
-
-```bash
-STATUS_DIR=$(cat .prp-output/reviews/pr-{NUMBER}-status-dir 2>/dev/null) \
-  || { echo "FATAL: no status dir saved by 2.1b — completion cannot be recorded; nothing posted" >&2; exit 1; }
-# rc1..rc3 are the per-pid wait statuses (One Wake); the pass names are FIXED literals.
-save_status() { # <fixed pass name> <rc> <out file>
-  c=no
-  [ "$(tail -n1 "$3")" = "PASS COMPLETE: $1" ] && c=yes
-  printf 'pass=%s\nrc=%s\ncomplete=%s\n' "$1" "$2" "$c" > "$STATUS_DIR/$1.status" \
-    || { echo "FATAL: cannot write the $1 status file — completion unproven; nothing posted" >&2; exit 1; }
-}
-save_status code-reviewer         "$rc1" "$STATUS_DIR/code-reviewer.out"
-save_status security-reviewer     "$rc2" "$STATUS_DIR/security-reviewer.out"
-save_status silent-failure-hunter "$rc3" "$STATUS_DIR/silent-failure-hunter.out"
-```
-
-A pass whose recorded status is not `rc=0` + `complete=yes` is a FAILED pass — the
-failed-agent handling above applies. The files have exactly one consumer: the 3.2 gate.
-
-### 3.2 Completion Gate (one bash check — run immediately before ANY post)
-
-Invariant: no review result is posted unless EVERY core pass is proven complete — its own
-exit status was 0 AND its output ended with its exact `PASS COMPLETE: <fixed literal>`
-closing line. This gate IS that proof, mechanically: it re-reads the 3.1 status files and
-FATALs — posting nothing — on any missing file, non-zero rc, missing completion line, wrong
-pass name, or symlinked/non-regular path (failed-agent handling follows). Run it
-immediately before the aggregated post; the L2 Step C post inlines this same check. At
-`TIER=trivial` the one core pass is `code-reviewer`.
-
-```bash
-D=.prp-output/reviews
-TIER=$(cat "$D/pr-{NUMBER}-tier" 2>/dev/null) || TIER=""
-case "$TIER" in trivial|standard) ;; *) echo "FATAL: no tier saved by 2.0b ($D/pr-{NUMBER}-tier) — run 2.0b first; nothing posted" >&2; exit 1 ;; esac
-PASSES="code-reviewer security-reviewer silent-failure-hunter"
-[ "$TIER" = trivial ] && PASSES="code-reviewer"
-STATUS_DIR=$(cat "$D/pr-{NUMBER}-status-dir" 2>/dev/null) \
-  || { echo "FATAL: no status dir saved by 2.1b — completion unproven; nothing posted" >&2; exit 1; }
-[ -d "$STATUS_DIR" ] && [ ! -L "$STATUS_DIR" ] \
-  || { echo "FATAL: $STATUS_DIR is not a directory — completion unproven; nothing posted" >&2; exit 1; }
-for PASS in $PASSES; do
-  SF="$STATUS_DIR/$PASS.status"
-  [ -L "$SF" ] && { echo "FATAL: $SF is a symlink — completion unproven for $PASS; nothing posted" >&2; exit 1; }
-  [ -f "$SF" ] || { echo "FATAL: $SF missing — $PASS never recorded; review incomplete; nothing posted" >&2; exit 1; }
-  [ "$(wc -l < "$SF")" -eq 3 ] \
-    && [ "$(sed -n 1p "$SF")" = "pass=$PASS" ] \
-    && [ "$(sed -n 2p "$SF")" = "rc=0" ] \
-    && [ "$(sed -n 3p "$SF")" = "complete=yes" ] \
-    || { echo "FATAL: $PASS did not complete (status: $(tr '\n' ' ' < "$SF")) — review incomplete; nothing posted" >&2; exit 1; }
-done
-echo "completion proven for: $PASSES"
-```
-
-### 3.5 Follow-up Issue for Cut Probes (prp-framework#151, Part 2.1)
-
-If ANY pass of this run reported cut probes (or a pass was cut by the deadline with probes still open — record that as one entry: "pass X timed out at the budget, probes unknown"), open exactly ONE GitHub follow-up issue for the run — never one issue per probe, never a blocker for this round.
-
-**No reviewer-derived byte ever passes through a heredoc or a shell variable.** Probe text quotes PR-derived content, and any substituted line equal to a heredoc delimiter would terminate the heredoc early and run the rest as shell; a line like `$(curl …|sh)` must never become command substitution on the review host. The collection step therefore saves the collected entries to a FILE with the Write tool (`CUT_PROBES_ENTRIES_F`, default `$TVD/prp-cut-probes-entries.md`); the block below assembles the body by CONCATENATING fixed text and that file with `cat` (bytes flow file→file — nothing is interpolated, word-split, or delimiter-scanned) into a temp file **OUTSIDE the repo checkout** (`mktemp -d` under `${TVD:-/tmp}`) — never under `.prp-output/`: the review runs inside the PR's own tree, `.prp-output/reviews/*` is tracked in this repo, so a PR could commit that path as a symlink and redirect the write at a writable target, or make the post leak a readable file. Write and post are chained; every exit status is checked; nothing is posted when the write fails; a failed post is an ERROR (non-zero exit), never a swallowed warning:
-
-```bash
-TVD="$(mktemp -d "${TVD:-/tmp}/prp-cut-probes.XXXXXX")" \
-  || { echo "FATAL: cannot create a temp dir for the cut-probes body — the follow-up was NOT posted; create the issue by hand" >&2; exit 1; }
-BODY_F="$TVD/body.md"
-# CUT_PROBES_COUNT: unset means no probes (exit 0); SET but empty, multi-line, or not a
-# single-line base-10 integer (no leading zeros) is FATAL — garbage never means "zero probes"
-# (the collection step above must pass a real single-line count, like the budget).
-if [ -n "${CUT_PROBES_COUNT+x}" ]; then
-  case "$CUT_PROBES_COUNT" in            # whole-string: empty, spaces, or ANY newline fail here
-    ''|*[!0-9]*) echo "FATAL: CUT_PROBES_COUNT must be a single-line base-10 integer with no leading zeros (got '$CUT_PROBES_COUNT') — the collection step above must pass a real count; the follow-up was NOT posted" >&2; rm -rf -- "$TVD"; exit 1 ;;
-  esac
-  printf '%s' "$CUT_PROBES_COUNT" | grep -qxE '0|[1-9][0-9]*' \
-    || { echo "FATAL: CUT_PROBES_COUNT must be a base-10 integer with no leading zeros (got '$CUT_PROBES_COUNT') — the follow-up was NOT posted" >&2; rm -rf -- "$TVD"; exit 1; }
-fi
-if [ -z "${CUT_PROBES_COUNT+x}" ] || [ "$CUT_PROBES_COUNT" = 0 ]; then
-  echo "no cut probes — no follow-up issue"; rm -rf -- "$TVD"; exit 0
-fi
-# The entries file is written by the collection step (Write tool) — out-of-tree, not PR-planted.
-ENTRIES_F="${CUT_PROBES_ENTRIES_F:-${TVD:-/tmp}/prp-cut-probes-entries.md}"
-[ -n "$ENTRIES_F" ] && [ "${ENTRIES_F#/}" != "" ] \
-  || { echo "FATAL: CUT_PROBES_ENTRIES_F must be an absolute path — the follow-up was NOT posted" >&2; rm -rf -- "$TVD"; exit 1; }
-[ -L "$ENTRIES_F" ] && { echo "FATAL: $ENTRIES_F is a symlink — refusing to read through it; the follow-up was NOT posted" >&2; rm -rf -- "$TVD"; exit 1; }
-[ -s "$ENTRIES_F" ] || { echo "FATAL: $ENTRIES_F missing or empty — the collection step did not save the collected entries; the follow-up was NOT posted" >&2; rm -rf -- "$TVD"; exit 1; }
-# Assemble the body by concatenation only: fixed header + entries file + fixed footer.
-# No heredoc, no variable interpolation of reviewer-derived bytes, no delimiter to terminate.
-printf '%s\n' 'Review follow-up for PR #{NUMBER} — probes cut by the pass timebox (prp-framework#151).' 'These were NOT verified this round; they are inconclusive, not findings:' '' > "$BODY_F" \
-  || { echo "FATAL: cannot write the body header — the follow-up was NOT posted" >&2; rm -rf -- "$TVD"; exit 1; }
-cat -- "$ENTRIES_F" >> "$BODY_F" || { echo "FATAL: cannot append the collected entries — the follow-up was NOT posted" >&2; rm -rf -- "$TVD"; exit 1; }
-printf '\n(source: prp-review-agents 3.5 — probes cut by the pass timebox)\n' >> "$BODY_F" \
-  || { echo "FATAL: cannot write the body footer — the follow-up was NOT posted" >&2; rm -rf -- "$TVD"; exit 1; }
-[ -s "$BODY_F" ] && [ -f "$BODY_F" ] && [ ! -L "$BODY_F" ] \
-  || { echo "FATAL: $BODY_F is missing, empty or not a regular file — the follow-up was NOT posted and nothing was saved; create the issue by hand" >&2; rm -rf -- "$TVD"; exit 1; }
-# No unsubstituted placeholder may survive into the posted body.
-grep -q 'PRP_CUT_PROBES_ENTRIES' "$BODY_F" \
-  && { echo "FATAL: the assembled body still contains the PRP_CUT_PROBES_ENTRIES placeholder — the collection step must save real entries; the follow-up was NOT posted" >&2; rm -rf -- "$TVD"; exit 1; }
-gh issue create -R "$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null || git remote get-url origin | sed -E 's#.*github.com[:/]##; s#\.git$##')" \
-  -t "review-followup: cut probes from PR #{NUMBER}" \
-  --body-file "$BODY_F" \
-  && { rm -rf -- "$TVD" && echo "cut-probes follow-up posted"; exit 0; } \
-  || { echo "FATAL: could not create the cut-probes follow-up issue — the body is still at $BODY_F; create it by hand or re-run gh with that file" >&2; exit 1; }
-```
-
-Link the issue URL in the round record and count the probes in the metrics line (`"cut_probes"`). A cut probe never blocks the round, never extends it, and never counts as a finding; a follow-up issue is only created when at least one probe was cut.
 
 ---
 
@@ -1582,24 +1366,6 @@ REVIEWED_HEAD_SHA=$(sed -n 's/^REVIEWED_HEAD_SHA=//p' "$ENV_F"); PRP_VERSION=$(s
 [ "$(cat "$D/pr-{NUMBER}-reviewed-head" 2>/dev/null)" = "$REVIEWED_HEAD_SHA" ] || { echo "FATAL: the run file is not from this review (reviewed head differs) — run Step A" >&2; exit 1; }
 NOW_HEAD=$(gh pr view {NUMBER} --json headRefOid -q .headRefOid) || { echo "FATAL: cannot read the PR head (gh failed) — nothing posted" >&2; exit 1; }
 [ "$NOW_HEAD" = "$REVIEWED_HEAD_SHA" ] || { echo "FATAL: PR head moved ($REVIEWED_HEAD_SHA -> $NOW_HEAD) — re-run the review, nothing posted" >&2; exit 1; }
-# Completion gate (3.2, inlined): nothing is posted unless every core pass proved complete
-# (3.1 status file: pass=<fixed literal> / rc=0 / complete=yes; symlinked/missing → FATAL).
-STATUS_DIR=$(cat "$D/pr-{NUMBER}-status-dir" 2>/dev/null) \
-  || { echo "FATAL: no status dir saved by 2.1b — completion unproven; nothing posted" >&2; exit 1; }
-[ -d "$STATUS_DIR" ] && [ ! -L "$STATUS_DIR" ] \
-  || { echo "FATAL: $STATUS_DIR is not a directory — completion unproven; nothing posted" >&2; exit 1; }
-GATE_PASSES="code-reviewer security-reviewer silent-failure-hunter"
-[ "$TIER" = trivial ] && GATE_PASSES="code-reviewer"
-for PASS in $GATE_PASSES; do
-  SF="$STATUS_DIR/$PASS.status"
-  [ -L "$SF" ] && { echo "FATAL: $SF is a symlink — completion unproven for $PASS; nothing posted" >&2; exit 1; }
-  [ -f "$SF" ] || { echo "FATAL: $SF missing — $PASS never recorded; review incomplete; nothing posted" >&2; exit 1; }
-  [ "$(wc -l < "$SF")" -eq 3 ] \
-    && [ "$(sed -n 1p "$SF")" = "pass=$PASS" ] \
-    && [ "$(sed -n 2p "$SF")" = "rc=0" ] \
-    && [ "$(sed -n 3p "$SF")" = "complete=yes" ] \
-    || { echo "FATAL: $PASS did not complete (status: $(tr '\n' ' ' < "$SF")) — review incomplete; nothing posted" >&2; exit 1; }
-done
 PASSES="code-reviewer security-reviewer silent-failure-hunter"; SUFFIX=""
 if [ "$TIER" = trivial ]; then
   # the gate's own classifier, again, at the reviewed head: a stale or edited tier file posts nothing
@@ -1665,7 +1431,7 @@ If `PR_AUTHOR == CURRENT_USER`: skip `gh pr review` (GitHub blocks self-approval
 After publishing to GitHub, append one JSONL line to `.prp-output/reviews/review-metrics.jsonl`:
 
 ```json
-{"timestamp":"2026-03-14T10:30:00Z","pr_number":163,"branch":"feature/auth","review_type":"agents","verdict":"NEEDS_FIXES","total_issues":5,"critical":1,"important":2,"suggestions":2,"agents_run":["code-reviewer","security-reviewer","silent-failure-hunter"],"conditional_agents":["accessibility-reviewer"],"incremental":false,"large_pr":false,"lines_changed":342,"files_changed":8,"cut_probes":0}
+{"timestamp":"2026-03-14T10:30:00Z","pr_number":163,"branch":"feature/auth","review_type":"agents","verdict":"NEEDS_FIXES","total_issues":5,"critical":1,"important":2,"suggestions":2,"agents_run":["code-reviewer","security-reviewer","silent-failure-hunter"],"conditional_agents":["accessibility-reviewer"],"incremental":false,"large_pr":false,"lines_changed":342,"files_changed":8}
 ```
 
 **Fields**:
@@ -1681,14 +1447,12 @@ After publishing to GitHub, append one JSONL line to `.prp-output/reviews/review
 - `incremental` — Whether `--since-last-review` was used
 - `large_pr` — Whether large PR strategy was applied
 - `lines_changed`, `files_changed` — PR size metrics
-- `cut_probes` — Count of probes cut by the pass timebox (2.1a), recorded in the 3.5 follow-up issue
 
 ```bash
 # Append (creates file if not exists)
 mkdir -p .prp-output/reviews
 echo '{...}' >> .prp-output/reviews/review-metrics.jsonl || echo "WARNING: Failed to append review metrics. Review results are saved, but metrics tracking is incomplete."
 ```
-
 
 ### `--metrics` Flag: Aggregate Summary
 
@@ -1804,7 +1568,6 @@ If implementation report references a Source PRD:
 /prp-core:prp-review-agents --metrics                  # View review metrics
 /prp-core:prp-review-agents 163 --no-commit            # Review without auto-committing artifact
 /prp-core:prp-review-agents 163 --l2-comments          # One L2-format comment per core pass, no artifact commit, no marker (prp-framework#142)
-PRP_REVIEW_PASS_BUDGET_MIN=5 /prp-core:prp-review-agents 163   # 5-minute wall-clock budget for the round's passes (2.1a)
 ```
 
 ---
@@ -1829,13 +1592,6 @@ PRP_REVIEW_PASS_BUDGET_MIN=5 /prp-core:prp-review-agents 163   # 5-minute wall-c
 | `--l2-comments` flag provided | Implies `--no-commit`; skip the marker and the aggregated post; post one L2-format comment per core pass with the `Generated-by:` footer (see "Per-pass L2 comments") |
 | `PRP_RUN_ALL=1` env set | Same as `--no-commit` — run-all handles artifact commits in its own step |
 | Auto-commit fails (push rejected) | WARN but continue — artifact is saved locally and posted to GitHub. Display: "WARNING: Could not push review artifact to PR branch. Commit manually or use safe-merge --skip-review-check." |
-| `PRP_REVIEW_PASS_BUDGET_MIN` garbage (non-integer, leading zeros like 08/010, 0, >240) | FATAL — fail-closed, no agents started, no deadline file (2.1a; 08 would parse octal and 010 would silently mean 8 — both rejected) |
-| `--since-last-review` at an unchanged head | Phase 0.5 exits "nothing to re-review" before any agent runs |
-| Pass budget expires mid-probe | The pass reports what it has; unfinished probes go under `## Cut probes` → one follow-up issue (3.5); the round is never extended |
-| One pass cut by the deadline, others finish | The cut pass has no `PASS COMPLETE:` closing line → FAILED pass: verdict floor NEEDS FIXES (aggregated) / L2 run posts nothing; finished passes' results kept; cut probes still collected for 3.5 |
-| The pass-deadline path is a symlink or non-regular file | FATAL — the timebox write refuses to follow symlinks (no `.tmp` write-through); fix the path by hand |
-| A pass reply without the exact `PASS COMPLETE: <pass name>` closing line (or with a non-zero shell status) | FAILED pass — failed-agent handling, never "no findings → clean"; a core pass failing it floors the verdict at NEEDS FIXES |
-| A single multi-pid `wait` used for the background-shell pattern | Wrong — it returns only the last pid's status; collect each shell's status individually (per-pid `wait` or `.rc` files), then record the 3.1 status files — the 3.2 gate refuses to post without them |
 
 ---
 
@@ -1869,7 +1625,6 @@ PRP_REVIEW_PASS_BUDGET_MIN=5 /prp-core:prp-review-agents 163   # 5-minute wall-c
 - RECOMMENDATION_CLEAR: Verdict with rationale
 - FALLBACK_AVAILABLE: Graceful fallback to /prp-core:prp-review when Agent tool unavailable
 - ONE_WAKE_PER_ROUND: All passes dispatched in one message; no caller turn between dispatch and completion; no idle status pings (prp-framework#151)
-- PASS_TIMEBOX_ENFORCED: Every reviewer prompt carries the 2.1a budget and ends with the `PASS COMPLETE: <fixed literal>` closing line; a pass lacking the line (or with non-zero status) is FAILED, never clean; cut probes land in one follow-up issue (3.5), never extend a round
-- COMPLETION_PROVEN: every pass gets a 3.1 status file (pass/rc/complete, out-of-tree dir from 2.1b) and the 3.2 gate — one bash check over all core status files — runs before ANY post; nothing is posted when any pass is unproven
+
 
 </process>
