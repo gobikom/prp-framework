@@ -329,7 +329,8 @@ reviewer. Every rule below follows from that.
   single completion wake carries every result. A `wait` over several pids at once returns
   only the LAST pid's status, which can hide a failed pass: collect each shell's own status
   (one `wait` per pid, or one `.rc` file per shell) so the existing failed/timed-out agent
-  handling sees every failure. This changes WHEN the caller wakes, not how failures are
+  handling sees every failure. A non-zero or missing pass status counts as a failed pass —
+  the existing handling applies. This changes WHEN the caller wakes, not how failures are
   judged: a pass that fails or returns nothing usable is handled exactly as before.
 - **No idle status pings (Part 2.4).** Report on state changes only: one dispatch line at
   dispatch, one completion summary when the round is done. Never post or emit "still

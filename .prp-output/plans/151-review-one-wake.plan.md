@@ -321,3 +321,57 @@ assertions about "no multi-pid wait" become a grep arm: the adapter must NOT con
   security-reviewer Medium) — file as follow-up.
 - Whether the Write tool follows a pre-planted symlink at
   `pr-<N>-agents-review.md` (unknown, out of scope).
+
+---
+
+## Re-plan (round 8) — test helpers that fail on ANY breakage, not just on matches
+
+Trigger: round-8 review (run 20261015T080700Z-f6ee9368, head 05b9599) — silent-failure-hunter
+Important (6187515565): `neg()` treats grep exit 2 (missing file / bad regex) as "no match"
+and PASSES; probes showed deleting the gemini adapter or moving the claude-code adapter left
+the remnant tests green. Same family as round 7 ("a check that cannot fail"); rounds 9+10
+must both be clean, so this is the LAST push.
+
+### Invariant
+
+Every structure test in review-rounds.bats FAILS whenever the property it names does not
+hold — including when an input file is missing, unreadable, renamed, or the adapter set
+changes. No helper exit path means "silently pass".
+
+### Helper spec (mechanical)
+
+- `neg FILE ERE`: fail with a diagnostic unless FILE exists and is a readable regular file;
+  run `grep -qE`; exit 1 (no match) → pass; exit 0 (match) → FAIL; exit 2 or anything else
+  → FAIL (bad pattern / unreadable).
+- `pos FILE ERE`: same file checks; exit 0 → pass; anything else → FAIL.
+
+### Adapter set
+
+ONE explicit EXPECTED_FILES list: prompts/review-agents.md + the 6 adapters (7 entries).
+A dedicated test asserts the list has exactly 7 entries and every one exists and is
+readable — a moved/renamed/deleted adapter fails loudly there. Every neg/pos structure
+check loops over that FULL list, never one adapter.
+
+### Failure-hiding wait check
+
+One ERE over all 7 files catching ANY `wait` with two or more $-arguments — quoted or
+unquoted, any variable names: `wait[[:space:]]+[^[:space:]]*\$[^[:space:]]*[[:space:]]+[^[:space:]]*\$`
+(first token contains a literal $, whitespace, second token contains a literal $). The
+prescribed single-pid form (`wait "$pid1"; rc1=$?`) has `;` after the first token → no match.
+
+### One Wake failed-status sentence
+
+One sentence added to the One Wake bullet in prompts + regenerated into all 6 adapters:
+"A non-zero or missing pass status counts as a failed pass — the existing handling applies."
+Pinned with pos over all 7 files.
+
+### Mutation proof (throwaway git copy, base restored before each)
+
+M-a missing adapter → FAIL · M-b chmod 000 adapter → FAIL · M-c renamed adapter → FAIL ·
+M-d bad regex in a neg pattern → FAIL · M-e `wait "$a" "$b"` in a non-claude adapter → FAIL ·
+M-f `wait $p1 $p2` unquoted → FAIL · M-g failed-status sentence removed from one adapter →
+FAIL · plus round-7's M1–M9. Base tree all green.
+
+Also fixed this round: heading pin anchored to `^## One Wake Per Round` (round-8
+suggestion), stale header comment (round-8 suggestion), stale PR-body diff size (round-8
+suggestion). Carried wording suggestions stay on #153.
