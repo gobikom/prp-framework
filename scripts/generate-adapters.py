@@ -139,6 +139,42 @@ def load_config() -> dict:
 # Prompt reading
 # ---------------------------------------------------------------------------
 
+def split_frontmatter(text: str, source: str) -> tuple[str | None, str]:
+    """Round-8 re-plan: the ONLY frontmatter splitter, used by read_overlay()
+    and validate_generated().
+
+    1. normalizes line endings first (\r\n and lone \r become \n);
+    2. a delimiter is a line whose content, after stripping trailing spaces
+       and tabs, is exactly `---`;
+    3. returns (None, whole_text) only if the first line is not a delimiter;
+    4. if the first line IS a delimiter and no closing delimiter follows,
+       raises GenerationError naming `source` ("unterminated frontmatter");
+    5. NEVER falls back to treating the whole text as the body — the
+       round-7/8 bugs both lived in that fallback (a mis-split left a
+       non-empty "body" that passed validation).
+
+    Returns (frontmatter_text_or_None, body_after_closing_delimiter).
+    """
+    normalized = text.replace("\r\n", "\n").replace("\r", "\n")
+    lines = normalized.split("\n")
+
+    def is_delimiter(line: str) -> bool:
+        return line.rstrip(" \t") == "---"
+
+    if not lines or not is_delimiter(lines[0]):
+        return None, normalized
+
+    for i in range(1, len(lines)):
+        if is_delimiter(lines[i]):
+            fm = "\n".join(lines[1:i])
+            body = "\n".join(lines[i + 1:])
+            return fm, body
+
+    raise GenerationError(
+        f"error: unterminated frontmatter in {source} — opening `---` "
+        f"without a closing `---` line")
+
+
 def read_prompt(name: str) -> str:
     """Read a canonical prompt file from prompts/.
 
@@ -200,26 +236,26 @@ def read_overlay(adapter: str, name: str) -> dict | None:
     # overlay file and the YAML error (round-4 Critical): swallowing it here
     # let wrap_with_xml() build malformed content and generation exit 0.
     overlay = {}
-    if text.startswith("---"):
-        # Round-7 fix: split only on lines exactly `---` — the old
-        # text.split("---", 2) matched "---" inside frontmatter values
-        # (e.g. command: "pre---post") and mis-parsed the overlay.
-        parts = re.split(r"(?m)^---$", text, maxsplit=2)
-        if len(parts) >= 3:
-            try:
-                meta = yaml.safe_load(parts[1])
-                if meta is not None and not isinstance(meta, dict):
-                    raise GenerationError(
-                        f"error: overlay frontmatter must be a mapping, got "
-                        f"{type(meta).__name__}: "
-                        f"{path.relative_to(ROOT_DIR)}")
-                if meta:
-                    overlay["meta"] = meta
-            except yaml.YAMLError as e:
+    # Round-8 re-plan: one parser — split_frontmatter — for overlays and
+    # generated output alike (normalizes line endings, delimiter = `---`
+    # line modulo trailing spaces/tabs, no whole-text-as-body fallback,
+    # unterminated frontmatter is an error naming this file).
+    fm, body = split_frontmatter(text, path.relative_to(ROOT_DIR))
+    if fm is not None:
+        try:
+            meta = yaml.safe_load(fm)
+            if meta is not None and not isinstance(meta, dict):
                 raise GenerationError(
-                    f"error: invalid YAML frontmatter in overlay "
-                    f"{path.relative_to(ROOT_DIR)}: {e}")
-            text = parts[2].strip()
+                    f"error: overlay frontmatter must be a mapping, got "
+                    f"{type(meta).__name__}: "
+                    f"{path.relative_to(ROOT_DIR)}")
+            if meta:
+                overlay["meta"] = meta
+        except yaml.YAMLError as e:
+            raise GenerationError(
+                f"error: invalid YAML frontmatter in overlay "
+                f"{path.relative_to(ROOT_DIR)}: {e}")
+        text = body.strip()
 
     # Parse sections: lines starting with "# section_name"
     sections = {}
@@ -519,17 +555,12 @@ def validate_generated(rel_path: str, content: str) -> None:
 
     if fmt_md:
         # Markdown: strip YAML frontmatter, then require a non-empty body.
-        # Round-7 fix: split ONLY on lines that are exactly `---`
-        # (re.split (?m)^---$ maxsplit=2) — the old body.split("---", 2)
-        # matched "---" anywhere, e.g. inside description: "pre---post",
-        # which silently mis-split frontmatter and body.
-        body = content
-        desc = ""
-        if body.startswith("---"):
-            parts = re.split(r"(?m)^---$", body, maxsplit=2)
-            if len(parts) >= 3:
-                desc = parts[1]
-                body = parts[2]
+        # Round-8 re-plan: the frontmatter/body boundary comes from
+        # split_frontmatter — one parser, shared with read_overlay() (no
+        # inline split here; the round-7 inline regex still missed `--- `
+        # and CRLF delimiters).
+        desc, body = split_frontmatter(content, rel_path)
+        desc = desc or ""
         if not body.strip():
             raise GenerationError(
                 f"error: {where} has an empty command body after frontmatter")

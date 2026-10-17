@@ -412,3 +412,173 @@ PYEOF
   grep -qF "OBJTEXT-ROUND7" "$TREE/adapters/claude-code/prp-plan.md" \
     || { echo "overlay objective not applied" >&2; return 1; }
 }
+
+# ── round-8: split_frontmatter boundary table (temp copies only) ──────────
+# The table's "validate: error" rows run through validate_generated (the
+# output side); the overlay-reachable rows also run through read_overlay (the
+# input side) to prove both call sites share the one parser.
+
+@test "round-8 plain: frontmatter parsed, body preserved (direct + overlay)" {
+  make_tree
+  python3 - "$TREE/scripts/generate-adapters.py" <<'PYEOF'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("ga", sys.argv[1])
+ga = importlib.util.module_from_spec(spec); spec.loader.exec_module(ga)
+fm, body = ga.split_frontmatter("---\nk: v\n---\nbody\n", "x.md")
+assert (fm, body) == ("k: v", "body\n"), (fm, body)
+print("plain OK")
+PYEOF
+  # overlay side: a plain overlay parses and applies
+  printf -- '---\ncommand: plan\nadapter: claude-code\n---\n# objective\nR8-PLAIN\n' > "$TREE/prompts/overlays/claude-code/plan.md"
+  gen
+  [ "$rc" -eq 0 ] || { echo "gen failed: $err" >&2; return 1; }
+  grep -qF "R8-PLAIN" "$TREE/adapters/claude-code/prp-plan.md"
+}
+
+@test "round-8 dash in value: validate_generated errors on the ws-only body (direct)" {
+  make_tree
+  python3 - "$TREE/scripts/generate-adapters.py" <<'PYEOF'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("ga", sys.argv[1])
+ga = importlib.util.module_from_spec(spec); spec.loader.exec_module(ga)
+try:
+    ga.validate_generated("claude-code/prp-x.md",
+                          '---\ndescription: "pre---post"\n---\n   \n')
+    raise SystemExit("BUG: dash-in-value ws body passed")
+except ga.GenerationError as e:
+    assert "empty command body" in str(e)
+# and the good shape still passes
+ga.validate_generated("claude-code/prp-x.md",
+                      '---\ndescription: "pre---post"\n---\nreal body\n')
+print("dash-in-value OK")
+PYEOF
+}
+
+@test "round-8 trailing-space delimiter: parsed as a delimiter (direct + validate)" {
+  make_tree
+  python3 - "$TREE/scripts/generate-adapters.py" <<'PYEOF'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("ga", sys.argv[1])
+ga = importlib.util.module_from_spec(spec); spec.loader.exec_module(ga)
+fm, body = ga.split_frontmatter("---\nk: v\n--- \nbody\n", "x.md")
+assert (fm, body) == ("k: v", "body\n"), (fm, body)
+# ws-only body under a trailing-space closer -> validate errors
+try:
+    ga.validate_generated("claude-code/prp-x.md", "---\ndescription: d\n--- \n   \n")
+    raise SystemExit("BUG: trailing-space closer + ws body passed")
+except ga.GenerationError as e:
+    assert "empty command body" in str(e)
+print("trailing-space OK")
+PYEOF
+}
+
+@test "round-8 trailing-tab delimiter: parsed as a delimiter (direct + overlay)" {
+  make_tree
+  python3 - "$TREE/scripts/generate-adapters.py" <<'PYEOF'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("ga", sys.argv[1])
+ga = importlib.util.module_from_spec(spec); spec.loader.exec_module(ga)
+fm, body = ga.split_frontmatter("---\nk: v\n---\t\nbody\n", "x.md")
+assert (fm, body) == ("k: v", "body\n"), (fm, body)
+print("trailing-tab OK")
+PYEOF
+  printf -- '---\ncommand: plan\nadapter: claude-code\n---\t\n# objective\nR8-TAB\n' > "$TREE/prompts/overlays/claude-code/plan.md"
+  gen
+  [ "$rc" -eq 0 ] || { echo "gen failed: $err" >&2; return 1; }
+  grep -qF "R8-TAB" "$TREE/adapters/claude-code/prp-plan.md"
+}
+
+@test "round-8 CRLF: same result as plain (direct + overlay)" {
+  make_tree
+  python3 - "$TREE/scripts/generate-adapters.py" <<'PYEOF'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("ga", sys.argv[1])
+ga = importlib.util.module_from_spec(spec); spec.loader.exec_module(ga)
+fm, body = ga.split_frontmatter("---\r\nk: v\r\n---\r\nbody\r\n", "x.md")
+assert (fm, body) == ("k: v", "body\n"), (fm, body)
+print("CRLF OK")
+PYEOF
+  printf -- '---\r\ncommand: plan\r\nadapter: claude-code\r\n---\r\n# objective\r\nR8-CRLF\r\n' > "$TREE/prompts/overlays/claude-code/plan.md"
+  gen
+  [ "$rc" -eq 0 ] || { echo "gen failed: $err" >&2; return 1; }
+  grep -qF "R8-CRLF" "$TREE/adapters/claude-code/prp-plan.md"
+}
+
+@test "round-8 CRLF + empty body: validate errors (direct)" {
+  make_tree
+  python3 - "$TREE/scripts/generate-adapters.py" <<'PYEOF'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("ga", sys.argv[1])
+ga = importlib.util.module_from_spec(spec); spec.loader.exec_module(ga)
+try:
+    ga.validate_generated("claude-code/prp-x.md", "---\r\ndescription: d\r\n---\r\n\r\n")
+    raise SystemExit("BUG: CRLF ws body passed")
+except ga.GenerationError as e:
+    assert "empty command body" in str(e)
+print("CRLF-empty OK")
+PYEOF
+}
+
+@test "round-8 unterminated: error names the source (direct + overlay)" {
+  make_tree
+  python3 - "$TREE/scripts/generate-adapters.py" <<'PYEOF'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("ga", sys.argv[1])
+ga = importlib.util.module_from_spec(spec); spec.loader.exec_module(ga)
+try:
+    ga.split_frontmatter("---\nk: v\nbody", "x.md")
+    raise SystemExit("BUG: unterminated accepted")
+except ga.GenerationError as e:
+    assert "unterminated frontmatter" in str(e) and "x.md" in str(e), str(e)
+print("unterminated direct OK")
+PYEOF
+  # overlay side: an unterminated overlay is a generation error naming the file
+  printf -- '---\ncommand: plan\nadapter: claude-code\n# objective\nR8-UNTERM\n' > "$TREE/prompts/overlays/claude-code/plan.md"
+  gen
+  [ "$rc" -eq 1 ] || { echo "expected exit 1, got $rc" >&2; return 1; }
+  echo "$err" | grep -qF 'unterminated frontmatter in prompts/overlays/claude-code/plan.md'
+}
+
+@test "round-8 no frontmatter: body as is, validate OK if non-empty (direct)" {
+  make_tree
+  python3 - "$TREE/scripts/generate-adapters.py" <<'PYEOF'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("ga", sys.argv[1])
+ga = importlib.util.module_from_spec(spec); spec.loader.exec_module(ga)
+fm, body = ga.split_frontmatter("body only\n", "x.md")
+assert fm is None and body == "body only\n"
+ga.validate_generated("opencode/prp-x.md", "# just a body\n")
+print("no-frontmatter OK")
+PYEOF
+}
+
+@test "round-8 ---- (4 dashes) closer: NOT a delimiter, counts as unterminated (direct)" {
+  make_tree
+  python3 - "$TREE/scripts/generate-adapters.py" <<'PYEOF'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("ga", sys.argv[1])
+ga = importlib.util.module_from_spec(spec); spec.loader.exec_module(ga)
+try:
+    ga.split_frontmatter("---\nk: v\n----\nbody\n", "x.md")
+    raise SystemExit("BUG: 4-dash closer accepted")
+except ga.GenerationError as e:
+    assert "unterminated frontmatter" in str(e)
+print("4-dash OK")
+PYEOF
+}
+
+@test "round-8 grep: no frontmatter split exists in the generator except inside split_frontmatter" {
+  # `split("---"` anywhere, and `re.split(` applied to --- must appear
+  # nowhere in generate-adapters.py. split_frontmatter itself splits on
+  # plain newlines (no --- literal at all), so ANY hit is a stray splitter.
+  # Plus: split_frontmatter is defined exactly once and called from exactly
+  # the two call sites (read_overlay + validate_generated).
+  local script="$ROOT/scripts/generate-adapters.py"
+  local p1 p2 n1 n2 rc1 rc2
+  rc1=0; p1=$(grep -nF 'split("---"' "$script") || rc1=$?
+  [ "$rc1" -eq 1 ] || { echo 'stray split("---" found:' >&2; printf '%s\n' "$p1" >&2; return 1; }
+  rc2=0; p2=$(grep -nE 're\.split\(.*---' "$script") || rc2=$?
+  [ "$rc2" -eq 1 ] || { echo 'stray re.split on --- found:' >&2; printf '%s\n' "$p2" >&2; return 1; }
+  [ "$(grep -c 'def split_frontmatter' "$script")" -eq 1 ]
+  [ "$(grep -c 'split_frontmatter(' "$script")" -eq 3 ]  # def + read_overlay + validate_generated
+}

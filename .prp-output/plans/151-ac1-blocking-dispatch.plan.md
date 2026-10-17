@@ -104,3 +104,32 @@ Any failure goes to stats["errors"] with the file and the reason, and the exit i
 | existing output file (change-detection read) | read error | uncaught OSError aborts the run non-zero (verified round 6 by probe) | verified during round 6 |
 
 **Verified by:** one bats test per row that was not yet pinned, plus one test that feeds `validate_generated` each bad output shape directly, all against temp copies. The real tree still generates with 0 errors and 0 skipped (parity.bats:718).
+
+## Re-plan after round 8 (frontmatter split failed twice: R7, then R8)
+
+R7 found the split matching `---` inside a value. R8 found it missing a `---` line that has trailing spaces or a CRLF ending. Each new regex leaves another shape. The cause is not the regex. It is the FALLBACK: when the split yields fewer than 3 parts, the code treats the whole text as the body, and a non-empty body passes. Remove the fallback, and route both call sites through one parser.
+
+**Invariant:** `split_frontmatter(text, source)` is the ONLY frontmatter splitter, used by both `read_overlay()` and `validate_generated()`. It:
+1. normalizes line endings first (`\r\n` and lone `\r` become `\n`);
+2. treats a delimiter as a line whose content, after stripping trailing spaces and tabs, is exactly `---`;
+3. returns "no frontmatter" only if the first line is not a delimiter;
+4. if the first line IS a delimiter and no closing delimiter line follows, raises GenerationError naming `source` ("unterminated frontmatter");
+5. never falls back to treating the whole text as the body.
+
+The body is everything after the closing delimiter line.
+
+**Boundary cases** (one bats test per row, temp copies, through BOTH call sites unless noted):
+
+| Arm | Input | Expected |
+|---|---|---|
+| plain | `---\nk: v\n---\nbody\n` | frontmatter {k: v}, body "body" |
+| dash in value | `description: "pre---post"`, whitespace-only body | validate: error, empty body |
+| trailing space delimiter | `--- \n` closing, whitespace-only body | validate: error, empty body |
+| trailing tab delimiter | `---\t\n` closing | parsed as a delimiter |
+| CRLF | the plain case with `\r\n` | same result as plain |
+| CRLF + empty body | `\r\n`, whitespace-only body | validate: error |
+| unterminated | `---\nk: v\nbody` (no closing) | error, "unterminated frontmatter", names the file |
+| no frontmatter | `body only\n` | no frontmatter, body as is (validate: OK if non-empty) |
+| `----` (4 dashes) | as the closing line | NOT a delimiter, so it counts as unterminated |
+
+**Verified by:** the table above, plus a grep-style test asserting that `split("---"` and `re.split(` on `---` appear nowhere in generate-adapters.py except inside `split_frontmatter`. The real tree still gives 0 skipped, 0 errors (parity.bats:718).
