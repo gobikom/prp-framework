@@ -250,3 +250,131 @@ prompt_sub() { # <before> <after>
   # widened invariant: counted in stats["errors"] — 6 adapters x 1 missing prompt = 6
   echo "$out" | grep -qE "Results: .*6 errors" || { echo "missing prompt not counted in stats errors: $(echo "$out" | tail -1)" >&2; return 1; }
 }
+
+# ── round-6: output check + remaining input-table rows ────────────────────
+
+@test "empty prompt: exit 1, error names the file (round 6)" {
+  make_tree
+  : > "$TREE/prompts/qa.md"
+  gen
+  [ "$rc" -eq 1 ] || { echo "expected exit 1, got $rc" >&2; return 1; }
+  echo "$err" | grep -qF "prompt file for configured command 'qa' is empty or whitespace-only: prompts/qa.md" \
+    || { echo "error does not name the file/reason: $err" >&2; return 1; }
+}
+
+@test "whitespace-only prompt: exit 1 (round 6)" {
+  make_tree
+  printf ' \n\t\n  \n' > "$TREE/prompts/qa.md"
+  gen
+  [ "$rc" -eq 1 ] || { echo "expected exit 1, got $rc" >&2; return 1; }
+  echo "$err" | grep -qF "is empty or whitespace-only: prompts/qa.md"
+}
+
+@test "adapters.yml not a mapping (list / scalar): exit 1 with a named error (round 6 input table)" {
+  make_tree
+  printf -- '- a\n- b\n' > "$TREE/adapters.yml"
+  gen
+  [ "$rc" -eq 1 ] || { echo "list: expected exit 1, got $rc" >&2; return 1; }
+  echo "$err" | grep -qF 'adapters.yml must be a mapping, got list'
+  make_tree scalar
+  printf -- '42\n' > "$TREE/adapters.yml"
+  gen
+  [ "$rc" -eq 1 ] || { echo "scalar: expected exit 1, got $rc" >&2; return 1; }
+  echo "$err" | grep -qF 'adapters.yml must be a mapping, got int'
+}
+
+@test "adapters.yml section not a mapping ('adapters' as a list): exit 1 (round 6 input table)" {
+  make_tree
+  printf -- 'adapters: [x]\ncommands: {}\n' > "$TREE/adapters.yml"
+  gen
+  [ "$rc" -eq 1 ] || { echo "expected exit 1, got $rc" >&2; return 1; }
+  echo "$err" | grep -qF "adapters.yml 'adapters' must be a mapping, got list"
+}
+
+@test "overlay frontmatter not a mapping: exit 1 naming the overlay (round 6 input table)" {
+  make_tree
+  printf -- '---\n- just\n- a list\n---\n# objective\nx\n' > "$TREE/prompts/overlays/claude-code/plan.md"
+  gen
+  [ "$rc" -eq 1 ] || { echo "expected exit 1, got $rc" >&2; return 1; }
+  echo "$err" | grep -qF 'overlay frontmatter must be a mapping, got list: prompts/overlays/claude-code/plan.md'
+}
+
+@test "alias-of names a missing command: exit 1 naming both commands (round 6 input table)" {
+  make_tree
+  python3 - "$TREE" <<'PYEOF'
+import sys, yaml
+t = sys.argv[1]
+c = yaml.safe_load(open(f"{t}/adapters.yml"))
+c["commands"]["ghost-alias"] = {"alias": True, "alias-of": "no-such-cmd",
+                                "description": {"default": "x"}}
+yaml.safe_dump(c, open(f"{t}/adapters.yml", "w"), sort_keys=False, allow_unicode=True)
+PYEOF
+  gen
+  [ "$rc" -eq 1 ] || { echo "expected exit 1, got $rc" >&2; return 1; }
+  echo "$err" | grep -qF "command 'ghost-alias' is an alias of 'no-such-cmd', which is not a configured command"
+}
+
+@test "missing description for an adapter whose frontmatter needs one: exit 1 by output check (b) (round 6 input table)" {
+  make_tree
+  python3 - "$TREE" <<'PYEOF'
+import sys, yaml
+t = sys.argv[1]
+c = yaml.safe_load(open(f"{t}/adapters.yml"))
+c["commands"]["qa"]["description"] = {"default": ""}
+yaml.safe_dump(c, open(f"{t}/adapters.yml", "w"), sort_keys=False, allow_unicode=True)
+PYEOF
+  gen
+  [ "$rc" -eq 1 ] || { echo "expected exit 1, got $rc" >&2; return 1; }
+  echo "$err" | grep -qF 'has an empty description field'
+}
+
+@test "validate_generated direct: each bad output shape raises naming the file (round 6)" {
+  make_tree
+  python3 - "$TREE/scripts/generate-adapters.py" <<'PYEOF'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("ga", sys.argv[1])
+ga = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(ga)
+
+def expect_fail(name, rel_path, content, want):
+    try:
+        ga.validate_generated(rel_path, content)
+    except ga.GenerationError as e:
+        assert want in str(e), f"{name}: error lacks {want!r}: {e}"
+        assert rel_path in str(e), f"{name}: error lacks the file name: {e}"
+        return
+    raise AssertionError(f"{name}: validate_generated did not raise")
+
+expect_fail("md-empty-body", "claude-code/prp-x.md",
+            "---\ndescription: \"d\"\n---\n\n  \n", "empty command body")
+expect_fail("md-ws-body", "opencode/prp-x.md", " \n\t\n", "empty command body")
+expect_fail("md-empty-desc", "claude-code/prp-x.md",
+            "---\ndescription: \"\"\n---\n\nreal body\n", "empty description field")
+expect_fail("toml-empty-desc", "gemini/prp-x.toml",
+            'description = ""\nprompt = """\nbody\n"""\n', "empty description field")
+expect_fail("toml-empty-body", "gemini/prp-x.toml",
+            'description = "d"\nprompt = """\n\n"""\n', "empty command body")
+expect_fail("ns-token", "codex/prp-x/SKILL.md",
+            "---\ndescription: \"d\"\n---\nbody with {AGENT_FOO} inside\n",
+            "'{AGENT_FOO}'")
+
+ga.validate_generated("claude-code/prp-x.md", "---\ndescription: \"d\"\n---\nbody\n")
+ga.validate_generated("gemini/prp-x.toml", 'description = "d"\nprompt = """\nbody\n"""\n')
+ga.validate_generated("opencode/prp-x.md", "# just a body\n")
+print("validate_generated shapes OK")
+PYEOF
+}
+
+@test "the output check runs in --dry-run too: a bad would-write output fails without writing (round 6)" {
+  make_tree
+  # reachable dry-run failure: a self-referential config value re-inserts a
+  # namespace token into the output, which output check (c) catches — the
+  # check must fire BEFORE the dry-run fork, with nothing written.
+  sed -i 's|agent_blocking_param: "  run_in_background=false,\\n"|agent_blocking_param: "{AGENT_BLOCKING_PARAM}"|' "$TREE/adapters.yml"
+  grep -qF 'agent_blocking_param: "{AGENT_BLOCKING_PARAM}"' "$TREE/adapters.yml" # mutation took
+  rc2=0
+  (cd "$TREE" && python3 scripts/generate-adapters.py --dry-run >"$BATS_TEST_TMPDIR/gen.out" 2>"$BATS_TEST_TMPDIR/err") || rc2=$?
+  [ "$rc2" -eq 1 ] || { echo "expected exit 1 in --dry-run, got $rc2" >&2; return 1; }
+  grep -qF "reserved placeholder" "$BATS_TEST_TMPDIR/err" \
+    || { echo "dry-run did not report the bad output: $(cat "$BATS_TEST_TMPDIR/err")" >&2; return 1; }
+}

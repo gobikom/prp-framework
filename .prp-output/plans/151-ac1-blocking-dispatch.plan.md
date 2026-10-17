@@ -71,3 +71,36 @@ Round 4 (run `20261017T100904Z-8d78023c`) found two more silent-exit-0 bugs in o
 **Invariant (widened):** the generator never exits 0 on output it could not build correctly. Every input it fails to read or parse is an error counted in `stats["errors"]`, never a silent skip.
 
 Applied as: `read_overlay()` raises on unreadable overlay and on invalid YAML frontmatter (error names the overlay file and the YAML error); `read_prompt()` raises on missing or unreadable prompt for a configured command (error names the file) — the former `WARNING: No prompt file` + silent skip at generate_adapter_file is deleted; all generation-time failures (including the round-2 registry violations above) raise `GenerationError`, which `generate_all()` catches per command, counts in `stats["errors"]`, and continues — so a single run reports every broken input — and `main()` exits 1 when any error was counted. There is no intentional-skip path: all 32 configured commands have prompts and no command is an alias (`generate_alias_content` is only reached via `alias: true`, which no command sets). Pinned by two bats tests against temp copies (broken overlay frontmatter → exit 1 + error text; deleted prompt → exit 1 + `6 errors` counted across the 6 adapters). parity.bats:718 still expects `0 skipped, 0 errors` on the real tree.
+
+
+## Re-plan after round 6 (silent exit 0 found twice: R4, then R6)
+
+R4 found silent exit 0 on a broken overlay and on a missing prompt. R6 found it on an empty prompt. Fixing one input at a time keeps turning up the next one. Close the class at the OUTPUT side, and list the inputs once.
+
+**Invariant:** the generator exits 0 only if EVERY file it writes or would write passes one output check, `validate_generated(rel_path, content)`:
+- (a) the command body, after frontmatter or TOML header, is non-empty after strip;
+- (b) the description field, where the format has one, is non-empty;
+- (c) no `{agent_*}` namespace token remains.
+
+Any failure goes to stats["errors"] with the file and the reason, and the exit is non-zero. The check runs on every adapter and command, including aliases, and in --dry-run and --check modes too.
+
+**Input table** (filled, round 6). One row per read in generate-adapters.py, each with its failure behavior and the test that pins it (tests live in tests/scripts/generate-adapters.bats unless noted):
+
+| Input | Bad state | Behavior | Pinned by |
+|---|---|---|---|
+| adapters.yml | missing | exit 1, `Error: Config file not found` (pre-existing) | verified during round 6 (probe); load_config guard |
+| adapters.yml | unparseable YAML | exit 1, `Error: Invalid YAML` (pre-existing) | verified during round 6 (probe); load_config catches yaml.YAMLError |
+| adapters.yml | not a mapping (list/scalar/null); `adapters:`/`commands:` section or entry not a mapping | exit 1 with a named error (round 6; was an AttributeError traceback) | "adapters.yml not a mapping (list / scalar)" + "section not a mapping" |
+| adapter key | unknown key | exit 1, names key + valid-key list (R1/R2) | "a typo'd adapters.yml adapter key fails generation" |
+| prompts/{cmd}.md | missing / unreadable | GenerationError, names the file (R4) | "missing prompt for a configured command" |
+| prompts/{cmd}.md | empty or whitespace-only | GenerationError in read_prompt, names the file (round 6); also output check (a) | "empty prompt" + "whitespace-only prompt" |
+| overlay | absent | allowed (optional — returns None) | implicit in every clean-generation test |
+| overlay | unreadable / frontmatter YAML error | GenerationError, names the overlay (R4) | "broken overlay frontmatter" |
+| overlay | frontmatter not a mapping | GenerationError, names the overlay (round 6) | "overlay frontmatter not a mapping" |
+| description | missing/empty for an adapter whose format has one | GenerationError by output check (b) (round 6) | "missing description ..." + validate_generated direct test |
+| alias-of | names a missing command | GenerationError, names both commands (round 6) | "alias-of names a missing command" |
+| {agent_*} placeholder | unregistered in prompt / left in output | GenerationError (R2) + output check (c) | suffix/case/unknown rows + validate_generated direct test |
+| output content | empty body after frontmatter/TOML header | GenerationError by output check (a), on write AND would-write paths | validate_generated direct test + "--dry-run too" test |
+| existing output file (change-detection read) | read error | uncaught OSError aborts the run non-zero (verified round 6 by probe) | verified during round 6 |
+
+**Verified by:** one bats test per row that was not yet pinned, plus one test that feeds `validate_generated` each bad output shape directly, all against temp copies. The real tree still generates with 0 errors and 0 skipped (parity.bats:718).

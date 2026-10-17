@@ -41,8 +41,10 @@ adapters/thclaws/prp-review-agents/SKILL.md
 # The six adapter paths (EXPECTED_FILES minus the prompt) and the five
 # non-claude-code adapters, as plain strings — bats' preprocessor accepts
 # multi-line quoted strings (EXPECTED_FILES above) but not multi-line command
-# substitution at top level. The set test below fails if these lists and
-# EXPECTED_FILES drift apart.
+# substitution at top level. The list test below ("the adapter lists ...")
+# asserts set-equality of these lists against EXPECTED_FILES, so adding or
+# removing an adapter fails the tests until every list is updated (round-6
+# Important B: the comment used to claim a cross-check that did not exist).
 ADAPTER_FILES="adapters/antigravity/prp-review-agents.md
 adapters/claude-code/prp-review-agents.md
 adapters/codex/prp-review-agents/SKILL.md
@@ -314,4 +316,27 @@ all_pos() { # <ERE>
   [ -s "$stepA" ]
   neg "$stepA" 'curr-run\.env'
   pos "$stepA" 'RUN_ID="\$\(date -u \+%Y%m%dT%H%M%SZ\)-\$RAND"'
+}
+
+@test "the adapter lists match EXPECTED_FILES exactly (set equality; round-6 Important B)" {
+  # ADAPTER_FILES must be EXPECTED_FILES minus the prompt; OTHER_ADAPTERS must
+  # be ADAPTER_FILES minus claude-code. Set equality: a 7th adapter (or a
+  # removed one) changes EXPECTED_FILES, and these lists must be updated in
+  # the same commit or this test fails — no adapter can silently lose coverage.
+  local expected_adapters expected_others
+  expected_adapters="$(printf '%s\n' $EXPECTED_FILES | grep '^adapters/' | sort)"
+  expected_others="$(printf '%s\n' $ADAPTER_FILES | grep -v '^adapters/claude-code/' | sort)"
+  [ "$(printf '%s\n' $ADAPTER_FILES | sort)" = "$expected_adapters" ] || {
+    echo "ADAPTER_FILES != EXPECTED_FILES adapters:" >&2
+    diff <(printf '%s\n' $ADAPTER_FILES | sort) <(printf '%s\n' "$expected_adapters") >&2
+    return 1
+  }
+  [ "$(printf '%s\n' $OTHER_ADAPTERS | sort)" = "$expected_others" ] || {
+    echo "OTHER_ADAPTERS != ADAPTER_FILES minus claude-code:" >&2
+    diff <(printf '%s\n' $OTHER_ADAPTERS | sort) <(printf '%s\n' "$expected_others") >&2
+    return 1
+  }
+  # and exactly 6 / 5 entries
+  [ "$(printf '%s\n' $ADAPTER_FILES | wc -l)" -eq 6 ]
+  [ "$(printf '%s\n' $OTHER_ADAPTERS | wc -l)" -eq 5 ]
 }

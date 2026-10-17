@@ -89,11 +89,27 @@ def load_config() -> dict:
         print(f"Error: Invalid YAML in {CONFIG_PATH}: {e}", file=sys.stderr)
         sys.exit(1)
 
-    # Validate top-level structure
+    # Validate top-level structure (a non-mapping adapters.yml — list,
+    # scalar, null — previously died as an AttributeError traceback; round-6
+    # input table: every input read gets a named error)
+    if not isinstance(config, dict):
+        print(f"Error: adapters.yml must be a mapping, got "
+              f"{type(config).__name__}", file=sys.stderr)
+        sys.exit(1)
     missing = REQUIRED_CONFIG_KEYS - set(config.keys())
     if missing:
         print(f"Error: Missing top-level keys in adapters.yml: {missing}", file=sys.stderr)
         sys.exit(1)
+    for section in ("adapters", "commands"):
+        if not isinstance(config[section], dict):
+            print(f"Error: adapters.yml '{section}' must be a mapping, got "
+                  f"{type(config[section]).__name__}", file=sys.stderr)
+            sys.exit(1)
+        for name, cfg in config[section].items():
+            if not isinstance(cfg, dict):
+                print(f"Error: adapters.yml {section}['{name}'] must be a "
+                      f"mapping, got {type(cfg).__name__}", file=sys.stderr)
+                sys.exit(1)
 
     # Validate adapter entries
     for name, cfg in config["adapters"].items():
@@ -136,11 +152,18 @@ def read_prompt(name: str) -> str:
             f"error: prompt file for configured command '{name}' is missing: "
             f"{path.relative_to(ROOT_DIR)}")
     try:
-        return path.read_text()
+        text = path.read_text()
     except OSError as e:
         raise GenerationError(
             f"error: cannot read prompt for configured command '{name}': "
             f"{path.relative_to(ROOT_DIR)}: {e}")
+    if not text.strip():
+        # Round-6 Important A: an empty or whitespace-only prompt previously
+        # shipped an empty command body and exited 0.
+        raise GenerationError(
+            f"error: prompt file for configured command '{name}' is empty "
+            f"or whitespace-only: {path.relative_to(ROOT_DIR)}")
+    return text
 
 
 def read_overlay(adapter: str, name: str) -> dict | None:
@@ -182,6 +205,11 @@ def read_overlay(adapter: str, name: str) -> dict | None:
         if len(parts) >= 3:
             try:
                 meta = yaml.safe_load(parts[1])
+                if meta is not None and not isinstance(meta, dict):
+                    raise GenerationError(
+                        f"error: overlay frontmatter must be a mapping, got "
+                        f"{type(meta).__name__}: "
+                        f"{path.relative_to(ROOT_DIR)}")
                 if meta:
                     overlay["meta"] = meta
             except yaml.YAMLError as e:
@@ -463,6 +491,63 @@ def validate_output_path(out_path: Path, adapter_dir: Path) -> bool:
         return False
 
 
+def validate_generated(rel_path: str, content: str) -> None:
+    """Round-6 output check: the generator exits 0 only if EVERY file it
+    writes or would write passes. Runs on every adapter and command —
+    aliases included — and in --dry-run/--diff modes too (it is called
+    before the dry-run fork, so it sees identical content). Raises
+    GenerationError naming the file and the reason:
+      (a) the command body, after frontmatter or TOML header, is non-empty
+          after strip;
+      (b) the description field, where the format has one, is non-empty;
+      (c) no {agent_*} namespace token remains.
+    """
+    where = f"generated output {rel_path}"
+
+    # (c) first — a namespace token anywhere is a substitution bug.
+    left = NAMESPACE_RE.search(content)
+    if left:
+        raise GenerationError(
+            f"error: reserved placeholder '{left.group(0)}' left in "
+            f"{where} — check adapters.yml agent_blocking_* values for "
+            f"self-referential placeholders")
+
+    fmt_md = not rel_path.endswith(".toml")
+
+    if fmt_md:
+        # Markdown: strip YAML frontmatter, then require a non-empty body.
+        body = content
+        desc = ""
+        if body.startswith("---"):
+            parts = body.split("---", 2)
+            if len(parts) >= 3:
+                desc = parts[1]
+                body = parts[2]
+        if not body.strip():
+            raise GenerationError(
+                f"error: {where} has an empty command body after frontmatter")
+        # (b) a description FIELD exists (frontmatter carries one) but is empty
+        if desc:
+            m = re.search(r"^description:\s*(.*)$", desc, re.MULTILINE)
+            if m and not m.group(1).strip().strip('\"').strip():
+                raise GenerationError(
+                    f"error: {where} has an empty description field")
+    else:
+        # TOML (gemini): description = "..." then prompt = """...""" — the
+        # command body is the INTERIOR of the prompt block, not the leftover
+        # TOML scaffolding around it.
+        m = re.search(r'^description\s*=\s*"(.*)"', content, re.MULTILINE)
+        desc = m.group(1) if m else ""
+        if not desc.strip():
+            raise GenerationError(
+                f"error: {where} has an empty description field")
+        m = re.search(r'prompt\s*=\s*"""(.*?)"""', content, re.DOTALL)
+        body = m.group(1) if m else ""
+        if not body.strip():
+            raise GenerationError(
+                f"error: {where} has an empty command body after TOML header")
+
+
 # ---------------------------------------------------------------------------
 # Core generation
 # ---------------------------------------------------------------------------
@@ -477,6 +562,14 @@ def generate_adapter_file(adapter_name: str, cmd_name: str, config: dict) -> tup
     # Determine output path
     file_pattern = adapter_cfg["file_pattern"]
     rel_path = file_pattern.replace("{name}", cmd_name)
+
+    # Round-6 input table: alias-of must name a configured command
+    if is_alias:
+        alias_of = cmd_cfg.get("alias-of", "")
+        if alias_of not in config["commands"]:
+            raise GenerationError(
+                f"error: command '{cmd_name}' is an alias of '{alias_of}', "
+                f"which is not a configured command in adapters.yml")
 
     # Read base prompt (or generate alias content)
     if is_alias:
@@ -586,6 +679,17 @@ def generate_all(config: dict, adapter_filter: str | None = None,
             # Path traversal check
             if not validate_output_path(out_path, adapter_dir):
                 print(f"  ERROR: Path traversal detected: {out_path}", file=sys.stderr)
+                stats["errors"] += 1
+                continue
+
+            # Round-6 output check — every file the generator writes or would
+            # write must pass validate_generated; runs BEFORE the dry-run fork
+            # so --dry-run/--diff validate identical content, and it covers
+            # the change-detection read below (content that would be written).
+            try:
+                validate_generated(f"{adapter_name}/{rel_path}", content)
+            except GenerationError as e:
+                print(f"  {e}", file=sys.stderr)
                 stats["errors"] += 1
                 continue
 
