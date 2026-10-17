@@ -1,0 +1,180 @@
+#!/usr/bin/env bats
+# Generator load-time config validation + utf-8 pin + display paths
+# (prp-framework#157 split 1/2 — PR A1, fix/generator-config-validation).
+#
+# Scope: everything load_config reads and every read/write the generator
+# performs is validated or pinned. Per-input GenerationErrors (missing/empty
+# prompt, overlay parsing, validate_generated, the per-command boundary and
+# the main() last-resort handler) are PR #157 — split 2/2.
+#
+# EVERY test runs against a temp copy of the tree (temp copy only — never
+# the real adapters/).
+#
+# Run: bats tests/scripts/generate-adapters.bats
+
+ROOT="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)"
+
+# make_tree [name] — a runnable copy of adapters.yml + scripts + prompts in
+# the test tmpdir; the mutation hooks below edit only this copy.
+make_tree() { # [name]
+  local dir="$BATS_TEST_TMPDIR/${1:-tree}"
+  mkdir -p "$dir"
+  cp -r "$ROOT/adapters.yml" "$ROOT/scripts" "$ROOT/prompts" "$dir/"
+  TREE="$dir"
+}
+
+# gen — run the generator inside the temp tree, rc into $rc, stderr into $err.
+gen() {
+  rc=0
+  (cd "$TREE" && python3 scripts/generate-adapters.py >"$BATS_TEST_TMPDIR/gen.out" 2>"$BATS_TEST_TMPDIR/err") || rc=$?
+  err="$(cat "$BATS_TEST_TMPDIR/err" 2>/dev/null)"
+  out="$(cat "$BATS_TEST_TMPDIR/gen.out" 2>/dev/null)"
+}
+
+@test "clean tree: exit 0, 0 skipped, 0 errors (real-tree control)" {
+  make_tree
+  gen
+  [ "$rc" -eq 0 ] || { echo "generator failed: $err" >&2; return 1; }
+  echo "$out" | grep -qE 'Results: [0-9]+ generated, [0-9]+ unchanged, 0 skipped, 0 errors' \
+    || { echo "unexpected Results line: $(echo "$out" | tail -2)" >&2; return 1; }
+}
+
+@test "a typo'd adapters.yml adapter key fails generation" {
+  make_tree
+  sed -i 's/wrapper: xml/wrapperr: xml/' "$TREE/adapters.yml"
+  grep -q 'wrapperr: xml' "$TREE/adapters.yml" || { echo "mutation did not take" >&2; return 1; }
+  gen
+  [ "$rc" -eq 1 ] || { echo "expected exit 1, got $rc" >&2; return 1; }
+  echo "$err" | grep -qF "has unknown keys: ['wrapperr']" || { echo "error does not name the key: $err" >&2; return 1; }
+  echo "$err" | grep -qF 'valid keys' || { echo "error does not list valid keys: $err" >&2; return 1; }
+}
+
+@test "adapters.yml not a mapping (list / scalar): exit 1 with a named error (round 6 input table)" {
+  make_tree
+  printf -- '- a\n- b\n' > "$TREE/adapters.yml"
+  gen
+  [ "$rc" -eq 1 ] || { echo "list: expected exit 1, got $rc" >&2; return 1; }
+  echo "$err" | grep -qF 'adapters.yml must be a mapping, got list'
+  make_tree scalar
+  printf -- '42\n' > "$TREE/adapters.yml"
+  gen
+  [ "$rc" -eq 1 ] || { echo "scalar: expected exit 1, got $rc" >&2; return 1; }
+  echo "$err" | grep -qF 'adapters.yml must be a mapping, got int'
+}
+
+@test "adapters.yml section not a mapping ('adapters' as a list): exit 1 (round 6 input table)" {
+  make_tree
+  printf -- 'adapters: [x]\ncommands: {}\n' > "$TREE/adapters.yml"
+  gen
+  [ "$rc" -eq 1 ] || { echo "expected exit 1, got $rc" >&2; return 1; }
+  echo "$err" | grep -qF "adapters.yml 'adapters' must be a mapping, got list"
+}
+
+@test "invalid UTF-8 adapters.yml: exit 1 with a named error, no Traceback (#157 round 1)" {
+  make_tree
+  python3 -c "open('$TREE/adapters.yml','wb').write(b'adapters: \xff\xfe\n')"
+  gen
+  [ "$rc" -eq 1 ] || { echo "expected exit 1, got $rc" >&2; return 1; }
+  echo "$err" | grep -qF 'Error: Cannot read' \
+    || { echo "error does not name the config read: $err" >&2; return 1; }
+  echo "$err" | grep -qF "'utf-8' codec can't decode" \
+    || { echo "error does not name the failure: $err" >&2; return 1; }
+  if printf '%s\n' "$err" | grep -q 'Traceback'; then
+    echo "raw traceback leaked: $err" >&2
+    return 1
+  fi
+}
+
+@test "round-3 command key /etc/passwd: load-time name error, exit 1, no Traceback" {
+  make_tree
+  python3 - "$TREE" <<'HOOK1'
+import sys, yaml
+t = sys.argv[1]
+c = yaml.safe_load(open(f"{t}/adapters.yml"))
+c["commands"]["/etc/passwd"] = dict(c["commands"]["qa"])
+yaml.safe_dump(c, open(f"{t}/adapters.yml", "w"), sort_keys=False)
+HOOK1
+  gen
+  [ "$rc" -eq 1 ] || { echo "expected exit 1, got $rc" >&2; return 1; }
+  echo "$err" | grep -qF "invalid command name '/etc/passwd'" \
+    || { echo "error does not name the key: $err" >&2; return 1; }
+  if printf '%s\n' "$err" | grep -q 'Traceback'; then echo "raw traceback leaked: $err" >&2; return 1; fi
+}
+
+@test "round-3 command key ../x: load-time name error, exit 1, no Traceback" {
+  make_tree
+  python3 - "$TREE" <<'HOOK2'
+import sys, yaml
+t = sys.argv[1]
+c = yaml.safe_load(open(f"{t}/adapters.yml"))
+c["commands"]["../x"] = dict(c["commands"]["qa"])
+yaml.safe_dump(c, open(f"{t}/adapters.yml", "w"), sort_keys=False)
+HOOK2
+  gen
+  [ "$rc" -eq 1 ] || { echo "expected exit 1, got $rc" >&2; return 1; }
+  echo "$err" | grep -qF "invalid command name '../x'" \
+    || { echo "error does not name the key: $err" >&2; return 1; }
+  if printf '%s\n' "$err" | grep -q 'Traceback'; then echo "raw traceback leaked: $err" >&2; return 1; fi
+}
+
+@test "round-3 args_placeholder null: load-time type error naming the key, exit 1, no Traceback" {
+  make_tree
+  python3 - "$TREE" <<'HOOK3'
+import sys, yaml
+t = sys.argv[1]
+c = yaml.safe_load(open(f"{t}/adapters.yml"))
+c["adapters"]["claude-code"]["args_placeholder"] = None
+yaml.safe_dump(c, open(f"{t}/adapters.yml", "w"), sort_keys=False)
+HOOK3
+  gen
+  [ "$rc" -eq 1 ] || { echo "expected exit 1, got $rc" >&2; return 1; }
+  echo "$err" | grep -qF "adapter 'claude-code' key 'args_placeholder' must be str, got NoneType" \
+    || { echo "error does not name adapter+key+types: $err" >&2; return 1; }
+  if printf '%s\n' "$err" | grep -q 'Traceback'; then echo "raw traceback leaked: $err" >&2; return 1; fi
+}
+
+@test "round-3 description 123: load-time type error naming the key, exit 1, no Traceback" {
+  make_tree
+  python3 - "$TREE" <<'HOOK4'
+import sys, yaml
+t = sys.argv[1]
+c = yaml.safe_load(open(f"{t}/adapters.yml"))
+c["commands"]["qa"]["description"] = 123
+yaml.safe_dump(c, open(f"{t}/adapters.yml", "w"), sort_keys=False)
+HOOK4
+  gen
+  [ "$rc" -eq 1 ] || { echo "expected exit 1, got $rc" >&2; return 1; }
+  echo "$err" | grep -qF "command 'qa' key 'description' must be dict, got int" \
+    || { echo "error does not name command+key+types: $err" >&2; return 1; }
+  if printf '%s\n' "$err" | grep -q 'Traceback'; then echo "raw traceback leaked: $err" >&2; return 1; fi
+}
+
+
+@test "round-3 bad-bytes adapters.yml under LC_ALL=C: same named error, no Traceback, locale-independent" {
+  make_tree
+  python3 -c "open('$TREE/adapters.yml','wb').write(b'adapters: \xff\xfe\n')"
+  rc2=0
+  (cd "$TREE" && LC_ALL=C python3 scripts/generate-adapters.py >"$BATS_TEST_TMPDIR/o" 2>"$BATS_TEST_TMPDIR/e") || rc2=$?
+  [ "$rc2" -eq 1 ] || { echo "expected exit 1 under LC_ALL=C, got $rc2" >&2; return 1; }
+  grep -qF "Error: Cannot read" "$BATS_TEST_TMPDIR/e" \
+    || { echo "error does not name the config read: $(cat "$BATS_TEST_TMPDIR/e")" >&2; return 1; }
+  grep -qF "'utf-8' codec can't decode" "$BATS_TEST_TMPDIR/e" \
+    || { echo "error does not name the decode failure" >&2; return 1; }
+  if grep -q 'Traceback' "$BATS_TEST_TMPDIR/e"; then echo "raw traceback leaked" >&2; return 1; fi
+}
+
+@test "A1 structural grep: relative_to(ROOT_DIR) only in display_path/validate_output_path; every open/read_text/write_text has encoding=" {
+  local script="$ROOT/scripts/generate-adapters.py"
+  # 1. relative_to(ROOT_DIR) may appear ONLY inside display_path (its def)
+  #    and validate_output_path.
+  local n_total n_display n_validate
+  n_total=$(grep -cF 'relative_to(ROOT_DIR)' "$script")
+  n_display=$(sed -n '/^def display_path/,/^def /p' "$script" | grep -cF 'relative_to(ROOT_DIR)' || true)
+  n_validate=$(sed -n '/^def validate_output_path/,/^def /p' "$script" | grep -cF 'relative_to(ROOT_DIR)' || true)
+  [ "$n_total" -eq $((n_display + n_validate)) ] \
+    || { echo "relative_to(ROOT_DIR) outside display_path/validate_output_path: total=$n_total display=$n_display validate=$n_validate" >&2; return 1; }
+  # 2. every open( / read_text( / write_text( call carries encoding=
+  local bad
+  bad=$(grep -nE '(open|read_text|write_text)\(' "$script" | grep -vF 'encoding=' || true)
+  [ -z "$bad" ] || { echo "read/write without encoding=:" >&2; printf '%s\n' "$bad" >&2; return 1; }
+}
