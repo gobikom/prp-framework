@@ -51,12 +51,6 @@ def display_path(p) -> str:
         return str(p)
 
 
-class GenerationError(Exception):
-    """An input the generator failed to read or parse (split_frontmatter
-    raises it; #157's read_prompt / read_overlay / validate_generated adopt
-    it, and its per-command boundary catches it)."""
-
-
 # Required top-level keys in adapters.yml
 REQUIRED_CONFIG_KEYS = {"adapters", "commands"}
 REQUIRED_ADAPTER_KEYS = {"file_pattern", "format", "args_placeholder",
@@ -72,6 +66,16 @@ KNOWN_ADAPTER_KEYS = {"file_pattern", "format", "args_placeholder",
                       "tool_command_template", "artifact_suffix",
                       "frontmatter", "group_dirs", "overlays", "wrapper"}
 REQUIRED_COMMAND_KEYS = {"description"}
+
+
+class GenerationError(Exception):
+    """An input the generator failed to read or parse, or an output it
+    could not build correctly. The generator never exits 0 on such a
+    failure (the #156 round-4 widened invariant, re-routed as PR A):
+    every failure is an error counted in stats["errors"], never a silent
+    skip. generate_all() catches one per command, counts it, and
+    continues, so a single run reports every broken input; main() exits 1
+    when any error was counted."""
 
 
 # ---------------------------------------------------------------------------
@@ -274,11 +278,33 @@ def split_frontmatter(text: str, source: str) -> tuple[str | None, str]:
 
 
 def read_prompt(name: str) -> str:
-    """Read a canonical prompt file from prompts/."""
+    """Read a canonical prompt file from prompts/.
+
+    Raises GenerationError naming the file when the prompt for a configured
+    command is missing or unreadable (round-4 Important): a missing prompt
+    previously counted as a silent "skipped" and generation exited 0.
+    """
     path = PROMPTS_DIR / f"{name}.md"
     if not path.exists():
-        return ""
-    return path.read_text(encoding="utf-8")
+        raise GenerationError(
+            f"error: prompt file for configured command '{name}' is missing: "
+            f"{display_path(path)}")
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as e:
+        # #157 round 1: invalid UTF-8 raises UnicodeDecodeError (a
+        # ValueError), which is not an OSError — catching only OSError let a
+        # raw traceback abort the run, hiding every other broken input.
+        raise GenerationError(
+            f"error: cannot read prompt for configured command '{name}': "
+            f"{display_path(path)}: {e}")
+    if not text.strip():
+        # Round-6 Important A: an empty or whitespace-only prompt previously
+        # shipped an empty command body and exited 0.
+        raise GenerationError(
+            f"error: prompt file for configured command '{name}' is empty "
+            f"or whitespace-only: {display_path(path)}")
+    return text
 
 
 def read_overlay(adapter: str, name: str) -> dict | None:
@@ -305,31 +331,39 @@ def read_overlay(adapter: str, name: str) -> dict | None:
     if not path.exists():
         return None
 
-    text = path.read_text(encoding="utf-8")
-
-    # Parse YAML frontmatter through the ONE splitter, split_frontmatter
-    # (A1 owns it). A malformed region stays lenient here — the hard-error
-    # policy for overlays is #157's read_overlay; A1 only guarantees the
-    # parse goes through the single delimiter rule and never traces back.
-    overlay = {}
     try:
-        fm, body = split_frontmatter(text, display_path(path))
-    except GenerationError as e:
-        # A1 is lenient but VISIBLE: the named parse error is printed, never
-        # silently discarded — the overlay generates without metadata. The
-        # hard-error policy for overlays is #157's; A1 logs and continues.
-        print(f"  WARNING: {e} — overlay metadata ignored", file=sys.stderr)
-        fm, body = None, text
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as e:
+        # #157 round 1: same rule as read_prompt — an undecodable overlay is
+        # a named GenerationError, never a raw traceback.
+        raise GenerationError(
+            f"error: cannot read overlay {display_path(path)}: {e}")
+
+    # Parse YAML frontmatter. A broken frontmatter is a hard error naming the
+    # overlay file and the YAML error (round-4 Critical): swallowing it here
+    # let wrap_with_xml() build malformed content and generation exit 0.
+    overlay = {}
+    # Round-8 re-plan: one parser — split_frontmatter — for overlays and
+    # generated output alike (normalizes line endings, delimiter = `---`
+    # line modulo trailing spaces/tabs, no whole-text-as-body fallback,
+    # unterminated frontmatter is an error naming this file; round 9: an
+    # indented delimiter anywhere in the frontmatter region is an error
+    # naming the file and line).
+    fm, body = split_frontmatter(text, display_path(path))
     if fm is not None:
         try:
             meta = yaml.safe_load(fm)
+            if meta is not None and not isinstance(meta, dict):
+                raise GenerationError(
+                    f"error: overlay frontmatter must be a mapping, got "
+                    f"{type(meta).__name__}: "
+                    f"{display_path(path)}")
             if meta:
                 overlay["meta"] = meta
         except yaml.YAMLError as e:
-            # Same lenient-but-visible policy: named WARNING, meta absent,
-            # generation continues (the hard-error policy is #157's).
-            print(f"  WARNING: {display_path(path)}: invalid overlay frontmatter "
-                  f"YAML: {e} — overlay metadata ignored", file=sys.stderr)
+            raise GenerationError(
+                f"error: invalid YAML frontmatter in overlay "
+                f"{display_path(path)}: {e}")
         text = body.strip()
 
     # Parse sections: lines starting with "# section_name"
@@ -562,7 +596,57 @@ def validate_output_path(out_path: Path, adapter_dir: Path) -> bool:
         return False
 
 
+def validate_generated(rel_path: str, content: str) -> None:
+    """Round-6 output check: the generator exits 0 only if EVERY file it
+    writes or would write passes. Runs on every adapter and command —
+    aliases included — and in --dry-run/--diff modes too (it is called
+    before the dry-run fork, so it sees identical content). Raises
+    GenerationError naming the file and the reason:
+      (a) the command body, after frontmatter or TOML header, is non-empty
+          after strip;
+      (b) the description field, where the format has one, is non-empty.
+    (Check (c) — no reserved {agent_*} namespace token left in the output —
+    joins in the stacked PR B, which introduces that namespace.)
+    """
+    where = f"generated output {rel_path}"
+
+    fmt_md = not rel_path.endswith(".toml")
+
+    if fmt_md:
+        # Markdown: strip YAML frontmatter, then require a non-empty body.
+        # Round-8 re-plan: the frontmatter/body boundary comes from
+        # split_frontmatter — one parser, shared with read_overlay() (no
+        # inline split here; the round-7 inline regex still missed `--- `
+        # and CRLF delimiters).
+        desc, body = split_frontmatter(content, rel_path)
+        desc = desc or ""
+        if not body.strip():
+            raise GenerationError(
+                f"error: {where} has an empty command body after frontmatter")
+        # (b) a description FIELD exists (frontmatter carries one) but is empty
+        if desc:
+            m = re.search(r"^description:\s*(.*)$", desc, re.MULTILINE)
+            if m and not m.group(1).strip().strip('"').strip():
+                raise GenerationError(
+                    f"error: {where} has an empty description field")
+    else:
+        # TOML (gemini): description = "..." then prompt = """...""" — the
+        # command body is the INTERIOR of the prompt block, not the leftover
+        # TOML scaffolding around it.
+        m = re.search(r'^description\s*=\s*"(.*)"', content, re.MULTILINE)
+        desc = m.group(1) if m else ""
+        if not desc.strip():
+            raise GenerationError(
+                f"error: {where} has an empty description field")
+        m = re.search(r'prompt\s*=\s*"""(.*?)"""', content, re.DOTALL)
+        body = m.group(1) if m else ""
+        if not body.strip():
+            raise GenerationError(
+                f"error: {where} has an empty command body after TOML header")
+
+
 # ---------------------------------------------------------------------------
+# Core generation# ---------------------------------------------------------------------------
 # Core generation
 # ---------------------------------------------------------------------------
 
@@ -577,14 +661,22 @@ def generate_adapter_file(adapter_name: str, cmd_name: str, config: dict) -> tup
     file_pattern = adapter_cfg["file_pattern"]
     rel_path = file_pattern.replace("{name}", cmd_name)
 
+    # Round-6 input table: alias-of must name a configured command
+    if is_alias:
+        alias_of = cmd_cfg.get("alias-of", "")
+        if alias_of not in config["commands"]:
+            raise GenerationError(
+                f"error: command '{cmd_name}' is an alias of '{alias_of}', "
+                f"which is not a configured command in adapters.yml")
+
     # Read base prompt (or generate alias content)
     if is_alias:
         body = generate_alias_content(cmd_name, cmd_cfg, adapter_name)
     else:
+        # A missing or unreadable prompt for a configured command is an error
+        # (read_prompt raises); there is no intentional-skip path here — every
+        # configured command must have a prompt (or be an alias).
         body = read_prompt(cmd_name)
-        if not body:
-            print(f"  WARNING: No prompt file for {cmd_name}", file=sys.stderr)
-            return rel_path, ""
 
     # Apply placeholder substitutions
     body = substitute_placeholders(body, adapter_cfg, cmd_name)
@@ -648,7 +740,26 @@ def generate_all(config: dict, adapter_filter: str | None = None,
 
         for cmd_name in commands:
             cmd_cfg = commands[cmd_name]
-            rel_path, content = generate_adapter_file(adapter_name, cmd_name, config)
+            # Round-3 re-plan: the WHOLE body for one (adapter, command)
+            # pair is a single unit. GenerationError keeps its specific
+            # message; the catch-all turns any OTHER exception (a wrong-typed
+            # config value that slipped through, a bad path shape, a bug)
+            # into a named, counted error — and the run CONTINUES. No input
+            # can end the run with a Python traceback.
+            try:
+                rel_path, content = generate_adapter_file(adapter_name, cmd_name, config)
+            except GenerationError as e:
+                # widened invariant: an input we could not read/parse is an
+                # error counted in stats["errors"] — printed and CONTINUED, so
+                # one run reports every broken input; main() exits 1.
+                print(f"  {e}", file=sys.stderr)
+                stats["errors"] += 1
+                continue
+            except Exception as e:
+                print(f"  error: {adapter_name}/{cmd_name}: "
+                      f"unexpected {type(e).__name__}: {e}", file=sys.stderr)
+                stats["errors"] += 1
+                continue
 
             if not content:
                 stats["skipped"] += 1
@@ -665,7 +776,18 @@ def generate_all(config: dict, adapter_filter: str | None = None,
 
             # Path traversal check
             if not validate_output_path(out_path, adapter_dir):
-                print(f"  ERROR: Path traversal detected: {display_path(out_path)}", file=sys.stderr)
+                print(f"  ERROR: Path traversal detected: {out_path}", file=sys.stderr)
+                stats["errors"] += 1
+                continue
+
+            # Round-6 output check — every file the generator writes or would
+            # write must pass validate_generated; runs BEFORE the dry-run fork
+            # so --dry-run/--diff validate identical content, and it covers
+            # the change-detection read below (content that would be written).
+            try:
+                validate_generated(f"{adapter_name}/{rel_path}", content)
+            except GenerationError as e:
+                print(f"  {e}", file=sys.stderr)
                 stats["errors"] += 1
                 continue
 
@@ -679,11 +801,15 @@ def generate_all(config: dict, adapter_filter: str | None = None,
                 try:
                     existing = out_path.read_text(encoding="utf-8")
                 except (OSError, UnicodeDecodeError) as e:
-                    # Never overwrite an output the generator could not read:
-                    # named error, counted, continue (the write path below is
-                    # unreachable for this file because we `continue` here).
-                    print(f"  error: cannot read existing output "
-                          f"{display_path(out_path)}: {e}", file=sys.stderr)
+                    # #157 round 1: an existing output the generator cannot
+                    # read or decode is a named error counted in
+                    # stats["errors"] — the run CONTINUES so one broken file
+                    # cannot hide the others (an uncaught read previously
+                    # aborted the whole run; invalid UTF-8 crashed with a raw
+                    # traceback). The file is left untouched: never overwrite
+                    # output we could not read.
+                    print(f"  error: cannot read existing output {out_path}: {e}",
+                          file=sys.stderr)
                     stats["errors"] += 1
                     continue
                 if existing == content:
@@ -738,19 +864,27 @@ def main():
     )
     args = parser.parse_args()
 
-    config = load_config()
+    # Round-3 re-plan: last-resort handler — anything escaping load_config()
+    # or generate_all() prints ONE named "internal error" line and exits 1,
+    # never a traceback. KeyboardInterrupt / SystemExit propagate (they are
+    # BaseException, not Exception, so this except does not touch them).
+    try:
+        config = load_config()
 
-    if args.adapter and args.adapter not in config["adapters"]:
-        print(f"Error: Unknown adapter '{args.adapter}'", file=sys.stderr)
-        print(f"Available: {', '.join(config['adapters'].keys())}", file=sys.stderr)
-        sys.exit(1)
+        if args.adapter and args.adapter not in config["adapters"]:
+            print(f"Error: Unknown adapter '{args.adapter}'", file=sys.stderr)
+            print(f"Available: {', '.join(config['adapters'].keys())}", file=sys.stderr)
+            sys.exit(1)
 
-    stats = generate_all(
-        config,
-        adapter_filter=args.adapter,
-        dry_run=args.dry_run,
-        show_diff=args.diff or args.dry_run,
-    )
+        stats = generate_all(
+            config,
+            adapter_filter=args.adapter,
+            dry_run=args.dry_run,
+            show_diff=args.diff or args.dry_run,
+        )
+    except Exception as e:
+        print(f"error: internal: {type(e).__name__}: {e}", file=sys.stderr)
+        return 1
 
     print(f"\n{'='*60}")
     print(f"Results: {stats['generated']} generated, {stats['unchanged']} unchanged, "
