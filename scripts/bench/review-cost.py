@@ -1,17 +1,6 @@
 #!/usr/bin/env python3
 """Sum usage tokens from Claude Code review session jsonl + subagents/*.jsonl.
-
-Read-only; run as python3 -I.
-
-Usage:
-    python3 -I scripts/bench/review-cost.py DIR            (all sessions in DIR)
-    python3 -I scripts/bench/review-cost.py FILE.jsonl ...  (specific session files)
-
-A DIR is a Claude Code project directory containing <id>.jsonl files with
-matching <id>/subagents/*.jsonl directories.  A FILE.jsonl is a single session's
-main-thread jsonl whose subagents/ sibling dir is found automatically.
-
-Output: a TSV table and an optional --json summary.
+Read-only; run as python3 -I. Accepts a project DIR or individual .jsonl files.
 """
 from __future__ import annotations
 
