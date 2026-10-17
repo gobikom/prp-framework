@@ -79,15 +79,24 @@ PY
   [[ "$stderr" == *"bad.jsonl"* ]]
 }
 
-@test "review-cost.py: good + bad session in same dir → good on stdout, bad on stderr, exit != 0" {
+@test "review-cost.py: good-first + bad session → good on stdout, bad on stderr" {
   mkdir -p "$TEST_TMPDIR/project"
-  # "aaa-good" sorts before "zzz-bad"; test both sort orders
   printf '{"type":"system","timestamp":"2026-01-01T12:00:00.000Z"}\n{"type":"assistant","message":{"usage":{"input_tokens":1,"cache_read_input_tokens":100,"cache_creation_input_tokens":0,"output_tokens":5}}}\n' > "$TEST_TMPDIR/project/aaa-good.jsonl"
   printf 'not json\nbad line\n' > "$TEST_TMPDIR/project/zzz-bad.jsonl"
   run --separate-stderr python3 -I "$REPO_ROOT/scripts/bench/review-cost.py" --json "$TEST_TMPDIR/project/"
   [ "$status" -ne 0 ]
   python3 -I -c "import json,sys; d=json.loads(sys.argv[1]); assert len(d)==1 and d[0]['output']==5" "$output"
   [[ "$stderr" == *"zzz-bad.jsonl"* ]]
+}
+
+@test "review-cost.py: bad-first + good session → good on stdout, bad on stderr" {
+  mkdir -p "$TEST_TMPDIR/project"
+  printf 'not json\nbad line\n' > "$TEST_TMPDIR/project/aaa-bad.jsonl"
+  printf '{"type":"system","timestamp":"2026-01-01T12:00:00.000Z"}\n{"type":"assistant","message":{"usage":{"input_tokens":1,"cache_read_input_tokens":100,"cache_creation_input_tokens":0,"output_tokens":5}}}\n' > "$TEST_TMPDIR/project/zzz-good.jsonl"
+  run --separate-stderr python3 -I "$REPO_ROOT/scripts/bench/review-cost.py" --json "$TEST_TMPDIR/project/"
+  [ "$status" -ne 0 ]
+  python3 -I -c "import json,sys; d=json.loads(sys.argv[1]); assert len(d)==1 and d[0]['output']==5" "$output"
+  [[ "$stderr" == *"aaa-bad.jsonl"* ]]
 }
 
 @test "review-cost.py: corrupt subagent fails session, sibling session reported" {
