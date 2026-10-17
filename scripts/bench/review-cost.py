@@ -75,20 +75,29 @@ class SessionCost:
 def _sum_jsonl(path: str) -> tuple[UsageTotals, str]:
     totals = UsageTotals()
     first_ts = ""
+    non_blank = 0
+    skipped = 0
     with open(path) as f:
         for line in f:
             line = line.strip()
             if not line:
                 continue
+            non_blank += 1
             try:
                 d = json.loads(line)
             except json.JSONDecodeError:
+                skipped += 1
                 continue
             if not first_ts and "timestamp" in d:
                 first_ts = d["timestamp"]
             usage = d.get("message", {}).get("usage") if isinstance(d.get("message"), dict) else None
             if isinstance(usage, dict):
                 totals.add(usage)
+    if skipped:
+        print(f"warning: {path}: skipped {skipped} undecodable line(s)", file=sys.stderr)
+    if non_blank > 0 and non_blank == skipped:
+        print(f"error: {path}: 0 decodable lines out of {non_blank}", file=sys.stderr)
+        raise ValueError(f"{path}: no decodable lines")
     return totals, first_ts
 
 
