@@ -201,7 +201,10 @@ def read_overlay(adapter: str, name: str) -> dict | None:
     # let wrap_with_xml() build malformed content and generation exit 0.
     overlay = {}
     if text.startswith("---"):
-        parts = text.split("---", 2)
+        # Round-7 fix: split only on lines exactly `---` — the old
+        # text.split("---", 2) matched "---" inside frontmatter values
+        # (e.g. command: "pre---post") and mis-parsed the overlay.
+        parts = re.split(r"(?m)^---$", text, maxsplit=2)
         if len(parts) >= 3:
             try:
                 meta = yaml.safe_load(parts[1])
@@ -516,10 +519,14 @@ def validate_generated(rel_path: str, content: str) -> None:
 
     if fmt_md:
         # Markdown: strip YAML frontmatter, then require a non-empty body.
+        # Round-7 fix: split ONLY on lines that are exactly `---`
+        # (re.split (?m)^---$ maxsplit=2) — the old body.split("---", 2)
+        # matched "---" anywhere, e.g. inside description: "pre---post",
+        # which silently mis-split frontmatter and body.
         body = content
         desc = ""
         if body.startswith("---"):
-            parts = body.split("---", 2)
+            parts = re.split(r"(?m)^---$", body, maxsplit=2)
             if len(parts) >= 3:
                 desc = parts[1]
                 body = parts[2]

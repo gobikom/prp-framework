@@ -358,6 +358,13 @@ expect_fail("ns-token", "codex/prp-x/SKILL.md",
             "---\ndescription: \"d\"\n---\nbody with {AGENT_FOO} inside\n",
             "'{AGENT_FOO}'")
 
+# round 7: frontmatter must split ONLY on lines exactly `---` — a description
+# containing "---" must not mis-split frontmatter from body.
+expect_fail("dash-desc-ws-body", "claude-code/prp-x.md",
+            "---\ndescription: \"pre---post\"\n---\n\n   \n", "empty command body")
+ga.validate_generated("claude-code/prp-x.md",
+                      "---\ndescription: \"pre---post\"\n---\nreal body\n")
+
 ga.validate_generated("claude-code/prp-x.md", "---\ndescription: \"d\"\n---\nbody\n")
 ga.validate_generated("gemini/prp-x.toml", 'description = "d"\nprompt = """\nbody\n"""\n')
 ga.validate_generated("opencode/prp-x.md", "# just a body\n")
@@ -365,16 +372,43 @@ print("validate_generated shapes OK")
 PYEOF
 }
 
-@test "the output check runs in --dry-run too: a bad would-write output fails without writing (round 6)" {
+@test "the output check runs in --dry-run too: a bad would-write output fails without writing (round 6; round-7 rewrite)" {
+  # Round-7 rewrite: the old mutation (self-referential agent_blocking_param)
+  # was caught by the namespace check in generate_adapter_file BEFORE
+  # validate_generated ever ran — moving the call after the dry-run fork kept
+  # the suite green (vacuous). This mutation — an EMPTY DESCRIPTION via
+  # adapters.yml — flows through substitution untouched and is caught ONLY by
+  # validate_generated, and the assertion requires validate_generated's OWN
+  # error text ("generated output <rel_path>", no "for"), which no earlier
+  # check emits.
   make_tree
-  # reachable dry-run failure: a self-referential config value re-inserts a
-  # namespace token into the output, which output check (c) catches — the
-  # check must fire BEFORE the dry-run fork, with nothing written.
-  sed -i 's|agent_blocking_param: "  run_in_background=false,\\n"|agent_blocking_param: "{AGENT_BLOCKING_PARAM}"|' "$TREE/adapters.yml"
-  grep -qF 'agent_blocking_param: "{AGENT_BLOCKING_PARAM}"' "$TREE/adapters.yml" # mutation took
+  python3 - "$TREE" <<'PYEOF'
+import sys, yaml
+t = sys.argv[1]
+c = yaml.safe_load(open(f"{t}/adapters.yml"))
+c["commands"]["qa"]["description"] = {"default": ""}
+yaml.safe_dump(c, open(f"{t}/adapters.yml", "w"), sort_keys=False, allow_unicode=True)
+PYEOF
   rc2=0
   (cd "$TREE" && python3 scripts/generate-adapters.py --dry-run >"$BATS_TEST_TMPDIR/gen.out" 2>"$BATS_TEST_TMPDIR/err") || rc2=$?
   [ "$rc2" -eq 1 ] || { echo "expected exit 1 in --dry-run, got $rc2" >&2; return 1; }
-  grep -qF "reserved placeholder" "$BATS_TEST_TMPDIR/err" \
-    || { echo "dry-run did not report the bad output: $(cat "$BATS_TEST_TMPDIR/err")" >&2; return 1; }
+  grep -qF 'generated output' "$BATS_TEST_TMPDIR/err" \
+    || { echo "not validate_generated's error: $(cat "$BATS_TEST_TMPDIR/err")" >&2; return 1; }
+  grep -qE 'generated output [^ ]+ has an empty description field' "$BATS_TEST_TMPDIR/err" \
+    || { echo "missing validate_generated text: $(cat "$BATS_TEST_TMPDIR/err")" >&2; return 1; }
+  # it fired before the fork: nothing was written
+  [ ! -e "$TREE/adapters/claude-code/prp-qa.md" ]
+}
+
+@test "overlay frontmatter value containing --- parses correctly (round 7)" {
+  # read_overlay used to split frontmatter on any "---" — a value like
+  # note: "pre---post" mis-split the overlay. Now it splits only on lines
+  # exactly `---`: this overlay must parse (exit 0) and its objective must
+  # land in the claude-code plan adapter.
+  make_tree
+  printf -- '---\ncommand: plan\nadapter: claude-code\nnote: "pre---post"\n---\n# objective\nOBJTEXT-ROUND7\n' > "$TREE/prompts/overlays/claude-code/plan.md"
+  gen
+  [ "$rc" -eq 0 ] || { echo "expected exit 0, got $rc: $err" >&2; return 1; }
+  grep -qF "OBJTEXT-ROUND7" "$TREE/adapters/claude-code/prp-plan.md" \
+    || { echo "overlay objective not applied" >&2; return 1; }
 }

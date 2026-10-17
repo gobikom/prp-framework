@@ -82,7 +82,7 @@ R4 found silent exit 0 on a broken overlay and on a missing prompt. R6 found it 
 - (b) the description field, where the format has one, is non-empty;
 - (c) no `{agent_*}` namespace token remains.
 
-Any failure goes to stats["errors"] with the file and the reason, and the exit is non-zero. The check runs on every adapter and command, including aliases, and in --dry-run and --check modes too.
+Any failure goes to stats["errors"] with the file and the reason, and the exit is non-zero. The check runs on every adapter and command, including aliases, and in --dry-run mode too (the generator has no --check mode; round-7 correction of this line's earlier "--check" wording).
 
 **Input table** (filled, round 6). One row per read in generate-adapters.py, each with its failure behavior and the test that pins it (tests live in tests/scripts/generate-adapters.bats unless noted):
 
@@ -100,7 +100,7 @@ Any failure goes to stats["errors"] with the file and the reason, and the exit i
 | description | missing/empty for an adapter whose format has one | GenerationError by output check (b) (round 6) | "missing description ..." + validate_generated direct test |
 | alias-of | names a missing command | GenerationError, names both commands (round 6) | "alias-of names a missing command" |
 | {agent_*} placeholder | unregistered in prompt / left in output | GenerationError (R2) + output check (c) | suffix/case/unknown rows + validate_generated direct test |
-| output content | empty body after frontmatter/TOML header | GenerationError by output check (a), on write AND would-write paths | validate_generated direct test + "--dry-run too" test |
+| output content | empty body after frontmatter/TOML header | GenerationError by output check (a), on write AND would-write paths | validate_generated direct test + "--dry-run too" test (round-7 rewrite: empty-description mutation caught only by validate_generated, asserting its own error text; proven vacuous-proof by moving the call after the dry-run fork — test FAILS) |
 | existing output file (change-detection read) | read error | uncaught OSError aborts the run non-zero (verified round 6 by probe) | verified during round 6 |
 
 **Verified by:** one bats test per row that was not yet pinned, plus one test that feeds `validate_generated` each bad output shape directly, all against temp copies. The real tree still generates with 0 errors and 0 skipped (parity.bats:718).
