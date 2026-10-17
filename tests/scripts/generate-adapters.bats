@@ -178,3 +178,170 @@ HOOK4
   bad=$(grep -nE '(open|read_text|write_text)\(' "$script" | grep -vF 'encoding=' || true)
   [ -z "$bad" ] || { echo "read/write without encoding=:" >&2; printf '%s\n' "$bad" >&2; return 1; }
 }
+
+# ── frontmatter parsing: split_frontmatter boundary table (round 8 + round 9) ──
+# split_frontmatter is the ONLY frontmatter splitter (A1 owns it; #157's
+# read_overlay and validate_generated call it). Direct (module-level) arms
+# live here; the overlay-side and validate_generated arms are #157's, where
+# those callers live.
+
+@test "round-8 plain: frontmatter parsed, body preserved (direct)" {
+  make_tree
+  python3 - "$TREE/scripts/generate-adapters.py" <<'PYX'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("ga", sys.argv[1])
+ga = importlib.util.module_from_spec(spec); spec.loader.exec_module(ga)
+fm, body = ga.split_frontmatter("---\nk: v\n---\nbody\n", "x.md")
+assert (fm, body) == ("k: v", "body\n"), (fm, body)
+print("plain OK")
+PYX
+}
+
+@test "round-8 dash in value: a --- inside a frontmatter value does not split (direct)" {
+  make_tree
+  python3 - "$TREE/scripts/generate-adapters.py" <<'PYX'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("ga", sys.argv[1])
+ga = importlib.util.module_from_spec(spec); spec.loader.exec_module(ga)
+fm, body = ga.split_frontmatter('---\ndescription: "pre---post"\n---\nreal body\n', "x.md")
+assert fm == 'description: "pre---post"', fm
+assert body == "real body\n", body
+print("dash-in-value OK")
+PYX
+}
+
+@test "round-8 trailing-space delimiter: parsed as a delimiter (direct)" {
+  make_tree
+  python3 - "$TREE/scripts/generate-adapters.py" <<'PYX'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("ga", sys.argv[1])
+ga = importlib.util.module_from_spec(spec); spec.loader.exec_module(ga)
+fm, body = ga.split_frontmatter("---\nk: v\n--- \nbody\n", "x.md")
+assert (fm, body) == ("k: v", "body\n"), (fm, body)
+print("trailing-space OK")
+PYX
+}
+
+@test "round-8 trailing-tab delimiter: parsed as a delimiter (direct)" {
+  make_tree
+  python3 - "$TREE/scripts/generate-adapters.py" <<'PYX'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("ga", sys.argv[1])
+ga = importlib.util.module_from_spec(spec); spec.loader.exec_module(ga)
+fm, body = ga.split_frontmatter("---\nk: v\n---\t\nbody\n", "x.md")
+assert (fm, body) == ("k: v", "body\n"), (fm, body)
+print("trailing-tab OK")
+PYX
+}
+
+@test "round-8 CRLF: same result as plain (direct)" {
+  make_tree
+  python3 - "$TREE/scripts/generate-adapters.py" <<'PYX'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("ga", sys.argv[1])
+ga = importlib.util.module_from_spec(spec); spec.loader.exec_module(ga)
+fm, body = ga.split_frontmatter("---\r\nk: v\r\n---\r\nbody\r\n", "x.md")
+assert (fm, body) == ("k: v", "body\n"), (fm, body)
+print("CRLF OK")
+PYX
+}
+
+@test "round-8 unterminated: error names the source (direct)" {
+  make_tree
+  python3 - "$TREE/scripts/generate-adapters.py" <<'PYX'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("ga", sys.argv[1])
+ga = importlib.util.module_from_spec(spec); spec.loader.exec_module(ga)
+try:
+    ga.split_frontmatter("---\nk: v\nbody", "x.md")
+    raise SystemExit("BUG: unterminated accepted")
+except ga.GenerationError as e:
+    assert "unterminated frontmatter" in str(e) and "x.md" in str(e), str(e)
+print("unterminated direct OK")
+PYX
+}
+
+@test "round-8 no frontmatter: body as is (direct)" {
+  make_tree
+  python3 - "$TREE/scripts/generate-adapters.py" <<'PYX'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("ga", sys.argv[1])
+ga = importlib.util.module_from_spec(spec); spec.loader.exec_module(ga)
+fm, body = ga.split_frontmatter("body only\n", "x.md")
+assert fm is None and body == "body only\n"
+print("no-frontmatter OK")
+PYX
+}
+
+@test "round-8 ---- (4 dashes) closer: NOT a delimiter, counts as unterminated (direct)" {
+  make_tree
+  python3 - "$TREE/scripts/generate-adapters.py" <<'PYX'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("ga", sys.argv[1])
+ga = importlib.util.module_from_spec(spec); spec.loader.exec_module(ga)
+try:
+    ga.split_frontmatter("---\nk: v\n----\nbody\n", "x.md")
+    raise SystemExit("BUG: 4-dash closer accepted")
+except ga.GenerationError as e:
+    assert "unterminated frontmatter" in str(e)
+print("4-dash OK")
+PYX
+}
+
+@test "round-9 indented opener: error names the file and line (direct)" {
+  make_tree
+  python3 - "$TREE/scripts/generate-adapters.py" <<'PYX'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("ga", sys.argv[1])
+ga = importlib.util.module_from_spec(spec); spec.loader.exec_module(ga)
+try:
+    ga.split_frontmatter("  ---\nk: v\n---\nbody\n", "o.md")
+    raise SystemExit("BUG: indented opener accepted")
+except ga.GenerationError as e:
+    assert "indented frontmatter delimiter" in str(e), str(e)
+    assert "o.md" in str(e) and "line 1" in str(e), str(e)
+print("indented opener OK")
+PYX
+}
+
+@test "round-9 indented closer with a correct opener: error names the file and line (direct)" {
+  make_tree
+  python3 - "$TREE/scripts/generate-adapters.py" <<'PYX'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("ga", sys.argv[1])
+ga = importlib.util.module_from_spec(spec); spec.loader.exec_module(ga)
+try:
+    ga.split_frontmatter("---\nk: v\n\t--- \nbody\n", "x.md")
+    raise SystemExit("BUG: indented closer accepted")
+except ga.GenerationError as e:
+    assert "indented frontmatter delimiter" in str(e), str(e)
+    assert "x.md" in str(e) and "line 3" in str(e), str(e)
+print("indented closer OK")
+PYX
+}
+
+@test "round-9 three-dash line inside a fenced block in the body, after a correct closer: body, unaffected (direct)" {
+  make_tree
+  python3 - "$TREE/scripts/generate-adapters.py" <<'PYX'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("ga", sys.argv[1])
+ga = importlib.util.module_from_spec(spec); spec.loader.exec_module(ga)
+fm, body = ga.split_frontmatter("---\nk: v\n---\n```sh\n  ---\n```\nmore\n", "x.md")
+assert (fm, body) == ("k: v", "```sh\n  ---\n```\nmore\n"), (fm, body)
+fm, body = ga.split_frontmatter("---\nk: v\n---\nbody\n---\n", "x.md")
+assert (fm, body) == ("k: v", "body\n---\n"), (fm, body)
+print("fenced-body OK")
+PYX
+}
+
+@test "round-8 grep: split_frontmatter is the only frontmatter splitter (A1)" {
+  local script="$ROOT/scripts/generate-adapters.py"
+  rc1=0; p1=$(grep -nF 'split("---"' "$script") || rc1=$?
+  [ "$rc1" -eq 1 ] || { echo 'stray split("---" found:' >&2; printf '%s\n' "$p1" >&2; return 1; }
+  rc2=0; p2=$(grep -nE 're\.split\(.*---' "$script") || rc2=$?
+  [ "$rc2" -eq 1 ] || { echo 'stray re.split on --- found:' >&2; printf '%s\n' "$p2" >&2; return 1; }
+  # In A1 split_frontmatter is DEFINED here (the only splitter); #157's
+  # read_overlay and validate_generated are the two call sites, pinned by
+  # #157's grep test (def + 2 calls).
+  [ "$(grep -c 'def split_frontmatter' "$script")" -eq 1 ]
+}

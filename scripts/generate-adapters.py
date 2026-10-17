@@ -51,6 +51,12 @@ def display_path(p) -> str:
         return str(p)
 
 
+class GenerationError(Exception):
+    """An input the generator failed to read or parse (split_frontmatter
+    raises it; #157's read_prompt / read_overlay / validate_generated adopt
+    it, and its per-command boundary catches it)."""
+
+
 # Required top-level keys in adapters.yml
 REQUIRED_CONFIG_KEYS = {"adapters", "commands"}
 REQUIRED_ADAPTER_KEYS = {"file_pattern", "format", "args_placeholder",
@@ -199,6 +205,74 @@ def load_config() -> dict:
 # Prompt reading
 # ---------------------------------------------------------------------------
 
+def split_frontmatter(text: str, source: str) -> tuple[str | None, str]:
+    """The ONLY frontmatter splitter, used by read_overlay() and
+    validate_generated() (#156 round-8 re-plan, re-routed as PR A; the two
+    inline splits are deleted).
+
+    1. normalizes line endings first (\\r\\n and lone \\r become \\n);
+    2. a delimiter is a line whose content, after stripping trailing spaces
+       and tabs, is exactly `---`;
+    3. returns (None, whole_text) only if the first line is not a delimiter;
+    4. if the first line IS a delimiter and no closing delimiter follows,
+       raises GenerationError naming `source` ("unterminated frontmatter");
+    5. NEVER falls back to treating the whole text as the body — the
+       round-7/8 bugs both lived in that fallback (a mis-split left a
+       non-empty "body" that passed validation);
+    6. a line that becomes `---` only after stripping LEADING whitespace too
+       is a near-miss delimiter (the round-9 fix, from the #156 re-route):
+       wherever it appears in the frontmatter region — as the opening line
+       or as a would-be closing line before a valid closer — it raises
+       GenerationError ("indented frontmatter delimiter") naming the file
+       and the line. An indented opening `---` previously parsed as "no
+       frontmatter", so the overlay metadata was dropped and generation
+       exited 0. After a VALID closing delimiter the body is body: an
+       indented `---` (e.g. inside a fenced block) is never inspected.
+
+    Returns (frontmatter_text_or_None, body_after_closing_delimiter).
+    """
+    normalized = text.replace("\r\n", "\n").replace("\r", "\n")
+    lines = normalized.split("\n")
+
+    def is_delimiter(line: str) -> bool:
+        return line.rstrip(" \t") == "---"
+
+    def is_indented_delimiter(line: str) -> bool:
+        # `  ---` / `\t---` (with optional trailing spaces/tabs): the line is
+        # `---` once ALL surrounding whitespace is stripped, but it carries
+        # leading whitespace, so it is NOT a delimiter — it is a near miss.
+        return line[:1].isspace() and line.strip(" \t") == "---"
+
+    def indented_error(source: str, lineno: int) -> GenerationError:
+        return GenerationError(
+            f"error: indented frontmatter delimiter in {source} at line "
+            f"{lineno} — a `---` with leading whitespace is not a delimiter; "
+            f"delimiters must start at column 1")
+
+    if not lines:
+        return None, normalized
+    if is_indented_delimiter(lines[0]):
+        # An indented opening `---` was previously read as "no frontmatter"
+        # and the whole overlay metadata silently dropped (round 9).
+        raise indented_error(source, 1)
+    if not is_delimiter(lines[0]):
+        return None, normalized
+
+    for i in range(1, len(lines)):
+        if is_delimiter(lines[i]):
+            fm = "\n".join(lines[1:i])
+            body = "\n".join(lines[i + 1:])
+            return fm, body
+        if is_indented_delimiter(lines[i]):
+            # A would-be closing delimiter that is indented is a near miss,
+            # not body text: raise naming the file and the line (round 9).
+            raise indented_error(source, i + 1)
+
+    raise GenerationError(
+        f"error: unterminated frontmatter in {source} — opening `---` "
+        f"without a closing `---` line")
+
+
 def read_prompt(name: str) -> str:
     """Read a canonical prompt file from prompts/."""
     path = PROMPTS_DIR / f"{name}.md"
@@ -233,18 +307,23 @@ def read_overlay(adapter: str, name: str) -> dict | None:
 
     text = path.read_text(encoding="utf-8")
 
-    # Parse YAML frontmatter
+    # Parse YAML frontmatter through the ONE splitter, split_frontmatter
+    # (A1 owns it). A malformed region stays lenient here — the hard-error
+    # policy for overlays is #157's read_overlay; A1 only guarantees the
+    # parse goes through the single delimiter rule and never traces back.
     overlay = {}
-    if text.startswith("---"):
-        parts = text.split("---", 2)
-        if len(parts) >= 3:
-            try:
-                meta = yaml.safe_load(parts[1])
-                if meta:
-                    overlay["meta"] = meta
-            except yaml.YAMLError:
-                pass
-            text = parts[2].strip()
+    try:
+        fm, body = split_frontmatter(text, display_path(path))
+    except GenerationError:
+        fm, body = None, text
+    if fm is not None:
+        try:
+            meta = yaml.safe_load(fm)
+            if meta:
+                overlay["meta"] = meta
+        except yaml.YAMLError:
+            pass
+        text = body.strip()
 
     # Parse sections: lines starting with "# section_name"
     sections = {}

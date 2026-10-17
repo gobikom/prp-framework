@@ -10,10 +10,17 @@ branch.
 **Invariant (A1):** every input `load_config` reads — the adapters.yml bytes,
 its mapping structure, its key names and its key values — is validated at
 load time with a named, fatal error before any generation work starts; every
-file read or write in the generator passes `encoding="utf-8"`; and every
+file read or write in the generator passes `encoding="utf-8"`; every
 user-facing path in a message comes from one `display_path(p)` helper that
-never raises. No config input can reach generation code as an unvalidated
-value, and none can crash the run with a raw Python traceback.
+never raises; and frontmatter is parsed by ONE splitter, `split_frontmatter`,
+whose delimiter rule is exact — a line that is `---` after stripping
+trailing spaces/tabs (leading whitespace is a near-miss error), line endings
+normalized first, no whole-text-as-body fallback, an opener without a closer
+is an "unterminated frontmatter" error naming the source, and an indented
+delimiter anywhere in the frontmatter region is an "indented frontmatter
+delimiter" error naming the file and line. No config or frontmatter input
+can reach generation code as an unvalidated value, and none can crash the
+run with a raw Python traceback.
 
 ## Boundary table (A1)
 
@@ -28,9 +35,19 @@ value, and none can crash the run with a raw Python traceback.
 | unknown adapter key (typo) | named error + valid-key list, exit 1 |
 | `args_placeholder: null` (any documented key, wrong type) | `key 'args_placeholder' must be str, got NoneType`, exit 1 |
 | `description: 123` | `key 'description' must be dict, got int`, exit 1 |
+| frontmatter: plain `---\nk: v\n---\nbody` | frontmatter parsed, body preserved |
+| frontmatter: `---` inside a value (`"pre---post"`) | value intact — only exact `---` lines split |
+| frontmatter: trailing-space / trailing-tab closer | still a delimiter |
+| frontmatter: CRLF endings | same result as LF |
+| frontmatter: opener with no closer | GenerationError "unterminated frontmatter", names the source |
+| frontmatter: `----` (4 dashes) closer | NOT a delimiter → unterminated |
+| frontmatter: indented `---` opener or closer | GenerationError "indented frontmatter delimiter", names file + line |
+| frontmatter: no frontmatter | body as is |
 | valid tree | byte-identical adapters, `0 skipped, 0 errors` (parity.bats:718) |
 
-**Verified by:** 11 tests in `tests/scripts/generate-adapters.bats` (temp
-copies only) plus the structural grep test (`relative_to(ROOT_DIR)` only in
-`display_path`/`validate_output_path`; every `open`/`read_text`/`write_text`
-carries `encoding=`).
+**Verified by:** 23 tests in `tests/scripts/generate-adapters.bats` (temp
+copies only): the 11 config/encoding tests, the 13 round-8/9 frontmatter
+boundary rows (direct arms; the overlay/validate arms run in #157 where
+those callers live), and the structural grep tests (one splitter; no stray
+`split("---"`; `relative_to(ROOT_DIR)` only in `display_path`/
+`validate_output_path`; every read/write carries `encoding=`).
