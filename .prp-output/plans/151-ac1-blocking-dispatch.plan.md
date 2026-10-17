@@ -63,3 +63,11 @@ R1 Critical #3 and R2 Critical #1 are both "a misspelled generation-time placeho
 | prose prefix typo | `{AGNT_BLOCKING_PROSE}` | a positive test fails: claude-code must contain the scoped claim, and no adapter output may contain a brace token containing `BLOCKING` |
 | missing config value | remove the claim or the neutral prose key from adapters.yml | exit 1, error names the key |
 | canary | change the neutral prose value in adapters.yml | the canary appears in all 5 non-claude adapters (proves the value is read; the R2 Important) |
+
+### Widened invariant (round 4)
+
+Round 4 (run `20261017T100904Z-8d78023c`) found two more silent-exit-0 bugs in older generator code outside this PR's diff (a broken overlay frontmatter swallowed by `read_overlay()`; a missing prompt counted as a silent "skipped"). Both are the same class this PR closes — the generator exits 0 on output it could not build correctly — so they are fixed here under a widened invariant:
+
+**Invariant (widened):** the generator never exits 0 on output it could not build correctly. Every input it fails to read or parse is an error counted in `stats["errors"]`, never a silent skip.
+
+Applied as: `read_overlay()` raises on unreadable overlay and on invalid YAML frontmatter (error names the overlay file and the YAML error); `read_prompt()` raises on missing or unreadable prompt for a configured command (error names the file) — the former `WARNING: No prompt file` + silent skip at generate_adapter_file is deleted; all generation-time failures (including the round-2 registry violations above) raise `GenerationError`, which `generate_all()` catches per command, counts in `stats["errors"]`, and continues — so a single run reports every broken input — and `main()` exits 1 when any error was counted. There is no intentional-skip path: all 32 configured commands have prompts and no command is an alias (`generate_alias_content` is only reached via `alias: true`, which no command sets). Pinned by two bats tests against temp copies (broken overlay frontmatter → exit 1 + error text; deleted prompt → exit 1 + `6 errors` counted across the 6 adapters). parity.bats:718 still expects `0 skipped, 0 errors` on the real tree.

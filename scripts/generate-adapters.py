@@ -63,6 +63,15 @@ GEN_PLACEHOLDERS = {"AGENT_BLOCKING_PARAM", "AGENT_BLOCKING_PROSE"}
 NAMESPACE_RE = re.compile(r"\{agent_[a-z0-9_]*\}", re.IGNORECASE)
 
 
+class GenerationError(Exception):
+    """An input the generator failed to read or parse (round-4 widened
+    invariant: the generator never exits 0 on output it could not build
+    correctly — every such failure is an error counted in stats["errors"],
+    never a silent skip). generate_all() catches one per command, counts it,
+    and continues, so a single run reports every broken input; main() exits 1
+    when any error was counted."""
+
+
 # ---------------------------------------------------------------------------
 # Config loading
 # ---------------------------------------------------------------------------
@@ -115,11 +124,23 @@ def load_config() -> dict:
 # ---------------------------------------------------------------------------
 
 def read_prompt(name: str) -> str:
-    """Read a canonical prompt file from prompts/."""
+    """Read a canonical prompt file from prompts/.
+
+    Raises SystemExit naming the file when the prompt for a configured
+    command is missing or unreadable (round-4 Important): a missing prompt
+    previously counted as a silent "skipped" and generation exited 0.
+    """
     path = PROMPTS_DIR / f"{name}.md"
     if not path.exists():
-        return ""
-    return path.read_text()
+        raise GenerationError(
+            f"error: prompt file for configured command '{name}' is missing: "
+            f"{path.relative_to(ROOT_DIR)}")
+    try:
+        return path.read_text()
+    except OSError as e:
+        raise GenerationError(
+            f"error: cannot read prompt for configured command '{name}': "
+            f"{path.relative_to(ROOT_DIR)}: {e}")
 
 
 def read_overlay(adapter: str, name: str) -> dict | None:
@@ -146,9 +167,15 @@ def read_overlay(adapter: str, name: str) -> dict | None:
     if not path.exists():
         return None
 
-    text = path.read_text()
+    try:
+        text = path.read_text()
+    except OSError as e:
+        raise GenerationError(
+            f"error: cannot read overlay {path.relative_to(ROOT_DIR)}: {e}")
 
-    # Parse YAML frontmatter
+    # Parse YAML frontmatter. A broken frontmatter is a hard error naming the
+    # overlay file and the YAML error (round-4 Critical): swallowing it here
+    # let wrap_with_xml() build malformed content and generation exit 0.
     overlay = {}
     if text.startswith("---"):
         parts = text.split("---", 2)
@@ -157,8 +184,10 @@ def read_overlay(adapter: str, name: str) -> dict | None:
                 meta = yaml.safe_load(parts[1])
                 if meta:
                     overlay["meta"] = meta
-            except yaml.YAMLError:
-                pass
+            except yaml.YAMLError as e:
+                raise GenerationError(
+                    f"error: invalid YAML frontmatter in overlay "
+                    f"{path.relative_to(ROOT_DIR)}: {e}")
             text = parts[2].strip()
 
     # Parse sections: lines starting with "# section_name"
@@ -200,7 +229,7 @@ def substitute_placeholders(content: str, adapter_cfg: dict, cmd_name: str,
     for m in NAMESPACE_RE.finditer(content):
         name = m.group(0)[1:-1]
         if name not in GEN_PLACEHOLDERS:
-            raise SystemExit(
+            raise GenerationError(
                 f"error: unknown generation placeholder '{m.group(0)}' in "
                 f"{prompt_file} — registered placeholders: "
                 f"{sorted(GEN_PLACEHOLDERS)}")
@@ -246,7 +275,7 @@ def substitute_placeholders(content: str, adapter_cfg: dict, cmd_name: str,
             prose_key = "agent_blocking_prose_other"
             prose = config.get(prose_key)
         if not prose:
-            raise SystemExit(
+            raise GenerationError(
                 f"error: adapters.yml key '{prose_key}' is missing or empty — "
                 f"required to substitute {{AGENT_BLOCKING_PROSE}} for "
                 f"'{cmd_name}'")
@@ -453,10 +482,10 @@ def generate_adapter_file(adapter_name: str, cmd_name: str, config: dict) -> tup
     if is_alias:
         body = generate_alias_content(cmd_name, cmd_cfg, adapter_name)
     else:
+        # A missing or unreadable prompt for a configured command is an error
+        # (read_prompt raises); there is no intentional-skip path here — every
+        # configured command must have a prompt (or be an alias).
         body = read_prompt(cmd_name)
-        if not body:
-            print(f"  WARNING: No prompt file for {cmd_name}", file=sys.stderr)
-            return rel_path, ""
 
     # Apply placeholder substitutions
     body = substitute_placeholders(body, adapter_cfg, cmd_name, config)
@@ -500,7 +529,7 @@ def generate_adapter_file(adapter_name: str, cmd_name: str, config: dict) -> tup
     # scan replaces the round-1 single-string `in` guard.
     left = NAMESPACE_RE.search(content)
     if left:
-        raise SystemExit(
+        raise GenerationError(
             f"error: reserved placeholder '{left.group(0)}' left in generated "
             f"output for {adapter_name}/{rel_path} — check adapters.yml "
             f"agent_blocking_* values for self-referential placeholders")
@@ -531,7 +560,15 @@ def generate_all(config: dict, adapter_filter: str | None = None,
 
         for cmd_name in commands:
             cmd_cfg = commands[cmd_name]
-            rel_path, content = generate_adapter_file(adapter_name, cmd_name, config)
+            try:
+                rel_path, content = generate_adapter_file(adapter_name, cmd_name, config)
+            except GenerationError as e:
+                # widened invariant: an input we could not read/parse is an
+                # error counted in stats["errors"] — printed and CONTINUED, so
+                # one run reports every broken input; main() exits 1.
+                print(f"  {e}", file=sys.stderr)
+                stats["errors"] += 1
+                continue
 
             if not content:
                 stats["skipped"] += 1

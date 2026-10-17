@@ -10,6 +10,12 @@
 # copy only — never the real adapters/); the canary row also proves the
 # generator READS the shared top-level prose key (the round-2 Important).
 #
+# Round 4 (widened invariant: the generator never exits 0 on output it could
+# not build correctly — every input it fails to read or parse is an error
+# counted in stats["errors"], never a silent skip): broken overlay frontmatter
+# and missing/unreadable prompts for configured commands are errors (exit 1,
+# error names the file); a single run reports every broken input.
+#
 # Run: bats tests/scripts/generate-adapters.bats
 
 ROOT="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)"
@@ -28,8 +34,9 @@ make_tree() { # [name]
 # gen — run the generator inside the temp tree, rc into $rc, stderr into $err.
 gen() {
   rc=0
-  (cd "$TREE" && python3 scripts/generate-adapters.py >/dev/null 2>"$BATS_TEST_TMPDIR/err") || rc=$?
+  (cd "$TREE" && python3 scripts/generate-adapters.py >"$BATS_TEST_TMPDIR/gen.out" 2>"$BATS_TEST_TMPDIR/err") || rc=$?
   err="$(cat "$BATS_TEST_TMPDIR/err" 2>/dev/null)"
+  out="$(cat "$BATS_TEST_TMPDIR/gen.out" 2>/dev/null)"
 }
 
 # prompt_sub BEFORE AFTER — apply a prompt mutation and prove it took.
@@ -221,4 +228,25 @@ prompt_sub() { # <before> <after>
     n=$((n + 1))
   done
   [ "$n" -eq 6 ]
+}
+
+# ── round-4 widened invariant: no silent exit 0 on unreadable input ───────
+
+@test "broken overlay frontmatter: exit 1, error names the overlay file and the YAML error (round 4)" {
+  make_tree
+  printf -- '---\ncommand: [plan\n---\n# objective\nbroken\n' > "$TREE/prompts/overlays/claude-code/plan.md"
+  gen
+  [ "$rc" -eq 1 ] || { echo "expected exit 1, got $rc" >&2; return 1; }
+  echo "$err" | grep -qF 'prompts/overlays/claude-code/plan.md' || { echo "error does not name the overlay file: $err" >&2; return 1; }
+  echo "$err" | grep -qF 'invalid YAML frontmatter in overlay' || { echo "error does not say what failed: $err" >&2; return 1; }
+}
+
+@test "missing prompt for a configured command: exit 1, error names the file; one run reports every broken input (round 4)" {
+  make_tree
+  rm "$TREE/prompts/qa.md"
+  gen
+  [ "$rc" -eq 1 ] || { echo "expected exit 1, got $rc" >&2; return 1; }
+  echo "$err" | grep -qF "prompt file for configured command 'qa' is missing: prompts/qa.md" || { echo "error does not name the file: $err" >&2; return 1; }
+  # widened invariant: counted in stats["errors"] — 6 adapters x 1 missing prompt = 6
+  echo "$out" | grep -qE "Results: .*6 errors" || { echo "missing prompt not counted in stats errors: $(echo "$out" | tail -1)" >&2; return 1; }
 }
