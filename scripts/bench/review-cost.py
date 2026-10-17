@@ -5,10 +5,10 @@ Read-only; run as python3 -I. Accepts a project DIR or individual .jsonl files.
 from __future__ import annotations
 
 import argparse
-import glob
 import json
 import os
 import pathlib
+import stat
 import sys
 from dataclasses import dataclass, field
 
@@ -33,7 +33,8 @@ class UsageTotals:
 
     def add(self, usage: dict) -> None:
         for k in TOKEN_FIELDS:
-            setattr(self, k, getattr(self, k) + usage.get(k, 0))
+            if k in usage:
+                setattr(self, k, getattr(self, k) + usage[k])
 
     def weighted_cost(self, ratios: dict[str, float] | None = None) -> float:
         r = ratios or PRICE_RATIOS["default"]
@@ -70,12 +71,12 @@ def _validate_line(raw: str) -> tuple[dict | None, str | None]:
     """Validate a single jsonl line's shape. Returns (parsed, None) or (None, reason).
 
     Every field read after this function is shape-checked here.
-    Accepted (from 49,179 real lines, 60 session files):
+    Accepted (from 49,179 real lines, 60 session files; 9,860 usage objects all with 4 keys):
       - JSON object
-      - timestamp: absent or str (real: str 37,285; absent 17,877; 0 other)
+      - timestamp: absent or str
       - message: absent, null, or object
       - usage (inside message): absent, null, or object
-      - token fields (TOKEN_FIELDS): absent or non-bool int >= 0 (real: 0 nulls, 0 negatives)
+      - token fields: decided by `k in usage` (absent=0, null/bool/str/neg rejected, int>=0 accepted)
     """
     try:
         d = json.loads(raw)
@@ -96,9 +97,11 @@ def _validate_line(raw: str) -> tuple[dict | None, str | None]:
             return None, f"usage is {type(usage).__name__}, expected object or null"
         if isinstance(usage, dict):
             for k in TOKEN_FIELDS:
-                v = usage.get(k)
+                if k not in usage:
+                    continue
+                v = usage[k]
                 if v is None:
-                    return None, f"usage.{k} is null, expected int or absent"
+                    return None, f"usage.{k} is null"
                 if isinstance(v, bool) or not isinstance(v, int):
                     return None, f"usage.{k} is {type(v).__name__}, expected int"
                 if v < 0:
@@ -136,22 +139,30 @@ def _sum_jsonl(path: str) -> tuple[UsageTotals, str]:
     return totals, first_ts
 
 
+def _scan_jsonl(directory: str) -> list[str]:
+    """List *.jsonl in directory. FileNotFoundError = absent (empty list). Other OSError = real error (raised)."""
+    try:
+        entries = list(os.scandir(directory))
+    except FileNotFoundError:
+        return []
+    return sorted(e.path for e in entries if e.name.endswith(".jsonl") and e.is_file())
+
+
 def load_session_jsonl(main_jsonl: str) -> SessionCost:
     session_id = pathlib.Path(main_jsonl).stem
     parent = str(pathlib.Path(main_jsonl).parent)
     main_totals, ts = _sum_jsonl(main_jsonl)
     sub_dir = os.path.join(parent, session_id, "subagents")
     subagents: dict[str, UsageTotals] = {}
-    if os.path.isdir(sub_dir):
-        for sub_file in sorted(glob.glob(os.path.join(sub_dir, "*.jsonl"))):
-            name = pathlib.Path(sub_file).stem
-            sub_totals, _ = _sum_jsonl(sub_file)
-            subagents[name] = sub_totals
+    for sub_file in _scan_jsonl(sub_dir):
+        name = pathlib.Path(sub_file).stem
+        sub_totals, _ = _sum_jsonl(sub_file)
+        subagents[name] = sub_totals
     return SessionCost(path=main_jsonl, timestamp=ts, main=main_totals, subagents=subagents)
 
 
 def load_project_dir(project_dir: str) -> tuple[list[SessionCost], list[str]]:
-    jsonl_files = sorted(glob.glob(os.path.join(project_dir, "*.jsonl")))
+    jsonl_files = _scan_jsonl(project_dir)
     if not jsonl_files:
         raise FileNotFoundError(f"no *.jsonl in {project_dir}")
     sessions: list[SessionCost] = []
@@ -209,11 +220,21 @@ def main() -> int:
     errors = 0
     for p in args.paths:
         try:
-            if os.path.isdir(p):
+            st = os.stat(p)
+        except FileNotFoundError:
+            print(f"error: not found: {p}", file=sys.stderr)
+            errors += 1
+            continue
+        except OSError as e:
+            print(f"error: {e}", file=sys.stderr)
+            errors += 1
+            continue
+        try:
+            if stat.S_ISDIR(st.st_mode):
                 good, failed = load_project_dir(p)
                 sessions.extend(good)
                 errors += len(failed)
-            elif p.endswith(".jsonl") and os.path.isfile(p):
+            elif p.endswith(".jsonl") and stat.S_ISREG(st.st_mode):
                 sessions.append(load_session_jsonl(p))
             else:
                 print(f"error: not a directory or .jsonl file: {p}", file=sys.stderr)

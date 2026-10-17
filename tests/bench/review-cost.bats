@@ -189,3 +189,83 @@ PY
 @test "review-cost.py: rejects timestamp as object" {
   _assert_shape_rejected '{"type":"system","timestamp":{"v":"2026"}}' "ts-object"
 }
+
+# --- A1: absent token key accepted as 0 ---
+
+@test "review-cost.py: A1 absent token key accepted as 0" {
+  mkdir -p "$TEST_TMPDIR/project"
+  printf '%s\n{"type":"assistant","message":{"usage":{"output_tokens":7}}}\n' "$_good_line" > "$TEST_TMPDIR/project/sparse.jsonl"
+  run --separate-stderr python3 -I "$RC" --json "$TEST_TMPDIR/project/"
+  [ "$status" -eq 0 ]
+  python3 -I -c "import json,sys; s=json.loads(sys.argv[1])[0]; assert s['output']==7 and s['cache_read']==0" "$output"
+}
+
+# --- B: filesystem ---
+
+@test "review-cost.py: B1 no subagents dir → reported complete" {
+  mkdir -p "$TEST_TMPDIR/project"
+  printf '%s\n%s\n' "$_good_line" "$_usage_line" > "$TEST_TMPDIR/project/sess.jsonl"
+  run python3 -I "$RC" --json "$TEST_TMPDIR/project/"
+  [ "$status" -eq 0 ]
+  python3 -I -c "import json,sys; s=json.loads(sys.argv[1])[0]; assert s['agent_output']==0" "$output"
+}
+
+@test "review-cost.py: B2 empty subagents dir → reported complete" {
+  mkdir -p "$TEST_TMPDIR/project/sess/subagents"
+  printf '%s\n%s\n' "$_good_line" "$_usage_line" > "$TEST_TMPDIR/project/sess.jsonl"
+  run python3 -I "$RC" --json "$TEST_TMPDIR/project/"
+  [ "$status" -eq 0 ]
+  python3 -I -c "import json,sys; s=json.loads(sys.argv[1])[0]; assert s['agent_output']==0" "$output"
+}
+
+@test "review-cost.py: B3 unreadable subagents dir → session fails" {
+  [[ "$(id -u)" -eq 0 ]] && skip "root ignores mode bits"
+  mkdir -p "$TEST_TMPDIR/project/sess/subagents"
+  printf '%s\n%s\n' "$_good_line" "$_usage_line" > "$TEST_TMPDIR/project/sess.jsonl"
+  chmod 000 "$TEST_TMPDIR/project/sess/subagents"
+  run --separate-stderr python3 -I "$RC" --json "$TEST_TMPDIR/project/"
+  chmod 755 "$TEST_TMPDIR/project/sess/subagents" 2>/dev/null || true
+  [ "$status" -ne 0 ]
+  [[ "$stderr" == *"Permission denied"* ]]
+}
+
+@test "review-cost.py: B4 CLI arg path does not exist → error" {
+  run --separate-stderr python3 -I "$RC" "$TEST_TMPDIR/nonexistent"
+  [ "$status" -ne 0 ]
+  [[ "$stderr" == *"not found"* ]] || [[ "$stderr" == *"No such file"* ]] || [[ "$stderr" == *"not a directory"* ]]
+}
+
+@test "review-cost.py: B5 CLI arg under unreadable ancestor → Permission denied" {
+  [[ "$(id -u)" -eq 0 ]] && skip "root ignores mode bits"
+  mkdir -p "$TEST_TMPDIR/locked/project"
+  printf '%s\n%s\n' "$_good_line" "$_usage_line" > "$TEST_TMPDIR/locked/project/s.jsonl"
+  chmod 000 "$TEST_TMPDIR/locked"
+  run --separate-stderr python3 -I "$RC" "$TEST_TMPDIR/locked/project/"
+  chmod 755 "$TEST_TMPDIR/locked" 2>/dev/null || true
+  [ "$status" -ne 0 ]
+  [[ "$stderr" == *"Permission denied"* ]]
+}
+
+@test "review-cost.py: B6 unreadable project dir → Permission denied" {
+  [[ "$(id -u)" -eq 0 ]] && skip "root ignores mode bits"
+  mkdir -p "$TEST_TMPDIR/project"
+  printf '%s\n%s\n' "$_good_line" "$_usage_line" > "$TEST_TMPDIR/project/s.jsonl"
+  chmod 000 "$TEST_TMPDIR/project"
+  run --separate-stderr python3 -I "$RC" "$TEST_TMPDIR/project/"
+  chmod 755 "$TEST_TMPDIR/project" 2>/dev/null || true
+  [ "$status" -ne 0 ]
+  [[ "$stderr" == *"Permission denied"* ]]
+}
+
+@test "review-cost.py: B7 good sibling next to B3 session → still reported" {
+  [[ "$(id -u)" -eq 0 ]] && skip "root ignores mode bits"
+  mkdir -p "$TEST_TMPDIR/project/bad-sess/subagents"
+  printf '%s\n%s\n' "$_good_line" "$_usage_line" > "$TEST_TMPDIR/project/bad-sess.jsonl"
+  chmod 000 "$TEST_TMPDIR/project/bad-sess/subagents"
+  printf '%s\n{"type":"assistant","message":{"usage":{"input_tokens":1,"cache_read_input_tokens":200,"cache_creation_input_tokens":0,"output_tokens":9}}}\n' "$_good_line" > "$TEST_TMPDIR/project/ok-sess.jsonl"
+  run --separate-stderr python3 -I "$RC" --json "$TEST_TMPDIR/project/"
+  chmod 755 "$TEST_TMPDIR/project/bad-sess/subagents" 2>/dev/null || true
+  [ "$status" -ne 0 ]
+  python3 -I -c "import json,sys; d=json.loads(sys.argv[1]); assert len(d)==1 and d[0]['output']==9" "$output"
+  [[ "$stderr" == *"Permission denied"* ]]
+}
