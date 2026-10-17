@@ -54,6 +54,93 @@ teardown() { rm -rf -- "$TEST_TMPDIR" 2>/dev/null || true; }
   [[ "$output" == *"empty diff"* ]]
 }
 
+_make_repo_with_commits() {
+  git init -q "$TEST_TMPDIR/repo"
+  git -C "$TEST_TMPDIR/repo" commit --allow-empty -m "base" -q
+  REPO_BASE=$(git -C "$TEST_TMPDIR/repo" rev-parse HEAD)
+}
+
+@test "freeze-head.sh: two files with known +3/-1 and +2/-0" {
+  _make_repo_with_commits
+  printf 'a\nb\nc\n' > "$TEST_TMPDIR/repo/x.txt"
+  printf 'old\n' > "$TEST_TMPDIR/repo/y.txt"
+  git -C "$TEST_TMPDIR/repo" add x.txt y.txt
+  git -C "$TEST_TMPDIR/repo" commit -m "add" -q
+  printf 'a\nb\nc\ndd\nee\n' > "$TEST_TMPDIR/repo/x.txt"
+  printf '' > "$TEST_TMPDIR/repo/y.txt"
+  git -C "$TEST_TMPDIR/repo" add x.txt y.txt
+  git -C "$TEST_TMPDIR/repo" commit -m "edit" -q
+  local head; head=$(git -C "$TEST_TMPDIR/repo" rev-parse HEAD)
+  local mid; mid=$(git -C "$TEST_TMPDIR/repo" rev-parse HEAD~1)
+  run "$REPO_ROOT/scripts/bench/freeze-head.sh" "$TEST_TMPDIR/repo" "$head" "$mid"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"files_changed: 2"* ]]
+  [[ "$output" == *"additions: 2"* ]]
+  [[ "$output" == *"deletions: 1"* ]]
+}
+
+@test "freeze-head.sh: deletion-only diff → additions 0" {
+  _make_repo_with_commits
+  printf 'line1\nline2\nline3\n' > "$TEST_TMPDIR/repo/del.txt"
+  git -C "$TEST_TMPDIR/repo" add del.txt
+  git -C "$TEST_TMPDIR/repo" commit -m "add" -q
+  local mid; mid=$(git -C "$TEST_TMPDIR/repo" rev-parse HEAD)
+  git -C "$TEST_TMPDIR/repo" rm del.txt -q
+  git -C "$TEST_TMPDIR/repo" commit -m "rm" -q
+  local head; head=$(git -C "$TEST_TMPDIR/repo" rev-parse HEAD)
+  run "$REPO_ROOT/scripts/bench/freeze-head.sh" "$TEST_TMPDIR/repo" "$head" "$mid"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"additions: 0"* ]]
+  [[ "$output" == *"deletions: 3"* ]]
+}
+
+@test "freeze-head.sh: binary + text file" {
+  _make_repo_with_commits
+  # Generate a proper binary (null bytes force git to treat it as binary)
+  printf '\x00\x01\x02\x03\x04\x05' > "$TEST_TMPDIR/repo/bin.dat"
+  printf 'text\n' > "$TEST_TMPDIR/repo/t.txt"
+  git -C "$TEST_TMPDIR/repo" add bin.dat t.txt
+  git -C "$TEST_TMPDIR/repo" commit -m "add" -q
+  local head; head=$(git -C "$TEST_TMPDIR/repo" rev-parse HEAD)
+  run "$REPO_ROOT/scripts/bench/freeze-head.sh" "$TEST_TMPDIR/repo" "$head" "$REPO_BASE"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"files_changed: 2"* ]]
+  [[ "$output" == *"additions: 1"* ]]
+  [[ "$output" == *"deletions: 0"* ]]
+}
+
+@test "freeze-head.sh: locale-independent output" {
+  _make_repo_with_commits
+  echo "lc" > "$TEST_TMPDIR/repo/f.txt"
+  git -C "$TEST_TMPDIR/repo" add f.txt
+  git -C "$TEST_TMPDIR/repo" commit -m "add" -q
+  local head; head=$(git -C "$TEST_TMPDIR/repo" rev-parse HEAD)
+  local out_c; out_c=$(LC_ALL=C "$REPO_ROOT/scripts/bench/freeze-head.sh" "$TEST_TMPDIR/repo" "$head" "$REPO_BASE")
+  local out_lang; out_lang=$(LANGUAGE=de "$REPO_ROOT/scripts/bench/freeze-head.sh" "$TEST_TMPDIR/repo" "$head" "$REPO_BASE")
+  [ "$out_c" = "$out_lang" ]
+}
+
+@test "freeze-head.sh: malformed numstat line → non-zero exit" {
+  _make_repo_with_commits
+  echo "x" > "$TEST_TMPDIR/repo/f.txt"
+  git -C "$TEST_TMPDIR/repo" add f.txt
+  git -C "$TEST_TMPDIR/repo" commit -m "add" -q
+  local head; head=$(git -C "$TEST_TMPDIR/repo" rev-parse HEAD)
+  mkdir -p "$TEST_TMPDIR/bin"
+  cat > "$TEST_TMPDIR/bin/git" <<'STUB'
+#!/usr/bin/env bash
+if [[ "$*" == *"--numstat"* ]]; then
+  echo "CORRUPT LINE HERE"
+  exit 0
+fi
+exec /usr/bin/git "$@"
+STUB
+  chmod +x "$TEST_TMPDIR/bin/git"
+  run env PATH="$TEST_TMPDIR/bin:$PATH" "$REPO_ROOT/scripts/bench/freeze-head.sh" "$TEST_TMPDIR/repo" "$head" "$REPO_BASE"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"unparseable numstat"* ]] || [[ "$output" == *"CORRUPT"* ]]
+}
+
 # --- corpus ---
 
 @test "corpus.yaml: every entry has required fields" {

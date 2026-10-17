@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Compute frozen metadata for a corpus entry: patch digest and file count.
 # patch_digest = sha256 of `git diff BASE..HEAD` after command substitution (trailing newlines stripped), then printf '%s'.
+# files_changed/additions/deletions from `git diff --numstat`. A binary file (-\t-\tpath) counts as 1 file, 0 lines.
 # Usage: freeze-head.sh REPO HEAD_SHA BASE_SHA
-# Output: YAML fragment (patch_digest, files_changed, additions, deletions)
 set -euo pipefail
 
 repo="${1:?usage: freeze-head.sh REPO HEAD_SHA BASE_SHA}"
@@ -11,7 +11,6 @@ base="${3:?missing BASE_SHA}"
 
 cd "$repo"
 
-# Fetch both SHAs if not local
 for sha in "$head" "$base"; do
   if ! git cat-file -e "$sha" 2>/dev/null; then
     git fetch origin "$sha" --quiet 2>/dev/null || {
@@ -21,17 +20,35 @@ for sha in "$head" "$base"; do
   fi
 done
 
-diff_output=$(git diff "$base".."$head")
+diff_output=$(LC_ALL=C git diff "$base".."$head")
 if [ -z "$diff_output" ]; then
   echo "error: empty diff between $base and $head" >&2
   exit 1
 fi
 
 digest=$(printf '%s' "$diff_output" | sha256sum | cut -d' ' -f1)
-stat_line=$(git diff --stat "$base".."$head" | tail -1)
-files_changed=$(echo "$stat_line" | grep -oP '\d+ file' | grep -oP '\d+' || echo 0)
-additions=$(echo "$stat_line" | grep -oP '\d+ insertion' | grep -oP '\d+' || echo 0)
-deletions=$(echo "$stat_line" | grep -oP '\d+ deletion' | grep -oP '\d+' || echo 0)
+
+files_changed=0
+additions=0
+deletions=0
+
+while IFS=$'\t' read -r add del path; do
+  [ -z "$add" ] && continue
+  if [ -z "$path" ]; then
+    echo "error: unparseable numstat line: $add" >&2
+    exit 1
+  fi
+  files_changed=$((files_changed + 1))
+  if [ "$add" = "-" ] && [ "$del" = "-" ]; then
+    continue
+  fi
+  if ! [[ "$add" =~ ^[0-9]+$ ]] || ! [[ "$del" =~ ^[0-9]+$ ]]; then
+    echo "error: unparseable numstat line: ${add}	${del}	${path}" >&2
+    exit 1
+  fi
+  additions=$((additions + add))
+  deletions=$((deletions + del))
+done < <(LC_ALL=C git diff --numstat "$base".."$head")
 
 cat <<EOF
 patch_digest: "$digest"
