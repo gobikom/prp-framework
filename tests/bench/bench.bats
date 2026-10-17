@@ -224,3 +224,31 @@ with open(sys.argv[1]) as f:
 assert len(ids) == len(set(ids)), f"duplicates: {[x for x in ids if ids.count(x)>1]}"
 PY
 }
+
+@test "corpus.yaml: positive entries have valid labels" {
+  python3 -I - "$REPO_ROOT/tests/bench/corpus.yaml" <<'PY'
+import sys, yaml
+
+VALID_SEV = {"critical", "important"}
+LABEL_FIELDS = {"file", "lines", "defect", "severity", "family", "source_pass", "comment_url"}
+
+with open(sys.argv[1]) as f:
+    corpus = yaml.safe_load(f)
+
+for e in corpus.get("entries", []):
+    if e["kind"] != "positive":
+        continue
+    assert e["labels"], f"{e['id']}: positive entry must have at least 1 label"
+    for i, lab in enumerate(e["labels"]):
+        missing = LABEL_FIELDS - set(lab.keys())
+        assert not missing, f"{e['id']} label {i}: missing {missing}"
+        assert isinstance(lab["lines"], list) and len(lab["lines"]) == 2, \
+            f"{e['id']} label {i}: lines must be [start, end]"
+        assert lab["lines"][0] <= lab["lines"][1], \
+            f"{e['id']} label {i}: start ({lab['lines'][0]}) > end ({lab['lines'][1]})"
+        assert lab["severity"] in VALID_SEV, \
+            f"{e['id']} label {i}: severity '{lab['severity']}' not in {VALID_SEV}"
+        assert isinstance(lab["source_pass"], list) and lab["source_pass"], \
+            f"{e['id']} label {i}: source_pass must be a non-empty list"
+PY
+}
