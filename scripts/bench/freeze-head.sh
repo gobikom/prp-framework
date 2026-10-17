@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Compute frozen metadata for a corpus entry: patch digest and file count.
 # patch_digest = sha256 of `git diff BASE..HEAD` after command substitution (trailing newlines stripped), then printf '%s'.
-# files_changed/additions/deletions from `git diff --numstat`. A binary file (-\t-\tpath) counts as 1 file, 0 lines.
+# files_changed/additions/deletions from `git diff --numstat`. A binary file (-\t-\tpath) counts as 1 file, 0 lines (defined rule).
 # Usage: freeze-head.sh REPO HEAD_SHA BASE_SHA
 set -euo pipefail
 
@@ -28,14 +28,16 @@ fi
 
 digest=$(printf '%s' "$diff_output" | sha256sum | cut -d' ' -f1)
 
+numstat=$(LC_ALL=C git diff --numstat "$base".."$head")
+
 files_changed=0
 additions=0
 deletions=0
 
 while IFS=$'\t' read -r add del path; do
-  [ -z "$add" ] && continue
+  [ -z "$add" ] && [ -z "$del" ] && [ -z "$path" ] && continue
   if [ -z "$path" ]; then
-    echo "error: unparseable numstat line: $add" >&2
+    echo "error: unparseable numstat line: ${add}${del:+	$del}" >&2
     exit 1
   fi
   files_changed=$((files_changed + 1))
@@ -48,7 +50,12 @@ while IFS=$'\t' read -r add del path; do
   fi
   additions=$((additions + add))
   deletions=$((deletions + del))
-done < <(LC_ALL=C git diff --numstat "$base".."$head")
+done <<< "$numstat"
+
+if [ "$files_changed" -lt 1 ]; then
+  echo "error: numstat reported no files for a non-empty diff" >&2
+  exit 1
+fi
 
 cat <<EOF
 patch_digest: "$digest"

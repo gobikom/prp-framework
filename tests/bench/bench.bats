@@ -141,6 +141,62 @@ STUB
   [[ "$output" == *"unparseable numstat"* ]] || [[ "$output" == *"CORRUPT"* ]]
 }
 
+@test "freeze-head.sh: numstat exit failure → non-zero exit" {
+  _make_repo_with_commits
+  echo "y" > "$TEST_TMPDIR/repo/g.txt"
+  git -C "$TEST_TMPDIR/repo" add g.txt
+  git -C "$TEST_TMPDIR/repo" commit -m "add" -q
+  local head; head=$(git -C "$TEST_TMPDIR/repo" rev-parse HEAD)
+  mkdir -p "$TEST_TMPDIR/bin"
+  cat > "$TEST_TMPDIR/bin/git" <<'STUB'
+#!/usr/bin/env bash
+if [[ "$*" == *"--numstat"* ]]; then exit 1; fi
+exec /usr/bin/git "$@"
+STUB
+  chmod +x "$TEST_TMPDIR/bin/git"
+  run env PATH="$TEST_TMPDIR/bin:$PATH" "$REPO_ROOT/scripts/bench/freeze-head.sh" "$TEST_TMPDIR/repo" "$head" "$REPO_BASE"
+  [ "$status" -ne 0 ]
+}
+
+@test "freeze-head.sh: numstat prints nothing → non-zero exit" {
+  _make_repo_with_commits
+  echo "z" > "$TEST_TMPDIR/repo/h.txt"
+  git -C "$TEST_TMPDIR/repo" add h.txt
+  git -C "$TEST_TMPDIR/repo" commit -m "add" -q
+  local head; head=$(git -C "$TEST_TMPDIR/repo" rev-parse HEAD)
+  mkdir -p "$TEST_TMPDIR/bin"
+  cat > "$TEST_TMPDIR/bin/git" <<'STUB'
+#!/usr/bin/env bash
+if [[ "$*" == *"--numstat"* ]]; then exit 0; fi
+exec /usr/bin/git "$@"
+STUB
+  chmod +x "$TEST_TMPDIR/bin/git"
+  run env PATH="$TEST_TMPDIR/bin:$PATH" "$REPO_ROOT/scripts/bench/freeze-head.sh" "$TEST_TMPDIR/repo" "$head" "$REPO_BASE"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"no files"* ]]
+}
+
+@test "freeze-head.sh: empty first field in numstat → non-zero exit" {
+  _make_repo_with_commits
+  echo "w" > "$TEST_TMPDIR/repo/i.txt"
+  git -C "$TEST_TMPDIR/repo" add i.txt
+  git -C "$TEST_TMPDIR/repo" commit -m "add" -q
+  local head; head=$(git -C "$TEST_TMPDIR/repo" rev-parse HEAD)
+  mkdir -p "$TEST_TMPDIR/bin"
+  cat > "$TEST_TMPDIR/bin/git" <<'STUB'
+#!/usr/bin/env bash
+if [[ "$*" == *"--numstat"* ]]; then
+  printf '\t0\tfile.txt\n'
+  exit 0
+fi
+exec /usr/bin/git "$@"
+STUB
+  chmod +x "$TEST_TMPDIR/bin/git"
+  run env PATH="$TEST_TMPDIR/bin:$PATH" "$REPO_ROOT/scripts/bench/freeze-head.sh" "$TEST_TMPDIR/repo" "$head" "$REPO_BASE"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"unparseable"* ]]
+}
+
 # --- corpus ---
 
 @test "corpus.yaml: every entry has required fields" {
