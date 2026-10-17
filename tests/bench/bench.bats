@@ -252,3 +252,17 @@ for e in corpus.get("entries", []):
             f"{e['id']} label {i}: source_pass must be a non-empty list"
 PY
 }
+
+@test "corpus.yaml: severity totals match expected counts" {
+  python3 -I - "$REPO_ROOT/tests/bench/corpus.yaml" <<'PY'
+import sys, yaml
+EXPECT_CRITICAL = 5
+EXPECT_IMPORTANT = 9
+with open(sys.argv[1]) as f:
+    corpus = yaml.safe_load(f)
+c = sum(1 for e in corpus["entries"] for l in e.get("labels",[]) if l.get("severity")=="critical")
+i = sum(1 for e in corpus["entries"] for l in e.get("labels",[]) if l.get("severity")=="important")
+assert c == EXPECT_CRITICAL, f"critical: got {c}, expected {EXPECT_CRITICAL}"
+assert i == EXPECT_IMPORTANT, f"important: got {i}, expected {EXPECT_IMPORTANT}"
+PY
+}
