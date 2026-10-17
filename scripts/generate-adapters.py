@@ -31,10 +31,46 @@ OVERLAYS_DIR = PROMPTS_DIR / "overlays"
 ADAPTERS_DIR = ROOT_DIR / "adapters"
 CONFIG_PATH = ROOT_DIR / "adapters.yml"
 
+# Round-3 re-plan: adapter and command names are used to build filesystem
+# paths (file_pattern .replace("{name}", ...)), so they are validated up
+# front. This rejects absolute keys (/etc/passwd), traversal (../x), empty,
+# uppercase and spaced names with a named load-time error.
+NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
+
+
+def display_path(p) -> str:
+    """Round-3 re-plan: one helper for every user-facing path in a message.
+
+    relative_to(ROOT_DIR) as a str when the path is inside the tree, str(p)
+    otherwise (an absolute outside path raised ValueError from messages
+    before — the round-3 Critical). Never raises for a bad path.
+    """
+    try:
+        return str(p.relative_to(ROOT_DIR))
+    except ValueError:
+        return str(p)
+
+
+class GenerationError(Exception):
+    """An input the generator failed to read or parse (split_frontmatter
+    raises it; #157's read_prompt / read_overlay / validate_generated adopt
+    it, and its per-command boundary catches it)."""
+
+
 # Required top-level keys in adapters.yml
 REQUIRED_CONFIG_KEYS = {"adapters", "commands"}
 REQUIRED_ADAPTER_KEYS = {"file_pattern", "format", "args_placeholder",
                          "tool_command_template", "artifact_suffix"}
+# Known-key validation (re-routed from prp-framework#156 as PR A, generator
+# correctness): a typo'd adapters.yml adapter key previously passed silently
+# and its value was dropped at substitution time — generating output from a
+# config the generator did not fully understand while exiting 0. Unknown keys
+# now fail generation with a clear error naming the key and listing the valid
+# ones. (The agent_blocking_* keys join this set in the stacked PR B; listing
+# them here would validate keys no stanza on main carries.)
+KNOWN_ADAPTER_KEYS = {"file_pattern", "format", "args_placeholder",
+                      "tool_command_template", "artifact_suffix",
+                      "frontmatter", "group_dirs", "overlays", "wrapper"}
 REQUIRED_COMMAND_KEYS = {"description"}
 
 
@@ -49,17 +85,93 @@ def load_config() -> dict:
         sys.exit(1)
 
     try:
-        with open(CONFIG_PATH) as f:
+        with open(CONFIG_PATH, encoding="utf-8") as f:
             config = yaml.safe_load(f)
     except yaml.YAMLError as e:
         print(f"Error: Invalid YAML in {CONFIG_PATH}: {e}", file=sys.stderr)
         sys.exit(1)
+    except (OSError, UnicodeDecodeError) as e:
+        # #157 round 1: a config the generator cannot read or decode is a
+        # named error, never a raw UnicodeDecodeError traceback (it is a
+        # ValueError, so it slipped past the yaml.YAMLError catch above).
+        print(f"Error: Cannot read {CONFIG_PATH}: {e}", file=sys.stderr)
+        sys.exit(1)
 
-    # Validate top-level structure
+    # Validate top-level structure (a non-mapping adapters.yml — list,
+    # scalar, null — previously died as an AttributeError traceback; round-6
+    # input table: every input read gets a named error)
+    if not isinstance(config, dict):
+        print(f"Error: adapters.yml must be a mapping, got "
+              f"{type(config).__name__}", file=sys.stderr)
+        sys.exit(1)
     missing = REQUIRED_CONFIG_KEYS - set(config.keys())
     if missing:
         print(f"Error: Missing top-level keys in adapters.yml: {missing}", file=sys.stderr)
         sys.exit(1)
+    for section in ("adapters", "commands"):
+        if not isinstance(config[section], dict):
+            print(f"Error: adapters.yml '{section}' must be a mapping, got "
+                  f"{type(config[section]).__name__}", file=sys.stderr)
+            sys.exit(1)
+        for name, cfg in config[section].items():
+            if not isinstance(cfg, dict):
+                print(f"Error: adapters.yml {section}['{name}'] must be a "
+                      f"mapping, got {type(cfg).__name__}", file=sys.stderr)
+                sys.exit(1)
+
+    # Round-3 re-plan: names are validated before any work — they build
+    # filesystem paths, so /etc/passwd, ../x, empty, uppercase and spaced
+    # names are load-time errors (this was the round-3 Critical: an absolute
+    # command key later raised ValueError from the path-shrinking helper
+    # inside an f-string and crashed the run with a raw traceback).
+    for section in ("adapters", "commands"):
+        for name in config[section]:
+            if not isinstance(name, str) or not NAME_RE.match(name):
+                print(f"Error: invalid {section[:-1]} name {name!r} in adapters.yml — "
+                      f"must match ^[a-z0-9][a-z0-9-]*$ "
+                      f"(lowercase alphanumerics and hyphens, no slashes)", file=sys.stderr)
+                sys.exit(1)
+
+    # Round-3 re-plan: type-check the value of every required and known key
+    # (the types adapters.yml documents). A wrong-typed value (null, int,
+    # list where str/mapping/bool is documented) previously surfaced as a
+    # TypeError far from the config, or crashed mid-run (round-3 Important:
+    # args_placeholder: null → TypeError in substitute_placeholders).
+    # Config-level errors stay fatal: named, exit 1, before any work.
+    ADAPTER_VALUE_TYPES = {
+        "file_pattern": str, "format": str, "args_placeholder": str,
+        "tool_command_template": str, "artifact_suffix": str,
+        "frontmatter": dict, "group_dirs": dict, "overlays": bool,
+        "wrapper": str,
+    }
+    COMMAND_VALUE_TYPES = {
+        "description": dict, "description-overrides": dict,
+        "argument-hint": str, "codex-short-description": str,
+        "group": str, "opencode-agent": str,
+    }
+
+    def check_value_types(section: str, name: str, cfg: dict, types: dict) -> None:
+        # Checks only the keys whose documented type is known; keys the
+        # generator does not read (e.g. alias / alias-of on commands) are
+        # skipped. bool is a subclass of int but of no other checked type,
+        # so a plain isinstance test already rejects true/false for str.
+        for key, value in cfg.items():
+            want = types.get(key)
+            if want is None:
+                continue
+            if not isinstance(value, want):
+                print(f"Error: adapters.yml {section} '{name}' key '{key}' must be "
+                      f"{want.__name__}, got {type(value).__name__}", file=sys.stderr)
+                sys.exit(1)
+        # nested shape: frontmatter.fields is a list of str
+        if isinstance(cfg.get("frontmatter"), dict):
+            fields = cfg["frontmatter"].get("fields")
+            if fields is not None and (
+                    not isinstance(fields, list)
+                    or not all(isinstance(x, str) for x in fields)):
+                print(f"Error: adapters.yml {section} '{name}' key 'frontmatter.fields' "
+                      f"must be a list of strings", file=sys.stderr)
+                sys.exit(1)
 
     # Validate adapter entries
     for name, cfg in config["adapters"].items():
@@ -67,6 +179,14 @@ def load_config() -> dict:
         if missing_keys:
             print(f"Error: Adapter '{name}' missing keys: {missing_keys}", file=sys.stderr)
             sys.exit(1)
+        unknown_keys = set(cfg.keys()) - KNOWN_ADAPTER_KEYS
+        if unknown_keys:
+            print(f"Error: Adapter '{name}' has unknown keys: {sorted(unknown_keys)}",
+                  file=sys.stderr)
+            print("Error: Check adapters.yml for typos — valid keys: "
+                  f"{sorted(KNOWN_ADAPTER_KEYS)}", file=sys.stderr)
+            sys.exit(1)
+        check_value_types("adapter", name, cfg, ADAPTER_VALUE_TYPES)
 
     # Validate command entries
     for name, cfg in config["commands"].items():
@@ -74,6 +194,9 @@ def load_config() -> dict:
         if missing_keys:
             print(f"Error: Command '{name}' missing keys: {missing_keys}", file=sys.stderr)
             sys.exit(1)
+        # (alias / alias-of are generator-read keys with their own handling;
+        # frontmatter.fields shape is checked for adapters above.)
+        check_value_types("command", name, cfg, COMMAND_VALUE_TYPES)
 
     return config
 
@@ -82,12 +205,80 @@ def load_config() -> dict:
 # Prompt reading
 # ---------------------------------------------------------------------------
 
+def split_frontmatter(text: str, source: str) -> tuple[str | None, str]:
+    """The ONLY frontmatter splitter, used by read_overlay() and
+    validate_generated() (#156 round-8 re-plan, re-routed as PR A; the two
+    inline splits are deleted).
+
+    1. normalizes line endings first (\\r\\n and lone \\r become \\n);
+    2. a delimiter is a line whose content, after stripping trailing spaces
+       and tabs, is exactly `---`;
+    3. returns (None, whole_text) only if the first line is not a delimiter;
+    4. if the first line IS a delimiter and no closing delimiter follows,
+       raises GenerationError naming `source` ("unterminated frontmatter");
+    5. NEVER falls back to treating the whole text as the body — the
+       round-7/8 bugs both lived in that fallback (a mis-split left a
+       non-empty "body" that passed validation);
+    6. a line that becomes `---` only after stripping LEADING whitespace too
+       is a near-miss delimiter (the round-9 fix, from the #156 re-route):
+       wherever it appears in the frontmatter region — as the opening line
+       or as a would-be closing line before a valid closer — it raises
+       GenerationError ("indented frontmatter delimiter") naming the file
+       and the line. An indented opening `---` previously parsed as "no
+       frontmatter", so the overlay metadata was dropped and generation
+       exited 0. After a VALID closing delimiter the body is body: an
+       indented `---` (e.g. inside a fenced block) is never inspected.
+
+    Returns (frontmatter_text_or_None, body_after_closing_delimiter).
+    """
+    normalized = text.replace("\r\n", "\n").replace("\r", "\n")
+    lines = normalized.split("\n")
+
+    def is_delimiter(line: str) -> bool:
+        return line.rstrip(" \t") == "---"
+
+    def is_indented_delimiter(line: str) -> bool:
+        # `  ---` / `\t---` (with optional trailing spaces/tabs): the line is
+        # `---` once ALL surrounding whitespace is stripped, but it carries
+        # leading whitespace, so it is NOT a delimiter — it is a near miss.
+        return line[:1].isspace() and line.strip(" \t") == "---"
+
+    def indented_error(source: str, lineno: int) -> GenerationError:
+        return GenerationError(
+            f"error: indented frontmatter delimiter in {source} at line "
+            f"{lineno} — a `---` with leading whitespace is not a delimiter; "
+            f"delimiters must start at column 1")
+
+    if not lines:
+        return None, normalized
+    if is_indented_delimiter(lines[0]):
+        # An indented opening `---` was previously read as "no frontmatter"
+        # and the whole overlay metadata silently dropped (round 9).
+        raise indented_error(source, 1)
+    if not is_delimiter(lines[0]):
+        return None, normalized
+
+    for i in range(1, len(lines)):
+        if is_delimiter(lines[i]):
+            fm = "\n".join(lines[1:i])
+            body = "\n".join(lines[i + 1:])
+            return fm, body
+        if is_indented_delimiter(lines[i]):
+            # A would-be closing delimiter that is indented is a near miss,
+            # not body text: raise naming the file and the line (round 9).
+            raise indented_error(source, i + 1)
+
+    raise GenerationError(
+        f"error: unterminated frontmatter in {source} — opening `---` "
+        f"without a closing `---` line")
+
+
 def read_prompt(name: str) -> str:
     """Read a canonical prompt file from prompts/."""
     path = PROMPTS_DIR / f"{name}.md"
     if not path.exists():
         return ""
-    return path.read_text()
+    return path.read_text(encoding="utf-8")
 
 
 def read_overlay(adapter: str, name: str) -> dict | None:
@@ -114,20 +305,32 @@ def read_overlay(adapter: str, name: str) -> dict | None:
     if not path.exists():
         return None
 
-    text = path.read_text()
+    text = path.read_text(encoding="utf-8")
 
-    # Parse YAML frontmatter
+    # Parse YAML frontmatter through the ONE splitter, split_frontmatter
+    # (A1 owns it). A malformed region stays lenient here — the hard-error
+    # policy for overlays is #157's read_overlay; A1 only guarantees the
+    # parse goes through the single delimiter rule and never traces back.
     overlay = {}
-    if text.startswith("---"):
-        parts = text.split("---", 2)
-        if len(parts) >= 3:
-            try:
-                meta = yaml.safe_load(parts[1])
-                if meta:
-                    overlay["meta"] = meta
-            except yaml.YAMLError:
-                pass
-            text = parts[2].strip()
+    try:
+        fm, body = split_frontmatter(text, display_path(path))
+    except GenerationError as e:
+        # A1 is lenient but VISIBLE: the named parse error is printed, never
+        # silently discarded — the overlay generates without metadata. The
+        # hard-error policy for overlays is #157's; A1 logs and continues.
+        print(f"  WARNING: {e} — overlay metadata ignored", file=sys.stderr)
+        fm, body = None, text
+    if fm is not None:
+        try:
+            meta = yaml.safe_load(fm)
+            if meta:
+                overlay["meta"] = meta
+        except yaml.YAMLError as e:
+            # Same lenient-but-visible policy: named WARNING, meta absent,
+            # generation continues (the hard-error policy is #157's).
+            print(f"  WARNING: {display_path(path)}: invalid overlay frontmatter "
+                  f"YAML: {e} — overlay metadata ignored", file=sys.stderr)
+        text = body.strip()
 
     # Parse sections: lines starting with "# section_name"
     sections = {}
@@ -214,7 +417,7 @@ def get_description(adapter_name: str, cmd_cfg: dict) -> str:
 
 
 def generate_frontmatter_md(adapter_name: str, cmd_name: str, cmd_cfg: dict,
-                             adapter_cfg: dict) -> str:
+                            adapter_cfg: dict) -> str:
     """Generate YAML frontmatter for Markdown adapters (non-codex)."""
     fields = adapter_cfg.get("frontmatter", {}).get("fields", [])
     if not fields:
@@ -462,7 +665,7 @@ def generate_all(config: dict, adapter_filter: str | None = None,
 
             # Path traversal check
             if not validate_output_path(out_path, adapter_dir):
-                print(f"  ERROR: Path traversal detected: {out_path}", file=sys.stderr)
+                print(f"  ERROR: Path traversal detected: {display_path(out_path)}", file=sys.stderr)
                 stats["errors"] += 1
                 continue
 
@@ -473,7 +676,16 @@ def generate_all(config: dict, adapter_filter: str | None = None,
 
             # Check if content changed
             if out_path.exists():
-                existing = out_path.read_text()
+                try:
+                    existing = out_path.read_text(encoding="utf-8")
+                except (OSError, UnicodeDecodeError) as e:
+                    # Never overwrite an output the generator could not read:
+                    # named error, counted, continue (the write path below is
+                    # unreachable for this file because we `continue` here).
+                    print(f"  error: cannot read existing output "
+                          f"{display_path(out_path)}: {e}", file=sys.stderr)
+                    stats["errors"] += 1
+                    continue
                 if existing == content:
                     stats["unchanged"] += 1
                     continue
@@ -485,13 +697,20 @@ def generate_all(config: dict, adapter_filter: str | None = None,
                     print(f"  [NEW] {out_path}")
 
             # Ensure parent directory exists (for codex prp-{name}/ dirs)
-            out_path.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                out_path.parent.mkdir(parents=True, exist_ok=True)
+            except OSError as e:
+                print(f"  error: cannot create directory "
+                      f"{display_path(out_path.parent)}: {e}", file=sys.stderr)
+                stats["errors"] += 1
+                continue
 
             try:
-                out_path.write_text(content)
+                out_path.write_text(content, encoding="utf-8")
                 stats["generated"] += 1
             except OSError as e:
-                print(f"  ERROR: Failed to write {out_path}: {e}", file=sys.stderr)
+                print(f"  ERROR: Failed to write {display_path(out_path)}: {e}",
+                      file=sys.stderr)
                 stats["errors"] += 1
 
     return stats
