@@ -260,9 +260,165 @@ EXPECT_CRITICAL = 5
 EXPECT_IMPORTANT = 9
 with open(sys.argv[1]) as f:
     corpus = yaml.safe_load(f)
-c = sum(1 for e in corpus["entries"] for l in e.get("labels",[]) if l.get("severity")=="critical")
-i = sum(1 for e in corpus["entries"] for l in e.get("labels",[]) if l.get("severity")=="important")
+c, i, total = 0, 0, 0
+for e in corpus["entries"]:
+    for l in e.get("labels", []):
+        total += 1
+        sev = l["severity"]
+        if sev == "critical": c += 1
+        elif sev == "important": i += 1
 assert c == EXPECT_CRITICAL, f"critical: got {c}, expected {EXPECT_CRITICAL}"
 assert i == EXPECT_IMPORTANT, f"important: got {i}, expected {EXPECT_IMPORTANT}"
+assert c + i == total, f"c+i={c+i} != total labels {total}: a label not in critical|important"
 PY
+}
+
+@test "corpus.yaml: negative entries have empty labels" {
+  python3 -I - "$REPO_ROOT/tests/bench/corpus.yaml" <<'PY'
+import sys, yaml
+with open(sys.argv[1]) as f:
+    corpus = yaml.safe_load(f)
+for e in corpus["entries"]:
+    if e["kind"] == "negative":
+        assert e["labels"] == [], f"{e['id']}: negative entry must have labels: [], got {len(e['labels'])} labels"
+PY
+}
+
+# --- corpus invariant arms on temp files ---
+
+_write_temp_corpus() {
+  cat > "$TEST_TMPDIR/corpus.yaml"
+}
+
+@test "corpus: C2 negative entry with a label → fails" {
+  _write_temp_corpus <<'CYAML'
+entries:
+  - id: "neg-with-label"
+    pr: 1
+    head: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    base: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    patch_digest: "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    permalink: "https://example.com"
+    kind: "negative"
+    tier: "trivial"
+    files_changed: 1
+    additions: 1
+    deletions: 0
+    labels:
+      - file: "x.txt"
+        lines: [1, 2]
+        defect: "bug"
+        severity: "critical"
+        family: "f"
+        source_pass: ["code-reviewer"]
+        comment_url: "https://example.com"
+CYAML
+  run python3 -I - "$TEST_TMPDIR/corpus.yaml" <<'PY'
+import sys, yaml
+with open(sys.argv[1]) as f:
+    corpus = yaml.safe_load(f)
+for e in corpus["entries"]:
+    if e["kind"] == "negative":
+        assert e["labels"] == [], f"{e['id']}: negative entry must have labels: []"
+PY
+  [ "$status" -ne 0 ]
+}
+
+@test "corpus: C3 unknown kind → fails" {
+  _write_temp_corpus <<'CYAML'
+entries:
+  - id: "bad-kind"
+    pr: 1
+    head: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    base: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    patch_digest: "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    permalink: "https://example.com"
+    kind: "maybe"
+    tier: "standard"
+    files_changed: 1
+    additions: 1
+    deletions: 0
+    labels: []
+CYAML
+  run python3 -I - "$TEST_TMPDIR/corpus.yaml" <<'PY'
+import sys, yaml
+REQUIRED = {"id","pr","head","base","patch_digest","permalink","kind","tier","files_changed","additions","deletions","labels"}
+with open(sys.argv[1]) as f:
+    corpus = yaml.safe_load(f)
+for e in corpus["entries"]:
+    assert e["kind"] in ("positive","negative"), f"{e['id']}: invalid kind '{e['kind']}'"
+PY
+  [ "$status" -ne 0 ]
+}
+
+@test "corpus: C4 label with no severity key → fails" {
+  _write_temp_corpus <<'CYAML'
+entries:
+  - id: "no-sev"
+    pr: 1
+    head: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    base: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    patch_digest: "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    permalink: "https://example.com"
+    kind: "positive"
+    tier: "standard"
+    files_changed: 1
+    additions: 1
+    deletions: 0
+    labels:
+      - file: "x.txt"
+        lines: [1, 2]
+        defect: "bug"
+        family: "f"
+        source_pass: ["code-reviewer"]
+        comment_url: "https://example.com"
+CYAML
+  run python3 -I - "$TEST_TMPDIR/corpus.yaml" <<'PY'
+import sys, yaml
+with open(sys.argv[1]) as f:
+    corpus = yaml.safe_load(f)
+for e in corpus["entries"]:
+    for l in e.get("labels", []):
+        sev = l["severity"]
+PY
+  [ "$status" -ne 0 ]
+}
+
+@test "corpus: C5 critical+important != total labels → fails" {
+  _write_temp_corpus <<'CYAML'
+entries:
+  - id: "bad-sev"
+    pr: 1
+    head: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    base: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    patch_digest: "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    permalink: "https://example.com"
+    kind: "positive"
+    tier: "standard"
+    files_changed: 1
+    additions: 1
+    deletions: 0
+    labels:
+      - file: "x.txt"
+        lines: [1, 2]
+        defect: "bug"
+        severity: "medium"
+        family: "f"
+        source_pass: ["code-reviewer"]
+        comment_url: "https://example.com"
+CYAML
+  run python3 -I - "$TEST_TMPDIR/corpus.yaml" <<'PY'
+import sys, yaml
+with open(sys.argv[1]) as f:
+    corpus = yaml.safe_load(f)
+c, i, total = 0, 0, 0
+for e in corpus["entries"]:
+    for l in e.get("labels", []):
+        total += 1
+        sev = l["severity"]
+        if sev == "critical": c += 1
+        elif sev == "important": i += 1
+assert c + i == total, f"c+i={c+i} != total labels {total}"
+PY
+  [ "$status" -ne 0 ]
 }
