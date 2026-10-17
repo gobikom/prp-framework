@@ -35,7 +35,27 @@ CONFIG_PATH = ROOT_DIR / "adapters.yml"
 REQUIRED_CONFIG_KEYS = {"adapters", "commands"}
 REQUIRED_ADAPTER_KEYS = {"file_pattern", "format", "args_placeholder",
                          "tool_command_template", "artifact_suffix"}
+# Known-key validation (re-routed from prp-framework#156 as PR A, generator
+# correctness): a typo'd adapters.yml adapter key previously passed silently
+# and its value was dropped at substitution time — generating output from a
+# config the generator did not fully understand while exiting 0. Unknown keys
+# now fail generation with a clear error naming the key and listing the valid
+# ones. (The agent_blocking_* keys join this set in the stacked PR B; listing
+# them here would validate keys no stanza on main carries.)
+KNOWN_ADAPTER_KEYS = {"file_pattern", "format", "args_placeholder",
+                      "tool_command_template", "artifact_suffix",
+                      "frontmatter", "group_dirs", "overlays", "wrapper"}
 REQUIRED_COMMAND_KEYS = {"description"}
+
+
+class GenerationError(Exception):
+    """An input the generator failed to read or parse, or an output it
+    could not build correctly. The generator never exits 0 on such a
+    failure (the #156 round-4 widened invariant, re-routed as PR A):
+    every failure is an error counted in stats["errors"], never a silent
+    skip. generate_all() catches one per command, counts it, and
+    continues, so a single run reports every broken input; main() exits 1
+    when any error was counted."""
 
 
 # ---------------------------------------------------------------------------
@@ -55,17 +75,40 @@ def load_config() -> dict:
         print(f"Error: Invalid YAML in {CONFIG_PATH}: {e}", file=sys.stderr)
         sys.exit(1)
 
-    # Validate top-level structure
+    # Validate top-level structure (a non-mapping adapters.yml — list,
+    # scalar, null — previously died as an AttributeError traceback; round-6
+    # input table: every input read gets a named error)
+    if not isinstance(config, dict):
+        print(f"Error: adapters.yml must be a mapping, got "
+              f"{type(config).__name__}", file=sys.stderr)
+        sys.exit(1)
     missing = REQUIRED_CONFIG_KEYS - set(config.keys())
     if missing:
         print(f"Error: Missing top-level keys in adapters.yml: {missing}", file=sys.stderr)
         sys.exit(1)
+    for section in ("adapters", "commands"):
+        if not isinstance(config[section], dict):
+            print(f"Error: adapters.yml '{section}' must be a mapping, got "
+                  f"{type(config[section]).__name__}", file=sys.stderr)
+            sys.exit(1)
+        for name, cfg in config[section].items():
+            if not isinstance(cfg, dict):
+                print(f"Error: adapters.yml {section}['{name}'] must be a "
+                      f"mapping, got {type(cfg).__name__}", file=sys.stderr)
+                sys.exit(1)
 
     # Validate adapter entries
     for name, cfg in config["adapters"].items():
         missing_keys = REQUIRED_ADAPTER_KEYS - set(cfg.keys())
         if missing_keys:
             print(f"Error: Adapter '{name}' missing keys: {missing_keys}", file=sys.stderr)
+            sys.exit(1)
+        unknown_keys = set(cfg.keys()) - KNOWN_ADAPTER_KEYS
+        if unknown_keys:
+            print(f"Error: Adapter '{name}' has unknown keys: {sorted(unknown_keys)}",
+                  file=sys.stderr)
+            print("Error: Check adapters.yml for typos — valid keys: "
+                  f"{sorted(KNOWN_ADAPTER_KEYS)}", file=sys.stderr)
             sys.exit(1)
 
     # Validate command entries
@@ -82,12 +125,99 @@ def load_config() -> dict:
 # Prompt reading
 # ---------------------------------------------------------------------------
 
+def split_frontmatter(text: str, source: str) -> tuple[str | None, str]:
+    """The ONLY frontmatter splitter, used by read_overlay() and
+    validate_generated() (#156 round-8 re-plan, re-routed as PR A; the two
+    inline splits are deleted).
+
+    1. normalizes line endings first (\\r\\n and lone \\r become \\n);
+    2. a delimiter is a line whose content, after stripping trailing spaces
+       and tabs, is exactly `---`;
+    3. returns (None, whole_text) only if the first line is not a delimiter;
+    4. if the first line IS a delimiter and no closing delimiter follows,
+       raises GenerationError naming `source` ("unterminated frontmatter");
+    5. NEVER falls back to treating the whole text as the body — the
+       round-7/8 bugs both lived in that fallback (a mis-split left a
+       non-empty "body" that passed validation);
+    6. a line that becomes `---` only after stripping LEADING whitespace too
+       is a near-miss delimiter (the round-9 fix, from the #156 re-route):
+       wherever it appears in the frontmatter region — as the opening line
+       or as a would-be closing line before a valid closer — it raises
+       GenerationError ("indented frontmatter delimiter") naming the file
+       and the line. An indented opening `---` previously parsed as "no
+       frontmatter", so the overlay metadata was dropped and generation
+       exited 0. After a VALID closing delimiter the body is body: an
+       indented `---` (e.g. inside a fenced block) is never inspected.
+
+    Returns (frontmatter_text_or_None, body_after_closing_delimiter).
+    """
+    normalized = text.replace("\r\n", "\n").replace("\r", "\n")
+    lines = normalized.split("\n")
+
+    def is_delimiter(line: str) -> bool:
+        return line.rstrip(" \t") == "---"
+
+    def is_indented_delimiter(line: str) -> bool:
+        # `  ---` / `\t---` (with optional trailing spaces/tabs): the line is
+        # `---` once ALL surrounding whitespace is stripped, but it carries
+        # leading whitespace, so it is NOT a delimiter — it is a near miss.
+        return line[:1].isspace() and line.strip(" \t") == "---"
+
+    def indented_error(source: str, lineno: int) -> GenerationError:
+        return GenerationError(
+            f"error: indented frontmatter delimiter in {source} at line "
+            f"{lineno} — a `---` with leading whitespace is not a delimiter; "
+            f"delimiters must start at column 1")
+
+    if not lines:
+        return None, normalized
+    if is_indented_delimiter(lines[0]):
+        # An indented opening `---` was previously read as "no frontmatter"
+        # and the whole overlay metadata silently dropped (round 9).
+        raise indented_error(source, 1)
+    if not is_delimiter(lines[0]):
+        return None, normalized
+
+    for i in range(1, len(lines)):
+        if is_delimiter(lines[i]):
+            fm = "\n".join(lines[1:i])
+            body = "\n".join(lines[i + 1:])
+            return fm, body
+        if is_indented_delimiter(lines[i]):
+            # A would-be closing delimiter that is indented is a near miss,
+            # not body text: raise naming the file and the line (round 9).
+            raise indented_error(source, i + 1)
+
+    raise GenerationError(
+        f"error: unterminated frontmatter in {source} — opening `---` "
+        f"without a closing `---` line")
+
+
 def read_prompt(name: str) -> str:
-    """Read a canonical prompt file from prompts/."""
+    """Read a canonical prompt file from prompts/.
+
+    Raises GenerationError naming the file when the prompt for a configured
+    command is missing or unreadable (round-4 Important): a missing prompt
+    previously counted as a silent "skipped" and generation exited 0.
+    """
     path = PROMPTS_DIR / f"{name}.md"
     if not path.exists():
-        return ""
-    return path.read_text()
+        raise GenerationError(
+            f"error: prompt file for configured command '{name}' is missing: "
+            f"{path.relative_to(ROOT_DIR)}")
+    try:
+        text = path.read_text()
+    except OSError as e:
+        raise GenerationError(
+            f"error: cannot read prompt for configured command '{name}': "
+            f"{path.relative_to(ROOT_DIR)}: {e}")
+    if not text.strip():
+        # Round-6 Important A: an empty or whitespace-only prompt previously
+        # shipped an empty command body and exited 0.
+        raise GenerationError(
+            f"error: prompt file for configured command '{name}' is empty "
+            f"or whitespace-only: {path.relative_to(ROOT_DIR)}")
+    return text
 
 
 def read_overlay(adapter: str, name: str) -> dict | None:
@@ -114,20 +244,38 @@ def read_overlay(adapter: str, name: str) -> dict | None:
     if not path.exists():
         return None
 
-    text = path.read_text()
+    try:
+        text = path.read_text()
+    except OSError as e:
+        raise GenerationError(
+            f"error: cannot read overlay {path.relative_to(ROOT_DIR)}: {e}")
 
-    # Parse YAML frontmatter
+    # Parse YAML frontmatter. A broken frontmatter is a hard error naming the
+    # overlay file and the YAML error (round-4 Critical): swallowing it here
+    # let wrap_with_xml() build malformed content and generation exit 0.
     overlay = {}
-    if text.startswith("---"):
-        parts = text.split("---", 2)
-        if len(parts) >= 3:
-            try:
-                meta = yaml.safe_load(parts[1])
-                if meta:
-                    overlay["meta"] = meta
-            except yaml.YAMLError:
-                pass
-            text = parts[2].strip()
+    # Round-8 re-plan: one parser — split_frontmatter — for overlays and
+    # generated output alike (normalizes line endings, delimiter = `---`
+    # line modulo trailing spaces/tabs, no whole-text-as-body fallback,
+    # unterminated frontmatter is an error naming this file; round 9: an
+    # indented delimiter anywhere in the frontmatter region is an error
+    # naming the file and line).
+    fm, body = split_frontmatter(text, path.relative_to(ROOT_DIR))
+    if fm is not None:
+        try:
+            meta = yaml.safe_load(fm)
+            if meta is not None and not isinstance(meta, dict):
+                raise GenerationError(
+                    f"error: overlay frontmatter must be a mapping, got "
+                    f"{type(meta).__name__}: "
+                    f"{path.relative_to(ROOT_DIR)}")
+            if meta:
+                overlay["meta"] = meta
+        except yaml.YAMLError as e:
+            raise GenerationError(
+                f"error: invalid YAML frontmatter in overlay "
+                f"{path.relative_to(ROOT_DIR)}: {e}")
+        text = body.strip()
 
     # Parse sections: lines starting with "# section_name"
     sections = {}
@@ -214,7 +362,7 @@ def get_description(adapter_name: str, cmd_cfg: dict) -> str:
 
 
 def generate_frontmatter_md(adapter_name: str, cmd_name: str, cmd_cfg: dict,
-                             adapter_cfg: dict) -> str:
+                            adapter_cfg: dict) -> str:
     """Generate YAML frontmatter for Markdown adapters (non-codex)."""
     fields = adapter_cfg.get("frontmatter", {}).get("fields", [])
     if not fields:
@@ -359,6 +507,55 @@ def validate_output_path(out_path: Path, adapter_dir: Path) -> bool:
         return False
 
 
+def validate_generated(rel_path: str, content: str) -> None:
+    """Round-6 output check: the generator exits 0 only if EVERY file it
+    writes or would write passes. Runs on every adapter and command —
+    aliases included — and in --dry-run/--diff modes too (it is called
+    before the dry-run fork, so it sees identical content). Raises
+    GenerationError naming the file and the reason:
+      (a) the command body, after frontmatter or TOML header, is non-empty
+          after strip;
+      (b) the description field, where the format has one, is non-empty.
+    (Check (c) — no reserved {agent_*} namespace token left in the output —
+    joins in the stacked PR B, which introduces that namespace.)
+    """
+    where = f"generated output {rel_path}"
+
+    fmt_md = not rel_path.endswith(".toml")
+
+    if fmt_md:
+        # Markdown: strip YAML frontmatter, then require a non-empty body.
+        # Round-8 re-plan: the frontmatter/body boundary comes from
+        # split_frontmatter — one parser, shared with read_overlay() (no
+        # inline split here; the round-7 inline regex still missed `--- `
+        # and CRLF delimiters).
+        desc, body = split_frontmatter(content, rel_path)
+        desc = desc or ""
+        if not body.strip():
+            raise GenerationError(
+                f"error: {where} has an empty command body after frontmatter")
+        # (b) a description FIELD exists (frontmatter carries one) but is empty
+        if desc:
+            m = re.search(r"^description:\s*(.*)$", desc, re.MULTILINE)
+            if m and not m.group(1).strip().strip('"').strip():
+                raise GenerationError(
+                    f"error: {where} has an empty description field")
+    else:
+        # TOML (gemini): description = "..." then prompt = """...""" — the
+        # command body is the INTERIOR of the prompt block, not the leftover
+        # TOML scaffolding around it.
+        m = re.search(r'^description\s*=\s*"(.*)"', content, re.MULTILINE)
+        desc = m.group(1) if m else ""
+        if not desc.strip():
+            raise GenerationError(
+                f"error: {where} has an empty description field")
+        m = re.search(r'prompt\s*=\s*"""(.*?)"""', content, re.DOTALL)
+        body = m.group(1) if m else ""
+        if not body.strip():
+            raise GenerationError(
+                f"error: {where} has an empty command body after TOML header")
+
+
 # ---------------------------------------------------------------------------
 # Core generation
 # ---------------------------------------------------------------------------
@@ -374,14 +571,22 @@ def generate_adapter_file(adapter_name: str, cmd_name: str, config: dict) -> tup
     file_pattern = adapter_cfg["file_pattern"]
     rel_path = file_pattern.replace("{name}", cmd_name)
 
+    # Round-6 input table: alias-of must name a configured command
+    if is_alias:
+        alias_of = cmd_cfg.get("alias-of", "")
+        if alias_of not in config["commands"]:
+            raise GenerationError(
+                f"error: command '{cmd_name}' is an alias of '{alias_of}', "
+                f"which is not a configured command in adapters.yml")
+
     # Read base prompt (or generate alias content)
     if is_alias:
         body = generate_alias_content(cmd_name, cmd_cfg, adapter_name)
     else:
+        # A missing or unreadable prompt for a configured command is an error
+        # (read_prompt raises); there is no intentional-skip path here — every
+        # configured command must have a prompt (or be an alias).
         body = read_prompt(cmd_name)
-        if not body:
-            print(f"  WARNING: No prompt file for {cmd_name}", file=sys.stderr)
-            return rel_path, ""
 
     # Apply placeholder substitutions
     body = substitute_placeholders(body, adapter_cfg, cmd_name)
@@ -445,7 +650,15 @@ def generate_all(config: dict, adapter_filter: str | None = None,
 
         for cmd_name in commands:
             cmd_cfg = commands[cmd_name]
-            rel_path, content = generate_adapter_file(adapter_name, cmd_name, config)
+            try:
+                rel_path, content = generate_adapter_file(adapter_name, cmd_name, config)
+            except GenerationError as e:
+                # widened invariant: an input we could not read/parse is an
+                # error counted in stats["errors"] — printed and CONTINUED, so
+                # one run reports every broken input; main() exits 1.
+                print(f"  {e}", file=sys.stderr)
+                stats["errors"] += 1
+                continue
 
             if not content:
                 stats["skipped"] += 1
@@ -463,6 +676,17 @@ def generate_all(config: dict, adapter_filter: str | None = None,
             # Path traversal check
             if not validate_output_path(out_path, adapter_dir):
                 print(f"  ERROR: Path traversal detected: {out_path}", file=sys.stderr)
+                stats["errors"] += 1
+                continue
+
+            # Round-6 output check — every file the generator writes or would
+            # write must pass validate_generated; runs BEFORE the dry-run fork
+            # so --dry-run/--diff validate identical content, and it covers
+            # the change-detection read below (content that would be written).
+            try:
+                validate_generated(f"{adapter_name}/{rel_path}", content)
+            except GenerationError as e:
+                print(f"  {e}", file=sys.stderr)
                 stats["errors"] += 1
                 continue
 
