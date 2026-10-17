@@ -323,10 +323,8 @@ reviewer. Every rule below follows from that.
   putting the calls in one message.** On Claude Code 2.1.302 an Agent call runs in the
   background unless `run_in_background: false` is passed; each finished agent then arrives
   as its own task-notification turn, so the caller wakes once per agent (measured on
-  SO#1358: 3 wakes in one round, 7 in another). Every Agent dispatch in this command —
-  the 3 core and all 7 conditional blocks — therefore passes `run_in_background=false`,
-  which makes each result return as a tool_result of the dispatching message: one wake
-  per round. Dispatching all calls in one message is still required (it is what makes the
+  SO#1358: 3 wakes in one round, 7 in another).{AGENT_BLOCKING_PROSE}
+  Dispatching all calls in one message is still required (it is what makes the
   round a single turn), but it is not what makes them block. When
   the runtime can only launch reviewers as background shells (one completion notification per
   shell), the wake cost moves to the caller; in that case, launch all shells, then wait for

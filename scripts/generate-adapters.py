@@ -35,6 +35,15 @@ CONFIG_PATH = ROOT_DIR / "adapters.yml"
 REQUIRED_CONFIG_KEYS = {"adapters", "commands"}
 REQUIRED_ADAPTER_KEYS = {"file_pattern", "format", "args_placeholder",
                          "tool_command_template", "artifact_suffix"}
+# prp-framework#156 round-1 fix 3: known-key validation. A typo'd adapter key
+# (e.g. agent_blocking_prase_claude) previously passed silently and its value
+# was dropped at substitution time — generating prose that no longer matched
+# the dispatch blocks. Unknown keys now fail generation with a clear error.
+KNOWN_ADAPTER_KEYS = {"file_pattern", "format", "args_placeholder",
+                      "tool_command_template", "artifact_suffix",
+                      "frontmatter", "group_dirs", "overlays", "wrapper",
+                      "agent_blocking_param", "agent_blocking_prose_claude",
+                      "agent_blocking_prose_other"}
 REQUIRED_COMMAND_KEYS = {"description"}
 
 
@@ -66,6 +75,13 @@ def load_config() -> dict:
         missing_keys = REQUIRED_ADAPTER_KEYS - set(cfg.keys())
         if missing_keys:
             print(f"Error: Adapter '{name}' missing keys: {missing_keys}", file=sys.stderr)
+            sys.exit(1)
+        unknown_keys = set(cfg.keys()) - KNOWN_ADAPTER_KEYS
+        if unknown_keys:
+            print(f"Error: Adapter '{name}' has unknown keys: {sorted(unknown_keys)}",
+                  file=sys.stderr)
+            print("Error: Check adapters.yml for typos — valid keys: "
+                  f"{sorted(KNOWN_ADAPTER_KEYS)}", file=sys.stderr)
             sys.exit(1)
 
     # Validate command entries
@@ -183,6 +199,26 @@ def substitute_placeholders(content: str, adapter_cfg: dict, cmd_name: str) -> s
     # prp-framework#151 AC1: claude-code maps it to run_in_background=false.
     blocking_param = adapter_cfg.get("agent_blocking_param", "")
     content = content.replace("{AGENT_BLOCKING_PARAM}", blocking_param)
+
+    # {AGENT_BLOCKING_PROSE} → the scoped claim for the adapter that carries
+    # the parameter, the neutral scoping sentence for every other runtime —
+    # keeps the "Blocking wait" bullet TRUE in every adapter (round-1 fix).
+    if blocking_param:
+        prose = adapter_cfg.get("agent_blocking_prose_claude", "")
+    else:
+        prose = adapter_cfg.get("agent_blocking_prose_other",
+                                " In the Claude Code adapter every Agent dispatch passes "
+                                "`run_in_background=false`; other runtimes' adapters carry "
+                                "no such parameter.")
+    content = content.replace("{AGENT_BLOCKING_PROSE}", prose)
+
+    # prp-framework#156 round-1 fix 3: an unreplaced placeholder in generated
+    # output is a generation bug — fail loudly, never ship a literal brace token.
+    if "{AGENT_BLOCKING_PARAM}" in content or "{AGENT_BLOCKING_PROSE}" in content:
+        raise SystemExit(
+            f"error: literal {{AGENT_BLOCKING_PARAM}}/{{AGENT_BLOCKING_PROSE}} survived "
+            f"substitution for command '{cmd_name}' — check adapters.yml "
+            f"agent_blocking_* values for self-referential placeholders")
 
     return content
 
