@@ -169,7 +169,7 @@ def load_config() -> dict:
             if fields is not None and (
                     not isinstance(fields, list)
                     or not all(isinstance(x, str) for x in fields)):
-                print(f"Error: adapters.yml adapter '{name}' key 'frontmatter.fields' "
+                print(f"Error: adapters.yml {section} '{name}' key 'frontmatter.fields' "
                       f"must be a list of strings", file=sys.stderr)
                 sys.exit(1)
 
@@ -314,15 +314,22 @@ def read_overlay(adapter: str, name: str) -> dict | None:
     overlay = {}
     try:
         fm, body = split_frontmatter(text, display_path(path))
-    except GenerationError:
+    except GenerationError as e:
+        # A1 is lenient but VISIBLE: the named parse error is printed, never
+        # silently discarded — the overlay generates without metadata. The
+        # hard-error policy for overlays is #157's; A1 logs and continues.
+        print(f"  WARNING: {e} — overlay metadata ignored", file=sys.stderr)
         fm, body = None, text
     if fm is not None:
         try:
             meta = yaml.safe_load(fm)
             if meta:
                 overlay["meta"] = meta
-        except yaml.YAMLError:
-            pass
+        except yaml.YAMLError as e:
+            # Same lenient-but-visible policy: named WARNING, meta absent,
+            # generation continues (the hard-error policy is #157's).
+            print(f"  WARNING: {display_path(path)}: invalid overlay frontmatter "
+                  f"YAML: {e} — overlay metadata ignored", file=sys.stderr)
         text = body.strip()
 
     # Parse sections: lines starting with "# section_name"
@@ -669,7 +676,16 @@ def generate_all(config: dict, adapter_filter: str | None = None,
 
             # Check if content changed
             if out_path.exists():
-                existing = out_path.read_text(encoding="utf-8")
+                try:
+                    existing = out_path.read_text(encoding="utf-8")
+                except (OSError, UnicodeDecodeError) as e:
+                    # Never overwrite an output the generator could not read:
+                    # named error, counted, continue (the write path below is
+                    # unreachable for this file because we `continue` here).
+                    print(f"  error: cannot read existing output "
+                          f"{display_path(out_path)}: {e}", file=sys.stderr)
+                    stats["errors"] += 1
+                    continue
                 if existing == content:
                     stats["unchanged"] += 1
                     continue
@@ -681,7 +697,13 @@ def generate_all(config: dict, adapter_filter: str | None = None,
                     print(f"  [NEW] {out_path}")
 
             # Ensure parent directory exists (for codex prp-{name}/ dirs)
-            out_path.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                out_path.parent.mkdir(parents=True, exist_ok=True)
+            except OSError as e:
+                print(f"  error: cannot create directory "
+                      f"{display_path(out_path.parent)}: {e}", file=sys.stderr)
+                stats["errors"] += 1
+                continue
 
             try:
                 out_path.write_text(content, encoding="utf-8")

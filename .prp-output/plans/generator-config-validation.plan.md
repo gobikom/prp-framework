@@ -43,9 +43,14 @@ run with a raw Python traceback.
 | frontmatter: `----` (4 dashes) closer | NOT a delimiter → unterminated |
 | frontmatter: indented `---` opener or closer | GenerationError "indented frontmatter delimiter", names file + line |
 | frontmatter: no frontmatter | body as is |
+| malformed overlay YAML (valid --- block) | WARNING names the file, meta absent, generation continues (A1 lenient-but-visible; hard-error policy is #157's) |
+| indented/unterminated overlay frontmatter | the named parse error printed as WARNING before the fallback, metadata ignored |
+| existing output with invalid UTF-8 | named error, counted, others generated, file never overwritten |
+| mkdir blocked by a regular file | named error naming the directory, counted |
+| command key with bad frontmatter.fields | load-time type error naming the COMMAND (`command '<name>'`) |
 | valid tree | byte-identical adapters, `0 skipped, 0 errors` (parity.bats:718) |
 
-**Verified by:** 23 tests in `tests/scripts/generate-adapters.bats` (temp
+**Verified by:** 28 tests in `tests/scripts/generate-adapters.bats` (temp
 copies only): the 11 config/encoding tests, the 13 round-8/9 frontmatter
 boundary rows (direct arms; the overlay/validate arms run in #157 where
 those callers live), and the structural grep tests (one splitter; no stray

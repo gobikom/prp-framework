@@ -345,3 +345,77 @@ PYX
   # #157's grep test (def + 2 calls).
   [ "$(grep -c 'def split_frontmatter' "$script")" -eq 1 ]
 }
+
+# ── A1 round-1 fixes (#161): lenient but VISIBLE; guarded output-side reads ──
+
+@test "A1-r1 command frontmatter.fields error names the command (section param)" {
+  make_tree
+  python3 - "$TREE" <<'HOOKF'
+import sys, yaml
+t = sys.argv[1]
+c = yaml.safe_load(open(f"{t}/adapters.yml"))
+c["commands"]["qa"]["frontmatter"] = {"fields": [1, 2]}
+yaml.safe_dump(c, open(f"{t}/adapters.yml", "w"), sort_keys=False)
+HOOKF
+  gen
+  [ "$rc" -eq 1 ] || { echo "expected exit 1, got $rc" >&2; return 1; }
+  echo "$err" | grep -qF "adapters.yml command 'qa' key 'frontmatter.fields' must be a list of strings" \
+    || { echo "error does not name command+key: $err" >&2; return 1; }
+}
+
+@test "A1-r1 malformed overlay YAML inside a valid --- block: WARNING names the file, no traceback, generation continues" {
+  make_tree
+  printf -- '---\ncommand: [plan\n---\n# objective\nOBJ-R1YAML\n' > "$TREE/prompts/overlays/claude-code/plan.md"
+  gen
+  [ "$rc" -eq 0 ] || { echo "expected exit 0 (lenient), got $rc: $err" >&2; return 1; }
+  echo "$err" | grep -qF "WARNING: prompts/overlays/claude-code/plan.md: invalid overlay frontmatter YAML" \
+    || { echo "WARNING does not name the file: $err" >&2; return 1; }
+  if printf '%s\n' "$err" | grep -q 'Traceback'; then echo "raw traceback leaked: $err" >&2; return 1; fi
+  # generation continued: the objective (metadata-independent) still applies
+  grep -qF "OBJ-R1YAML" "$TREE/adapters/claude-code/prp-plan.md"
+}
+
+@test "A1-r1 indented --- in an overlay: the named parse error appears as a WARNING, metadata ignored" {
+  make_tree
+  printf -- '  ---\ncommand: plan\nadapter: claude-code\n---\n# objective\nOBJ-R1IND\n' > "$TREE/prompts/overlays/claude-code/plan.md"
+  gen
+  [ "$rc" -eq 0 ] || { echo "expected exit 0 (lenient), got $rc: $err" >&2; return 1; }
+  echo "$err" | grep -qF "WARNING: error: indented frontmatter delimiter in prompts/overlays/claude-code/plan.md at line 1" \
+    || { echo "named parse error not shown as WARNING: $err" >&2; return 1; }
+  # metadata ignored: the skip_before directive in the dropped metadata does not apply
+  if printf '%s\n' "$err" | grep -q 'Traceback'; then echo "raw traceback leaked" >&2; return 1; fi
+}
+
+@test "A1-r1 existing output with invalid UTF-8: named error, errors=1, others generated, file unchanged" {
+  make_tree
+  mkdir -p "$TREE/adapters/claude-code"
+  python3 -c "open('$TREE/adapters/claude-code/prp-qa.md','wb').write(b'---\ndescription: \"old\"\n---\n\xff\xfe\n')"
+  gen
+  [ "$rc" -eq 1 ] || { echo "expected exit 1, got $rc" >&2; return 1; }
+  echo "$err" | grep -qF "error: cannot read existing output" \
+    || { echo "error does not name the existing output: $err" >&2; return 1; }
+  echo "$err" | grep -qF "adapters/claude-code/prp-qa.md" \
+    || { echo "error does not name the file: $err" >&2; return 1; }
+  echo "$out" | grep -qE 'Results: .*1 errors' \
+    || { echo "expected errors=1: $(echo "$out" | grep Results)" >&2; return 1; }
+  # the other files still generated: 191 of 192 (one skipped due to the unreadable file)
+  echo "$out" | grep -qE 'Results: 19[0-9] generated, ' \
+    || { echo "others not generated: $(echo "$out" | grep Results)" >&2; return 1; }
+  # never overwrite an output we could not read
+  python3 -c "assert b'\\xff\\xfe' in open('$TREE/adapters/claude-code/prp-qa.md','rb').read(), 'existing output was overwritten'"
+}
+
+@test "A1-r1 mkdir blocked by a regular file: named error, errors=1" {
+  make_tree
+  # block the codex prp-qa directory with a regular file
+  mkdir -p "$TREE/adapters/codex"
+  printf 'not a dir\n' > "$TREE/adapters/codex/prp-qa"
+  gen
+  [ "$rc" -eq 1 ] || { echo "expected exit 1, got $rc" >&2; return 1; }
+  echo "$err" | grep -qF "error: cannot create directory" \
+    || { echo "error does not name the mkdir failure: $err" >&2; return 1; }
+  echo "$err" | grep -qF "adapters/codex/prp-qa" \
+    || { echo "error does not name the directory: $err" >&2; return 1; }
+  echo "$out" | grep -qE 'Results: .*1 errors' \
+    || { echo "expected errors=1: $(echo "$out" | grep Results)" >&2; return 1; }
+}
