@@ -96,6 +96,41 @@ all_pos() { # <ERE>
   return 0
 }
 
+@test "every Agent dispatch in the claude-code adapter passes run_in_background=false (#151 AC1)" {
+  # prp-framework#151 AC1: on Claude Code 2.1.302 an Agent call runs in the
+  # background unless run_in_background=false is passed — without it each
+  # finished agent is its own task-notification turn (one wake per reviewer).
+  # Count 'Agent(' dispatch blocks and 'run_in_background=false' parameters:
+  # they must be equal, and at least 10 (3 core + 7 conditional).
+  [ -r "$ADAPTER" ] || { fail "adapter missing: $ADAPTER"; }
+  local dispatches params
+  dispatches=$(grep -c '^Agent($' "$ADAPTER") || dispatches=0
+  params=$(grep -c '^  run_in_background=false,$' "$ADAPTER") || params=0
+  [ "$dispatches" -ge 10 ] \
+    || fail "expected at least 10 Agent dispatch blocks, counted: $dispatches"
+  [ "$dispatches" -eq "$params" ] \
+    || fail "every Agent dispatch must pass run_in_background=false — dispatches: $dispatches, parameters: $params"
+}
+
+@test "no other-runtime adapter carries the Claude-Code-only blocking kwarg (#151 AC1)" {
+  # The kwarg is claude-code-only (adapters.yml: agent_blocking_param); the
+  # generator's substitute_placeholders maps {AGENT_BLOCKING_PARAM} to "" for
+  # every other runtime. No dispatch block in the other five adapters may
+  # contain run_in_background — their Agent tools would reject the parameter.
+  local f
+  for f in \
+    adapters/antigravity/prp-review-agents.md \
+    adapters/codex/prp-review-agents/SKILL.md \
+    adapters/gemini/review-agents.toml \
+    adapters/opencode/review-agents.md \
+    adapters/thclaws/prp-review-agents/SKILL.md
+  do
+    if grep -q '^  run_in_background=false,$' "$ROOT/$f"; then
+      fail "non-claude-code adapter carries the blocking kwarg: $f"
+    fi
+  done
+}
+
 @test "the expected file set is exactly the prompt plus the 6 adapters, all present and readable" {
   n=0
   for f in $EXPECTED_FILES; do

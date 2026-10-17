@@ -323,9 +323,16 @@ reviewer. Every rule below follows from that.
   the session waits. It does not write status lines, does not collect partial results, does
   not respond to per-agent completion notifications with separate turns, and does not poll.
   Collection (Phase 3) starts only after ALL agents of the round have returned.
-- **Blocking wait is the mechanism, not a suggestion.** With the Agent tool, the parallel
-  calls in one message already block until all results return — keep it that way. When the
-  runtime can only launch reviewers as background shells (one completion notification per
+- **Blocking wait comes from `run_in_background=false` on every Agent call, not from
+  putting the calls in one message.** On Claude Code 2.1.302 an Agent call runs in the
+  background unless `run_in_background: false` is passed; each finished agent then arrives
+  as its own task-notification turn, so the caller wakes once per agent (measured on
+  SO#1358: 3 wakes in one round, 7 in another). Every Agent dispatch in this command —
+  the 3 core and all 7 conditional blocks — therefore passes `run_in_background=false`,
+  which makes each result return as a tool_result of the dispatching message: one wake
+  per round. Dispatching all calls in one message is still required (it is what makes the
+  round a single turn), but it is not what makes them block. When
+  the runtime can only launch reviewers as background shells (one completion notification per
   shell), the wake cost moves to the caller; in that case, launch all shells, then wait for
   ALL of them as ONE blocking unit in the SAME turn, and do not report between waits — the
   single completion wake carries every result. A `wait` over several pids at once returns

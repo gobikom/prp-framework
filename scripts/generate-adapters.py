@@ -177,6 +177,13 @@ def substitute_placeholders(content: str, adapter_cfg: dict, cmd_name: str) -> s
     # Replace standalone {TOOL} in artifact paths (e.g., -review-{TOOL}.md)
     content = content.replace("{TOOL}", artifact_suffix)
 
+    # {AGENT_BLOCKING_PARAM} → adapter-specific blocking parameter line, or ""
+    # for runtimes whose Agent tool has no such parameter (they must not
+    # receive a Claude-Code-only kwarg their tool would reject).
+    # prp-framework#151 AC1: claude-code maps it to run_in_background=false.
+    blocking_param = adapter_cfg.get("agent_blocking_param", "")
+    content = content.replace("{AGENT_BLOCKING_PARAM}", blocking_param)
+
     return content
 
 

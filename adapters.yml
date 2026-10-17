@@ -12,6 +12,10 @@ adapters:
     tool_command_template: "/prp-core:prp-{cmd}"
     # {TOOL} in artifact paths → claude-code
     artifact_suffix: "claude-code"
+    # {AGENT_BLOCKING_PARAM} → run_in_background=false (Claude Code 2.1.302+
+    # runs Agent calls in the background without it — one wake per reviewer,
+    # not one wake per round; prp-framework#151 AC1)
+    agent_blocking_param: "  run_in_background=false,\n"
     frontmatter:
       fields: [description, argument-hint]
     wrapper: xml  # Wrap content in <objective>, <context>, <process> tags
