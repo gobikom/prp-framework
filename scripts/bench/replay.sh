@@ -12,7 +12,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+REPO_ROOT="${REPO_ROOT:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
 CORPUS="${REPO_ROOT}/tests/bench/corpus.yaml"
 HARNESS="claude-code"
 RUNS=1
@@ -113,11 +113,7 @@ echo ""
 REVIEW_CLI="${REPO_ROOT}/scripts/review/prp-review"
 failures=0
 
-echo "$entries_json" | python3 -I -c "
-import json, sys
-for e in json.load(sys.stdin):
-    print(f'{e[\"id\"]}|{e[\"pr\"]}|{e[\"head\"]}|{e[\"base\"]}|{e[\"patch_digest\"]}|{e[\"kind\"]}')
-" | while IFS='|' read -r eid pr head base digest kind; do
+while IFS='|' read -r eid pr head base digest kind; do
   echo "--- Entry: $eid (PR #$pr, head ${head:0:8}, $kind) ---"
 
   # Verify head and base are reachable
@@ -166,7 +162,11 @@ for e in json.load(sys.stdin):
 METAEOF
   done
   echo ""
-done
+done < <(echo "$entries_json" | python3 -I -c "
+import json, sys
+for e in json.load(sys.stdin):
+    print(f'{e[\"id\"]}|{e[\"pr\"]}|{e[\"head\"]}|{e[\"base\"]}|{e[\"patch_digest\"]}|{e[\"kind\"]}')
+")
 
 if [[ "$failures" -gt 0 ]]; then
   echo "FAIL: $failures error(s)" >&2

@@ -146,6 +146,87 @@ assert data[0]["output"] == 5
 PY
 }
 
+# --- replay.sh failure propagation ---
+
+_make_corpus() {
+  local path="$1" id="$2" head="$3" base="$4" digest="$5"
+  cat > "$path" <<CYAML
+entries:
+  - id: "$id"
+    pr: 999
+    head: "$head"
+    base: "$base"
+    patch_digest: "$digest"
+    permalink: "https://example.com"
+    kind: "positive"
+    tier: "standard"
+    files_changed: 1
+    additions: 1
+    deletions: 0
+    labels: []
+CYAML
+}
+
+_stub_git() {
+  local dir="$1"; mkdir -p "$dir"
+  printf '#!/usr/bin/env bash\ncase "$*" in *cat-file*) exit 1;; *fetch*) exit 1;; *diff*) echo "fake diff";; esac\n' > "$dir/git"
+  chmod +x "$dir/git"
+}
+
+_make_test_repo() {
+  git init -q "$TEST_TMPDIR/repo"
+  git -C "$TEST_TMPDIR/repo" commit --allow-empty -m "base" -q
+  TEST_BASE=$(git -C "$TEST_TMPDIR/repo" rev-parse HEAD)
+  echo "content" > "$TEST_TMPDIR/repo/file.txt"
+  git -C "$TEST_TMPDIR/repo" add file.txt
+  git -C "$TEST_TMPDIR/repo" commit -m "head" -q
+  TEST_HEAD=$(git -C "$TEST_TMPDIR/repo" rev-parse HEAD)
+  TEST_DIGEST=$(git -C "$TEST_TMPDIR/repo" diff "$TEST_BASE".."$TEST_HEAD" | sha256sum | cut -d' ' -f1)
+}
+
+_run_replay() {
+  run env REPO_ROOT="$TEST_TMPDIR/repo" \
+    bash -c "cd '$TEST_TMPDIR/repo' && '$REPO_ROOT/scripts/bench/replay.sh' --corpus '$TEST_TMPDIR/corpus.yaml' --out '$TEST_TMPDIR/out'"
+}
+
+@test "replay.sh: unreachable SHA → non-zero exit" {
+  _make_corpus "$TEST_TMPDIR/corpus.yaml" "bad-sha" \
+    "$(printf 'a%.0s' {1..40})" "$(printf 'b%.0s' {1..40})" "$(printf 'c%.0s' {1..64})"
+  _stub_git "$TEST_TMPDIR/bin"
+  git init -q "$TEST_TMPDIR/repo"
+  run env PATH="$TEST_TMPDIR/bin:$PATH" REPO_ROOT="$TEST_TMPDIR/repo" \
+    bash -c "cd '$TEST_TMPDIR/repo' && '$REPO_ROOT/scripts/bench/replay.sh' --corpus '$TEST_TMPDIR/corpus.yaml' --out '$TEST_TMPDIR/out'"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"error"* ]] || [[ "$output" == *"cannot resolve"* ]]
+}
+
+@test "replay.sh: digest mismatch → non-zero exit" {
+  _make_test_repo
+  _make_corpus "$TEST_TMPDIR/corpus.yaml" "bad-digest" "$TEST_HEAD" "$TEST_BASE" "$(printf 'f%.0s' {1..64})"
+  _run_replay
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"digest mismatch"* ]]
+}
+
+@test "replay.sh: failing review CLI → non-zero exit" {
+  _make_test_repo
+  _make_corpus "$TEST_TMPDIR/corpus.yaml" "bad-cli" "$TEST_HEAD" "$TEST_BASE" "$TEST_DIGEST"
+  mkdir -p "$TEST_TMPDIR/repo/scripts/review"
+  printf '#!/usr/bin/env bash\necho "review failed" >&2; exit 1\n' > "$TEST_TMPDIR/repo/scripts/review/prp-review"
+  chmod +x "$TEST_TMPDIR/repo/scripts/review/prp-review"
+  _run_replay
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"review CLI failed"* ]]
+}
+
+@test "replay.sh: all entries good → exit 0" {
+  _make_test_repo
+  _make_corpus "$TEST_TMPDIR/corpus.yaml" "good" "$TEST_HEAD" "$TEST_BASE" "$TEST_DIGEST"
+  _run_replay
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Replay complete"* ]]
+}
+
 # --- AC0.3: replay.sh zero writes ---
 
 @test "replay.sh: no post or marker code is reachable" {
@@ -207,19 +288,3 @@ assert not dupes, f"duplicate entry ids: {set(dupes)}"
 PY
 }
 
-@test "corpus.yaml: positive entries have expected finding counts in comments" {
-  # Entries marked positive should have a comment indicating expected C/I count.
-  # This is a schema check — the actual labels are filled by psak.
-  python3 -I - "$REPO_ROOT/tests/bench/corpus.yaml" <<'PY'
-import sys, yaml
-
-with open(sys.argv[1]) as f:
-    raw = f.read()
-    corpus = yaml.safe_load(raw)
-
-for e in corpus.get("entries", []):
-    if e["kind"] == "positive" and not e["labels"]:
-        # Positive entries with empty labels should have a comment explaining expected counts
-        pass  # psak fills labels; this test passes once labels are present
-PY
-}
