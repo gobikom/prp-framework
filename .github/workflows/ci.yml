@@ -49,9 +49,15 @@ jobs:
       # generated archive's checksum), and PyYAML (scripts/generate-adapters.py and the parity
       # tests import it) from a hash-checked wheel (.github/ci-requirements.txt) in a venv whose
       # bin/ goes first on PATH, so `python3` in the tests is that venv's.
-      - name: Install bats and PyYAML
+      # bubblewrap: runtime dependency for scripts/review/sandbox.sh (#160).
+      - name: Install bats, PyYAML and bubblewrap
         timeout-minutes: 3
         run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq bubblewrap >/dev/null
+          # bwrap needs unprivileged user namespaces; Ubuntu 24.04 AppArmor restricts them
+          if [ -f /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 >/dev/null
+          fi
           tools="$RUNNER_TEMP/tools"
           mkdir -p "$tools"
           bats_commit=3bca150ec86275d6d9d5a4fd7d48ab8b6c6f3d87  # bats-core tag v1.13.0
