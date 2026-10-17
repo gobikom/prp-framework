@@ -69,12 +69,13 @@ class SessionCost:
 def _validate_line(raw: str) -> tuple[dict | None, str | None]:
     """Validate a single jsonl line's shape. Returns (parsed, None) or (None, reason).
 
-    Accepted shape (from 49,179 real lines):
+    Every field read after this function is shape-checked here.
+    Accepted (from 49,179 real lines, 60 session files):
       - JSON object
+      - timestamp: absent or str (real: str 37,285; absent 17,877; 0 other)
       - message: absent, null, or object
       - usage (inside message): absent, null, or object
-      - token fields: absent or non-negative int (not bool)
-    Anything else is malformed.
+      - token fields (TOKEN_FIELDS): absent or non-bool int >= 0 (real: 0 nulls, 0 negatives)
     """
     try:
         d = json.loads(raw)
@@ -82,6 +83,10 @@ def _validate_line(raw: str) -> tuple[dict | None, str | None]:
         return None, "not valid JSON"
     if not isinstance(d, dict):
         return None, f"not an object (got {type(d).__name__})"
+    if "timestamp" in d:
+        ts = d["timestamp"]
+        if not isinstance(ts, str):
+            return None, f"timestamp is {type(ts).__name__}, expected str or absent"
     msg = d.get("message")
     if msg is not None and not isinstance(msg, dict):
         return None, f"message is {type(msg).__name__}, expected object or null"
@@ -93,9 +98,11 @@ def _validate_line(raw: str) -> tuple[dict | None, str | None]:
             for k in TOKEN_FIELDS:
                 v = usage.get(k)
                 if v is None:
-                    continue
+                    return None, f"usage.{k} is null, expected int or absent"
                 if isinstance(v, bool) or not isinstance(v, int):
                     return None, f"usage.{k} is {type(v).__name__}, expected int"
+                if v < 0:
+                    return None, f"usage.{k} is negative ({v})"
     return d, None
 
 

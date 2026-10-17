@@ -165,3 +165,27 @@ PY
 @test "review-cost.py: rejects token field as bool" {
   _assert_shape_rejected '{"type":"assistant","message":{"usage":{"input_tokens":true}}}' "token-bool"
 }
+
+@test "review-cost.py: rejects null token value" {
+  _assert_shape_rejected '{"type":"assistant","message":{"usage":{"input_tokens":null,"cache_read_input_tokens":0,"cache_creation_input_tokens":0,"output_tokens":0}}}' "null-token"
+}
+
+@test "review-cost.py: rejects negative token value" {
+  _assert_shape_rejected '{"type":"assistant","message":{"usage":{"input_tokens":-1,"cache_read_input_tokens":0,"cache_creation_input_tokens":0,"output_tokens":0}}}' "neg-token"
+}
+
+@test "review-cost.py: rejects timestamp as number" {
+  _assert_shape_rejected '{"type":"system","timestamp":12345}' "ts-number"
+}
+
+@test "review-cost.py: rejects timestamp as null" {
+  _assert_shape_rejected '{"type":"system","timestamp":null}' "ts-null"
+}
+
+@test "review-cost.py: rejects timestamp as list" {
+  _assert_shape_rejected '{"type":"system","timestamp":["2026"]}' "ts-list"
+}
+
+@test "review-cost.py: rejects timestamp as object" {
+  _assert_shape_rejected '{"type":"system","timestamp":{"v":"2026"}}' "ts-object"
+}
