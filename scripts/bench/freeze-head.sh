@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 # Compute frozen metadata for a corpus entry: patch digest and file count.
-# Read-only; needs a local clone with the head and base reachable.
-#
+# patch_digest = sha256 of `git diff BASE..HEAD` after command substitution (trailing newlines stripped), then printf '%s'.
 # Usage: freeze-head.sh REPO HEAD_SHA BASE_SHA
 # Output: YAML fragment (patch_digest, files_changed, additions, deletions)
 set -euo pipefail

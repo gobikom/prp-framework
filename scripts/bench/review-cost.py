@@ -122,12 +122,20 @@ def load_session_jsonl(main_jsonl: str) -> SessionCost:
     return SessionCost(path=main_jsonl, timestamp=ts, main=main_totals, subagents=subagents)
 
 
-def load_project_dir(project_dir: str) -> list[SessionCost]:
-    """Load all sessions from a Claude Code project directory."""
+def load_project_dir(project_dir: str) -> tuple[list[SessionCost], list[str]]:
+    """Load all sessions; return (successes, failed_paths)."""
     jsonl_files = sorted(glob.glob(os.path.join(project_dir, "*.jsonl")))
     if not jsonl_files:
         raise FileNotFoundError(f"no *.jsonl in {project_dir}")
-    return [load_session_jsonl(f) for f in jsonl_files]
+    sessions: list[SessionCost] = []
+    failed: list[str] = []
+    for f in jsonl_files:
+        try:
+            sessions.append(load_session_jsonl(f))
+        except (ValueError, OSError) as e:
+            print(f"error: {e}", file=sys.stderr)
+            failed.append(f)
+    return sessions, failed
 
 
 def _fmt(n: int) -> str:
@@ -190,18 +198,22 @@ def main() -> int:
     for p in args.paths:
         try:
             if os.path.isdir(p):
-                sessions.extend(load_project_dir(p))
+                good, failed = load_project_dir(p)
+                sessions.extend(good)
+                errors += len(failed)
             elif p.endswith(".jsonl") and os.path.isfile(p):
                 sessions.append(load_session_jsonl(p))
             else:
                 print(f"error: not a directory or .jsonl file: {p}", file=sys.stderr)
                 errors += 1
-        except (FileNotFoundError, ValueError) as e:
+        except (FileNotFoundError, ValueError, OSError) as e:
             print(f"error: {e}", file=sys.stderr)
             errors += 1
 
+    if not sessions and errors:
+        return 1
     if not sessions:
-        print("error: no sessions loaded", file=sys.stderr)
+        print("error: no sessions found", file=sys.stderr)
         return 1
 
     sessions.sort(key=lambda s: s.timestamp or s.path)

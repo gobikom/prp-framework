@@ -79,6 +79,84 @@ PY
   [[ "$stderr" == *"bad.jsonl"* ]]
 }
 
+@test "review-cost.py: good + bad session in same dir → good on stdout, bad on stderr, exit != 0" {
+  mkdir -p "$TEST_TMPDIR/project"
+  # "aaa-good" sorts before "zzz-bad"; test both sort orders
+  printf '{"type":"system","timestamp":"2026-01-01T12:00:00.000Z"}\n{"type":"assistant","message":{"usage":{"input_tokens":1,"cache_read_input_tokens":100,"cache_creation_input_tokens":0,"output_tokens":5}}}\n' > "$TEST_TMPDIR/project/aaa-good.jsonl"
+  printf 'not json\nbad line\n' > "$TEST_TMPDIR/project/zzz-bad.jsonl"
+  run --separate-stderr python3 -I "$REPO_ROOT/scripts/bench/review-cost.py" --json "$TEST_TMPDIR/project/"
+  [ "$status" -ne 0 ]
+  python3 -I -c "import json,sys; d=json.loads(sys.argv[1]); assert len(d)==1 and d[0]['output']==5" "$output"
+  [[ "$stderr" == *"zzz-bad.jsonl"* ]]
+}
+
+@test "review-cost.py: corrupt subagent fails session, sibling session reported" {
+  mkdir -p "$TEST_TMPDIR/project/bad-sess/subagents" "$TEST_TMPDIR/project"
+  printf '{"type":"system","timestamp":"2026-01-01T12:00:00.000Z"}\n{"type":"assistant","message":{"usage":{"input_tokens":1,"cache_read_input_tokens":100,"cache_creation_input_tokens":0,"output_tokens":7}}}\n' > "$TEST_TMPDIR/project/bad-sess.jsonl"
+  printf 'corrupt\n' > "$TEST_TMPDIR/project/bad-sess/subagents/agent-x.jsonl"
+  printf '{"type":"system","timestamp":"2026-01-01T13:00:00.000Z"}\n{"type":"assistant","message":{"usage":{"input_tokens":1,"cache_read_input_tokens":200,"cache_creation_input_tokens":0,"output_tokens":9}}}\n' > "$TEST_TMPDIR/project/ok-sess.jsonl"
+  run --separate-stderr python3 -I "$REPO_ROOT/scripts/bench/review-cost.py" --json "$TEST_TMPDIR/project/"
+  [ "$status" -ne 0 ]
+  python3 -I -c "import json,sys; d=json.loads(sys.argv[1]); assert len(d)==1 and d[0]['output']==9" "$output"
+  [[ "$stderr" == *"bad-sess"* ]]
+  [[ "$output" != *"bad-sess"* ]]
+}
+
+@test "review-cost.py: all-good dir → exit 0, no error on stderr" {
+  _make_session "$TEST_TMPDIR/project" "session-abc"
+  run --separate-stderr python3 -I "$REPO_ROOT/scripts/bench/review-cost.py" --json "$TEST_TMPDIR/project/"
+  [ "$status" -eq 0 ]
+  [[ "$stderr" != *"error"* ]]
+}
+
+# --- freeze-head.sh ---
+
+@test "freeze-head.sh: correct digest and stats" {
+  git init -q "$TEST_TMPDIR/repo"
+  git -C "$TEST_TMPDIR/repo" commit --allow-empty -m "base" -q
+  local base; base=$(git -C "$TEST_TMPDIR/repo" rev-parse HEAD)
+  printf 'hello\nworld\n' > "$TEST_TMPDIR/repo/file.txt"
+  git -C "$TEST_TMPDIR/repo" add file.txt
+  git -C "$TEST_TMPDIR/repo" commit -m "head" -q
+  local head; head=$(git -C "$TEST_TMPDIR/repo" rev-parse HEAD)
+  local expect_digest; expect_digest=$(printf '%s' "$(git -C "$TEST_TMPDIR/repo" diff "$base".."$head")" | sha256sum | cut -d' ' -f1)
+  run "$REPO_ROOT/scripts/bench/freeze-head.sh" "$TEST_TMPDIR/repo" "$head" "$base"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"$expect_digest"* ]]
+  [[ "$output" == *"files_changed: 1"* ]]
+  [[ "$output" == *"additions: 2"* ]]
+  [[ "$output" == *"deletions: 0"* ]]
+}
+
+@test "freeze-head.sh: deterministic (same output twice)" {
+  git init -q "$TEST_TMPDIR/repo"
+  git -C "$TEST_TMPDIR/repo" commit --allow-empty -m "base" -q
+  local base; base=$(git -C "$TEST_TMPDIR/repo" rev-parse HEAD)
+  echo "data" > "$TEST_TMPDIR/repo/f.txt"
+  git -C "$TEST_TMPDIR/repo" add f.txt
+  git -C "$TEST_TMPDIR/repo" commit -m "head" -q
+  local head; head=$(git -C "$TEST_TMPDIR/repo" rev-parse HEAD)
+  local out1; out1=$("$REPO_ROOT/scripts/bench/freeze-head.sh" "$TEST_TMPDIR/repo" "$head" "$base")
+  local out2; out2=$("$REPO_ROOT/scripts/bench/freeze-head.sh" "$TEST_TMPDIR/repo" "$head" "$base")
+  [ "$out1" = "$out2" ]
+}
+
+@test "freeze-head.sh: unreachable SHA → non-zero exit" {
+  git init -q "$TEST_TMPDIR/repo"
+  run "$REPO_ROOT/scripts/bench/freeze-head.sh" "$TEST_TMPDIR/repo" "$(printf 'a%.0s' {1..40})" "$(printf 'b%.0s' {1..40})"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"cannot resolve"* ]]
+}
+
+@test "freeze-head.sh: empty diff → non-zero exit" {
+  git init -q "$TEST_TMPDIR/repo"
+  git -C "$TEST_TMPDIR/repo" commit --allow-empty -m "only" -q
+  local sha; sha=$(git -C "$TEST_TMPDIR/repo" rev-parse HEAD)
+  run "$REPO_ROOT/scripts/bench/freeze-head.sh" "$TEST_TMPDIR/repo" "$sha" "$sha"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"empty diff"* ]]
+}
+
 @test "corpus.yaml: every entry has required fields" {
   python3 -I - "$REPO_ROOT/tests/bench/corpus.yaml" <<'PY'
 import sys, yaml
