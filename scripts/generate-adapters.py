@@ -35,17 +35,33 @@ CONFIG_PATH = ROOT_DIR / "adapters.yml"
 REQUIRED_CONFIG_KEYS = {"adapters", "commands"}
 REQUIRED_ADAPTER_KEYS = {"file_pattern", "format", "args_placeholder",
                          "tool_command_template", "artifact_suffix"}
-# Known-key validation (re-routed from prp-framework#156 as PR A, generator
-# correctness): a typo'd adapters.yml adapter key previously passed silently
-# and its value was dropped at substitution time — generating output from a
-# config the generator did not fully understand while exiting 0. Unknown keys
-# now fail generation with a clear error naming the key and listing the valid
-# ones. (The agent_blocking_* keys join this set in the stacked PR B; listing
-# them here would validate keys no stanza on main carries.)
+# Known-key validation (re-routed from prp-framework#156; PR A of the stack):
+# a typo'd adapters.yml adapter key previously passed silently and its value
+# was dropped at substitution time — generating output from a config the
+# generator did not fully understand while exiting 0. Unknown keys now fail
+# generation with a clear error naming the key and listing the valid ones.
 KNOWN_ADAPTER_KEYS = {"file_pattern", "format", "args_placeholder",
                       "tool_command_template", "artifact_suffix",
-                      "frontmatter", "group_dirs", "overlays", "wrapper"}
+                      "frontmatter", "group_dirs", "overlays", "wrapper",
+                      "agent_blocking_param", "agent_blocking_prose_claude"}
+# agent_blocking_prose_other is NOT an adapter-stanza key: it is a single
+# shared TOP-LEVEL value (round-2 re-plan). Its round-1 placement inside the
+# claude-code stanza was never read for the other five adapters — a stanza
+# placement now fails known-key validation.
 REQUIRED_COMMAND_KEYS = {"description"}
+
+# prp-framework#156 round-2 re-plan (PR B of the stack): generation-time
+# placeholders are a CLOSED registry in one reserved namespace. Every brace
+# token whose name starts with AGENT_ — underscore included, case-insensitive
+# — is a generation-time placeholder: regex {agent_[a-z0-9_]*} with re.I. The
+# prose token {agent} ("still waiting on {agent}") has no underscore, sits
+# OUTSIDE the namespace, and must keep generating unchanged. Runtime
+# placeholders ({NUMBER}, {N}, {CONTEXT_PATH}, …) never use the prefix and
+# are unaffected. A namespace token that is not registered (checked BEFORE
+# substitution, in the prompt) or any namespace token left in the output
+# (checked AFTER substitution) is a hard error naming the token and the file.
+GEN_PLACEHOLDERS = {"AGENT_BLOCKING_PARAM", "AGENT_BLOCKING_PROSE"}
+NAMESPACE_RE = re.compile(r"\{agent_[a-z0-9_]*\}", re.IGNORECASE)
 
 
 class GenerationError(Exception):
@@ -304,8 +320,22 @@ def read_overlay(adapter: str, name: str) -> dict | None:
 # Placeholder substitution
 # ---------------------------------------------------------------------------
 
-def substitute_placeholders(content: str, adapter_cfg: dict, cmd_name: str) -> str:
+def substitute_placeholders(content: str, adapter_cfg: dict, cmd_name: str,
+                            config: dict) -> str:
     """Replace {ARGS} and {TOOL}:cmd patterns with adapter-specific values."""
+
+    # BEFORE substitution: every reserved-namespace token in the prompt must be
+    # registered in GEN_PLACEHOLDERS. A suffix typo ({AGENT_BLOCKING_PARAMM}),
+    # a case variant ({agent_blocking_param}) or an unknown name ({AGENT_FOO})
+    # all die here, with the token and the prompt file named.
+    prompt_file = f"prompts/{cmd_name}.md"
+    for m in NAMESPACE_RE.finditer(content):
+        name = m.group(0)[1:-1]
+        if name not in GEN_PLACEHOLDERS:
+            raise GenerationError(
+                f"error: unknown generation placeholder '{m.group(0)}' in "
+                f"{prompt_file} — registered placeholders: "
+                f"{sorted(GEN_PLACEHOLDERS)}")
 
     args_placeholder = adapter_cfg["args_placeholder"]
     tool_template = adapter_cfg["tool_command_template"]
@@ -324,6 +354,35 @@ def substitute_placeholders(content: str, adapter_cfg: dict, cmd_name: str) -> s
 
     # Replace standalone {TOOL} in artifact paths (e.g., -review-{TOOL}.md)
     content = content.replace("{TOOL}", artifact_suffix)
+
+    # {AGENT_BLOCKING_PARAM} → adapter-specific blocking parameter line, or ""
+    # for runtimes whose Agent tool has no such parameter (they must not
+    # receive a Claude-Code-only kwarg their tool would reject; absence of the
+    # key IS the per-runtime mapping — only claude-code sets it).
+    # prp-framework#151 AC1: claude-code maps it to run_in_background=false.
+    blocking_param = adapter_cfg.get("agent_blocking_param")
+    content = content.replace("{AGENT_BLOCKING_PARAM}", blocking_param or "")
+
+    # {AGENT_BLOCKING_PROSE} → the scoped claim for the adapter that carries
+    # the parameter, the shared neutral sentence for every other runtime —
+    # keeps the "Blocking wait" bullet TRUE in every adapter.
+    # prp-framework#156 round-2 re-plan: BOTH values come from adapters.yml and
+    # the generator holds no prose text — the claim from the adapter stanza,
+    # the neutral sentence from ONE top-level key shared by all runtimes
+    # without the parameter. A missing value is an error naming the key.
+    if "{AGENT_BLOCKING_PROSE}" in content:
+        if blocking_param:
+            prose_key = "agent_blocking_prose_claude"
+            prose = adapter_cfg.get(prose_key)
+        else:
+            prose_key = "agent_blocking_prose_other"
+            prose = config.get(prose_key)
+        if not prose:
+            raise GenerationError(
+                f"error: adapters.yml key '{prose_key}' is missing or empty — "
+                f"required to substitute {{AGENT_BLOCKING_PROSE}} for "
+                f"'{cmd_name}'")
+        content = content.replace("{AGENT_BLOCKING_PROSE}", prose)
 
     return content
 
@@ -515,11 +574,19 @@ def validate_generated(rel_path: str, content: str) -> None:
     GenerationError naming the file and the reason:
       (a) the command body, after frontmatter or TOML header, is non-empty
           after strip;
-      (b) the description field, where the format has one, is non-empty.
-    (Check (c) — no reserved {agent_*} namespace token left in the output —
-    joins in the stacked PR B, which introduces that namespace.)
+      (b) the description field, where the format has one, is non-empty;
+      (c) no {agent_*} namespace token remains (PR B of the #156 stack: the
+      reserved generation-time placeholder namespace).
     """
     where = f"generated output {rel_path}"
+
+    # (c) first — a namespace token anywhere is a substitution bug.
+    left = NAMESPACE_RE.search(content)
+    if left:
+        raise GenerationError(
+            f"error: reserved placeholder '{left.group(0)}' left in "
+            f"{where} — check adapters.yml agent_blocking_* values for "
+            f"self-referential placeholders")
 
     fmt_md = not rel_path.endswith(".toml")
 
@@ -589,7 +656,7 @@ def generate_adapter_file(adapter_name: str, cmd_name: str, config: dict) -> tup
         body = read_prompt(cmd_name)
 
     # Apply placeholder substitutions
-    body = substitute_placeholders(body, adapter_cfg, cmd_name)
+    body = substitute_placeholders(body, adapter_cfg, cmd_name, config)
 
     # Get description
     desc = get_description(adapter_name, cmd_cfg)
@@ -623,6 +690,16 @@ def generate_adapter_file(adapter_name: str, cmd_name: str, config: dict) -> tup
         # Ensure trailing newline
         if not content.endswith("\n"):
             content += "\n"
+
+    # AFTER substitution: no reserved-namespace token may survive into the
+    # generated output — checked on the FINAL content (overlays and wrappers
+    # included), so nothing can smuggle a namespace token out.
+    left = NAMESPACE_RE.search(content)
+    if left:
+        raise GenerationError(
+            f"error: reserved placeholder '{left.group(0)}' left in generated "
+            f"output for {adapter_name}/{rel_path} — check adapters.yml "
+            f"agent_blocking_* values for self-referential placeholders")
 
     return rel_path, content
 

@@ -319,9 +319,14 @@ reviewer. Every rule below follows from that.
   the session waits. It does not write status lines, does not collect partial results, does
   not respond to per-agent completion notifications with separate turns, and does not poll.
   Collection (Phase 3) starts only after ALL agents of the round have returned.
-- **Blocking wait is the mechanism, not a suggestion.** With the Agent tool, the parallel
-  calls in one message already block until all results return — keep it that way. When the
-  runtime can only launch reviewers as background shells (one completion notification per
+- **Blocking wait comes from `run_in_background=false` on every Agent call, not from
+  putting the calls in one message.** On Claude Code 2.1.302 an Agent call runs in the
+  background unless `run_in_background: false` is passed; each finished agent then arrives
+  as its own task-notification turn, so the caller wakes once per agent (measured on
+  SO#1358: 3 wakes in one round, 7 in another).{AGENT_BLOCKING_PROSE}
+  Dispatching all calls in one message is still required (it is what makes the
+  round a single turn), but it is not what makes them block. When
+  the runtime can only launch reviewers as background shells (one completion notification per
   shell), the wake cost moves to the caller; in that case, launch all shells, then wait for
   ALL of them as ONE blocking unit in the SAME turn, and do not report between waits — the
   single completion wake carries every result. A `wait` over several pids at once returns
@@ -545,7 +550,7 @@ Spawn these 3 agents simultaneously in a **SINGLE message with multiple Agent to
 **Agent 1 — Code Quality**:
 ```
 Agent(
-  subagent_type="code-reviewer",
+{AGENT_BLOCKING_PARAM}  subagent_type="code-reviewer",
   description="Review PR #{NUMBER} code quality",
   prompt="Review PR #{NUMBER} for project guideline compliance, bugs, and quality issues.
 
@@ -589,7 +594,7 @@ If no recurring patterns detected, state: 'No recurring patterns detected — sw
 **Agent 2 — Security**:
 ```
 Agent(
-  subagent_type="security-reviewer",
+{AGENT_BLOCKING_PARAM}  subagent_type="security-reviewer",
   description="Review PR #{NUMBER} security",
   prompt="Review PR #{NUMBER} for security vulnerabilities.
 
@@ -625,7 +630,7 @@ Use severity levels: Critical, High, Medium, Low"
 **Agent 3 — Error Handling**:
 ```
 Agent(
-  subagent_type="silent-failure-hunter",
+{AGENT_BLOCKING_PARAM}  subagent_type="silent-failure-hunter",
   description="Hunt silent failures PR #{NUMBER}",
   prompt="Hunt for silent failures and inadequate error handling in PR #{NUMBER}.
 
@@ -677,7 +682,7 @@ After determining which conditional agents are needed (from Aspect Selection Log
 **If dependency files changed** — `dependency-analyzer`:
 ```
 Agent(
-  subagent_type="dependency-analyzer",
+{AGENT_BLOCKING_PARAM}  subagent_type="dependency-analyzer",
   description="Analyze dependencies PR #{NUMBER}",
   prompt="Analyze dependencies in PR #{NUMBER} for security and health.
 
@@ -704,7 +709,7 @@ Use severity levels: Critical, High, Medium, Low"
 **If UI/frontend files changed** — `accessibility-reviewer`:
 ```
 Agent(
-  subagent_type="accessibility-reviewer",
+{AGENT_BLOCKING_PARAM}  subagent_type="accessibility-reviewer",
   description="Review accessibility PR #{NUMBER}",
   prompt="Review UI code in PR #{NUMBER} for WCAG 2.1 compliance.
 
@@ -733,7 +738,7 @@ Use severity levels: Critical, High, Medium, Low"
 **If performance-sensitive patterns detected** — `performance-analyzer`:
 ```
 Agent(
-  subagent_type="performance-analyzer",
+{AGENT_BLOCKING_PARAM}  subagent_type="performance-analyzer",
   description="Analyze performance PR #{NUMBER}",
   prompt="Analyze PR #{NUMBER} for performance issues.
 
@@ -762,7 +767,7 @@ Use severity levels: Critical, High, Medium, Low"
 **If types added/modified** — `type-design-analyzer`:
 ```
 Agent(
-  subagent_type="type-design-analyzer",
+{AGENT_BLOCKING_PARAM}  subagent_type="type-design-analyzer",
   description="Analyze type design PR #{NUMBER}",
   prompt="Analyze type design in PR #{NUMBER}.
 
@@ -794,7 +799,7 @@ Use severity levels: Critical, High, Medium, Low"
 **If production code changed (not test/config-only)** — `docs-impact-agent`:
 ```
 Agent(
-  subagent_type="docs-impact-agent",
+{AGENT_BLOCKING_PARAM}  subagent_type="docs-impact-agent",
   description="Review docs impact PR #{NUMBER}",
   prompt="Review PR #{NUMBER} and update any documentation affected by code changes.
 
@@ -826,7 +831,7 @@ Use severity levels: Critical, High, Medium, Low"
 **If comments/docstrings added or changed** — `comment-analyzer`:
 ```
 Agent(
-  subagent_type="comment-analyzer",
+{AGENT_BLOCKING_PARAM}  subagent_type="comment-analyzer",
   description="Analyze comments PR #{NUMBER}",
   prompt="Analyze code comments in PR #{NUMBER} for accuracy, completeness, and long-term value.
 
@@ -851,7 +856,7 @@ Use severity levels: Critical, High, Medium, Low"
 **If test files or tested code changed** — `pr-test-analyzer`:
 ```
 Agent(
-  subagent_type="pr-test-analyzer",
+{AGENT_BLOCKING_PARAM}  subagent_type="pr-test-analyzer",
   description="Analyze test coverage PR #{NUMBER}",
   prompt="Analyze test coverage for PR #{NUMBER}.
 
