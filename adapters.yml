@@ -16,11 +16,12 @@ adapters:
     # runs Agent calls in the background without it — one wake per reviewer,
     # not one wake per round; prp-framework#151 AC1)
     agent_blocking_param: "  run_in_background=false,\n"
-    # {AGENT_BLOCKING_PROSE} → the scoped claim (claude-code) or the neutral
-    # scoping sentence (every other runtime) — keeps the "Blocking wait"
-    # bullet TRUE in every adapter (prp-framework#151 AC1, round-1 fix)
+    # {AGENT_BLOCKING_PROSE} for the adapter that carries the parameter: the
+    # scoped claim. The neutral sentence for every other runtime is the shared
+    # top-level agent_blocking_prose_other key (round-2 re-plan: this stanza
+    # key is claude-code-only; a stanza prose_other now fails known-key
+    # validation, and neither value has a Python fallback).
     agent_blocking_prose_claude: " Every Agent dispatch in this command —\n  the 3 core and all 7 conditional blocks — therefore passes\n  `run_in_background=false`, which makes each result return as a\n  tool_result of the dispatching message: one wake per round."
-    agent_blocking_prose_other: " In the Claude Code adapter every Agent\n  dispatch passes `run_in_background=false` (see the dispatch blocks);\n  other runtimes' adapters carry no such parameter, and on those runtimes\n  the one-message dispatch plus the background-shell rule below applies."
     frontmatter:
       fields: [description, argument-hint]
     wrapper: xml  # Wrap content in <objective>, <context>, <process> tags
@@ -80,6 +81,12 @@ adapters:
 
 # Per-command metadata
 # Used for frontmatter generation across adapters
+# {AGENT_BLOCKING_PROSE} for every runtime WITHOUT the blocking parameter —
+# one shared neutral sentence, read by the generator from this top-level key
+# (round-2 re-plan: the round-1 stanza placement was never read for the other
+# five adapters; a missing or empty value is a generation error naming this key).
+agent_blocking_prose_other: " In the Claude Code adapter every Agent\n  dispatch passes `run_in_background=false` (see the dispatch blocks);\n  other runtimes' adapters carry no such parameter, and on those runtimes\n  the one-message dispatch plus the background-shell rule below applies."
+
 commands:
   prd:
     description:

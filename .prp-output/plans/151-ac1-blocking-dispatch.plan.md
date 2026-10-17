@@ -44,3 +44,22 @@ A diagnostic in session `19263eef` dispatched 3 Agent calls in one message with 
 - `bats tests/commands/review-rounds.bats tests/adapters/parity.bats` and the rest of the repo's documented test suite: all green.
 - `git diff --name-only origin/main` lists only the prompt/overlay, the regenerated adapters, the test, the CHANGELOG, the version file, and this plan.
 - Size: well under 800 lines.
+
+## Re-plan after round 2 (same finding family twice: generator placeholder validation)
+
+R1 Critical #3 and R2 Critical #1 are both "a misspelled generation-time placeholder ships silently". Patching single strings did not close it. Fix the design.
+
+**Invariant:** generation-time placeholders are a CLOSED, registered set in one reserved namespace. Every brace token whose name starts with `AGENT_`, underscore included (case-insensitive, regex `\{agent_[a-z0-9_]*\}` with re.I), is a generation-time placeholder. The existing prose token `{agent}` ("still waiting on {agent}", prompts/review-agents.md:340) has no underscore, so it is outside the namespace and must keep generating unchanged. Add a test arm for it. The generator (a) rejects any such token in a prompt that is not in its registry (`GEN_PLACEHOLDERS = {"AGENT_BLOCKING_PARAM", "AGENT_BLOCKING_PROSE"}`), and (b) rejects any such token left in generated output. Runtime placeholders (`{NUMBER}`, `{N}`, `{CONTEXT_PATH}` …) never use that prefix, and nothing about them changes. Every value a registered placeholder takes comes from adapters.yml. The generator holds no fallback text, and a missing value is an error.
+
+**Verified by:** tests/scripts/generate-adapters.bats, which runs against a temp copy and never the real tree. One test per boundary arm:
+
+| Arm | Input | Expected |
+|---|---|---|
+| correct | today's tree | exit 0; claude-code has 10/10 params plus the claim; the other 5 have 0 params and the neutral sentence |
+| suffix typo | `{AGENT_BLOCKING_PARAMM}` in prompt | exit 1, error names the token and the file |
+| case variant | `{agent_blocking_param}` / `{Agent_Blocking_Param}` | exit 1 |
+| unknown name in namespace | `{AGENT_FOO}` | exit 1 |
+| prefix typo | `{AGNT_BLOCKING_PARAM}` (outside the namespace) | generator exit 0 by design; the review-rounds.bats count test FAILS (dispatches 10 vs params 0). Show this. |
+| prose prefix typo | `{AGNT_BLOCKING_PROSE}` | a positive test fails: claude-code must contain the scoped claim, and no adapter output may contain a brace token containing `BLOCKING` |
+| missing config value | remove the claim or the neutral prose key from adapters.yml | exit 1, error names the key |
+| canary | change the neutral prose value in adapters.yml | the canary appears in all 5 non-claude adapters (proves the value is read; the R2 Important) |

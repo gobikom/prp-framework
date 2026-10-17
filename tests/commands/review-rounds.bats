@@ -194,7 +194,9 @@ all_pos() { # <ERE>
       fi
     else
       # no claim -> the scoped neutral sentence must carry the scoping instead
-      pos "$ROOT/$f" 'In the Claude Code adapter every Agent dispatch passes' || return 1
+      # (matched by its stable first line: the value lives in adapters.yml and
+      # its line wrapping may change without changing the scoping itself)
+      pos "$ROOT/$f" 'In the Claude Code adapter every Agent' || return 1
     fi
   done
   # the source placeholders match the dispatch set: one {AGENT_BLOCKING_PARAM}
