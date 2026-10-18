@@ -600,7 +600,7 @@ The sweep failures have now come up in R1 (path navigation), R2 (copied table), 
 - **Pinned schema:** unchanged (sha256 1250e78a…); the table content is unchanged.
 - **Verified by:** sweeps (a)–(c) in bats with derived counts; mutation tests (d) all killed; the reproduction above (array + `pattern`) is mutant 1 and must fail.
 
-## Revision 10 proposal: phase order and v1 scope after the round data (2026-10-18, PENDING devlead-codex peer review)
+## Revision 10 proposal: phase order and v1 scope after the round data (2026-10-18; round 11 REVISE, 4 findings applied; PENDING round 12)
 
 **Input:** brief 20261018-1530-7c1e, relayed from pane -3 (นุด: "ทำ1 ก่อนครับ ถ้าได้ข้อมูลครบแล้วค่อยเริ่ม 2,3"). Data: Oracle `learning_2026-10-18_measurement-where-review-rounds-go-52-prs-merg`; scripts and `rounds.tsv` (175 lines) in `~/tmp/review-rounds-analysis-20261018/`. 52 PRs merged 2026-10-11..18, 310 rounds, median 5:
 
@@ -617,18 +617,31 @@ Stop-rule changes are นุด's decision (pane -3) and are not part of this re
 
 ### R10-1: Phase 6 (confirm) moves to right after Phase 2. Accepted, with two conditions.
 - **Order:** 0 → 1 → 1.5 → 2 → **6** → 3 → 4 → 5 → 7. Benchmarks (a)/(b)/(c), the adoption rule ("a missed fault class blocks adoption; cost alone never justifies it") and "no confirm in the gate tier" are unchanged.
-- **Condition 1: the gate-tier rule needs a gate tier.** `pr-risk-tier` today prints only `trivial` or `standard` (`~/ops/bin/pr-risk-tier --help`, 2026-10-18). The `gate` classification and its precedence (`gate` > `standard`, with a pair test) move from Phase 5 into Phase 6. Until it ships, confirm is ineligible on every PR (fail closed). The docs tier and conditional passes stay in Phase 5.
-- **Condition 2: the confirm pass set comes from the data, not from the old design.** The carried design runs only a code pass with a "Critical/Important only" brief. But 27 of 47 late C/I came from silent-failure-hunter and only 12 from code-reviewer. So a code-only confirm would likely miss the largest late class, and benchmark (b) would then block adoption anyway.
-  - Benchmark (b) is extended with a real corpus: the 28 same-head dirty rounds above, frozen as heads and labelled by source pass.
-  - The confirm pass set is the smallest set that detects every labelled class in (b). It starts from code + silent-failure-hunter, both with C/I-only briefs.
-  - If that set breaks the "confirm ≤ 25% of a full round" target, the target is reported as missed. It is never met by dropping a pass.
-- **Not claimed:** the data does not say whether the 36% same-head findings are real defects or run-to-run variance. Benchmark (b) measures detection on labelled heads; it does not settle that question.
+- **Condition 1: the gate-tier rule needs a pinned gate tier** (revised after round 11).
+  - `pr-risk-tier` today prints only `trivial` or `standard` (`~/ops/bin/pr-risk-tier --help`, 2026-10-18).
+  - The `gate` classification moves from Phase 5 into Phase 6. It is pinned in the ruleset (version and digest, fail closed on a mismatch, as in Phase 1.5) and has precedence `gate` > `standard`.
+  - Its tests move with it: the pair-precedence tests, and a gate-path fixture per gate-integrity class in merger.yaml.
+  - Until this ships, confirm is ineligible on every PR (fail closed). The docs tier stays in Phase 5.
+- **Condition 2: confirm keeps the conditional and probe eligibility rules** (round 11). A confirm round never stands in for a round whose required set includes a conditional or probe pass that the confirm set does not run. The required set is recomputed from the path map at the head. Such a PR gets a full second round.
+- **Condition 3: predecessor format** (round 11). Confirm's `prev_run` must be a clean CLI fmt=2 run at the same head. A legacy fmt=1 predecessor makes it ineligible (fail closed). Tests cover both: an fmt=2 predecessor is eligible, and an fmt=1 predecessor is refused.
+- **Condition 4: the confirm pass set comes from validated defects, not heading counts** (round 11).
+  - **Correction to the input data:** 27/12/8 are summed `### Critical/Important (N found)` heading counts, not distinct defects. The 28 same-head dirty rounds are not 28 distinct heads.
+  - **Before any pass is selected,** the benchmark (b) corpus is built in four steps:
+    1. deduplicate the rounds to distinct heads;
+    2. split each finding into a distinct defect (file, region, defect);
+    3. validate each defect against its head as real or not real, recording the reason;
+    4. label each defect by source pass.
+  - **Coverage required:** silent-failure-hunter, code-reviewer AND security-reviewer classes.
+  - **Pass set:** the smallest set that detects every validated class, starting from code + silent-failure-hunter. A security class it misses adds security-reviewer.
+  - **Cost:** if the set breaks "confirm ≤ 25% of a full round", the target is reported as missed. It is never met by dropping a pass.
+  - **Adoption** waits for the full corpus, including probe-sourced labels (R10-3).
+- **Not claimed:** validation (step 3) is what decides how many of the same-head findings are real. The headline 36% does not.
 
-### R10-2: "Phase 2-lite" (the CLI posts fmt=1 before Phase 1.5). Psak recommends rejecting it; devlead-codex decides.
+### R10-2: "Phase 2-lite" (the CLI posts fmt=1 before Phase 1.5). REJECTED (devlead-codex, round 11).
 - **It breaks a stated invariant:** "The CLI never emits fmt=1. A test asserts it" (Phase 1.5, round-7 finding 3). That invariant is how the gates tell a CLI round from a legacy round.
 - **Not the same gap as today.** The R6-4 gap (conditional completeness not enforced) exists in legacy rounds today, but it ends at cutover for a known, bounded set of commands. Phase 2-lite adds a second, indistinguishable producer of fmt=1 rounds. Removing it later needs a new invariant.
 - **The saving is small and temporary.** It lands only on Claude Code rounds between Phase 2-lite and Phase 1.5, which is one stacked PR's worth of time.
-- **Recommendation:** keep the order 1.5 → 2.
+- **Decision:** rejected in round 11 (it also breaks the R6-4 closure). The order stays 1.5 → 2.
 
 ### R10-3: v1 scope (the first PRs before a payoff).
 - **fmt=2 dual mode stays in v1.** The CLI posts only fmt=2, so without gate acceptance of fmt=2 it cannot post at all. Deferring dual mode would amount to R10-2.
@@ -636,12 +649,32 @@ Stop-rule changes are นุด's decision (pane -3) and are not part of this re
   - From Phase 2 to the probe PR, the CLI exits non-zero with "review unavailable: probe required (<reason>); run the legacy review" in two cases: when the path map requires a probe (Phase 1 (a)), and when any pass emits `probe_requests` (Phase 1 (b)).
   - Such a PR is reviewed by the legacy flow, which still runs on every harness until Phase 3.
   - Nothing is silently skipped. A bats test asserts both exits, and AC0.4 counts these runs as class (c).
-  - Phase 3's cutover condition gains: "the probe child sandbox has shipped and passes conformance (e)".
-- **Effect:** v1 is Phase 1 without the probe child, then Phase 1.5, then Phase 2. That is one stacked PR fewer before the first CLI round posts.
+  - **Phase 1 ACs are split** (round 11: deferring the child contradicted AC1.1/AC1.2 as written):
+    - **v1:** AC1.1 = sandbox and conformance (a)–(d) without the probe variant. AC1.2 = zero observed regressions on the corpus EXCLUDING probe-sourced labels.
+    - **AC1.1p / AC1.2p, in the probe-child PR:** the probe variant of conformance, including (e); zero regressions on the probe-sourced labels.
+    - **AC1.5, new in v1:** in replay, every probe-sourced corpus head triggers the unavailable exit, through the path map or `probe_requests`. A probe-label head that does not trigger it fails AC1.5. This keeps every probe-needing PR legacy-only until the child ships.
+  - **Harness approval in v1 is restricted:** the ruleset records "approved for non-probe reviews", not unrestricted approval (AC1.4). Unrestricted approval needs AC1.1p/AC1.2p.
+  - **Phase 3 cutover and confirm adoption wait for the full corpus**, including probe labels. Cutover also requires: "the probe child sandbox has shipped and passes conformance (e)".
+- **Effect:** v1 is Phase 1 without the probe child, then Phase 1.5, then Phase 2, with probe-needing PRs routed to the legacy review.
 
-### R10-4: Phase 0 AC0.4 is built on `rounds52.py`. Accepted.
-- `scripts/bench/review-rounds.py` is a reviewed port of `~/tmp/review-rounds-analysis-20261018/rounds52.py`, using the same read-only rules as AC0.3. It is a port, not a copy: tests and boundary cases come from AC0.4.
-- **AC0.4 item 2 gains the four buckets above** (minimum / fix loop / re-roll / post-clean head change) and the same-head-dirty-after-clean rate. They are re-measured after cutover, and again after Phase 6.
+### R10-4: Phase 0 AC0.4 is a hardened port of `rounds52.py` (revised after round 11).
+- `scripts/bench/review-rounds.py` is a reviewed port of `~/tmp/review-rounds-analysis-20261018/rounds52.py`, using the same read-only rules as AC0.3.
+- **The port fixes three fail-open behaviours** of the script, measured 2026-10-18:
+  - **A failed fetch:** today `comments()` returns `[]` on a `gh api` failure, so the PR silently has no rounds. In the port, the PR is `unknown` and the report exits non-zero.
+  - **An incomplete run:** today a run is clean when its parsed headings sum to 0, without checking that all three core passes posted. In the port, a run with fewer than the required passes, or an unparsed heading, is `incomplete` and never clean.
+  - **The post-clean head change** is attributed only from verified data:
+    - merger-bot's formal review state from the `pulls/<N>/reviews` API, bound to `commit_id`;
+    - the head SHA from each comment's `Reviewed head:` line.
+    An unattributable head change is `unknown`, never a merger bucket.
+- **AC0.4 item 2 gains the four buckets** (minimum / fix loop / re-roll / post-clean head change), plus `incomplete` and `unknown`.
+  - The buckets are mutually exclusive, with one fixture per bucket and a fixture that would fit two buckets.
+  - The total reconciles to the run count: 310 for the 2026-10-11..18 set. Any difference is listed per PR, never absorbed.
+- **Re-measurement:** the same report runs after cutover, and again after Phase 6, together with the same-head-dirty-after-clean rate.
 
-**Invariant (unchanged):** a review round's evidence is either a legacy fmt=1 round or a CLI fmt=2 round, and the gates can always tell which. Confirm is accepted only on its eligibility path, never in the gate tier, and never before the gate tier exists.
-**Verified by:** the Phase 1.5 fmt tests (the CLI never emits fmt=1); the new Phase 6 tests (confirm ineligible with no gate tier; `gate` > `standard` pair test); the probe-unavailable bats test (two exits); benchmark (b) on the 28-head corpus.
+**Invariant (unchanged):** a review round's evidence is either a legacy fmt=1 round or a CLI fmt=2 round, and the gates can always tell which. Confirm is accepted only on its eligibility path: never in the gate tier, never before the pinned gate tier exists, never in place of a required conditional or probe pass it does not run, and never after a fmt=1 predecessor. Until the probe child ships, a probe-needing PR is reviewed only by the legacy flow.
+**Verified by:**
+- the Phase 1.5 fmt tests (the CLI never emits fmt=1);
+- the Phase 6 tests: confirm is ineligible with no pinned gate tier; the `gate` > `standard` pair tests; conditional/probe ineligibility; fmt=1 versus fmt=2 predecessor;
+- the probe-unavailable bats test (two exits) and AC1.5 (every probe-label head triggers it);
+- benchmark (b) on the deduplicated, validated corpus;
+- the AC0.4 fixtures (exclusive buckets, unknown/incomplete) and the 310 reconciliation.
