@@ -221,7 +221,23 @@ _valid_entry='  - id: "test-1"
         source_pass: ["code-reviewer"]
         comment_url: "https://example.com"'
 
-_run_checker() { run python3 -I "$CHECK" "$TEST_TMPDIR/corpus.yaml"; }
+_run_checker() {
+  run python3 -I "$CHECK" "$TEST_TMPDIR/corpus.yaml"
+  [[ "$output" != *"Traceback"* ]]
+}
+
+_valid_entry2='  - id: "test-2"
+    pr: 2
+    head: "dddddddddddddddddddddddddddddddddddddddd"
+    base: "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+    patch_digest: "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+    permalink: "https://example.com"
+    kind: "negative"
+    tier: "trivial"
+    files_changed: 1
+    additions: 0
+    deletions: 0
+    labels: []'
 
 @test "corpus: C6 real corpus.yaml passes checker" {
   run python3 -I "$CHECK" "$REPO_ROOT/tests/bench/corpus.yaml"
@@ -269,4 +285,107 @@ PY
   _run_checker
   [ "$status" -ne 0 ]
   [[ "$output" == *"not in"* ]]
+}
+
+@test "corpus: D1 duplicate ids → error" {
+  printf 'entries:\n%s\n%s\n' "$_valid_entry" "${_valid_entry}" > "$TEST_TMPDIR/corpus.yaml"
+  _run_checker
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"duplicate"* ]]
+}
+
+@test "corpus: D2 entry missing labels key → error names id" {
+  cat > "$TEST_TMPDIR/corpus.yaml" <<'CYAML'
+entries:
+  - id: "no-labels"
+    pr: 1
+    head: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    base: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    patch_digest: "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    permalink: "https://example.com"
+    kind: "positive"
+    tier: "standard"
+    files_changed: 1
+    additions: 1
+    deletions: 0
+CYAML
+  _run_checker
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"no-labels"* ]]
+}
+
+@test "corpus: D3 labels is a string → error" {
+  cat > "$TEST_TMPDIR/corpus.yaml" <<'CYAML'
+entries:
+  - id: "str-labels"
+    pr: 1
+    head: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    base: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    patch_digest: "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    permalink: "https://example.com"
+    kind: "positive"
+    tier: "standard"
+    files_changed: 1
+    additions: 1
+    deletions: 0
+    labels: "not-a-list"
+CYAML
+  _run_checker
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"labels must be a list"* ]]
+}
+
+@test "corpus: D4 labels contains an int → error" {
+  cat > "$TEST_TMPDIR/corpus.yaml" <<'CYAML'
+entries:
+  - id: "int-label"
+    pr: 1
+    head: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    base: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    patch_digest: "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    permalink: "https://example.com"
+    kind: "positive"
+    tier: "standard"
+    files_changed: 1
+    additions: 1
+    deletions: 0
+    labels: [1, 2]
+CYAML
+  _run_checker
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"expected a mapping"* ]]
+}
+
+@test "corpus: D5 duplicate ids AND missing labels → both reported" {
+  cat > "$TEST_TMPDIR/corpus.yaml" <<CYAML
+entries:
+$_valid_entry
+  - id: "test-1"
+    pr: 2
+    head: "dddddddddddddddddddddddddddddddddddddddd"
+    base: "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+    patch_digest: "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+    permalink: "https://example.com"
+    kind: "positive"
+    tier: "standard"
+    files_changed: 1
+    additions: 1
+    deletions: 0
+CYAML
+  _run_checker
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"duplicate"* ]]
+  [[ "$output" == *"missing"* ]] || [[ "$output" == *"test-1"* ]]
+}
+
+@test "corpus: D6 top-level is a list → clean error" {
+  printf '%s\n%s\n' "- item1" "- item2" > "$TEST_TMPDIR/corpus.yaml"
+  _run_checker
+  [ "$status" -ne 0 ]
+}
+
+@test "corpus: D7 invalid YAML → clean error" {
+  printf '%s\n%s\n' "{{{" "invalid: [yaml" > "$TEST_TMPDIR/corpus.yaml"
+  _run_checker
+  [ "$status" -ne 0 ]
 }
