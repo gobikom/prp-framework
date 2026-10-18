@@ -59,13 +59,18 @@ Schema sampled: `schemas/review-findings.schema.json` @ 0aac4e1. `family` is OPT
    - IDs come from a new helper, `scripts/review/prior-findings.py`. It takes the previous round's pass comment bodies (fetched by Step B with `gh api --paginate`, the latest complete run before this one, same pass), extracts their `review-findings` JSON and prints `id12 file start end severity family` for critical/important findings. The ID is `sha256("pass|file|start|end|family|summary")[:12]`, matching SO#1367 R2-2.
    - No family → the helper prints `-` for the ID and the line becomes `- - open …`, so Rule C stays void.
    - The helper is read-only, uses stdlib only and runs with `python3 -I`.
-4. **Step C adds these checks**, and nothing posts unless all pass:
+4. **Step C adds these checks** through one helper, `scripts/review/check-l2-body.py <body> <head> <pass>`, run as `python3 -I "$PRP_DIR/scripts/review/check-l2-body.py"`. It is the installed framework's copy and is called once per pass after the existing checks. It exits 0 for valid, 1 for invalid (reasons on stderr) and 3 for usage/IO, and nothing posts unless every pass gets exit 0. The run file gains `START_URL` (5 keys) and Step C refuses a run file without it. The helper checks:
    - exactly one `### Prior findings` heading;
    - exactly one ```` ```review-findings ```` fence, holding exactly one line;
    - `validate-findings.py` exits 0 on it, using the installed framework's copy (`$PRP_DIR/scripts/review/validate-findings.py`, never the PR's);
    - `reviewed_head` = the run file's head, `pass` = PASS, `complete` = true;
    - the count of `severity=="critical"` = the Critical heading N, and the same for important;
-   - every Prior-findings item line matches `^- ([0-9a-f]{12}|-) (resolved [^ ]+:[0-9]+-[0-9]+|open) regression_test: ([^ ]+::[^ ].*|none)$`.
+   - every Prior-findings item line matches `^- ([0-9a-f]{12}|-) (resolved|open) [^ ]+:[0-9]+-[0-9]+ regression_test: ([^ ]+::.+|none)$`, and an `open` item has `regression_test: none`. Otherwise the section is exactly `None.` or one `Not recorded: …` line;
+   - order: `### Could not verify` < `### Prior findings` < the fence < the footer, with only blank lines between the fence and the footer;
+   - every critical/important finding has `family`.
+
+   Draft helpers (not wired, untested) are on branch `feat/178-pr-c0-wip` @ ef4a6b7: `check-l2-body.py`, `prior-findings.py` (input: a TSV `created_at\tbase64(body)` from `gh api --paginate .../issues/N/comments`), and `178-wip-step-a-draft.md` (the new 2.0c Step A). The implementer may rewrite them; the plan, not the draft, is the spec.
+5. **Test stub change:** the `gh pr comment` stub logs a body whose line 1 is `Review started:` to `$START_LOG`, not `$WORK_LOG`, so the existing "3 comments posted" counts still hold. A `FAIL_START` env var makes the start post fail. A `gh api` stub prints `$FAKE_COMMENTS_TSV`. The validator, schema and helpers are copied into the fixture `.prp` checkout.
 
    The existing whole-file checks (one `Reviewed head:`, one footer, two severity headings, no `safe-merge-review`) already cover injection through the JSON; the new tests pin that.
 
@@ -89,7 +94,9 @@ Schema sampled: `schemas/review-findings.schema.json` @ 0aac4e1. `family` is OPT
 |---|---|
 | `prompts/review-agents.md` | UPDATE: Step A moved and extended; agent prompts + JSON instruction; body format; Step C checks |
 | `adapters/*` (6) | REGENERATE (`python3 scripts/generate-adapters.py`) |
-| `scripts/review/prior-findings.py` | CREATE (~80 lines) |
+| `scripts/review/prior-findings.py` | CREATE (~60 lines) |
+| `scripts/review/check-l2-body.py` | CREATE (~70 lines) |
+| `tests/scripts/check-l2-body.bats` | CREATE (P4–P10 at the helper level; the l2-comments.bats arms run it through Step C) |
 | `tests/commands/l2-comments.bats` | UPDATE: `body()` emits the new sections; P1–P13 |
 | `tests/scripts/prior-findings.bats` | CREATE (P11) |
 | `docs/CONTRIBUTING.md`, `CHANGELOG.md` | UPDATE |
