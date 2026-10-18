@@ -576,3 +576,26 @@ The per-round finding tables are in that commit. Their resolutions are carried h
 - **Design:** one table, `ENFORCED = {"object": {properties, required, additionalProperties}, "array": {items, minItems, maxItems}, "string": {enum, pattern, maxLength}, "integer": {minimum}, "boolean": {}}`, with `ANNOTATIONS = {title, description}` (+ `$schema`, `$defs` at the root only). Every non-`$ref` node must declare `type` in `ENFORCED`. `check_schema` rejects any keyword outside `ENFORCED[type] | ANNOTATIONS`. `validate()` dispatches by the same table, so the two cannot drift. Sample (pinned schema 1250e78a…): every non-`$ref` node has a `type`, and its keyword pairs are exactly array{items,minItems,maxItems,description}, boolean{description}, integer{minimum}, object{$schema,additionalProperties,description,required,title}, string{description,enum,maxLength,pattern}. The table accepts the pinned schema unchanged.
 - **Boundary cases (generated from the table, not hand-listed):** (1) for each type T and each keyword K in `SUPPORTED − ENFORCED[T] − ANNOTATIONS`, a node `{type: T, K: <well-shaped value>}` exits 2; (2) for each non-`$ref` node of the pinned schema, removing `type` exits 2; (3) for each (T, K) in `ENFORCED`, a document violating K exits 1 (the table's claims are enforced); (4) the 48-case document sweep and the 25-case shape sweep stay, and every sweep counts executed cases and fails on any skip (R9 Important: `schema-shape-sweep.py` swallows construction errors).
 - **Verified by:** the generated sweeps (1)–(3) in bats, with case counts derived from `len(ENFORCED)`/`len(SUPPORTED)` and asserted equal to executed counts.
+
+## Phase 1a validator, v5 correction (2026-10-18, after #174 R4)
+
+#174 R4 (run 20261018T082321Z-11e92aac @ 736816c2) found 2 Critical and 1 Important, all in the verification tooling. psak reproduced the cause on a copy: add `"pattern"` to `ENFORCED["array"]` (a keyword `validate()` does not enforce for arrays) and every sweep still passes (reject 38/0, notype 20/0, enforce 12/0, doc 48/0, shape 25/0). Two root causes:
+1. v4 said "`validate()` dispatches by the same table". It does not: `validate()` checks each keyword with its own hand-written `if`, and never reads `ENFORCED`. The validator's docstring claims otherwise. So a table entry can exist with nothing enforcing it, which is the #171 family again.
+2. The sweeps are confounded or self-referential. Reject mode changes the `type` of `$defs.finding` but leaves its object-only keys, so `required` triggers the rejection rather than the keyword under test. Enforce mode keys its violating documents on the keyword only, at fixed fields of the pinned schema, so it never tests (T, K) at a node of type T. The sweeps derive their cases from the table under test, so they cannot see a wrong table entry. `doc-sweep.py` and `schema-shape-sweep.py` exit 0 whatever their `bad` count.
+
+The sweep failures have now come up in R1 (path navigation), R2 (copied table), the a174 gap (executed count never asserted) and R4 (confounded cases): the same family, "the verification does not test what it claims". Per the stop rule this is re-planned, not patched.
+
+- **Invariant (validator):** a keyword is accepted on a node of type T only if a handler enforcing it for T exists. This holds by construction: `HANDLERS = {T: {K: fn}}` is the only place keyword checks live, `ENFORCED = {T: set(HANDLERS[T])}` is derived from it, and `validate()` checks the type, then calls `HANDLERS[T][K]` for every non-annotation keyword on the node. No keyword check exists outside `HANDLERS`.
+- **Invariant (tests):** each sweep case isolates exactly one (T, K) and has an oracle that does not come from the validator.
+- **Boundary cases:**
+  - (a) For every (T, K) with K in `ENFORCED[T]`: the test schema is `{type: object, properties: {x: NODE}, required: [x], additionalProperties: false}`, with `NODE = {type: T, K: v}` only. Re-pin it, then check that a violating `x` exits 1 and a satisfying `x` exits 0. `(v, bad, good)` come from a hand-written `CASES` table in the test file. `set(CASES) == {(T, K) for T in ENFORCED for K in ENFORCED[T]}` is asserted, so a missing pair and an extra pair both fail.
+  - (b) For every (T, K) with K in `SUPPORTED − ENFORCED[T] − ANNOTATIONS − {type}`: the same wrapper with `NODE = {type: T, K: v}` only exits 2, and stderr names K.
+  - (c) Notype: as in v4.
+  - (d) Mutation kills. Each mutant must make at least one sweep exit non-zero; each is a bats test against a temporary copy of the validator, and the test asserts that the mutation applied:
+    - add a keyword with a no-op handler to `HANDLERS["array"]`;
+    - make one existing handler return `None`;
+    - remove one handler.
+    A keyword check outside `HANDLERS` is ruled out by the single dispatch point in `validate()`, and reviewers check for it; no sweep can detect it.
+  - (e) Every sweep exits non-zero on `bad > 0` or 0 cases executed. bats asserts the exact count as an anchored token (`executed=39 ` with a following space, or a regex), not a substring.
+- **Pinned schema:** unchanged (sha256 1250e78a…); the table content is unchanged.
+- **Verified by:** sweeps (a)–(c) in bats with derived counts; mutation tests (d) all killed; the reproduction above (array + `pattern`) is mutant 1 and must fail.
