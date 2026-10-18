@@ -45,7 +45,7 @@ if [[ -n "$PROMPT_OVERRIDE" ]]; then
   printf '%s\n' "$PROMPT_OVERRIDE" > "$PROMPT_FILE"
 else
   { if [[ -f "$AGENT_DEF" ]]; then
-      sed '/^---$/,/^---$/d' "$AGENT_DEF"
+      source "$SCRIPT_DIR/strip-frontmatter.sh"; strip_frontmatter "$AGENT_DEF"
       printf '\n\nReview the code bundle at /bundle/. The reviewed head is %s.\nReturn your findings as JSON matching the schema provided via --json-schema.\n' "$REVIEWED_HEAD"
     else
       printf 'You are a review pass (%s). Review the code in /bundle/.\n' "$PASS"
@@ -64,12 +64,28 @@ else
   CLAUDE_ARGS+=(--output-format json)
 fi
 
+source "$SCRIPT_DIR/cred-patterns.sh"
+
 exit_code=0
 "$SCRIPT_DIR/sandbox.sh" --harness claude-code --bundle "$BUNDLE" --auth-file "$AUTH_FILE" \
   --timeout "$TIMEOUT" --nice "$NICE" "${EXTRA_SANDBOX_ARGS[@]}" -- \
   "${CLAUDE_ARGS[@]}" \
   > "$OUT_DIR/raw-output.json" 2>"$OUT_DIR/stderr.log" || exit_code=$?
 
+_cleanup_on_leak() {
+  rm -f "$OUT_DIR/pass.json" "$OUT_DIR/raw-output.json" "$OUT_DIR/stderr.log"
+  [[ -n "$EVENTS_OUT" ]] && rm -f "$EVENTS_OUT"
+}
+
+# I2: scan stderr before printing any of it
+if [[ -s "$OUT_DIR/stderr.log" ]] && ! _scan_cred "$OUT_DIR/stderr.log"; then
+  echo "error: stderr withheld: credential pattern" >&2; _cleanup_on_leak; exit 1
+fi
+
+# I3: scan raw output before copying to events
+if [[ -s "$OUT_DIR/raw-output.json" ]] && ! _scan_cred "$OUT_DIR/raw-output.json"; then
+  _cleanup_on_leak; exit 1
+fi
 [[ -n "$EVENTS_OUT" ]] && cp "$OUT_DIR/raw-output.json" "$EVENTS_OUT"
 
 if [[ $exit_code -ne 0 ]]; then
@@ -109,11 +125,4 @@ else:
     sys.exit(1)
 " "$OUT_DIR/raw-output.json" "$OUT_DIR/pass.json" || { echo "error: failed to extract pass output" >&2; exit 1; }
 
-_scan_cred() {
-  local f="$1"
-  if grep -qE 'sk-ant-' "$f"; then echo "error: credential pattern in output: sk-ant" >&2; return 1; fi
-  if grep -qE 'eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.' "$f"; then echo "error: credential pattern in output: jwt" >&2; return 1; fi
-  if grep -qE 'ghp_|gho_|github_pat_' "$f"; then echo "error: credential pattern in output: github-token" >&2; return 1; fi
-  return 0
-}
-if ! _scan_cred "$OUT_DIR/pass.json"; then rm -f "$OUT_DIR/pass.json"; exit 1; fi
+if ! _scan_cred "$OUT_DIR/pass.json"; then _cleanup_on_leak; exit 1; fi

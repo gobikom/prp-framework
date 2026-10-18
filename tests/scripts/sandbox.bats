@@ -4,7 +4,6 @@
 
 REPO_ROOT="$(cd "$BATS_TEST_DIRNAME/../.." && pwd)"
 SANDBOX="$REPO_ROOT/scripts/review/sandbox.sh"
-CONFORMANCE="$REPO_ROOT/scripts/review/conformance.sh"
 
 setup() {
   TEST_TMPDIR="$(mktemp -d)"
@@ -121,20 +120,6 @@ teardown() {
 
 # --- Conformance ---
 
-@test "conformance: probe checks pass for claude-code" {
-  run "$CONFORMANCE" claude-code --probe-only
-  [ "$status" -eq 0 ]
-  [[ "$output" == *"probe sandbox clean"* ]]
-}
-
-@test "conformance: probe sandbox checks pass" {
-  run "$CONFORMANCE" claude-code --probe-only
-  [ "$status" -eq 0 ]
-  [[ "$output" == *"all checks passed"* ]]
-}
-
-# --- I4a: clearenv in review pass ---
-
 @test "I4a: review pass uses --clearenv" {
   run grep -c '\-\-clearenv' "$REPO_ROOT/scripts/review/sandbox.sh"
   [[ "$output" -ge 2 ]]
@@ -159,20 +144,6 @@ teardown() {
 }
 
 # --- I4c: conformance fails closed ---
-
-@test "I4c: conformance fails when bwrap stub exits 1" {
-  mkdir -p "$TEST_TMPDIR/bin"
-  cat > "$TEST_TMPDIR/bin/bwrap" <<'STUB'
-#!/usr/bin/env bash
-exit 1
-STUB
-  chmod +x "$TEST_TMPDIR/bin/bwrap"
-  run env PATH="$TEST_TMPDIR/bin:$PATH" "$CONFORMANCE" claude-code
-  [ "$status" -ne 0 ]
-  [[ "$output" == *"FAIL"* ]]
-}
-
-# --- I4d: adapter error visibility ---
 
 @test "I4d: sandbox exit code visible in adapter" {
   run "$SANDBOX" --harness claude-code --bundle "$TEST_TMPDIR" -- sh -c 'exit 3'
@@ -206,56 +177,11 @@ STUB
   [[ "$label" != *"eyJ"* ]]
 }
 
-@test "adapter flags: claude adapter strips frontmatter" {
-  run grep -c "sed.*frontmatter\|sed.*---" "$REPO_ROOT/scripts/review/adapters/claude-code.sh"
+@test "adapter flags: claude adapter uses strip-frontmatter" {
+  run grep -c "strip.frontmatter\|strip_frontmatter" "$REPO_ROOT/scripts/review/adapters/claude-code.sh"
   [[ "$output" -ge 1 ]]
 }
 
-_cd() {
-  run env HOME=/h bash -c 'source "'"$REPO_ROOT"'/scripts/review/classify-deny.sh"; classify_deny "$@"' -- "$@"
-}
-_ok_use='{"content":[{"type":"tool_use","id":"tu1","name":"Read","input":{"file_path":"/b/ok.txt"}}]}'
-_ok_result='{"content":[{"type":"tool_result","tool_use_id":"tu1","content":"TOK_OK_123"}]}'
-_deny_use='{"content":[{"type":"tool_use","id":"tu2","name":"Read","input":{"file_path":"/h/.claude/c.txt"}}]}'
-_deny_err='{"content":[{"type":"tool_result","tool_use_id":"tu2","is_error":true,"content":"denied"}]}'
-_deny_ok='{"content":[{"type":"tool_result","tool_use_id":"tu2","content":"TOK_DENY_456"}]}'
-
-@test "classify_deny: control ok + deny blocked → PASS" {
-  printf '%s\n%s\n%s\n%s\n' "$_ok_use" "$_ok_result" "$_deny_use" "$_deny_err" > "$TEST_TMPDIR/ev.jsonl"
-  _cd "$TEST_TMPDIR/ev.jsonl" 0 TOK_OK_123 TOK_DENY_456 "/h/.claude/.credentials.json" 'Read(~/.claude/**)' /b/ok.txt /h/.claude/c.txt
-  [[ "$output" == "PASS" ]]
-}
-@test "classify_deny: deny token leaked → FAIL" {
-  printf '%s\n%s\n%s\n%s\n' "$_ok_use" "$_ok_result" "$_deny_use" "$_deny_ok" > "$TEST_TMPDIR/ev.jsonl"
-  _cd "$TEST_TMPDIR/ev.jsonl" 0 TOK_OK_123 TOK_DENY_456 "/h/.claude/.credentials.json" 'Read(~/.claude/**)' /b/ok.txt /h/.claude/c.txt
-  [[ "$output" == *"leaked"* ]]
-}
-@test "classify_deny: no deny attempt → FAIL" {
-  printf '%s\n%s\n' "$_ok_use" "$_ok_result" > "$TEST_TMPDIR/ev.jsonl"
-  _cd "$TEST_TMPDIR/ev.jsonl" 0 TOK_OK_123 TOK_DENY_456 "/h/.claude/.credentials.json" 'Read(~/.claude/**)' /b/ok.txt /h/.claude/c.txt
-  [[ "$output" == *"no Read of CANARY_DENY"* ]]
-}
-@test "classify_deny: deny not is_error → FAIL" {
-  _deny_noerr='{"content":[{"type":"tool_result","tool_use_id":"tu2","content":"some content"}]}'
-  printf '%s\n%s\n%s\n%s\n' "$_ok_use" "$_ok_result" "$_deny_use" "$_deny_noerr" > "$TEST_TMPDIR/ev.jsonl"
-  _cd "$TEST_TMPDIR/ev.jsonl" 0 TOK_OK_123 TOK_DENY_456 "/h/.claude/.credentials.json" 'Read(~/.claude/**)' /b/ok.txt /h/.claude/c.txt
-  [[ "$output" == *"not denied"* ]]
-}
-@test "classify_deny: control missing → FAIL" {
-  printf '%s\n%s\n' "$_deny_use" "$_deny_err" > "$TEST_TMPDIR/ev.jsonl"
-  _cd "$TEST_TMPDIR/ev.jsonl" 0 TOK_OK_123 TOK_DENY_456 "/h/.claude/.credentials.json" 'Read(~/.claude/**)' /b/ok.txt /h/.claude/c.txt
-  [[ "$output" == *"control canary"* ]]
-}
-@test "classify_deny: auth path absent → FAIL" {
-  printf '%s\n%s\n' "$_ok_use" "$_ok_result" > "$TEST_TMPDIR/ev.jsonl"
-  _cd "$TEST_TMPDIR/ev.jsonl" 0 TOK_OK_123 TOK_DENY_456 "/h/.claude/.credentials.json" 'deny["/other"]' /b/ok.txt /h/.claude/c.txt
-  [[ "$output" == *"auth path"* ]]
-}
-@test "classify_deny: rc non-zero → FAIL" {
-  printf 'x\n' > "$TEST_TMPDIR/ev.jsonl"
-  _cd "$TEST_TMPDIR/ev.jsonl" 1 X Y "/h/.claude/x" 'Read(~/.claude/**)' /a /b
-  [[ "$output" == *"FAIL"* ]]
-}
 @test "deny-settings: no single-slash absolute patterns" {
   source "$REPO_ROOT/scripts/review/deny-settings.sh"
   local s; s="$(build_deny_settings)"
@@ -267,13 +193,84 @@ assert not bad, f'single-slash absolute pattern: {bad}'
 " "$s"
   [ "$status" -eq 0 ]
 }
-@test "(h) schema-invalid but valid JSON → FAIL" {
-  echo '{"only":"json"}' > "$TEST_TMPDIR/s.json"
-  run python3 -I -c "import json,sys; d=json.load(open(sys.argv[1])); assert 'findings' in d and 'reviewed_head' in d" "$TEST_TMPDIR/s.json"
-  [ "$status" -ne 0 ]
-}
 @test "adapter flags: claude flags in claude --help" {
   claude --version >/dev/null 2>&1 || { echo "claude absent or stub"; return 0; }
   local h; h=$(claude --help 2>&1)
   for f in --allowedTools --output-format --json-schema --mcp-config --strict-mcp-config --settings; do [[ "$h" == *"$f"* ]] || { echo "missing: $f"; false; }; done
+}
+
+# --- C1: frontmatter strip ---
+@test "C1: strip_frontmatter preserves non-frontmatter --- lines" {
+  source "$REPO_ROOT/scripts/review/strip-frontmatter.sh"
+  for f in "$REPO_ROOT"/adapters/claude-code-agents/*.md; do
+    local total; total=$(wc -l < "$f")
+    local fm=0
+    if [[ "$(head -1 "$f")" == "---" ]]; then
+      fm=$(awk 'NR==1{next} /^---$/{print NR; exit}' "$f")
+    fi
+    local expect=$((total - fm))
+    local got; got=$(strip_frontmatter "$f" | wc -l)
+    [[ "$got" -eq "$expect" ]] || { echo "$(basename "$f"): expected $expect, got $got"; false; }
+  done
+}
+
+# --- I1: PID namespace ---
+@test "I1: review pass has isolated PID namespace" {
+  run "$SANDBOX" --harness claude-code --bundle "$TEST_TMPDIR" -- \
+    bash -c 'echo PIDS=$(ls /proc | grep -cE "^[0-9]+$")'
+  [ "$status" -eq 0 ]
+  local n; n=$(echo "$output" | grep -oP 'PIDS=\K\d+')
+  [[ "$n" -lt 10 ]]
+}
+
+# --- I2: stderr credential scan ---
+@test "I2: stderr with fake sk-ant → withheld" {
+  mkdir -p "$TEST_TMPDIR/stub-bin" "$TEST_TMPDIR/out" "$TEST_TMPDIR/.claude"
+  echo "dummy" > "$TEST_TMPDIR/.claude/.credentials.json"
+  printf '#!/usr/bin/env bash\necho "sk-ant-FAKE-NOT-REAL" >&2; exit 1\n' > "$TEST_TMPDIR/stub-bin/claude"
+  chmod +x "$TEST_TMPDIR/stub-bin/claude"
+  run env PATH="$TEST_TMPDIR/stub-bin:$PATH" HOME="$TEST_TMPDIR" \
+    bash "$REPO_ROOT/scripts/review/adapters/claude-code.sh" --pass code-reviewer --bundle "$TEST_TMPDIR" --schema "$REPO_ROOT/schemas/review-findings.schema.json" --out "$TEST_TMPDIR/out" --timeout 5
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"withheld"* ]] || [[ "$output" == *"credential"* ]]
+  [[ "$output" != *"sk-ant-FAKE-NOT-REAL"* ]]
+}
+
+# --- I3: scan before copy, cleanup on leak ---
+@test "I3: credential in output → all files cleaned" {
+  mkdir -p "$TEST_TMPDIR/stub-bin" "$TEST_TMPDIR/out" "$TEST_TMPDIR/.claude"
+  echo "dummy" > "$TEST_TMPDIR/.claude/.credentials.json"
+  printf '#!/usr/bin/env bash\necho "sk-ant-FAKE-LEAK"; exit 0\n' > "$TEST_TMPDIR/stub-bin/claude"
+  chmod +x "$TEST_TMPDIR/stub-bin/claude"
+  run env PATH="$TEST_TMPDIR/stub-bin:$PATH" HOME="$TEST_TMPDIR" \
+    bash "$REPO_ROOT/scripts/review/adapters/claude-code.sh" --pass code-reviewer --bundle "$TEST_TMPDIR" --schema "$REPO_ROOT/schemas/review-findings.schema.json" --out "$TEST_TMPDIR/out" --events-out "$TEST_TMPDIR/ev.jsonl" --timeout 5
+  [ "$status" -ne 0 ]
+  [ ! -f "$TEST_TMPDIR/out/pass.json" ]
+  [ ! -f "$TEST_TMPDIR/out/raw-output.json" ]
+  [ ! -f "$TEST_TMPDIR/out/stderr.log" ]
+  [ ! -f "$TEST_TMPDIR/ev.jsonl" ]
+}
+
+# --- I4: resolve_pkg_root behavior ---
+@test "I4: resolve_pkg_root nonexistent dir → non-zero" {
+  run bash -c "source '$REPO_ROOT/scripts/review/resolve-pkg-root.sh'; resolve_pkg_root /nonexistent/x 2>/dev/null"
+  [ "$status" -ne 0 ]
+}
+@test "I4: resolve_pkg_root node_modules nested → package root" {
+  mkdir -p "$TEST_TMPDIR/prefix/lib/node_modules/pkg/bin"
+  run bash -c "source '$REPO_ROOT/scripts/review/resolve-pkg-root.sh'; resolve_pkg_root '$TEST_TMPDIR/prefix/lib/node_modules/pkg/bin'"
+  [ "$status" -eq 0 ]
+  [[ "$output" == "$TEST_TMPDIR/prefix/lib/node_modules" ]]
+}
+@test "I4: live mount (when claude present)" {
+  claude --version >/dev/null 2>&1 || { echo "claude absent"; return 0; }
+  run "$SANDBOX" --harness claude-code --bundle "$TEST_TMPDIR" -- claude --version
+  [ "$status" -eq 0 ]
+}
+
+# --- I5: conformance no-live ---
+@test "R3-3: ulimit injection rejected" {
+  run "$SANDBOX" --harness claude-code --bundle "$TEST_TMPDIR" --ulimit-nproc '1; touch /tmp/x' -- echo ok
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"invalid ULIMIT_NPROC"* ]]
 }

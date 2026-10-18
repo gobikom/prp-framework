@@ -35,8 +35,9 @@ done
 [[ $# -eq 0 ]] && { echo "error: no command given after --" >&2; exit 1; }
 command -v bwrap >/dev/null 2>&1 || { echo "error: bwrap not found" >&2; exit 1; }
 
-BUNDLE="$(cd "$BUNDLE" && pwd)"
+BUNDLE="$(cd "$BUNDLE" && pwd)" || { echo "error: cannot resolve bundle path" >&2; exit 1; }
 ULIMIT_NPROC="${ULIMIT_NPROC:-$DEFAULT_NPROC}"
+[[ "$ULIMIT_NPROC" =~ ^[1-9][0-9]*$ ]] || { echo "error: invalid ULIMIT_NPROC: $ULIMIT_NPROC" >&2; exit 1; }
 bwrap_args=()
 
 _common_mounts() {
@@ -52,7 +53,8 @@ if $PROBE; then
 else
   [[ -z "$HARNESS" ]] && { echo "error: --harness required for review passes" >&2; exit 1; }
 
-  bwrap_args+=(--clearenv --setenv PATH "/usr/bin:/usr/local/bin" --setenv HOME "$HOME")
+  bwrap_args+=(--unshare-pid --unshare-ipc --unshare-uts --unshare-cgroup-try
+    --clearenv --setenv PATH "/usr/bin:/usr/local/bin" --setenv HOME "$HOME")
   _common_mounts
   # /etc: only what the harness needs (DNS, TLS, NSS)
   for p in /etc/resolv.conf /etc/nsswitch.conf /etc/hosts /etc/ssl; do
@@ -61,6 +63,8 @@ else
   [[ -d /run/systemd/resolve ]] && bwrap_args+=(--ro-bind /run/systemd/resolve /run/systemd/resolve)
   bwrap_args+=(--ro-bind "$BUNDLE" /bundle)
 
+  source "$(dirname "${BASH_SOURCE[0]}")/resolve-pkg-root.sh"
+
   _mount_harness() {
     local cmd="$1"
     local bin_path resolved bin_dir pkg_root
@@ -68,9 +72,11 @@ else
     [[ -x "$bin_path" ]] || { echo "error: $cmd not executable: $bin_path" >&2; exit 1; }
     resolved="$(readlink -f "$bin_path")"
     bin_dir="$(dirname "$bin_path")"
-    # Mount the whole npm prefix (bin + lib) so symlinks resolve
-    pkg_root="$(cd "$bin_dir/.." && pwd)"
+    pkg_root="$(resolve_pkg_root "$(dirname "$resolved")")" \
+      || { echo "error: cannot resolve package root from $(dirname "$resolved")" >&2; exit 1; }
     bwrap_args+=(--ro-bind "$pkg_root" "$pkg_root")
+    # Also bind the symlink's directory if different, so PATH entry works
+    [[ "$bin_dir" != "$pkg_root"* ]] && bwrap_args+=(--ro-bind "$bin_dir" "$bin_dir")
     bwrap_args+=(--setenv PATH "$bin_dir:/usr/bin:/usr/local/bin")
     if [[ -n "$AUTH_FILE" ]] && [[ -f "$AUTH_FILE" ]]; then
       bwrap_args+=(--ro-bind "$AUTH_FILE" "$AUTH_FILE")
@@ -90,4 +96,4 @@ fi
 
 exec nice -n "$NICE" timeout "$TIMEOUT" \
   bwrap "${bwrap_args[@]}" -- \
-  bash -c "ulimit -u $ULIMIT_NPROC || { echo 'error: ulimit -u $ULIMIT_NPROC failed' >&2; exit 1; }; exec \"\$@\"" -- "$@"
+  bash -c 'ulimit -u "$1" || { echo "error: ulimit -u $1 failed" >&2; exit 1; }; shift; exec "$@"' -- "$ULIMIT_NPROC" "$@"
