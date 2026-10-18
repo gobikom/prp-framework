@@ -110,20 +110,17 @@ def _validate_line(raw: str) -> tuple[dict | None, str | None]:
 
 
 def _sum_jsonl(path: str) -> tuple[UsageTotals, str]:
+    """Sum usage from a jsonl file. Raises ValueError on the first malformed line."""
     totals = UsageTotals()
     first_ts = ""
-    non_blank = 0
-    malformed = 0
     with open(path) as f:
-        for line in f:
+        for lineno, line in enumerate(f, 1):
             line = line.strip()
             if not line:
                 continue
-            non_blank += 1
             d, reason = _validate_line(line)
             if d is None:
-                malformed += 1
-                continue
+                raise ValueError(f"{path}: line {lineno}: {reason}")
             if not first_ts and "timestamp" in d:
                 first_ts = d["timestamp"]
             msg = d.get("message")
@@ -131,11 +128,6 @@ def _sum_jsonl(path: str) -> tuple[UsageTotals, str]:
                 usage = msg.get("usage")
                 if isinstance(usage, dict):
                     totals.add(usage)
-    if malformed:
-        print(f"warning: {path}: skipped {malformed} malformed line(s)", file=sys.stderr)
-    if non_blank > 0 and non_blank == malformed:
-        print(f"error: {path}: 0 valid lines out of {non_blank}", file=sys.stderr)
-        raise ValueError(f"{path}: no valid lines")
     return totals, first_ts
 
 

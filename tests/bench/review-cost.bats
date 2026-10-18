@@ -56,13 +56,49 @@ PY
   python3 -I -c "import json,sys; s=json.loads(sys.argv[1])[0]; assert s['agent_output']==0 and s['output']==5" "$output"
 }
 
-@test "review-cost.py: handles empty lines and malformed JSON" {
+@test "review-cost.py: P1 malformed line in middle → session fails" {
   mkdir -p "$TEST_TMPDIR/project"
-  printf '\n%s\nnot json\n%s\n' "$_good_line" "$_usage_line" > "$TEST_TMPDIR/project/messy.jsonl"
+  printf '%s\nnot json\n%s\n' "$_good_line" "$_usage_line" > "$TEST_TMPDIR/project/bad.jsonl"
   run --separate-stderr python3 -I "$RC" --json "$TEST_TMPDIR/project/"
+  [ "$status" -ne 0 ]
+  [[ "$stderr" == *"bad.jsonl"* ]]
+  [[ "$stderr" == *"line 2"* ]]
+}
+
+@test "review-cost.py: P2 malformed line last → session fails" {
+  mkdir -p "$TEST_TMPDIR/project"
+  printf '%s\n%s\ntruncated\n' "$_good_line" "$_usage_line" > "$TEST_TMPDIR/project/trunc.jsonl"
+  run --separate-stderr python3 -I "$RC" --json "$TEST_TMPDIR/project/"
+  [ "$status" -ne 0 ]
+  [[ "$stderr" == *"trunc.jsonl"* ]]
+  [[ "$stderr" == *"line 3"* ]]
+}
+
+@test "review-cost.py: P3 malformed subagent → whole session fails" {
+  mkdir -p "$TEST_TMPDIR/project/sess/subagents"
+  printf '%s\n%s\n' "$_good_line" "$_usage_line" > "$TEST_TMPDIR/project/sess.jsonl"
+  printf '%s\nbad sub line\n' "$_good_line" > "$TEST_TMPDIR/project/sess/subagents/agent-a.jsonl"
+  run --separate-stderr python3 -I "$RC" --json "$TEST_TMPDIR/project/"
+  [ "$status" -ne 0 ]
+  [[ "$stderr" == *"agent-a.jsonl"* ]]
+  [[ "$output" != *'"output"'* ]]
+}
+
+@test "review-cost.py: P4 clean + malformed → clean reported, bad on stderr" {
+  mkdir -p "$TEST_TMPDIR/project"
+  printf '%s\n%s\n' "$_good_line" "$_usage_line" > "$TEST_TMPDIR/project/aaa-clean.jsonl"
+  printf '%s\nnot json\n' "$_good_line" > "$TEST_TMPDIR/project/zzz-bad.jsonl"
+  run --separate-stderr python3 -I "$RC" --json "$TEST_TMPDIR/project/"
+  [ "$status" -ne 0 ]
+  python3 -I -c "import json,sys; d=json.loads(sys.argv[1]); assert len(d)==1 and d[0]['output']==5" "$output"
+  [[ "$stderr" == *"zzz-bad.jsonl"* ]]
+}
+
+@test "review-cost.py: P5 blank lines only → not malformed" {
+  mkdir -p "$TEST_TMPDIR/project"
+  printf '\n\n\n' > "$TEST_TMPDIR/project/blanks.jsonl"
+  run python3 -I "$RC" --json "$TEST_TMPDIR/project/"
   [ "$status" -eq 0 ]
-  python3 -I -c "import json,sys; assert json.loads(sys.argv[1])[0]['output']==5" "$output"
-  [[ "$stderr" == *"malformed"* ]] || [[ "$stderr" == *"skipped"* ]]
 }
 
 @test "review-cost.py: handles jsonl with no usage (boundary)" {
