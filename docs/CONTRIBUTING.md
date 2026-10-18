@@ -19,8 +19,12 @@ git clone https://github.com/YOUR_USERNAME/prp-framework.git
 cd prp-framework
 
 # Install dev dependencies (for running tests)
-brew install bats-core jq   # macOS
-# apt-get install bats jq   # Ubuntu/Debian
+brew install bats-core jq bubblewrap   # macOS
+# apt-get install bats jq bubblewrap   # Ubuntu/Debian
+# Note: the sandbox tests (tests/scripts/sandbox.bats) require bubblewrap (bwrap).
+# On Ubuntu 24.04, bwrap may fail with "Operation not permitted" due to AppArmor;
+# the CI workaround (see .github/workflows/ci.yml) is:
+#   sudo sysctl kernel.apparmor_restrict_unprivileged_userns=0
 
 # Create feature branch
 git checkout -b feature/your-feature-name
