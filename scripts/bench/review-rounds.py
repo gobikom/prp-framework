@@ -30,7 +30,7 @@ Usage:
   python3 -I scripts/bench/review-rounds.py rounds --repo OWNER/REPO --prs N,N,...
   Add --json for JSON output. Set REVIEW_ROUNDS_GH_FIXTURES=<dir> for offline tests.
 """
-import json, os, re, subprocess, sys
+import json, os, re, subprocess, sys, traceback
 
 def _read_jsonl(path):
     lines, skipped = [], 0
@@ -41,20 +41,46 @@ def _read_jsonl(path):
         if not line: continue
         try: obj = json.loads(line)
         except json.JSONDecodeError: skipped += 1; continue
-        if isinstance(obj, dict): lines.append(obj)
+        if isinstance(obj, dict): lines.append(_normalise_event(obj))
         else: skipped += 1  # valid JSON but not an event object
     return lines, skipped
 
+def _str(x):
+    return x if isinstance(x, str) else ""
+
+def _text_of(x):
+    """Any JSON value as searchable text: a string as is, None as "", else str()."""
+    if isinstance(x, str): return x
+    if x is None: return ""
+    return str(x)
+
+def _normalise_event(obj):
+    """Raw transcript JSON object -> a fixed shape. The ONLY place raw event JSON is read.
+
+    {"type": str, "text": str, "blocks": [{"type": str, "text": str, "command": str, "content": str}]}
+    Any field of the wrong type becomes "" / [] here, so the classifier never sees raw JSON.
+    """
+    msg = obj.get("message")
+    msg = msg if isinstance(msg, dict) else {}
+    content = msg.get("content")
+    blocks = []
+    if isinstance(content, list):
+        for b in content:
+            if not isinstance(b, dict): continue
+            inp = b.get("input")
+            cmd = inp.get("command") if isinstance(inp, dict) else None
+            command = cmd if isinstance(cmd, str) and cmd else _text_of(inp)
+            blocks.append({"type": _str(b.get("type")), "text": _str(b.get("text")),
+                           "command": command, "content": _text_of(b.get("content"))})
+    return {"type": _str(obj.get("type")), "text": _str(content), "blocks": blocks}
+
 def _first_prompt(events):
     for e in events:
-        if e.get("type") not in ("human", "user"): continue
-        msg = e.get("message", {}) if isinstance(e.get("message"), dict) else {}
-        content = msg.get("content", "")
-        if isinstance(content, str) and content: return content
-        if isinstance(content, list):
-            for block in content:
-                if isinstance(block, dict) and block.get("type") == "text":
-                    return block.get("text", "")
+        if e["type"] not in ("human", "user"): continue
+        if e["text"]: return e["text"]
+        for block in e["blocks"]:
+            if block["type"] == "text":
+                return block["text"]
     return ""
 
 REVIEW_FILE_PAT = re.compile(r"pr-\d+-agents-review\.md")
@@ -63,18 +89,12 @@ TWO_SHA_PAT = re.compile(r"git diff [0-9a-f]{7,40}[\s.]+[0-9a-f]{7,40}")
 NOT_FOUND_PAT = re.compile(r"NOT_FOUND|No such file|not found|cannot access", re.I)
 
 def _extract_tool_events(events):
-    """Extract tool_use commands and tool_result content from the transcript."""
+    """Extract tool_use commands and tool_result content from normalised events."""
     tools = []
     for e in events:
-        msg = e.get("message", {}) if isinstance(e.get("message"), dict) else {}
-        content = msg.get("content", [])
-        if isinstance(content, list):
-            for block in content:
-                if not isinstance(block, dict): continue
-                if block.get("type") == "tool_use":
-                    tools.append(("use", block.get("input", {}).get("command", "") or str(block.get("input", ""))))
-                if block.get("type") == "tool_result":
-                    tools.append(("result", block.get("content", "") if isinstance(block.get("content"), str) else str(block.get("content", ""))))
+        for block in e["blocks"]:
+            if block["type"] == "tool_use": tools.append(("use", block["command"]))
+            if block["type"] == "tool_result": tools.append(("result", block["content"]))
     return tools
 
 def classify_mode(events):
@@ -97,9 +117,11 @@ def cmd_fallback(paths, as_json=False):
     for p in paths:
         try:
             events, skipped = _read_jsonl(p)
+            mode, invoked = classify_mode(events)
         except (OSError, ValueError) as e:  # missing, a directory, unreadable, non-UTF-8
             errors.append({"path": p, "error": f"{type(e).__name__}: {e}"}); continue
-        mode, invoked = classify_mode(events)
+        except Exception as e:  # a bug, not bad input: report it with its location, never swallow it
+            errors.append({"path": p, "error": f"internal {_where(e)}"}); continue
         results.append({"path": os.path.basename(p), "mode": mode, "invoked": invoked, "skipped_lines": skipped})
     modes = [r["mode"] for r in results]
     invoked_runs = [r for r in results if r["invoked"]]
@@ -134,6 +156,12 @@ def cmd_fallback(paths, as_json=False):
     for e in errors:
         print(f"error: {e['path']}: {e['error']}", file=sys.stderr)
     return 2 if errors else 0
+
+def _where(e):
+    """Type, message and the raising line of an unexpected exception."""
+    tb = traceback.extract_tb(e.__traceback__)
+    loc = f" at line {tb[-1].lineno} ({tb[-1].name})" if tb else ""
+    return f"{type(e).__name__}: {e}{loc}"
 
 class GhNotFound(Exception):
     pass
@@ -231,8 +259,10 @@ def cmd_rounds(repo, pr_numbers, as_json=False):
             round_list = _rounds_from_comments(pr_num, comments)
         except GhNotFound:
             results.append({"pr": pr_num, "status": "not-found", "rounds": []}); continue
-        except (RuntimeError, OSError, ValueError, TypeError, AttributeError, KeyError) as e:
+        except (RuntimeError, OSError, ValueError, TypeError) as e:
             results.append({"pr": pr_num, "status": "error", "error": f"{type(e).__name__}: {e}", "rounds": []}); continue
+        except Exception as e:  # a bug, not bad input: report it with its location, never swallow it
+            results.append({"pr": pr_num, "status": "error", "error": f"internal {_where(e)}", "rounds": []}); continue
         prev_families = set()
         for rd in round_list:
             if len(rd["passes"]) < 3:

@@ -84,6 +84,39 @@ Fix to the method: the boundary list is now every input point in the script, tak
 `fallback` now returns an exit code (0 all read, 2 any error) the way `rounds` already did.
 `int(cm.group(2))` reads `\d+` only and cannot raise.
 
+## Revision 3 — R5 (run `20261018T104358Z-cd554329`, head 0a77fda): enumeration cannot close this family
+
+R5 found the I2 family a fourth time: `_extract_tool_events` called `.get()` on a `tool_use`
+`input` that was not an object, and `classify_mode` ran outside the per-file guard. The rev2
+method (grep for input CALLS) cannot see a shape assumption inside a `.get()` chain. Listing
+spots is the wrong method; this revision changes the structure instead.
+
+1. **Parse at the boundary.** `_normalise_event` is the only code that reads raw transcript
+   JSON. It returns a fixed shape (`type`/`text` str, `blocks` of str fields); every wrong-type
+   field becomes `""`/`[]` there. `_first_prompt` and `_extract_tool_events` read only that
+   shape. (`rounds` already checks pulls/comments shape in `_rounds_from_comments`.)
+2. **Guard every unit.** The whole per-file body of `fallback` and the whole per-PR body of
+   `rounds` sit in one `try`. Expected bad input is mapped by type. Anything else is a bug: it
+   is reported as `internal <Type>: <msg> at line N (<function>)` for that unit and makes the
+   exit 2. It is never swallowed and never stops the batch.
+3. **Verified by: shape mutation, not hand-picked cases.** `tests/bench/mutate_fixtures.py`
+   replaces EVERY value inside the real fixtures (each path, the root included) with each of
+   `None, 0, 1.5, True, "x", [], ["x"], {}, {"x": 1}`:
+   - `fallback` over all 1332 transcript variants: exit 0, no traceback, `errors == []` (so the
+     normaliser handles every shape; the catch-all of point 2 is never needed).
+   - `rounds` over every pulls/comments variant of PR 77: never raises, exit only 0 or 2,
+     never an `internal` error, and both exit codes occur.
+
+Proof that the test detects the family: the 1332 variants run against the R5 head (0a77fda)
+crash with `AttributeError: 'NoneType' object has no attribute 'get'` (exit 1); against this
+revision they exit 0.
+
+No behaviour change on real data: `fallback --json` over all 57 real review transcripts
+(`~/.claude/projects/*rv-prp*/*.jsonl`) gives identical output before and after this revision.
+
+Stop condition: if R6 or later finds this family again, the PR is closed and re-routed, not
+patched.
+
 ## Out of scope (to the ONE follow-up issue)
 
 Footer authorship is forgeable (security); the live `GhNotFound` path and the `gh api

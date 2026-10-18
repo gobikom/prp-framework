@@ -177,6 +177,39 @@ teardown() { rm -rf -- "$TEST_TMPDIR" 2>/dev/null || true; }
   echo "$output" | grep -q 'error: --prs must be comma-separated integers'
 }
 
+# --- I2 shape mutation (re-plan rev3): every field of the real fixtures, every wrong type ---
+@test "I2 mutation: fallback reads every wrong-type transcript variant without an error" {
+  mkdir "$TEST_TMPDIR/t"
+  n=$(python3 -I "$BATS_TEST_DIRNAME/mutate_fixtures.py" transcripts "$TEST_TMPDIR/t" "$FIX"/incremental.jsonl "$FIX"/incremental-diff-file.jsonl "$FIX"/fell-back-no-prev.jsonl "$FIX"/fell-back-full.jsonl "$FIX"/unknown.jsonl "$FIX"/full-requested.jsonl)
+  [ "$n" -gt 500 ]
+  rc=0; python3 -I "$RR" fallback --json "$TEST_TMPDIR"/t/*.jsonl > "$TEST_TMPDIR/out.json" 2> "$TEST_TMPDIR/err.txt" || rc=$?
+  [ "$rc" -eq 0 ]
+  ! grep -q Traceback "$TEST_TMPDIR/err.txt"
+  python3 -I -c "import json,sys; d=json.load(open(sys.argv[1])); assert d['errors']==[] and d['total']==int(sys.argv[2]), (d['errors'][:3], d['total'])" "$TEST_TMPDIR/out.json" "$n"
+}
+@test "I2 mutation: rounds never raises on a wrong-type pulls/comments variant" {
+  mkdir "$TEST_TMPDIR/g"
+  n=$(python3 -I "$BATS_TEST_DIRNAME/mutate_fixtures.py" gh "$TEST_TMPDIR/g" "$GH" 77)
+  [ "$n" -gt 100 ]
+  run python3 -I - "$RR" "$TEST_TMPDIR/g" <<'PY'
+import contextlib, importlib.util, io, os, sys
+spec = importlib.util.spec_from_file_location("rr", sys.argv[1]); rr = importlib.util.module_from_spec(spec); spec.loader.exec_module(rr)
+seen = set()
+for d in sorted(os.listdir(sys.argv[2])):
+    os.environ["REVIEW_ROUNDS_GH_FIXTURES"] = os.path.join(sys.argv[2], d)
+    out, err = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        code = rr.cmd_rounds("test/repo", [77], as_json=False)
+    assert code in (0, 2), (d, code)
+    assert "internal" not in out.getvalue(), (d, out.getvalue())
+    seen.add(code)
+print("variants ok, exit codes seen:", sorted(seen))
+PY
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"Traceback"* ]]
+  echo "$output" | grep -q 'variants ok, exit codes seen: \[0, 2\]'
+}
+
 # --- misc ---
 @test "no-write: no write paths" {
   run grep -cE "open\([^)]*['\"]w['\"]|gh pr comment|gh api -X (POST|PATCH|DELETE)" "$RR"
