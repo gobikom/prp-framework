@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Review pass findings",
+  "description": "Output contract for a single review pass (prp-framework#160).",
+  "type": "object",
+  "required": ["reviewed_head", "pass", "complete", "findings"],
+  "additionalProperties": false,
+  "properties": {
+    "reviewed_head": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$",
+      "description": "Full 40-char SHA of the reviewed head."
+    },
+    "pass": {
+      "type": "string",
+      "enum": ["code-reviewer", "security-reviewer", "silent-failure-hunter",
+               "dependency-analyzer", "performance-analyzer", "accessibility-reviewer",
+               "docs-impact-agent", "comment-analyzer", "pr-test-analyzer",
+               "type-design-analyzer", "probe"],
+      "description": "Pass name matching the agent definition."
+    },
+    "complete": {
+      "type": "boolean",
+      "description": "True iff the pass ran to completion. An empty findings list with complete=true means no findings."
+    },
+    "findings": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/finding" }
+    },
+    "probe_requests": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/probe_request" },
+      "description": "Commands the pass wants the CLI to run in the probe child sandbox."
+    }
+  },
+  "$defs": {
+    "finding": {
+      "type": "object",
+      "required": ["file", "lines", "severity", "category", "summary", "evidence"],
+      "additionalProperties": false,
+      "properties": {
+        "file": {
+          "type": "string",
+          "description": "Path relative to repo root."
+        },
+        "lines": {
+          "type": "array",
+          "items": { "type": "integer", "minimum": 1 },
+          "minItems": 2,
+          "maxItems": 2,
+          "description": "[start, end] line range."
+        },
+        "severity": {
+          "type": "string",
+          "enum": ["critical", "important", "medium", "low", "suggestion"]
+        },
+        "category": {
+          "type": "string",
+          "description": "Short kebab-case category slug."
+        },
+        "family": {
+          "type": "string",
+          "description": "Defect family slug for same-family detection across rounds."
+        },
+        "summary": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "One-sentence summary of the defect."
+        },
+        "evidence": {
+          "type": "string",
+          "description": "Code snippet, reasoning or proof."
+        }
+      }
+    },
+    "probe_request": {
+      "type": "object",
+      "required": ["id", "command", "purpose", "expected"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9-]{1,40}$",
+          "description": "Unique request id within the pass."
+        },
+        "command": {
+          "type": "string",
+          "maxLength": 4096,
+          "description": "Shell command to run in the probe child sandbox."
+        },
+        "purpose": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "Why this probe is needed."
+        },
+        "expected": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "What the output should show if the defect is real."
+        }
+      }
+    }
+  }
+}
