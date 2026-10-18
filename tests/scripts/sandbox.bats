@@ -362,3 +362,38 @@ assert not bad, f'single-slash absolute pattern: {bad}'
   [ "$status" -ne 0 ]
   [[ "$output" == *"invalid ULIMIT_NPROC"* ]]
 }
+
+# --- R5: bundle-shipped .mcp-config.json rejected (CWE-59 symlink write-through) ---
+# The adapter writes its MCP config into the untrusted bundle pre-sandbox; a
+# bundle-carried symlink there would make the redirection clobber a host file.
+# Regression for the R5 review fix: any pre-existing entry (symlink OR regular
+# file) must fail closed before the write, leaving both the victim and the
+# shipped entry untouched.
+@test "R5: adapter rejects bundle-shipped .mcp-config.json (symlink and regular)" {
+  mkdir -p "$TEST_TMPDIR/stub-bin" "$TEST_TMPDIR/home/.claude"
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$TEST_TMPDIR/stub-bin/claude"
+  chmod +x "$TEST_TMPDIR/stub-bin/claude"
+  echo "dummy" > "$TEST_TMPDIR/home/.claude/.credentials.json"
+  for state in symlink regular; do
+    local BUNDLE="$TEST_TMPDIR/bundle-$state" VICTIM="$TEST_TMPDIR/victim-$state" OUT="$TEST_TMPDIR/out-$state"
+    mkdir -p "$BUNDLE" "$OUT"
+    printf 'sentinel-%s\n' "$state" > "$VICTIM"
+    if [[ "$state" == symlink ]]; then
+      ln -s "$VICTIM" "$BUNDLE/.mcp-config.json"
+    else
+      cp "$VICTIM" "$BUNDLE/.mcp-config.json"
+    fi
+    run env PATH="$TEST_TMPDIR/stub-bin:$PATH" HOME="$TEST_TMPDIR/home" \
+      bash "$REPO_ROOT/scripts/review/adapters/claude-code.sh" --pass code-reviewer --bundle "$BUNDLE" \
+      --schema "$REPO_ROOT/schemas/review-findings.schema.json" --out "$OUT" --timeout 5
+    [ "$status" -eq 1 ] || { echo "$state: expected exit 1, got $status"; false; }
+    [[ "$output" == *"bundle must not ship .mcp-config.json"* ]] || { echo "$state: diagnostic missing: $output"; false; }
+    grep -qx "sentinel-$state" "$VICTIM" || { echo "$state: victim file modified (write-through)"; false; }
+    [ ! -f "$OUT/pass.json" ] || { echo "$state: pass.json created"; false; }
+    if [[ "$state" == regular ]]; then
+      cmp -s "$BUNDLE/.mcp-config.json" "$VICTIM" || { echo "regular: shipped entry modified"; false; }
+    else
+      [[ -L "$BUNDLE/.mcp-config.json" ]] || { echo "symlink: shipped link removed"; false; }
+    fi
+  done
+}

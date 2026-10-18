@@ -28,6 +28,10 @@ mkdir -p "$OUT_DIR"
 
 # MCP config inside the bundle so it's visible at /bundle/ in the sandbox
 MCP_CONFIG="$BUNDLE/.mcp-config.json"
+# The bundle is untrusted input: a bundle-shipped .mcp-config.json must never reach
+# the write below — a symlink there makes the redirection follow it and clobber a
+# host file (CWE-59). Fail closed. (-L is load-bearing: dangling symlinks fail -e.)
+[[ -e "$MCP_CONFIG" || -L "$MCP_CONFIG" ]] && { echo "error: bundle must not ship .mcp-config.json" >&2; exit 1; }
 PROMPT_FILE="$(mktemp)"
 trap 'rm -f "$PROMPT_FILE" "$MCP_CONFIG"' EXIT
 printf '{"mcpServers": {}}\n' > "$MCP_CONFIG"
