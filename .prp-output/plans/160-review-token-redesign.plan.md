@@ -599,3 +599,49 @@ The sweep failures have now come up in R1 (path navigation), R2 (copied table), 
   - (e) Every sweep exits non-zero on `bad > 0` or 0 cases executed. bats asserts the exact count as an anchored token (`executed=39 ` with a following space, or a regex), not a substring.
 - **Pinned schema:** unchanged (sha256 1250e78a…); the table content is unchanged.
 - **Verified by:** sweeps (a)–(c) in bats with derived counts; mutation tests (d) all killed; the reproduction above (array + `pattern`) is mutant 1 and must fail.
+
+## Revision 10 proposal: phase order and v1 scope after the round data (2026-10-18, PENDING devlead-codex peer review)
+
+**Input:** brief 20261018-1530-7c1e, relayed from pane -3 (นุด: "ทำ1 ก่อนครับ ถ้าได้ข้อมูลครบแล้วค่อยเริ่ม 2,3"). Data: Oracle `learning_2026-10-18_measurement-where-review-rounds-go-52-prs-merg`; scripts and `rounds.tsv` (175 lines) in `~/tmp/review-rounds-analysis-20261018/`. 52 PRs merged 2026-10-11..18, 310 rounds, median 5:
+
+| Bucket | Rounds | Share |
+|---|---|---|
+| 2-round minimum | 104 | 34% |
+| fix loop before the first clean round | 103 | 33% |
+| re-roll between the first and the 2nd consecutive clean round | 53 | 17% |
+| after 2-clean, head changed by a merger CHANGES_REQUESTED | 50 | 16% |
+
+After a clean round, the next round at the SAME head came back dirty 28 of 77 times (36%). Late C/I came from silent-failure-hunter 27, code-reviewer 12 and security-reviewer 8, and pointed at product paths 40 times and at test/tooling paths 2 times. Cost: headless 4.9M cache_read per run against 10.1M in-session, so headless stays the base.
+
+Stop-rule changes are นุด's decision (pane -3) and are not part of this revision.
+
+### R10-1: Phase 6 (confirm) moves to right after Phase 2. Accepted, with two conditions.
+- **Order:** 0 → 1 → 1.5 → 2 → **6** → 3 → 4 → 5 → 7. Benchmarks (a)/(b)/(c), the adoption rule ("a missed fault class blocks adoption; cost alone never justifies it") and "no confirm in the gate tier" are unchanged.
+- **Condition 1: the gate-tier rule needs a gate tier.** `pr-risk-tier` today prints only `trivial` or `standard` (`~/ops/bin/pr-risk-tier --help`, 2026-10-18). The `gate` classification and its precedence (`gate` > `standard`, with a pair test) move from Phase 5 into Phase 6. Until it ships, confirm is ineligible on every PR (fail closed). The docs tier and conditional passes stay in Phase 5.
+- **Condition 2: the confirm pass set comes from the data, not from the old design.** The carried design runs only a code pass with a "Critical/Important only" brief. But 27 of 47 late C/I came from silent-failure-hunter and only 12 from code-reviewer. So a code-only confirm would likely miss the largest late class, and benchmark (b) would then block adoption anyway.
+  - Benchmark (b) is extended with a real corpus: the 28 same-head dirty rounds above, frozen as heads and labelled by source pass.
+  - The confirm pass set is the smallest set that detects every labelled class in (b). It starts from code + silent-failure-hunter, both with C/I-only briefs.
+  - If that set breaks the "confirm ≤ 25% of a full round" target, the target is reported as missed. It is never met by dropping a pass.
+- **Not claimed:** the data does not say whether the 36% same-head findings are real defects or run-to-run variance. Benchmark (b) measures detection on labelled heads; it does not settle that question.
+
+### R10-2: "Phase 2-lite" (the CLI posts fmt=1 before Phase 1.5). Psak recommends rejecting it; devlead-codex decides.
+- **It breaks a stated invariant:** "The CLI never emits fmt=1. A test asserts it" (Phase 1.5, round-7 finding 3). That invariant is how the gates tell a CLI round from a legacy round.
+- **Not the same gap as today.** The R6-4 gap (conditional completeness not enforced) exists in legacy rounds today, but it ends at cutover for a known, bounded set of commands. Phase 2-lite adds a second, indistinguishable producer of fmt=1 rounds. Removing it later needs a new invariant.
+- **The saving is small and temporary.** It lands only on Claude Code rounds between Phase 2-lite and Phase 1.5, which is one stacked PR's worth of time.
+- **Recommendation:** keep the order 1.5 → 2.
+
+### R10-3: v1 scope (the first PRs before a payoff).
+- **fmt=2 dual mode stays in v1.** The CLI posts only fmt=2, so without gate acceptance of fmt=2 it cannot post at all. Deferring dual mode would amount to R10-2.
+- **The probe child sandbox moves out of v1, to before Phase 3 (cutover), and stays fail closed.**
+  - From Phase 2 to the probe PR, the CLI exits non-zero with "review unavailable: probe required (<reason>); run the legacy review" in two cases: when the path map requires a probe (Phase 1 (a)), and when any pass emits `probe_requests` (Phase 1 (b)).
+  - Such a PR is reviewed by the legacy flow, which still runs on every harness until Phase 3.
+  - Nothing is silently skipped. A bats test asserts both exits, and AC0.4 counts these runs as class (c).
+  - Phase 3's cutover condition gains: "the probe child sandbox has shipped and passes conformance (e)".
+- **Effect:** v1 is Phase 1 without the probe child, then Phase 1.5, then Phase 2. That is one stacked PR fewer before the first CLI round posts.
+
+### R10-4: Phase 0 AC0.4 is built on `rounds52.py`. Accepted.
+- `scripts/bench/review-rounds.py` is a reviewed port of `~/tmp/review-rounds-analysis-20261018/rounds52.py`, using the same read-only rules as AC0.3. It is a port, not a copy: tests and boundary cases come from AC0.4.
+- **AC0.4 item 2 gains the four buckets above** (minimum / fix loop / re-roll / post-clean head change) and the same-head-dirty-after-clean rate. They are re-measured after cutover, and again after Phase 6.
+
+**Invariant (unchanged):** a review round's evidence is either a legacy fmt=1 round or a CLI fmt=2 round, and the gates can always tell which. Confirm is accepted only on its eligibility path, never in the gate tier, and never before the gate tier exists.
+**Verified by:** the Phase 1.5 fmt tests (the CLI never emits fmt=1); the new Phase 6 tests (confirm ineligible with no gate tier; `gate` > `standard` pair test); the probe-unavailable bats test (two exits); benchmark (b) on the 28-head corpus.
