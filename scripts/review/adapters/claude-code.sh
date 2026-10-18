@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 # Claude Code adapter for review passes (prp-framework#160).
-# Enforcement: app-level tool allowlist (Read, Grep, Glob only);
-#   --strict-mcp-config with empty MCP config; --json-schema for output.
-#   Deny rules on auth files. Output scanned for credential patterns.
+# Enforcement: --allowedTools Read,Grep,Glob; --strict-mcp-config; --settings deny rules.
+# Output scanned for credential patterns (I4b: labels only, never matched text).
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -18,8 +17,7 @@ while [[ $# -gt 0 ]]; do
 done
 [[ -z "$PASS" || -z "$BUNDLE" || -z "$SCHEMA" || -z "$OUT_DIR" ]] && { echo "error: --pass, --bundle, --schema and --out required" >&2; exit 1; }
 
-CLAUDE_BIN="$(command -v claude 2>/dev/null)" || { echo "error: claude not found" >&2; exit 1; }
-[[ -x "$CLAUDE_BIN" ]] || { echo "error: claude not executable" >&2; exit 1; }
+command -v claude >/dev/null 2>&1 || { echo "error: claude not found" >&2; exit 1; }
 AUTH_FILE="$HOME/.claude/.credentials.json"
 [[ -f "$AUTH_FILE" ]] || { echo "error: claude auth file not found at $AUTH_FILE" >&2; exit 1; }
 mkdir -p "$OUT_DIR"
@@ -27,10 +25,12 @@ mkdir -p "$OUT_DIR"
 MCP_CONFIG="$(mktemp)"; trap 'rm -f "$MCP_CONFIG"' EXIT
 printf '{"mcpServers": {}}\n' > "$MCP_CONFIG"
 
+DENY_SETTINGS='{"permissions":{"deny":["Read(~/.claude/**)", "Grep(~/.claude/**)", "Glob(~/.claude/**)", "Read(~/.claude.json)"]}}'
+
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 AGENT_DEF="$REPO_ROOT/adapters/claude-code-agents/$PASS.md"
 REVIEWED_HEAD=""
-[[ -f "$BUNDLE/metadata.json" ]] && REVIEWED_HEAD=$(python3 -I -c "import json; print(json.load(open('$BUNDLE/metadata.json')).get('head',''))" 2>/dev/null || true)
+[[ -f "$BUNDLE/metadata.json" ]] && REVIEWED_HEAD=$(python3 -I -c "import json,sys; print(json.load(open(sys.argv[1])).get('head',''))" "$BUNDLE/metadata.json" 2>/dev/null || true)
 
 PROMPT="You are a review pass ($PASS). Review the code in /bundle/."
 [[ -f "$AGENT_DEF" ]] && PROMPT="$(cat "$AGENT_DEF")
@@ -44,15 +44,12 @@ Do NOT write any files. Do NOT use shell commands. Only read files with Read, Gr
 exit_code=0
 "$SCRIPT_DIR/sandbox.sh" --harness claude-code --bundle "$BUNDLE" --auth-file "$AUTH_FILE" \
   --timeout "$TIMEOUT" --nice "$NICE" -- \
-  "$CLAUDE_BIN" -p "$PROMPT" \
+  claude -p "$PROMPT" \
     --allowedTools 'Read,Grep,Glob' \
     --output-format json \
     --json-schema "$(cat "$SCHEMA")" \
-    --strict-mcp-config "$MCP_CONFIG" \
-    --no-input \
-    --permissions-deny "Read($HOME/.claude/**)" \
-    --permissions-deny "Grep($HOME/.claude/**)" \
-    --permissions-deny "Glob($HOME/.claude/**)" \
+    --mcp-config "$MCP_CONFIG" --strict-mcp-config \
+    --settings "$DENY_SETTINGS" \
   > "$OUT_DIR/pass.json" 2>"$OUT_DIR/stderr.log" || exit_code=$?
 
 if [[ $exit_code -ne 0 ]]; then
@@ -61,10 +58,12 @@ if [[ $exit_code -ne 0 ]]; then
   exit $exit_code
 fi
 
-# I4b: scan output for credential patterns
-if grep -qE 'sk-ant-|eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.|ghp_|gho_|github_pat_' "$OUT_DIR/pass.json"; then
-  pattern=$(grep -oE 'sk-ant-|eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.|ghp_|gho_|github_pat_' "$OUT_DIR/pass.json" | head -1)
-  echo "error: credential pattern in pass output: $pattern" >&2
-  rm -f "$OUT_DIR/pass.json"
-  exit 1
-fi
+# I4b: scan for credential patterns — print label only, never matched text
+_scan_cred() {
+  local f="$1"
+  if grep -qE 'sk-ant-' "$f"; then echo "error: credential pattern in output: sk-ant" >&2; return 1; fi
+  if grep -qE 'eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.' "$f"; then echo "error: credential pattern in output: jwt" >&2; return 1; fi
+  if grep -qE 'ghp_|gho_|github_pat_' "$f"; then echo "error: credential pattern in output: github-token" >&2; return 1; fi
+  return 0
+}
+if ! _scan_cred "$OUT_DIR/pass.json"; then rm -f "$OUT_DIR/pass.json"; exit 1; fi
