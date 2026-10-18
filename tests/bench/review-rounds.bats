@@ -38,6 +38,11 @@ teardown() { rm -rf -- "$TEST_TMPDIR" 2>/dev/null || true; }
   python3 -I -c "import json,sys; d=json.loads(sys.argv[1]); assert d['sessions'][0]['skipped_lines']==1" "$output"
   [[ "$output" != *"Traceback"* ]]
 }
+@test "fallback: markdown output shows skipped lines" {
+  run python3 -I "$RR" fallback "$FIX/truncated.jsonl"
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -q '| skipped (unparseable) lines | 1 |'
+}
 
 # --- rounds (fixture-based, no network) ---
 @test "rounds: clean (0 found) → class clean (regression defect 3)" {
@@ -64,6 +69,31 @@ teardown() { rm -rf -- "$TEST_TMPDIR" 2>/dev/null || true; }
   run env REVIEW_ROUNDS_GH_FIXTURES="$GH" python3 -I "$RR" rounds --json --repo test/repo --prs 88
   [ "$status" -eq 0 ]
   python3 -I -c "import json,sys; assert json.loads(sys.argv[1])[0]['status']=='unmerged'" "$output"
+}
+@test "rounds: real numbered '1. **T**' findings give families; indented sub-bullets do not" {
+  run env REVIEW_ROUNDS_GH_FIXTURES="$GH" python3 -I "$RR" rounds --json --repo test/repo --prs 77
+  [ "$status" -eq 0 ]
+  python3 -I -c "import json,sys; r=json.loads(sys.argv[1])[0]['rounds']; assert r[0]['families']==['alpha cap is never enforced'], r[0]" "$output"
+}
+@test "rounds: a Suggestions title is not a family (scoped to C/I section)" {
+  run env REVIEW_ROUNDS_GH_FIXTURES="$GH" python3 -I "$RR" rounds --json --repo test/repo --prs 77
+  [ "$status" -eq 0 ]
+  python3 -I -c "import json,sys; r=json.loads(sys.argv[1])[0]['rounds']; assert r[1]['class']=='a', r[1]; assert r[2]['class']=='b', r[2]" "$output"
+}
+@test "rounds: findings-table row gives a family (header/separator skipped)" {
+  run env REVIEW_ROUNDS_GH_FIXTURES="$GH" python3 -I "$RR" rounds --json --repo test/repo --prs 77
+  [ "$status" -eq 0 ]
+  python3 -I -c "import json,sys; r=json.loads(sys.argv[1])[0]['rounds']; assert r[3]['families']==['beta naming is unclear'], r[3]; assert r[3]['class']=='b', r[3]" "$output"
+}
+@test "rounds: missing comments fixture → status error, exit 2 (not a 0-round merge)" {
+  run env REVIEW_ROUNDS_GH_FIXTURES="$GH" python3 -I "$RR" rounds --json --repo test/repo --prs 66
+  [ "$status" -eq 2 ]
+  python3 -I -c "import json,sys; s=sys.argv[1]; d=json.JSONDecoder().raw_decode(s, s.index('['))[0]; assert d[0]['status']=='error', d" "$output"
+}
+@test "rounds: missing pulls fixture → status error, exit 2 (not 'unmerged')" {
+  run env REVIEW_ROUNDS_GH_FIXTURES="$GH" python3 -I "$RR" rounds --repo test/repo --prs 55
+  [ "$status" -eq 2 ]
+  echo "$output" | grep -q 'PR #55: ERROR fixture missing'
 }
 
 # --- misc ---
