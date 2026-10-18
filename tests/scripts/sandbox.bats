@@ -210,6 +210,30 @@ teardown() {
   [ ! -f "$TEST_TMPDIR/out/pass.json" ]
 }
 
+# Regression for the 6a0614d guard: with adapters/claude-code-agents missing or
+# empty, the diagnostic must still print (previously set -e killed the script
+# inside the available= substitution, silently). Drives a copied fake repo so
+# the adapter's derived REPO_ROOT has a mutable agents dir.
+@test "I4b: unknown --pass diagnostic survives broken agents dir (missing/empty)" {
+  mkdir -p "$TEST_TMPDIR/stub-bin"
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$TEST_TMPDIR/stub-bin/claude"
+  chmod +x "$TEST_TMPDIR/stub-bin/claude"
+  for state in missing empty; do
+    local FAKE_REPO="$TEST_TMPDIR/repo-$state" HOME_DIR="$TEST_TMPDIR/home-$state"
+    mkdir -p "$FAKE_REPO/scripts" "$FAKE_REPO/adapters" "$HOME_DIR/.claude" "$TEST_TMPDIR/out-$state"
+    cp -r "$REPO_ROOT/scripts/review" "$FAKE_REPO/scripts/"
+    [[ "$state" == "empty" ]] && mkdir -p "$FAKE_REPO/adapters/claude-code-agents"
+    echo "dummy" > "$HOME_DIR/.claude/.credentials.json"
+    run env PATH="$TEST_TMPDIR/stub-bin:$PATH" HOME="$HOME_DIR" \
+      bash "$FAKE_REPO/scripts/review/adapters/claude-code.sh" --pass no-such-pass --bundle "$TEST_TMPDIR" \
+      --schema "$REPO_ROOT/schemas/review-findings.schema.json" --out "$TEST_TMPDIR/out-$state" --timeout 5
+    [ "$status" -eq 1 ] || { echo "$state: expected exit 1, got $status"; false; }
+    [[ "$output" == *"no agent definition"* ]] || { echo "$state: diagnostic missing: $output"; false; }
+    [[ "$output" == *"(available: none)"* ]] || { echo "$state: available fallback missing: $output"; false; }
+    [ ! -f "$TEST_TMPDIR/out-$state/pass.json" ] || { echo "$state: pass.json created"; false; }
+  done
+}
+
 @test "adapter flags: claude adapter uses strip-frontmatter" {
   run grep -c "strip.frontmatter\|strip_frontmatter" "$REPO_ROOT/scripts/review/adapters/claude-code.sh"
   [[ "$output" -ge 1 ]]
