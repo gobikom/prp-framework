@@ -4,8 +4,9 @@
 # Invariant 4: a pass process sees only the sanitized bundle and its harness runtime.
 #
 # Residual (review pass): network is OPEN — model API, internet, and host loopback are
-# reachable. Loopback services (psak-soul-mcp :8000, oracle-v3 :47778, task-server :8086)
-# are token-gated (401 without auth). The pass holds no token (I4a clearenv + I4b deny).
+# reachable. Loopback services are token-gated (401 without auth). No token (I4a + I4b).
+# Deny-pattern syntax: Read(~/...) for HOME-relative; Read(//...) for absolute; Read(/x)
+# is relative to the project root, NOT absolute (measured: psak 2026-10-18).
 #
 # Probe child: --unshare-all (no network at all); no auth file; clearenv; writable /work.
 set -euo pipefail
@@ -13,13 +14,19 @@ set -euo pipefail
 HARNESS="" BUNDLE="" AUTH_FILE="" PROBE=false TIMEOUT=300 NICE=10
 DEFAULT_NPROC=256
 ULIMIT_NPROC=""
+EXTRA_RO_BINDS=()
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --harness)      HARNESS="$2"; shift 2 ;; --bundle) BUNDLE="$2"; shift 2 ;;
     --auth-file)    AUTH_FILE="$2"; shift 2 ;; --probe) PROBE=true; shift ;;
     --timeout)      TIMEOUT="$2"; shift 2 ;; --nice) NICE="$2"; shift 2 ;;
-    --ulimit-nproc) ULIMIT_NPROC="$2"; shift 2 ;; --) shift; break ;;
+    --ulimit-nproc) ULIMIT_NPROC="$2"; shift 2 ;;
+    --extra-ro-bind) # src:dst — dst must be under $HOME/.claude/
+      local_src="${2%%:*}"; local_dst="${2#*:}"
+      [[ "$local_dst" == "$HOME/.claude/"* ]] || { echo "error: --extra-ro-bind dst must be under \$HOME/.claude/" >&2; exit 1; }
+      EXTRA_RO_BINDS+=("$local_src" "$local_dst"); shift 2 ;;
+    --) shift; break ;;
     *) echo "error: unknown flag $1" >&2; exit 1 ;;
   esac
 done
@@ -68,6 +75,9 @@ else
     if [[ -n "$AUTH_FILE" ]] && [[ -f "$AUTH_FILE" ]]; then
       bwrap_args+=(--ro-bind "$AUTH_FILE" "$AUTH_FILE")
     fi
+    local i; for ((i=0; i<${#EXTRA_RO_BINDS[@]}; i+=2)); do
+      bwrap_args+=(--ro-bind "${EXTRA_RO_BINDS[$i]}" "${EXTRA_RO_BINDS[$((i+1))]}")
+    done
   }
 
   case "$HARNESS" in
