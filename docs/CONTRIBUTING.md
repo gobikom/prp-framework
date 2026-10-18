@@ -53,7 +53,7 @@ bats tests/scripts/scripts.bats    # helper scripts (8 tests)
 bats tests/commands/structure.bats # command markdown structure (89 tests)
 bats tests/adapters/parity.bats    # cross-adapter parity (28 tests)
 bats tests/bench/review-cost.bats  # dev/bench: review-cost.py token accounting (33 tests)
-bats tests/bench/review-rounds.bats # dev/bench: review-rounds.py fallback classifier (44 tests)
+bats tests/bench/review-rounds.bats # dev/bench: review-rounds.py fallback classifier (46 tests)
 ```
 
 ### E2E Infrastructure Tests
@@ -209,7 +209,7 @@ Then run `install.sh` to create symlinks.
 | `scripts/bench/review-cost.py` | Dev-only: sums Claude Code session token usage for cost reporting (not installed into consumer projects) |
 | `tests/bench/review-cost.bats` | bats tests for `review-cost.py` (33 test cases) |
 | `scripts/bench/review-rounds.py` | Dev-only: classifies review transcripts as incremental / fell-back / unknown / full-requested through one typed boundary (not installed into consumer projects) |
-| `tests/bench/review-rounds.bats` | bats tests for `review-rounds.py` (44 test cases); `tests/bench/mutate_fixtures.py` builds its shape-mutation and field-arm variants |
+| `tests/bench/review-rounds.bats` | bats tests for `review-rounds.py` (46 test cases); `tests/bench/mutate_fixtures.py` builds its shape-mutation and field-arm variants |
 
 ## Adding a New Workflow
 

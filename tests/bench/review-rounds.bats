@@ -31,6 +31,13 @@ teardown() { rm -rf -- "$TEST_TMPDIR" 2>/dev/null || true; }
   [ "$status" -eq 0 ]
   python3 -I -c "import json,sys; d=json.loads(sys.argv[1]); assert d['sessions'][0]['mode']=='full-requested' and d['invoked']==0" "$output"
 }
+@test "fallback: no parseable user prompt → unknown ('first_prompt'), never full-requested" {
+  : > "$TEST_TMPDIR/empty.jsonl"; printf 'not json {{{\n{"type":"summary","summary":"x"}\n' > "$TEST_TMPDIR/garbage.jsonl"
+  printf '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"ok"}]}}\n' > "$TEST_TMPDIR/resumed.jsonl"
+  run python3 -I "$RR" fallback --json "$TEST_TMPDIR/empty.jsonl" "$TEST_TMPDIR/garbage.jsonl" "$TEST_TMPDIR/resumed.jsonl"
+  [ "$status" -eq 0 ]
+  python3 -I -c "import json,sys; ss=json.loads(sys.argv[1])['sessions']; assert all(s['mode']=='unknown' and s['unknown_fields']==['first_prompt'] and s['invoked'] is None for s in ss), ss" "$output"
+}
 @test "fallback: truncated line counted" {
   run python3 -I "$RR" fallback --json "$FIX/truncated.jsonl"
   [ "$status" -eq 0 ]
@@ -184,6 +191,14 @@ _arm() {
 @test "field-arm: message" { _arm message; }
 @test "field-arm: message.content" { _arm message.content; }
 @test "field-arm: a replayed id pairs FIFO, no orphan" { _arm replay; }
+@test "field-arm: weakening _is_bool fails the is_error arm (mutation check)" {
+  sed 's/type(v) is bool/isinstance(v, (bool, int))/' "$RR" > "$TEST_TMPDIR/rr-mut.py"
+  mkdir "$TEST_TMPDIR/a"
+  python3 -I "$BATS_TEST_DIRNAME/mutate_fixtures.py" field-arms "$TEST_TMPDIR/a" "$FIX" > /dev/null
+  python3 -I "$TEST_TMPDIR/rr-mut.py" fallback --json "$TEST_TMPDIR"/a/*.jsonl > "$TEST_TMPDIR/out.json"
+  run python3 -I "$BATS_TEST_DIRNAME/mutate_fixtures.py" check "$TEST_TMPDIR/a/expected.tsv" "$TEST_TMPDIR/out.json" is_error
+  [ "$status" -eq 1 ]
+}
 @test "field-arm: the mutator names an unreadable fixture and exits 2" {
   run python3 -I "$BATS_TEST_DIRNAME/mutate_fixtures.py" field-arms "$TEST_TMPDIR" "$TEST_TMPDIR/missing"
   [ "$status" -eq 2 ]

@@ -145,14 +145,14 @@ def _norm_result_text(c, unk):
 # --- end of the boundary ------------------------------------------------------
 
 def _first_prompt(events):
-    """The first user prompt (str), or UNKNOWN when that prompt block's text is UNKNOWN."""
+    """The first user prompt (str); UNKNOWN if its text block is; None if no user text exists."""
     for e in events:
         if e["type"] not in ("human", "user"): continue
         if e["text"]: return e["text"]
         for block in e["blocks"]:
             if block["type"] == "text":
                 return block["text"]
-    return ""
+    return None
 
 REVIEW_FILE_PAT = re.compile(r"pr-\d+-agents-review\.md|\.prp-output/reviews\b")
 INCR_DIFF_PAT = re.compile(r"pr-\d+-incremental\.diff")
@@ -204,11 +204,13 @@ def classify_mode(events):
     """(mode, invoked, orphan_results, unknown_fields).
 
     mode: 'unknown' whenever any field is UNKNOWN (invoked is then None when the first prompt
-    itself is UNKNOWN, and orphan_results None: pairing is not attempted); otherwise
+    itself is UNKNOWN, pairing not attempted) or absent ('first_prompt'); otherwise
     'full-requested' (not invoked), 'incremental', 'fell-back' or 'unknown' as in the module doc.
     """
     unknown_fields = sorted({f for e in events for f in e["unknown"]})
     prompt = _first_prompt(events)
+    if prompt is None:  # no parseable user prompt: absence is never read as 'not invoked'
+        return "unknown", None, None, sorted(set(unknown_fields) | {"first_prompt"})
     invoked = None if prompt is UNKNOWN else "--since-last-review" in prompt
     if unknown_fields: return "unknown", invoked, None, unknown_fields
     calls, orphans = _tool_calls(events)
