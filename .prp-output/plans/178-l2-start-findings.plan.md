@@ -206,3 +206,37 @@ Revision 3 replaces any Revision 2 line it contradicts.
 - merger's APPROVE is **not** required. A REQUEST CHANGES for a reason unrelated to the start comment is a pass; one that cites the start comment is a fail.
 - On a fail, the release is frozen: PR-C0 is not merged and stays open with the evidence, and PR-A carries a reader fix first.
 - AC5b failure after merge: freeze (no new-format round counts), then revert via safe-merge. Comments already posted stay on their PRs. A revert does not erase them, so the freeze note on #160 lists every PR that has a new-format round, and merger is told to ignore those start comments.
+
+## Revision 4 (devlead-codex REVISE on 2c62d87: 2 Important)
+Revision 4 replaces any Revision 3 line it contradicts.
+
+**R4-1 `mode` goes on its own line; the footer stays byte-for-byte unchanged** (codex #1, verified by psak).
+- In ops `bin/safe-merge`:
+  - line 491 takes the last non-blank line as the footer;
+  - line 492 matches it with `^Generated-by: prp-review-agents v[0-9A-Za-z.+-]+ run=([A-Za-z0-9-]+) pass=$pass$`. The regex is anchored, so any trailing field fails provenance.
+- The R3-2 "footer field / grep first, else separate line" alternative is **withdrawn**. The comment layout is fixed as:
+
+      ... ### Prior findings ...
+      ```review-findings
+      {json}
+      ```
+      (blank)
+      Review-mode: full|incremental
+      (blank)
+      Generated-by: prp-review-agents v<ver> run=<id> pass=<pass>
+
+  The footer is unchanged and stays the last non-blank line.
+- `check-l2-body.py` order rule: after the fence closes, only blank lines, then exactly one `^Review-mode: (full|incremental)$` line, then only blank lines up to the footer. `--prior` (R3-2) reads the mode from this line.
+- **Reader tests run before the scratch PR (AC5a):**
+  - a bats fixture feeds a new-format body for each mode through the exact extraction and regex at safe-merge 491–492 (copied from ops at a pinned SHA, cited) and through the L2 recipe's selection (soul-skills cloud-delegate 330–380, pinned SHA);
+  - it asserts that the run id is extracted and that line 1 is selected as `Reviewed head:`;
+  - it asserts that the start comment is not selected.
+
+  These fixtures fail on the R3-2 trailing-field form, as a negative control.
+- No reader or gate is changed in PR-C0. Changing a reader is coordinated in SO#1367 PR-A.
+
+**R4-2 A resolved item may have `regression_test: none`** (codex #2).
+- Grammar: `- <id12> resolved was=<file>:<s>-<e> fix=<file2>:<s2>-<e2> regression_test: (<path>::<name>|none)`.
+- A normal round can resolve a finding without a test. SO#1367 requires the test only for an SC closure, so a resolved item with `none` is SC-ineligible. PR-A's merger rule enforces this, and the PR-A plan will cite this line. PR-C0 only emits it and validates the syntax.
+- `open` items stay `regression_test: none` only.
+- Arm P29: resolved + `none` → Step C posts, and the fixture asserts the item is marked SC-ineligible (no test).
