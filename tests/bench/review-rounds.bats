@@ -26,17 +26,20 @@ teardown() { rm -rf -- "$TEST_TMPDIR" 2>/dev/null || true; }
   [ "$status" -eq 0 ]
   python3 -I -c "import json,sys; m=json.loads(sys.argv[1])['sessions'][0]['mode']; assert m!='fell-back', f'got {m}'" "$output"
 }
-@test "fallback: full-requested excluded from rate" {
-  run python3 -I "$RR" fallback --json "$FIX/full-requested.jsonl"
+@test "fallback: invocation not read — fallback_rate null in JSON, markdown says unavailable" {
+  run python3 -I "$RR" fallback --json "$FIX/full-requested.jsonl" "$FIX/incremental.jsonl"
   [ "$status" -eq 0 ]
-  python3 -I -c "import json,sys; d=json.loads(sys.argv[1]); assert d['sessions'][0]['mode']=='full-requested' and d['invoked']==0" "$output"
+  python3 -I -c "import json,sys; d=json.loads(sys.argv[1]); assert d['fallback_rate'] is None and all(s['invoked'] is None and s['invocation_reason']=='invocation.not-read' for s in d['sessions']), d" "$output"
+  run python3 -I "$RR" fallback "$FIX/full-requested.jsonl" "$FIX/incremental.jsonl"
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -q '^fallback rate: unavailable — invocation not read (see #177b)$'
 }
-@test "fallback: no parseable user prompt → unknown ('first_prompt'), never full-requested" {
+@test "fallback: no parseable user prompt → unknown (invocation not read; #177b restores the reason)" {
   : > "$TEST_TMPDIR/empty.jsonl"; printf 'not json {{{\n{"type":"summary","summary":"x"}\n' > "$TEST_TMPDIR/garbage.jsonl"
   printf '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"ok"}]}}\n' > "$TEST_TMPDIR/resumed.jsonl"
   run python3 -I "$RR" fallback --json "$TEST_TMPDIR/empty.jsonl" "$TEST_TMPDIR/garbage.jsonl" "$TEST_TMPDIR/resumed.jsonl"
   [ "$status" -eq 0 ]
-  python3 -I -c "import json,sys; ss=json.loads(sys.argv[1])['sessions']; assert all(s['mode']=='unknown' and s['unknown_fields']==['first_prompt'] and s['invoked'] is None for s in ss), ss" "$output"
+  python3 -I -c "import json,sys; ss=json.loads(sys.argv[1])['sessions']; assert all(s['mode']=='unknown' and s['invoked'] is None and s['invocation_reason']=='invocation.not-read' and s['unknown_fields']==[] for s in ss), ss" "$output"
 }
 @test "fallback: truncated line counted" {
   run python3 -I "$RR" fallback --json "$FIX/truncated.jsonl"
@@ -44,10 +47,10 @@ teardown() { rm -rf -- "$TEST_TMPDIR" 2>/dev/null || true; }
   python3 -I -c "import json,sys; d=json.loads(sys.argv[1]); assert d['sessions'][0]['skipped_lines']==1" "$output"
   [[ "$output" != *"Traceback"* ]]
 }
-@test "fallback: unknown arm (invoked, no diff, no not-found)" {
+@test "fallback: unknown arm (no diff, no not-found; invocation not read)" {
   run python3 -I "$RR" fallback --json "$FIX/unknown.jsonl"
   [ "$status" -eq 0 ]
-  python3 -I -c "import json,sys; s=json.loads(sys.argv[1])['sessions'][0]; assert s['mode']=='unknown' and s['invoked'], s" "$output"
+  python3 -I -c "import json,sys; s=json.loads(sys.argv[1])['sessions'][0]; assert s['mode']=='unknown' and s['invoked'] is None, s" "$output"
 }
 @test "fallback: incremental via pr-N-incremental.diff file" {
   run python3 -I "$RR" fallback --json "$FIX/incremental-diff-file.jsonl"
@@ -119,10 +122,10 @@ teardown() { rm -rf -- "$TEST_TMPDIR" 2>/dev/null || true; }
   [ "$status" -eq 0 ]
   python3 -I -c "import json,sys; s=json.loads(sys.argv[1])['sessions'][0]; assert s['mode']=='incremental', s" "$output"
 }
-@test "fallback: I1 — the arm fixtures cover every classifier arm" {
+@test "fallback: I1 — the arm fixtures cover every classifier arm (evidence modes)" {
   run python3 -I "$RR" fallback --json "$FIX/full-requested.jsonl" "$FIX/incremental.jsonl" "$FIX/incremental-diff-file.jsonl" "$FIX/fell-back-no-prev.jsonl" "$FIX/unknown.jsonl"
   [ "$status" -eq 0 ]
-  python3 -I -c "import json,sys; m={s['mode'] for s in json.loads(sys.argv[1])['sessions']}; assert m=={'full-requested','incremental','fell-back','unknown'}, m" "$output"
+  python3 -I -c "import json,sys; m={s['mode'] for s in json.loads(sys.argv[1])['sessions']}; assert m=={'incremental','fell-back','unknown'}, m" "$output"
 }
 @test "fallback: valid-JSON non-object lines are skipped, not a crash" {
   run python3 -I "$RR" fallback --json "$FIX/non-object-line.jsonl"

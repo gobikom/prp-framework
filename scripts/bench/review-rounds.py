@@ -7,21 +7,24 @@ Invariant: every value read from a transcript record passes through ONE
 boundary, the _norm_* functions. They return each field as a value of its
 expected type or the sentinel UNKNOWN, and record the field's name. No other
 function reads raw JSON. A session with any UNKNOWN field is mode 'unknown',
-never incremental / fell-back / full-requested, and lists the fields in
-'unknown_fields'. Expected types come from 212 real review sessions (plan
+never incremental / fell-back, and lists the fields in 'unknown_fields'.
+Expected types come from 212 real review sessions (plan
 .prp-output/plans/176-review-rounds-typed.plan.md).
 
-Fallback classifier (tool-event based): a run whose first prompt carries
---since-last-review is 'invoked'; any other run is 'full-requested' and is
-excluded from the fallback rate. Each tool command gets one outcome from its
-own paired result (paired by tool_use_id, earliest unpaired use first): ok,
-failed (a not-found about the review file or diff itself), error (another
-is_error result) or missing (no result); error and missing are never
-evidence. An invoked run is 'incremental' when a command on
-pr-N-incremental.diff or a two-SHA `git diff A B` / `A...B` is ok; else
-'fell-back' when a command on the review file or .prp-output/reviews failed,
-or the assistant says "No previous review found" / "Running full review";
-anything else is 'unknown'.
+Evidence classifier (#177 base): the invocation is NOT read. Every session
+reports invoked null with reason 'invocation.not-read'; there is no
+'full-requested' and no fallback rate (JSON 'fallback_rate': null; the
+markdown prints 'fallback rate: unavailable — invocation not read (see
+#177b)'). Deciding invocation from a positively identified review invocation
+is #177b's layer. Each tool command gets one outcome from its own paired
+result (paired by tool_use_id, earliest unpaired use first): ok, failed (a
+not-found about the review file or diff itself), error (another is_error
+result) or missing (no result); error and missing are never evidence. A
+session is 'incremental' when a command on pr-N-incremental.diff or a
+two-SHA `git diff A B` / `A...B` is ok; else 'fell-back' when a command on
+the review file or .prp-output/reviews failed, or the assistant says
+"No previous review found" / "Running full review"; anything else is
+'unknown'.
 
 Errors are never reported as data, and one bad unit never stops the batch:
 an unreadable transcript (missing, a directory, non-UTF-8) is listed under
@@ -144,15 +147,7 @@ def _norm_result_text(c, unk):
     return "\n".join(parts)
 # --- end of the boundary ------------------------------------------------------
 
-def _first_prompt(events):
-    """The first user prompt (str); UNKNOWN if its text block is; None if no user text exists."""
-    for e in events:
-        if e["type"] not in ("human", "user"): continue
-        if e["text"]: return e["text"]
-        for block in e["blocks"]:
-            if block["type"] == "text":
-                return block["text"]
-    return None
+INVOCATION_NOT_READ = "invocation.not-read"  # #177 base: the invocation reader ships in #177b
 
 REVIEW_FILE_PAT = re.compile(r"pr-\d+-agents-review\.md|\.prp-output/reviews\b")
 INCR_DIFF_PAT = re.compile(r"pr-\d+-incremental\.diff")
@@ -201,65 +196,56 @@ def _assistant_text(events):
             if block["type"] == "text": yield block["text"]
 
 def classify_mode(events):
-    """(mode, invoked, orphan_results, unknown_fields).
+    """(mode, orphan_results, unknown_fields).
 
-    mode: 'unknown' whenever any field is UNKNOWN (invoked is then None when the first prompt
-    itself is UNKNOWN, pairing not attempted) or absent ('first_prompt'); otherwise
-    'full-requested' (not invoked), 'incremental', 'fell-back' or 'unknown' as in the module doc.
+    mode: 'unknown' whenever any field is UNKNOWN (pairing not attempted); otherwise
+    'incremental', 'fell-back' or 'unknown' as in the module doc. The invocation is
+    not read in #177 base, so there is no 'full-requested'.
     """
     unknown_fields = sorted({f for e in events for f in e["unknown"]})
-    prompt = _first_prompt(events)
-    if prompt is None:  # no parseable user prompt: absence is never read as 'not invoked'
-        return "unknown", None, None, sorted(set(unknown_fields) | {"first_prompt"})
-    invoked = None if prompt is UNKNOWN else "--since-last-review" in prompt
-    if unknown_fields: return "unknown", invoked, None, unknown_fields
+    if unknown_fields: return "unknown", None, unknown_fields
     calls, orphans = _tool_calls(events)
-    if not invoked: return "full-requested", invoked, orphans, []
     cmd_calls = [(c, o) for c, o in calls if isinstance(c, str)]
     if any(o == OK and (INCR_DIFF_PAT.search(c) or TWO_SHA_PAT.search(c)) for c, o in cmd_calls):
-        return "incremental", invoked, orphans, []
+        return "incremental", orphans, []
     if any(o == FAILED and REVIEW_FILE_PAT.search(c) for c, o in cmd_calls) \
             or any(FALLBACK_SAY_PAT.search(t) for t in _assistant_text(events)):
-        return "fell-back", invoked, orphans, []
-    return "unknown", invoked, orphans, []
+        return "fell-back", orphans, []
+    return "unknown", orphans, []
 
 def cmd_fallback(paths, as_json=False):
     results, errors = [], []
     for p in paths:
         try:
             events, skipped = _read_jsonl(p)
-            mode, invoked, orphans, unknown_fields = classify_mode(events)
+            mode, orphans, unknown_fields = classify_mode(events)
         except (OSError, ValueError) as e:  # missing, a directory, unreadable, non-UTF-8
             errors.append({"path": p, "error": f"{type(e).__name__}: {e}"}); continue
         except Exception as e:  # a bug, not bad input: report it with its location, never swallow it
             errors.append({"path": p, "error": f"internal {_where(e)}"}); continue
-        results.append({"path": os.path.basename(p), "mode": mode, "invoked": invoked,
+        results.append({"path": os.path.basename(p), "mode": mode,
+                        "invoked": None, "invocation_reason": INVOCATION_NOT_READ,
                         "skipped_lines": skipped, "orphan_results": orphans,
                         "unknown_fields": unknown_fields})
-    invoked_runs = [r for r in results if r["invoked"] is True]
-    fb = sum(1 for r in invoked_runs if r["mode"] == "fell-back")
-    inc = sum(1 for r in invoked_runs if r["mode"] == "incremental")
-    unk = sum(1 for r in invoked_runs if r["mode"] == "unknown")
-    full_req = sum(1 for r in results if r["mode"] == "full-requested")
+    inc = sum(1 for r in results if r["mode"] == "incremental")
+    fb = sum(1 for r in results if r["mode"] == "fell-back")
+    unk = sum(1 for r in results if r["mode"] == "unknown")
     with_unknown = sum(1 for r in results if r["unknown_fields"])
-    inv_total = len(invoked_runs)
-    rate = fb / inv_total if inv_total else 0
     orphans = sum(r["orphan_results"] or 0 for r in results)
     if as_json:
-        json.dump({"sessions": results, "total": len(results), "invoked": inv_total,
-                    "fell_back": fb, "incremental": inc, "unknown": unk,
-                    "full_requested": full_req, "sessions_with_unknown_fields": with_unknown,
-                    "fallback_rate": round(rate, 3), "errors": errors}, sys.stdout, indent=2)
+        json.dump({"sessions": results, "total": len(results),
+                   "incremental": inc, "fell_back": fb, "unknown": unk,
+                   "sessions_with_unknown_fields": with_unknown,
+                   "fallback_rate": None, "errors": errors}, sys.stdout, indent=2)
     else:
         skipped = sum(r["skipped_lines"] for r in results)
-        rows = [("invoked incremental", inv_total), ("→ incremental", inc), ("→ fell-back", fb),
-                ("→ unknown", unk), ("full-requested", full_req),
+        rows = [("incremental", inc), ("fell-back", fb), ("unknown", unk),
                 ("sessions with unknown fields (mode unknown)", with_unknown),
-                ("total", len(results)), ("fallback rate (invoked)", f"{rate:.1%}"),
-                ("skipped (unparseable) lines", skipped), ("unreadable files", len(errors)),
-                ("orphan tool results", orphans)]
+                ("total", len(results)), ("skipped (unparseable) lines", skipped),
+                ("unreadable files", len(errors)), ("orphan tool results", orphans)]
         print("| mode | count |\n|------|-------|")
         for k, v in rows: print(f"| {k} | {v} |")
+        print("fallback rate: unavailable — invocation not read (see #177b)")
         if skipped:
             print(f"warning: {skipped} unparseable transcript line(s) excluded", file=sys.stderr)
     for e in errors:
