@@ -1,0 +1,13 @@
+[
+  {"body":"### Critical Issues (0 found)\n\nNone.\n\n### Important Issues (0 found)\n\nNone.\n\nGenerated-by: prp-review-agents v2.0.0 run=R1 pass=code-reviewer"},
+  {"body":"Reviewed head: abc\nGenerated-by: prp-review-agents v2.0.0 run=R1 pass=security-reviewer"},
+  {"body":"Generated-by: prp-review-agents v2.0.0 run=R1 pass=silent-failure-hunter"},
+  {"body":"### Critical Issues (1 found)\n\n- **Null pointer in parse()** — the parser crashes.\n\nGenerated-by: prp-review-agents v2.0.0 run=R2 pass=code-reviewer"},
+  {"body":"Generated-by: prp-review-agents v2.0.0 run=R2 pass=security-reviewer"},
+  {"body":"Generated-by: prp-review-agents v2.0.0 run=R2 pass=silent-failure-hunter"},
+  {"body":"### Critical Issues (1 found)\n\n- **Null pointer in parse()** — still crashes after fix.\n\nGenerated-by: prp-review-agents v2.0.0 run=R3 pass=code-reviewer"},
+  {"body":"Generated-by: prp-review-agents v2.0.0 run=R3 pass=security-reviewer"},
+  {"body":"Generated-by: prp-review-agents v2.0.0 run=R3 pass=silent-failure-hunter"},
+  {"body":"Generated-by: prp-review-agents v2.0.0 run=R4 pass=code-reviewer"},
+  {"body":"Generated-by: prp-review-agents v2.0.0 run=R4 pass=security-reviewer"}
+]

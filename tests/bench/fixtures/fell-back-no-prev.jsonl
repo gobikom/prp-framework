@@ -1,0 +1,5 @@
+{"type":"system","timestamp":"2026-01-01T12:00:00.000Z"}
+{"type":"human","message":{"content":"review --since-last-review"}}
+{"type":"assistant","message":{"content":[{"type":"tool_use","input":{"command":"test -f .prp-output/reviews/pr-42-agents-review.md"}}]}}
+{"type":"user","message":{"content":[{"type":"tool_result","content":"NOT_FOUND: pr-42-agents-review.md"}]}}
+{"type":"assistant","message":{"content":"No previous review found. Starting full review."}}
