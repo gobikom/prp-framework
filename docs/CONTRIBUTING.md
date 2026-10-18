@@ -39,6 +39,7 @@ cd .prp && ./scripts/install.sh
 # Run every test suite
 bats tests/install/install.bats tests/run-all/state-file.bats tests/ralph/ralph-stop.bats \
      tests/scripts/scripts.bats tests/commands/structure.bats tests/adapters/parity.bats \
+     tests/bench/review-cost.bats \
      tests/e2e/install-sandbox.bats tests/e2e/state-lifecycle.bats tests/e2e/scripts-sandbox.bats
 ```
 
@@ -51,6 +52,7 @@ bats tests/ralph/ralph-stop.bats   # ralph stop hook (23 tests)
 bats tests/scripts/scripts.bats    # helper scripts (8 tests)
 bats tests/commands/structure.bats # command markdown structure (89 tests)
 bats tests/adapters/parity.bats    # cross-adapter parity (28 tests)
+bats tests/bench/review-cost.bats  # dev/bench: review-cost.py token accounting (33 tests)
 ```
 
 ### E2E Infrastructure Tests
@@ -203,6 +205,8 @@ Then run `install.sh` to create symlinks.
 | `tests/e2e/scripts-sandbox.bats` | E2E cleanup-artifacts.sh tests (5 test cases) |
 | `adapters/claude-code/prp-feature-review.md` | Feature review with token optimization |
 | `adapters/claude-code/prp-feature-review-agents.md` | Multi-agent feature review |
+| `scripts/bench/review-cost.py` | Dev-only: sums Claude Code session token usage for cost reporting (not installed into consumer projects) |
+| `tests/bench/review-cost.bats` | bats tests for `review-cost.py` (33 test cases) |
 
 ## Adding a New Workflow
 
