@@ -160,3 +160,49 @@ Revision 2 replaces any earlier line it contradicts.
 New arms: P17a reversed range, P17b missing file, P17c empty or uppercase family, P17d duplicate key.
 
 **Size:** the helper growth is about +80 lines. The target stays ≤ 800 excluding adapters; if it is above 800, split the helpers + their bats into a base PR.
+
+## Revision 3 (devlead-codex REVISE on 897ff06: 2 Important, 1 Moderate)
+Revision 3 replaces any Revision 2 line it contradicts.
+
+**R3-1 Resolved items keep their old identity and add a separate H2 fix range** (codex #1, SO#1367 R2-2(iii)).
+- Item grammar:
+  - `- <id12> open <file>:<s>-<e> regression_test: none` — `<file>:<s>-<e>` is the previous-round (H) location.
+  - `- <id12> resolved was=<file>:<s>-<e> fix=<file2>:<s2>-<e2> regression_test: <path>::<name>` — `was=` is the immutable H location; `fix=` is the H2 fix range. `fix=` may be in a different file or at shifted lines.
+- `--prior` checks the ID set and the `was=`/open location against the previous object only. It never checks `fix=`. Whether `fix=` lies inside an H..H2 diff hunk (and the test arm) is checked by merger under SO#1367 PR-A, not by PR-C0.
+- `check-l2-body.py` checks only that `fix=` is syntactically valid: a normalised path that exists at the current head, and s2 ≤ e2.
+- Supersedes R2-1(d) for resolved items.
+- Arms:
+  - P24: lines inserted above the finding shift it at H2. `was=` keeps the H range, `fix=` is the shifted range → accepted.
+  - P25: the fix is in a different file. `was=` is correct, `fix=` is the other file → accepted. A wrong `was=` → refused.
+
+**R3-2 A FULL run after an unstructured previous round** (codex #2).
+- Step B classifies the previous round for each pass:
+  - **structured**: a valid `review-findings` block, at a head and run id on the PR;
+  - **unstructured**: prose-only, malformed or edited;
+  - **none**: no previous round.
+- Incremental run + unstructured → FATAL (as in R2-1).
+- FULL run + unstructured → allowed. Prior findings must be exactly `Not recorded: the previous round has no review-findings block.`, and the JSON comes only from the agents of this run.
+- `check-l2-body.py --prior` recomputes the classification from the same TSV:
+  - for unstructured, it requires the `Not recorded` line and the `mode=full` marker (below);
+  - for structured, it requires the itemised list;
+  - for none, it requires `None.`
+- The two cases cannot be confused: the classification is recomputed by the helper, not taken from the body. A FULL run against a structured previous round must still itemise it.
+- Pass comments gain the footer field `mode=full|incremental`, which Step C writes from the run file (a 6th key `MODE`, set in Step A from the flags):
+
+      Generated-by: prp-review-agents v<ver> run=<id> pass=<pass> mode=<full|incremental>
+
+  The current readers match the footer with prefix regexes. Before the edit, the implementer greps the three readers and states, with quoted lines, that a trailing field does not break them. If any one breaks, `mode` moves to its own line before the footer instead.
+- **A round whose Prior findings is `Not recorded` is never eligible as an SC closure (R2→L).** PR-C0 makes this visible: a `Not recorded` line means the round's IDs are not linked to the earlier round. SO#1367 PR-A's merger rule enforces it, and the plan for PR-A will cite this line.
+- Arms:
+  - P26: prose-only previous round, then a FULL run → posted with `Not recorded` + `mode=full`. The fixture asserts that the output is marked not-linked.
+  - P27: an incremental run with a missing or unstructured previous round → FATAL.
+  - P28: a body claiming `Not recorded` while the previous round is structured → refused.
+
+**R3-3 What AC5a expects** (codex #3).
+- AC5a runs against the CURRENT merger policy, which does not know the start syntax. Pass condition:
+  - merger's verdict neither counts nor cites the start comment as a review pass;
+  - merger still applies its existing review_evidence to the 3 pass comments;
+  - the L2 recipe and safe-merge `--dry-run` select exactly 3.
+- merger's APPROVE is **not** required. A REQUEST CHANGES for a reason unrelated to the start comment is a pass; one that cites the start comment is a fail.
+- On a fail, the release is frozen: PR-C0 is not merged and stays open with the evidence, and PR-A carries a reader fix first.
+- AC5b failure after merge: freeze (no new-format round counts), then revert via safe-merge. Comments already posted stay on their PRs. A revert does not erase them, so the freeze note on #160 lists every PR that has a new-format round, and merger is told to ignore those start comments.
