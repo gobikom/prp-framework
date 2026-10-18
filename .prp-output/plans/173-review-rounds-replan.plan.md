@@ -135,6 +135,26 @@ is cut, which the stop rule allows ("cut scope"):
 
 The review count of this PR restarts too: the head changes, so clean=0.
 
+## Revision 5 — S1 (run `20261018T113756Z-703e6598`, head 4c5d0de): classifier precision, a new family
+
+S1 found 0 Critical and 3 Important. This family is new (classifier precision), not F1/F2/I2:
+1. `extra_tokens_delta` was a placeholder string. It is removed. AC0.4's token delta needs
+   `review-cost.py` over the session and its sub-agent transcripts, so it ships with `rounds` in
+   the stacked PR.
+2. `has_incr_diff` also matched tool RESULTS, so a failed `cat pr-N-incremental.diff` read as
+   incremental. Now each command is paired with its own result (by `tool_use_id`, else by order),
+   and a diff command counts only when its result is not a not-found.
+3. Any not-found result containing the word "review" read as fell-back. Now fell-back needs a
+   not-found result of a command on the review file or `.prp-output/reviews`, or the assistant's
+   AC0.4 phrases ("No previous review found" / "Running full review").
+
+Invariant: a run is `incremental` only on a diff command that did not fail, and `fell-back` only
+on evidence about the review file itself; otherwise it is `unknown`, never a guess.
+Verified by: three new fixtures (`incr-diff-failed`, `review-word-not-found`, `paired-by-id`) that
+the S1 head misclassifies and this head classifies correctly; all three join the 1332+ shape-mutation
+run. Over the 60 real review transcripts, 7 runs change mode, all to the stricter side (fell-back →
+unknown 4, incremental → fell-back 2, incremental → unknown 1).
+
 ## Out of scope (to the ONE follow-up issue)
 
 Footer authorship is forgeable (security); the live `GhNotFound` path and the `gh api

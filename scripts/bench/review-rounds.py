@@ -5,11 +5,13 @@ reads gh api, ships in a stacked PR.)
 
 Fallback classifier (tool-event based): a run whose first prompt carries
 --since-last-review is 'invoked'; any other run is 'full-requested' and is
-excluded from the fallback rate. For an invoked run, a tool event that
-reads pr-N-incremental.diff or runs a two-SHA `git diff A B` / `A...B` makes
-it 'incremental'; otherwise a tool result that mentions a review file (or the
-word "review") and reports not-found makes it 'fell-back'; anything else is
-'unknown'.
+excluded from the fallback rate. Each tool command is paired with its own
+result. An invoked run is 'incremental' when a command on pr-N-incremental.diff
+or a two-SHA `git diff A B` / `A...B` did not fail with not-found; else
+'fell-back' when a command on the review file or .prp-output/reviews failed
+with not-found, or the assistant says "No previous review found" / "Running
+full review"; anything else is 'unknown'. (AC0.4's extra-tokens delta, via
+review-cost.py, ships with `rounds` in the stacked PR.)
 
 Errors are never reported as data, and one bad unit never stops the batch:
 an unreadable transcript (missing, a directory, non-UTF-8) is listed under
@@ -47,7 +49,8 @@ def _text_of(x):
 def _normalise_event(obj):
     """Raw transcript JSON object -> a fixed shape. The ONLY place raw event JSON is read.
 
-    {"type": str, "text": str, "blocks": [{"type": str, "text": str, "command": str, "content": str}]}
+    {"type": str, "text": str,
+     "blocks": [{"type": str, "text": str, "command": str, "content": str, "id": str, "tool_use_id": str}]}
     Any field of the wrong type becomes "" / [] here, so the classifier never sees raw JSON.
     """
     msg = obj.get("message")
@@ -61,7 +64,8 @@ def _normalise_event(obj):
             cmd = inp.get("command") if isinstance(inp, dict) else None
             command = cmd if isinstance(cmd, str) and cmd else _text_of(inp)
             blocks.append({"type": _str(b.get("type")), "text": _str(b.get("text")),
-                           "command": command, "content": _text_of(b.get("content"))})
+                           "command": command, "content": _text_of(b.get("content")),
+                           "id": _str(b.get("id")), "tool_use_id": _str(b.get("tool_use_id"))})
     return {"type": _str(obj.get("type")), "text": _str(content), "blocks": blocks}
 
 def _first_prompt(events):
@@ -73,33 +77,61 @@ def _first_prompt(events):
                 return block["text"]
     return ""
 
-REVIEW_FILE_PAT = re.compile(r"pr-\d+-agents-review\.md")
+REVIEW_FILE_PAT = re.compile(r"pr-\d+-agents-review\.md|\.prp-output/reviews\b")
 INCR_DIFF_PAT = re.compile(r"pr-\d+-incremental\.diff")
 TWO_SHA_PAT = re.compile(r"git diff [0-9a-f]{7,40}[\s.]+[0-9a-f]{7,40}")
 NOT_FOUND_PAT = re.compile(r"NOT_FOUND|No such file|not found|cannot access", re.I)
+FALLBACK_SAY_PAT = re.compile(r"No previous review found|Running full review")  # AC0.4 phrases
 
-def _extract_tool_events(events):
-    """Extract tool_use commands and tool_result content from normalised events."""
-    tools = []
+def _tool_calls(events):
+    """[(command, result)] for every tool_use, in order.
+
+    A result is paired by tool_use_id when the use has an id and a result carries it;
+    otherwise with the next unpaired result in order. A use with no result gets None.
+    """
+    calls, by_id, unpaired = [], {}, []
     for e in events:
         for block in e["blocks"]:
-            if block["type"] == "tool_use": tools.append(("use", block["command"]))
-            if block["type"] == "tool_result": tools.append(("result", block["content"]))
-    return tools
+            if block["type"] == "tool_use":
+                calls.append([block["command"], None])
+                if block["id"]: by_id[block["id"]] = len(calls) - 1
+                unpaired.append(len(calls) - 1)
+            elif block["type"] == "tool_result":
+                i = by_id.pop(block["tool_use_id"], None) if block["tool_use_id"] else None
+                if i is None and unpaired: i = unpaired[0]
+                if i is not None:
+                    calls[i][1] = block["content"]
+                    if i in unpaired: unpaired.remove(i)
+    return [tuple(c) for c in calls]
+
+def _failed(result):
+    return result is not None and bool(NOT_FOUND_PAT.search(result))
+
+def _assistant_text(events):
+    for e in events:
+        if e["type"] != "assistant": continue
+        yield e["text"]
+        for block in e["blocks"]:
+            if block["type"] == "text": yield block["text"]
 
 def classify_mode(events):
+    """'full-requested' | 'incremental' | 'fell-back' | 'unknown', and whether invoked.
+
+    incremental: a command that reads/writes pr-N-incremental.diff or runs a two-SHA
+      git diff, whose own result is not a not-found (a failed `cat` of the diff does not count);
+    fell-back: a command on the review file or .prp-output/reviews whose own result is
+      not-found, or the assistant says "No previous review found" / "Running full review";
+    unknown: anything else (never counted as incremental).
+    """
     prompt = _first_prompt(events)
     invoked = "--since-last-review" in prompt
     if not invoked: return "full-requested", invoked
-    tools = _extract_tool_events(events)
-    # Check for incremental diff or two-SHA git diff
-    has_incr_diff = any(INCR_DIFF_PAT.search(t[1]) for t in tools)
-    has_two_sha = any(TWO_SHA_PAT.search(t[1]) for t in tools if t[0] == "use")
-    if has_incr_diff or has_two_sha: return "incremental", invoked
-    # Check if the review file check said not found
-    review_results = [t[1] for t in tools if t[0] == "result"]
-    any_not_found = any(NOT_FOUND_PAT.search(r) for r in review_results if REVIEW_FILE_PAT.search(r) or "review" in r.lower())
-    if any_not_found and not has_incr_diff: return "fell-back", invoked
+    calls = _tool_calls(events)
+    if any((INCR_DIFF_PAT.search(c) or TWO_SHA_PAT.search(c)) and not _failed(r) for c, r in calls):
+        return "incremental", invoked
+    if any(REVIEW_FILE_PAT.search(c) and _failed(r) for c, r in calls) \
+            or any(FALLBACK_SAY_PAT.search(t) for t in _assistant_text(events)):
+        return "fell-back", invoked
     return "unknown", invoked
 
 def cmd_fallback(paths, as_json=False):
@@ -121,12 +153,11 @@ def cmd_fallback(paths, as_json=False):
     full_req = modes.count("full-requested")
     inv_total = len(invoked_runs)
     rate = fb / inv_total if inv_total else 0
-    delta = "n/a (no incremental runs)" if inc == 0 else "computed"
     if as_json:
         json.dump({"sessions": results, "total": len(results), "invoked": inv_total,
                     "fell_back": fb, "incremental": inc, "unknown": unk,
                     "full_requested": full_req, "fallback_rate": round(rate, 3),
-                    "extra_tokens_delta": delta, "errors": errors}, sys.stdout, indent=2)
+                    "errors": errors}, sys.stdout, indent=2)
     else:
         print("| mode | count |")
         print("|------|-------|")
@@ -137,7 +168,6 @@ def cmd_fallback(paths, as_json=False):
         print(f"| full-requested | {full_req} |")
         print(f"| total | {len(results)} |")
         print(f"| fallback rate (invoked) | {rate:.1%} |")
-        print(f"| extra tokens delta | {delta} |")
         skipped = sum(r["skipped_lines"] for r in results)
         print(f"| skipped (unparseable) lines | {skipped} |")
         print(f"| unreadable files | {len(errors)} |")

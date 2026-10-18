@@ -1,0 +1,4 @@
+{"type": "human", "message": {"content": "review --since-last-review"}}
+{"type": "assistant", "message": {"content": [{"type": "tool_use", "input": {"command": "grep -rn TODO src/"}}]}}
+{"type": "user", "message": {"content": [{"type": "tool_result", "content": "src/reviewer.py: config key not found"}]}}
+{"type": "assistant", "message": {"content": "Reviewing the code."}}

@@ -47,6 +47,26 @@ teardown() { rm -rf -- "$TEST_TMPDIR" 2>/dev/null || true; }
   [ "$status" -eq 0 ]
   python3 -I -c "import json,sys; assert json.loads(sys.argv[1])['sessions'][0]['mode']=='incremental'" "$output"
 }
+@test "fallback: a failed cat of the incremental diff is fell-back, not incremental" {
+  run python3 -I "$RR" fallback --json "$FIX/incr-diff-failed.jsonl"
+  [ "$status" -eq 0 ]
+  python3 -I -c "import json,sys; m=json.loads(sys.argv[1])['sessions'][0]['mode']; assert m=='fell-back', m" "$output"
+}
+@test "fallback: a not-found that merely contains the word review is unknown, not fell-back" {
+  run python3 -I "$RR" fallback --json "$FIX/review-word-not-found.jsonl"
+  [ "$status" -eq 0 ]
+  python3 -I -c "import json,sys; m=json.loads(sys.argv[1])['sessions'][0]['mode']; assert m=='unknown', m" "$output"
+}
+@test "fallback: results are paired with their command by tool_use_id, not by order" {
+  run python3 -I "$RR" fallback --json "$FIX/paired-by-id.jsonl"
+  [ "$status" -eq 0 ]
+  python3 -I -c "import json,sys; m=json.loads(sys.argv[1])['sessions'][0]['mode']; assert m=='fell-back', m" "$output"
+}
+@test "fallback: no placeholder token-delta field in the output" {
+  run python3 -I "$RR" fallback --json "$FIX/incremental.jsonl"
+  [ "$status" -eq 0 ]
+  python3 -I -c "import json,sys; d=json.loads(sys.argv[1]); assert 'extra_tokens_delta' not in d, d" "$output"
+}
 @test "fallback: I1 — the arm fixtures cover every classifier arm" {
   run python3 -I "$RR" fallback --json "$FIX/full-requested.jsonl" "$FIX/incremental.jsonl" "$FIX/incremental-diff-file.jsonl" "$FIX/fell-back-no-prev.jsonl" "$FIX/unknown.jsonl"
   [ "$status" -eq 0 ]
@@ -90,7 +110,7 @@ teardown() { rm -rf -- "$TEST_TMPDIR" 2>/dev/null || true; }
 # --- I2 shape mutation (re-plan rev3): every field of the real fixtures, every wrong type ---
 @test "I2 mutation: fallback reads every wrong-type transcript variant without an error" {
   mkdir "$TEST_TMPDIR/t"
-  n=$(python3 -I "$BATS_TEST_DIRNAME/mutate_fixtures.py" transcripts "$TEST_TMPDIR/t" "$FIX"/incremental.jsonl "$FIX"/incremental-diff-file.jsonl "$FIX"/fell-back-no-prev.jsonl "$FIX"/fell-back-full.jsonl "$FIX"/unknown.jsonl "$FIX"/full-requested.jsonl)
+  n=$(python3 -I "$BATS_TEST_DIRNAME/mutate_fixtures.py" transcripts "$TEST_TMPDIR/t" "$FIX"/incremental.jsonl "$FIX"/incremental-diff-file.jsonl "$FIX"/fell-back-no-prev.jsonl "$FIX"/fell-back-full.jsonl "$FIX"/unknown.jsonl "$FIX"/full-requested.jsonl "$FIX"/incr-diff-failed.jsonl "$FIX"/review-word-not-found.jsonl "$FIX"/paired-by-id.jsonl)
   [ "$n" -gt 500 ]
   rc=0; python3 -I "$RR" fallback --json "$TEST_TMPDIR"/t/*.jsonl > "$TEST_TMPDIR/out.json" 2> "$TEST_TMPDIR/err.txt" || rc=$?
   [ "$rc" -eq 0 ]
