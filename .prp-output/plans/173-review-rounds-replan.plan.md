@@ -117,6 +117,24 @@ No behaviour change on real data: `fallback --json` over all 57 real review tran
 Stop condition: if R6 or later finds this family again, the PR is closed and re-routed, not
 patched.
 
+## Revision 4 — R7 (run `20261018T111551Z-616b3373`, head 09f8017): scope cut, `rounds` moves to a stacked PR
+
+R6 (`20261018T110101Z-5382492b`) and R7 core passes were 0C/0I, and the I2 family was judged
+closed. R7's conditional agents (local aggregate, not posted) raised 5 Important findings. All are
+in this PR's own diff, so none can go to an issue. Four are in the `rounds` subcommand: the
+undocumented a/c/clean classes, the `_section_titles` header skip that only knows "severity", and
+no test for the live `gh api --paginate` parser or the `GhNotFound` → `not-found` path. The fifth
+is `docs/CONTRIBUTING.md` not listing the new suite.
+
+Fixing all five here takes the PR past the 840-line hard stop (837 before the fix). So the scope
+is cut, which the stop rule allows ("cut scope"):
+- **This PR (#173):** the `fallback` classifier only, plus the CONTRIBUTING fix. The `rounds`
+  code, its gh fixtures, its 17 tests and the `gh` mutation mode are removed. 18 bats tests pass.
+- **Stacked PR (`feat/160-ac04b-rounds`, base this branch):** `rounds` back, with the four
+  Important fixes and their tests. Its own review count starts at 0.
+
+The review count of this PR restarts too: the head changes, so clean=0.
+
 ## Out of scope (to the ONE follow-up issue)
 
 Footer authorship is forgeable (security); the live `GhNotFound` path and the `gh api

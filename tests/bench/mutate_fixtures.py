@@ -3,11 +3,10 @@
 
 For every JSON value inside the real fixtures, write one variant with that
 value replaced by each wrong-type value in WRONG. The bats test then runs the
-script over all variants and asserts it never raises (no traceback, exit 0/2).
+script over all variants and asserts it never raises (no traceback, no errors).
 
 Usage:
   mutate_fixtures.py transcripts <out_dir> <fixture.jsonl ...>   -> one .jsonl per variant
-  mutate_fixtures.py gh <out_dir> <gh_fixture_dir> <pr>          -> gh fixture dirs per variant
 Prints the number of variants written.
 """
 import copy, json, os, sys
@@ -57,31 +56,9 @@ def transcripts(out_dir, files):
     return n
 
 
-def gh(out_dir, gh_dir, pr):
-    names = [f"repos_test_repo_pulls_{pr}.json", f"repos_test_repo_issues_{pr}_comments.json"]
-    docs = {}
-    for name in names:
-        with open(os.path.join(gh_dir, name), encoding="utf-8") as fh:
-            docs[name] = json.load(fh)
-    n = 0
-    for name in names:
-        for path in _paths(docs[name]):
-            for w in WRONG:
-                n += 1
-                d = os.path.join(out_dir, f"g{n}")
-                os.makedirs(d)
-                for other in names:
-                    doc = _replaced(docs[other], path, w) if other == name else docs[other]
-                    with open(os.path.join(d, other), "w", encoding="utf-8") as fh:
-                        json.dump(doc, fh)
-    return n
-
-
 if __name__ == "__main__":
     mode, out_dir = sys.argv[1], sys.argv[2]
     if mode == "transcripts":
         print(transcripts(out_dir, sys.argv[3:]))
-    elif mode == "gh":
-        print(gh(out_dir, sys.argv[3], sys.argv[4]))
     else:
         sys.exit(f"unknown mode {mode}")
