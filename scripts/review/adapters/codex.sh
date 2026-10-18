@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Codex adapter for review passes (prp-framework#160).
-# Enforcement: --sandbox read-only, MCP disabled, --output-schema.
-# Output scanned for credential patterns.
+# Enforcement: --sandbox read-only, --output-schema FILE, --json.
+# Output scanned for credential patterns (I4b).
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -17,8 +17,7 @@ while [[ $# -gt 0 ]]; do
 done
 [[ -z "$PASS" || -z "$BUNDLE" || -z "$SCHEMA" || -z "$OUT_DIR" ]] && { echo "error: --pass, --bundle, --schema and --out required" >&2; exit 1; }
 
-CODEX_BIN="$(command -v codex 2>/dev/null)" || { echo "error: codex not found" >&2; exit 1; }
-[[ -x "$CODEX_BIN" ]] || { echo "error: codex not executable" >&2; exit 1; }
+command -v codex >/dev/null 2>&1 || { echo "error: codex not found" >&2; exit 1; }
 AUTH_FILE="$HOME/.codex/auth.json"
 [[ -f "$AUTH_FILE" ]] || { echo "error: codex auth file not found at $AUTH_FILE" >&2; exit 1; }
 mkdir -p "$OUT_DIR"
@@ -33,7 +32,7 @@ Review the code. Return your findings as JSON matching the output schema."
 exit_code=0
 "$SCRIPT_DIR/sandbox.sh" --harness codex --bundle "$BUNDLE" --auth-file "$AUTH_FILE" \
   --timeout "$TIMEOUT" --nice "$NICE" -- \
-  "$CODEX_BIN" exec --sandbox read-only --output-schema "$(cat "$SCHEMA")" --json "$PROMPT" \
+  codex exec --sandbox read-only --output-schema "$SCHEMA" --json "$PROMPT" \
   > "$OUT_DIR/pass.json" 2>"$OUT_DIR/stderr.log" || exit_code=$?
 
 if [[ $exit_code -ne 0 ]]; then
@@ -42,9 +41,11 @@ if [[ $exit_code -ne 0 ]]; then
   exit $exit_code
 fi
 
-if grep -qE 'sk-ant-|eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.|ghp_|gho_|github_pat_' "$OUT_DIR/pass.json"; then
-  pattern=$(grep -oE 'sk-ant-|eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.|ghp_|gho_|github_pat_' "$OUT_DIR/pass.json" | head -1)
-  echo "error: credential pattern in pass output: $pattern" >&2
-  rm -f "$OUT_DIR/pass.json"
-  exit 1
-fi
+_scan_cred() {
+  local f="$1"
+  if grep -qE 'sk-ant-' "$f"; then echo "error: credential pattern in output: sk-ant" >&2; return 1; fi
+  if grep -qE 'eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.' "$f"; then echo "error: credential pattern in output: jwt" >&2; return 1; fi
+  if grep -qE 'ghp_|gho_|github_pat_' "$f"; then echo "error: credential pattern in output: github-token" >&2; return 1; fi
+  return 0
+}
+if ! _scan_cred "$OUT_DIR/pass.json"; then rm -f "$OUT_DIR/pass.json"; exit 1; fi

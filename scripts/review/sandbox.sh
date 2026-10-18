@@ -54,19 +54,25 @@ else
   [[ -d /run/systemd/resolve ]] && bwrap_args+=(--ro-bind /run/systemd/resolve /run/systemd/resolve)
   bwrap_args+=(--ro-bind "$BUNDLE" /bundle)
 
+  _mount_harness() {
+    local cmd="$1"
+    local bin_path resolved bin_dir pkg_root
+    bin_path="$(command -v "$cmd" 2>/dev/null)" || { echo "error: $cmd not found" >&2; exit 1; }
+    [[ -x "$bin_path" ]] || { echo "error: $cmd not executable: $bin_path" >&2; exit 1; }
+    resolved="$(readlink -f "$bin_path")"
+    bin_dir="$(dirname "$bin_path")"
+    # Mount the whole npm prefix (bin + lib) so symlinks resolve
+    pkg_root="$(cd "$bin_dir/.." && pwd)"
+    bwrap_args+=(--ro-bind "$pkg_root" "$pkg_root")
+    bwrap_args+=(--setenv PATH "$bin_dir:/usr/bin:/usr/local/bin")
+    if [[ -n "$AUTH_FILE" ]] && [[ -f "$AUTH_FILE" ]]; then
+      bwrap_args+=(--ro-bind "$AUTH_FILE" "$AUTH_FILE")
+    fi
+  }
+
   case "$HARNESS" in
-    claude-code)
-      local_bin="$(command -v claude 2>/dev/null)" || { echo "error: claude not found" >&2; exit 1; }
-      [[ -x "$local_bin" ]] || { echo "error: claude not executable: $local_bin" >&2; exit 1; }
-      bwrap_args+=(--ro-bind "$(dirname "$local_bin")" "$(dirname "$local_bin")")
-      [[ -n "$AUTH_FILE" && -f "$AUTH_FILE" ]] && bwrap_args+=(--ro-bind "$AUTH_FILE" "$AUTH_FILE")
-      ;;
-    codex)
-      local_bin="$(command -v codex 2>/dev/null)" || { echo "error: codex not found" >&2; exit 1; }
-      [[ -x "$local_bin" ]] || { echo "error: codex not executable: $local_bin" >&2; exit 1; }
-      bwrap_args+=(--ro-bind "$(dirname "$local_bin")" "$(dirname "$local_bin")")
-      [[ -n "$AUTH_FILE" && -f "$AUTH_FILE" ]] && bwrap_args+=(--ro-bind "$AUTH_FILE" "$AUTH_FILE")
-      ;;
+    claude-code) _mount_harness claude ;;
+    codex) _mount_harness codex ;;
     chela) echo "error: chela adapter not approved yet (waiting for chela#747)" >&2; exit 2 ;;
     *) echo "error: unknown harness: $HARNESS" >&2; exit 1 ;;
   esac
