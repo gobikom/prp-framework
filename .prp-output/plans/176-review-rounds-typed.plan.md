@@ -6,8 +6,7 @@ issue: gobikom/prp-framework#176 (PR #177)
 
 # Plan: review-rounds.py — typed boundary, then decide "invoked" from evidence only
 
-Long form (real-input census, arms A1–A27, reason precedence, gate categories):
-https://github.com/gobikom/prp-framework/pull/177#issuecomment-6254540177
+Long form (census, arms A1–A27, precedence, gate categories): https://github.com/gobikom/prp-framework/pull/177#issuecomment-6254540177
 
 ## Invariant (#177b)
 `invoked` is True or False ONLY when the session has exactly one positively identified
