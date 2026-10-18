@@ -59,6 +59,30 @@ teardown() { rm -rf -- "$TEST_TMPDIR" 2>/dev/null || true; }
   [[ "$output" != *"Traceback"* ]]
   python3 -I -c "import json,sys; assert json.loads(sys.argv[1])['sessions'][0]['skipped_lines']==2" "$output"
 }
+@test "fallback: I2 — a missing file is an error, the good file is still counted, exit 2" {
+  run python3 -I "$RR" fallback --json "$TEST_TMPDIR/nope.jsonl" "$FIX/incremental.jsonl"
+  [ "$status" -eq 2 ]
+  [[ "$output" != *"Traceback"* ]]
+  python3 -I -c "import json,sys; s=sys.argv[1]; d=json.JSONDecoder().raw_decode(s, s.index('{\n'))[0]; assert d['total']==1 and d['incremental']==1, d; assert len(d['errors'])==1 and 'FileNotFoundError' in d['errors'][0]['error'], d" "$output"
+}
+@test "fallback: I2 — a directory and a non-UTF-8 file are errors, not a crash" {
+  run python3 -I "$RR" fallback "$TEST_TMPDIR" "$FIX/non-utf8.jsonl" "$FIX/unknown.jsonl"
+  [ "$status" -eq 2 ]
+  [[ "$output" != *"Traceback"* ]]
+  echo "$output" | grep -q '| unreadable files | 2 |'
+  echo "$output" | grep -q 'IsADirectoryError'
+  echo "$output" | grep -q 'UnicodeDecodeError'
+}
+@test "fallback: no paths → usage error, exit 1" {
+  run python3 -I "$RR" fallback
+  [ "$status" -eq 1 ]
+  echo "$output" | grep -q 'error: fallback needs at least one transcript path'
+}
+@test "fallback: all files readable → exit 0, errors empty" {
+  run python3 -I "$RR" fallback --json "$FIX/incremental.jsonl"
+  [ "$status" -eq 0 ]
+  python3 -I -c "import json,sys; assert json.loads(sys.argv[1])['errors']==[]" "$output"
+}
 @test "fallback: markdown output shows skipped lines" {
   run python3 -I "$RR" fallback "$FIX/truncated.jsonl"
   [ "$status" -eq 0 ]
@@ -128,6 +152,12 @@ teardown() { rm -rf -- "$TEST_TMPDIR" 2>/dev/null || true; }
   [ "$status" -eq 2 ]
   [[ "$output" != *"Traceback"* ]]
   echo "$output" | grep -q 'PR #45: ERROR TypeError: issues/45/comments\[0\].body is not a string'
+}
+@test "rounds: non-JSON comments response → status error, exit 2, no traceback" {
+  run env REVIEW_ROUNDS_GH_FIXTURES="$GH" python3 -I "$RR" rounds --repo test/repo --prs 43
+  [ "$status" -eq 2 ]
+  [[ "$output" != *"Traceback"* ]]
+  echo "$output" | grep -q 'PR #43: ERROR JSONDecodeError'
 }
 @test "rounds: one bad PR in a batch keeps the good PR's result" {
   run env REVIEW_ROUNDS_GH_FIXTURES="$GH" python3 -I "$RR" rounds --json --repo test/repo --prs 99,45

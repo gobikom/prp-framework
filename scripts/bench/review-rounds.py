@@ -16,8 +16,14 @@ findings-table row (first sentence of its second column). Normalised: lower,
 strip leading file:line, strip punctuation. Same normalised title in
 consecutive rounds → class b (repeated family).
 
-Errors are never reported as data: a gh api failure other than 404, or a
-missing fixture file, gives status 'error' and exit code 2.
+Errors are never reported as data, and one bad unit never stops the batch:
+- rounds: a gh api failure other than 404, a missing or non-JSON fixture, or
+  a malformed comment gives that PR status 'error'; the other PRs are still
+  reported.
+- fallback: an unreadable transcript (missing, a directory, non-UTF-8) is
+  listed under 'errors' and excluded from the counts; a line that is not a
+  JSON object counts as a skipped line.
+Exit codes: 0 = all units read, 2 = at least one unit errored, 1 = usage.
 
 Usage:
   python3 -I scripts/bench/review-rounds.py fallback <session.jsonl ...>
@@ -28,7 +34,9 @@ import json, os, re, subprocess, sys
 
 def _read_jsonl(path):
     lines, skipped = [], 0
-    for line in open(path):
+    with open(path, encoding="utf-8") as fh:
+        raw_lines = fh.readlines()
+    for line in raw_lines:
         line = line.strip()
         if not line: continue
         try: obj = json.loads(line)
@@ -85,9 +93,12 @@ def classify_mode(events):
     return "unknown", invoked
 
 def cmd_fallback(paths, as_json=False):
-    results = []
+    results, errors = [], []
     for p in paths:
-        events, skipped = _read_jsonl(p)
+        try:
+            events, skipped = _read_jsonl(p)
+        except (OSError, ValueError) as e:  # missing, a directory, unreadable, non-UTF-8
+            errors.append({"path": p, "error": f"{type(e).__name__}: {e}"}); continue
         mode, invoked = classify_mode(events)
         results.append({"path": os.path.basename(p), "mode": mode, "invoked": invoked, "skipped_lines": skipped})
     modes = [r["mode"] for r in results]
@@ -103,7 +114,7 @@ def cmd_fallback(paths, as_json=False):
         json.dump({"sessions": results, "total": len(results), "invoked": inv_total,
                     "fell_back": fb, "incremental": inc, "unknown": unk,
                     "full_requested": full_req, "fallback_rate": round(rate, 3),
-                    "extra_tokens_delta": delta}, sys.stdout, indent=2)
+                    "extra_tokens_delta": delta, "errors": errors}, sys.stdout, indent=2)
     else:
         print("| mode | count |")
         print("|------|-------|")
@@ -117,8 +128,12 @@ def cmd_fallback(paths, as_json=False):
         print(f"| extra tokens delta | {delta} |")
         skipped = sum(r["skipped_lines"] for r in results)
         print(f"| skipped (unparseable) lines | {skipped} |")
+        print(f"| unreadable files | {len(errors)} |")
         if skipped:
             print(f"warning: {skipped} unparseable transcript line(s) excluded", file=sys.stderr)
+    for e in errors:
+        print(f"error: {e['path']}: {e['error']}", file=sys.stderr)
+    return 2 if errors else 0
 
 class GhNotFound(Exception):
     pass
@@ -130,7 +145,8 @@ def _gh_api(endpoint):
         fp = os.path.join(fixture_dir, safe + ".json")
         if not os.path.exists(fp):
             raise RuntimeError(f"fixture missing: {fp}")
-        return json.load(open(fp))
+        with open(fp, encoding="utf-8") as fh:
+            return json.load(fh)
     sep = "?" if "?" not in endpoint else "&"
     r = subprocess.run(["gh", "api", endpoint + sep + "per_page=100", "--paginate"],
                        capture_output=True, text=True)
@@ -260,7 +276,9 @@ if __name__ == "__main__":
         print(__doc__, file=sys.stderr); sys.exit(1)
     cmd = args[0]
     if cmd == "fallback":
-        cmd_fallback(args[1:], as_json)
+        if not args[1:]:
+            print("error: fallback needs at least one transcript path", file=sys.stderr); sys.exit(1)
+        sys.exit(cmd_fallback(args[1:], as_json))
     elif cmd == "rounds":
         repo = None; prs = []
         i = 1

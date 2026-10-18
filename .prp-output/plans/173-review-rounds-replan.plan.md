@@ -61,6 +61,29 @@ one `try`, with `(RuntimeError, OSError, ValueError, TypeError, AttributeError, 
 mapped to `status: error`; `_read_jsonl` counts a non-object line as skipped; argument
 parsing validates before indexing.
 
+## Revision 2 — R3 (run `20261018T102114Z-bafe73d6`, head 24728c0): the I2 table was incomplete
+
+R3 found the same family a third time: `cmd_fallback` had no per-file guard, so a missing
+path crashed the batch. Cause: the I2 boundary table above was built from the review findings,
+not from the code, so it covered only the units the reviewers had already hit.
+
+Fix to the method: the boundary list is now every input point in the script, taken from
+`grep -nE 'open\(|json\.load|subprocess|int\(|args\[|raw_decode'`:
+
+| # | input point | bad input | expected | test |
+|---|---|---|---|---|
+| P1 | fallback `open(path)` | missing / a directory / non-UTF-8 | listed in `errors`, excluded from counts, exit 2 | `fallback: I2 — a missing file …`, `… a directory and a non-UTF-8 file …` |
+| P2 | fallback `json.loads(line)` | not JSON | skipped line | `fallback: truncated line counted` |
+| P3 | fallback line shape | JSON, not an object | skipped line | `fallback: valid-JSON non-object lines …` |
+| P4 | fallback paths | none given | usage, exit 1 | `fallback: no paths …` |
+| P5 | rounds fixture / gh JSON | not JSON | that PR `status: error`, exit 2 | `rounds: non-JSON comments response …` |
+| P6 | rounds `subprocess` gh | missing binary / non-404 failure | `OSError` / `RuntimeError` → `status: error` | covered by the same `except`; live gh is not run in tests (follow-up) |
+| P7 | rounds comments shape | non-object / non-string body | `status: error` | `rounds: non-object comment …`, `… body null …` |
+| P8 | CLI | missing value / non-integer `--prs` | usage, exit 1 | `rounds: --repo without a value …`, `… non-numeric --prs …` |
+
+`fallback` now returns an exit code (0 all read, 2 any error) the way `rounds` already did.
+`int(cm.group(2))` reads `\d+` only and cannot raise.
+
 ## Out of scope (to the ONE follow-up issue)
 
 Footer authorship is forgeable (security); the live `GhNotFound` path and the `gh api
