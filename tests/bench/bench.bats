@@ -389,3 +389,60 @@ CYAML
   _run_checker
   [ "$status" -ne 0 ]
 }
+
+@test "corpus: property test — no field mutation causes a traceback" {
+  run python3 -I - "$REPO_ROOT/tests/bench/check-corpus.py" "$REPO_ROOT/tests/bench/corpus.yaml" "$TEST_TMPDIR" <<'PY'
+import copy, json, os, subprocess, sys, yaml
+
+checker = sys.argv[1]
+corpus_path = sys.argv[2]
+tmpdir = sys.argv[3]
+
+with open(corpus_path) as f:
+    corpus = yaml.safe_load(f)
+base_entry = copy.deepcopy(corpus["entries"][0])
+base_label = copy.deepcopy(base_entry["labels"][0])
+
+MUTATIONS = [None, [], {}, [1], {"a": 1}, 1, True, "x"]
+FREE_STR = {"id","permalink","file","defect","family","comment_url"}
+
+failures = []
+n = 0
+for field in list(base_entry.keys()):
+    for mut in MUTATIONS:
+        e = copy.deepcopy(base_entry)
+        e[field] = mut
+        doc = {"entries": [e]}
+        p = os.path.join(tmpdir, f"e-{n}.yaml")
+        with open(p, "w") as f:
+            yaml.dump(doc, f)
+        r = subprocess.run([sys.executable, "-I", checker, p], capture_output=True, text=True)
+        if "Traceback" in r.stdout or "Traceback" in r.stderr:
+            failures.append(f"entry.{field}={json.dumps(mut)!r}: Traceback")
+        if field in FREE_STR and isinstance(mut, str) and r.returncode != 0:
+            pass
+        n += 1
+
+for field in list(base_label.keys()):
+    for mut in MUTATIONS:
+        e = copy.deepcopy(base_entry)
+        e["labels"][0] = copy.deepcopy(base_label)
+        e["labels"][0][field] = mut
+        doc = {"entries": [e]}
+        p = os.path.join(tmpdir, f"l-{n}.yaml")
+        with open(p, "w") as f:
+            yaml.dump(doc, f)
+        r = subprocess.run([sys.executable, "-I", checker, p], capture_output=True, text=True)
+        if "Traceback" in r.stdout or "Traceback" in r.stderr:
+            failures.append(f"label.{field}={json.dumps(mut)!r}: Traceback")
+        n += 1
+
+if failures:
+    for f in failures:
+        print(f"FAIL: {f}")
+    sys.exit(1)
+print(f"OK: {n} mutations, 0 tracebacks")
+PY
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"0 tracebacks"* ]]
+}
