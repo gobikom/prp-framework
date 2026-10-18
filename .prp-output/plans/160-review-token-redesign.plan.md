@@ -600,7 +600,7 @@ The sweep failures have now come up in R1 (path navigation), R2 (copied table), 
 - **Pinned schema:** unchanged (sha256 1250e78a…); the table content is unchanged.
 - **Verified by:** sweeps (a)–(c) in bats with derived counts; mutation tests (d) all killed; the reproduction above (array + `pattern`) is mutant 1 and must fail.
 
-## Revision 10 proposal: phase order and v1 scope after the round data (2026-10-18; round 11 REVISE 4 + round 12 REVISE 2 applied; PENDING round 13)
+## Revision 10 proposal: phase order and v1 scope after the round data (2026-10-18; round 11 REVISE 4 + round 12 REVISE 2 + round 13 REVISE 2 applied; PENDING round 14)
 
 **Input:** brief 20261018-1530-7c1e, relayed from pane -3 (นุด: "ทำ1 ก่อนครับ ถ้าได้ข้อมูลครบแล้วค่อยเริ่ม 2,3"). Data: Oracle `learning_2026-10-18_measurement-where-review-rounds-go-52-prs-merg`; scripts and `rounds.tsv` (175 lines) in `~/tmp/review-rounds-analysis-20261018/`. 52 PRs merged 2026-10-11..18, 310 rounds, median 5:
 
@@ -652,12 +652,15 @@ Stop-rule changes are นุด's decision (pane -3) and are not part of this re
   - **Phase 1 ACs are split** (round 11: deferring the child contradicted AC1.1/AC1.2 as written):
     - **v1:** AC1.1 = sandbox and conformance (a)–(d) without the probe variant.
     - **AC1.2, round 12: a head cohort, not a label filter.** A probe-needing head gets no CLI output at all, so its non-probe labels cannot be scored either.
-      - **The v1 detection cohort** is the set of corpus heads confirmed as not needing a probe by BOTH the path map and a replay showing no `probe_requests`.
+      - **The v1 detection cohort** is the set of corpus heads that are path-map negative AND emit no `probe_requests` in ANY of the n=3 runs (round 13).
+        - If any run of a head emits a request, the whole head leaves the cohort, and its other runs are not scored.
+        - The coverage check below is then re-run on the remaining cohort, and the exclusion is listed with its reason (map or request, and which run).
       - AC1.2 is zero observed regressions (n=3) on every label of the cohort heads only.
       - The report lists the excluded heads with their label counts, per pass and per family.
       - **Coverage of the cohort:** it must still contain at least one security-reviewer label, one large-diff head and one shell/security-heavy head (the Phase 0 challenging heads). If it does not, v1 makes NO detection claim: AC1.2 is reported as "withheld", and no harness is approved for gating on it.
-    - **AC1.2p** is zero regressions on the FULL corpus, all heads and all labels. It is required before unrestricted gating approval.
-    - **AC1.1p / AC1.2p, in the probe-child PR:** the probe variant of conformance, including (e); zero regressions on the probe-sourced labels.
+    - **In the probe-child PR** (each AC is defined once, here; round 13):
+      - **AC1.1p:** the probe variant of conformance, including (e).
+      - **AC1.2p:** zero observed regressions (n=3) on the FULL corpus: all heads and all labels, probe-sourced labels included. It is required before unrestricted gating approval.
     - **AC1.5, new in v1:** in replay, every probe-sourced corpus head triggers the unavailable exit, through the path map or `probe_requests`. A probe-label head that does not trigger it fails AC1.5. This keeps every probe-needing PR legacy-only until the child ships.
   - **Harness approval in v1 is restricted:** the ruleset records "approved for non-probe reviews", not unrestricted approval (AC1.4). Unrestricted approval needs AC1.1p/AC1.2p.
   - **Phase 3 cutover and confirm adoption wait for the full corpus**, including probe labels. Cutover also requires: "the probe child sandbox has shipped and passes conformance (e)".
@@ -679,15 +682,26 @@ Stop-rule changes are นุด's decision (pane -3) and are not part of this re
     - They are joined to commented runs by PR, run id (when printed), time window and head.
     - A log that cannot be joined is listed as `unjoined`, never merged into a run.
   - Rounds-to-ship is reported on BOTH denominators, and the report states which one each number uses.
-- **AC0.4 item 2: per-round assignment, in order.** The first rule that matches assigns the round, so every round gets exactly one bucket:
-  1. `incomplete` (fewer than the required passes, or an unparsed heading) and no-comment attempts;
-  2. `unknown` (a fetch failure, or an unattributable head);
-  3. `fix-loop`: any round before the PR's first clean round;
-  4. `minimum`: the first clean round, and a clean round directly after a clean round at the same head;
-  5. `re-roll`: a round after the first clean round, before the 2nd consecutive clean round at one head, and not after a merger-attributed head change;
-  6. `post-clean-head-change`: a round at a head reached by a merger-attributed change after 2-clean.
-  - **Tests:** one fixture per bucket; one fixture that matches two rules (it takes the earlier rule); the sum of the buckets equals each denominator.
-  - Reconciliation lists every difference per PR, never absorbed.
+- **AC0.4 item 2: per-round assignment by position, in order** (round 13: exhaustive). Rounds are ordered by time within a PR.
+  - Two markers are defined first:
+    - **C1** is the PR's first clean round.
+    - **T2** is the first round that completes two consecutive clean rounds at one head.
+  - The first rule that matches assigns the round. The last rule is a catchall, so every round gets exactly one bucket:
+    1. `incomplete` (fewer than the required passes, or an unparsed heading) and no-comment attempts;
+    2. `unknown` (a fetch failure, or an unattributable head);
+    3. `post-clean-head-change`: every round at or after the first merger-attributed head change that follows a 2-clean (it comes before rules 4–6, so `minimum` and `re-roll` never absorb a merger-caused round);
+    4. `fix-loop`: every round before C1;
+    5. `minimum`: C1 and T2;
+    6. `re-roll`: every round after C1 and before T2;
+    7. `post-2-clean-extra` (catchall): every other round after T2 at any head, clean or dirty, including same-head re-runs after 2-clean (the measured 28/77 pattern).
+  - **Tests:**
+    - one fixture per bucket;
+    - one fixture that matches two rules (it takes the earlier rule);
+    - a dirty round at the same head after 2-clean → `post-2-clean-extra`;
+    - a merger-attributed new head after 2-clean, then a clean round and a dirty round → both `post-clean-head-change`;
+    - several clean/head-change transitions in one PR: each round's bucket is asserted exactly.
+  - Reconciliation is by exact assignment: each fixture lists the expected bucket per round, and the buckets sum to each denominator.
+  - Every difference per PR is listed, never absorbed.
 - **Re-measurement:** the same report runs after cutover, and again after Phase 6, together with the same-head-dirty-after-clean rate.
 
 **Invariant (unchanged):** a review round's evidence is either a legacy fmt=1 round or a CLI fmt=2 round, and the gates can always tell which. Confirm is accepted only on its eligibility path: never in the gate tier, never before the pinned gate tier exists, never in place of a required conditional or probe pass it does not run, and never after a fmt=1 predecessor. Until the probe child ships, a probe-needing PR is reviewed only by the legacy flow.
@@ -696,5 +710,5 @@ Stop-rule changes are นุด's decision (pane -3) and are not part of this re
 - the Phase 6 tests: confirm is ineligible with no pinned gate tier; the `gate` > `standard` pair tests; conditional/probe ineligibility; fmt=1 versus fmt=2 predecessor;
 - the probe-unavailable bats test (two exits) and AC1.5 (every probe-label head triggers it);
 - benchmark (b) on the deduplicated, validated corpus;
-- the AC0.4 fixtures (ordered per-round rules, a two-rule fixture, unknown/incomplete, joined no-comment attempts) and the 310 reconciliation of commented runs, reported apart from attempts;
-- AC1.2 on the confirmed non-probe head cohort, with its coverage check (or "withheld").
+- the AC0.4 fixtures (exhaustive position rules with a catchall, a two-rule fixture, post-2-clean dirty at one head, a post-clean merger head, multiple transitions, unknown/incomplete, joined no-comment attempts) and the 310 reconciliation of commented runs, reported apart from attempts;
+- AC1.2 on the confirmed non-probe head cohort (all n=3 runs request-free; excluded heads listed), with its coverage check re-run after exclusion (or "withheld"); AC1.2p defined once, in the probe-child PR.
