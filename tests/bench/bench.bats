@@ -197,30 +197,252 @@ STUB
   [[ "$output" == *"unparseable"* ]]
 }
 
-# --- corpus ---
+# --- corpus (uses check-corpus.py for all rules) ---
 
-@test "corpus.yaml: every entry has required fields" {
+CHECK="$REPO_ROOT/tests/bench/check-corpus.py"
+
+_valid_entry='  - id: "test-1"
+    pr: 1
+    head: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    base: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    patch_digest: "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    permalink: "https://example.com"
+    kind: "positive"
+    tier: "standard"
+    files_changed: 1
+    additions: 1
+    deletions: 0
+    labels:
+      - file: "x.txt"
+        lines: [1, 2]
+        defect: "bug"
+        severity: "critical"
+        family: "f"
+        source_pass: ["code-reviewer"]
+        comment_url: "https://example.com"'
+
+_run_checker() {
+  run python3 -I "$CHECK" "$TEST_TMPDIR/corpus.yaml"
+  [[ "$output" != *"Traceback"* ]]
+}
+
+_valid_entry2='  - id: "test-2"
+    pr: 2
+    head: "dddddddddddddddddddddddddddddddddddddddd"
+    base: "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+    patch_digest: "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+    permalink: "https://example.com"
+    kind: "negative"
+    tier: "trivial"
+    files_changed: 1
+    additions: 0
+    deletions: 0
+    labels: []'
+
+@test "corpus: C6 real corpus.yaml passes checker" {
+  run python3 -I "$CHECK" "$REPO_ROOT/tests/bench/corpus.yaml"
+  [ "$status" -eq 0 ]
+}
+
+@test "corpus: severity totals match expected counts" {
   python3 -I - "$REPO_ROOT/tests/bench/corpus.yaml" <<'PY'
 import sys, yaml
-REQUIRED = {"id","pr","head","base","patch_digest","permalink","kind","tier","files_changed","additions","deletions","labels"}
+EXPECT_CRITICAL, EXPECT_IMPORTANT = 5, 9
 with open(sys.argv[1]) as f:
     corpus = yaml.safe_load(f)
-entries = corpus.get("entries", [])
-assert entries, "no entries"
-for e in entries:
-    missing = REQUIRED - set(e.keys())
-    assert not missing, f"{e.get('id','?')}: missing {missing}"
-    assert len(e["head"]) == 40 and len(e["base"]) == 40 and len(e["patch_digest"]) == 64
-    assert e["kind"] in ("positive","negative") and e["tier"] in ("standard","trivial","docs","gate")
-    assert isinstance(e["labels"], list)
+c = sum(1 for e in corpus["entries"] for l in e["labels"] if l["severity"]=="critical")
+i = sum(1 for e in corpus["entries"] for l in e["labels"] if l["severity"]=="important")
+assert c == EXPECT_CRITICAL, f"critical: {c} != {EXPECT_CRITICAL}"
+assert i == EXPECT_IMPORTANT, f"important: {i} != {EXPECT_IMPORTANT}"
 PY
 }
 
-@test "corpus.yaml: entry ids are unique" {
-  python3 -I - "$REPO_ROOT/tests/bench/corpus.yaml" <<'PY'
-import sys, yaml
-with open(sys.argv[1]) as f:
-    ids = [e["id"] for e in yaml.safe_load(f).get("entries",[])]
-assert len(ids) == len(set(ids)), f"duplicates: {[x for x in ids if ids.count(x)>1]}"
+@test "corpus: C2 negative entry with a label → fails" {
+  printf 'entries:\n%s\n' "${_valid_entry//kind: \"positive\"/kind: \"negative\"}" > "$TEST_TMPDIR/corpus.yaml"
+  _run_checker
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"negative entry must have labels"* ]]
+}
+
+@test "corpus: C3 unknown kind → fails" {
+  printf 'entries:\n%s\n' "${_valid_entry//kind: \"positive\"/kind: \"maybe\"}" > "$TEST_TMPDIR/corpus.yaml"
+  _run_checker
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"invalid kind"* ]]
+}
+
+@test "corpus: C4 label with no severity key → fails" {
+  local e="${_valid_entry}"
+  # Remove the severity line
+  printf 'entries:\n%s\n' "$(echo "$e" | grep -v 'severity:')" > "$TEST_TMPDIR/corpus.yaml"
+  _run_checker
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"missing"* ]]
+}
+
+@test "corpus: C5 critical+important != total labels → fails" {
+  printf 'entries:\n%s\n' "${_valid_entry//severity: \"critical\"/severity: \"medium\"}" > "$TEST_TMPDIR/corpus.yaml"
+  _run_checker
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"not in"* ]]
+}
+
+@test "corpus: D1 duplicate ids → error" {
+  printf 'entries:\n%s\n%s\n' "$_valid_entry" "${_valid_entry}" > "$TEST_TMPDIR/corpus.yaml"
+  _run_checker
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"duplicate"* ]]
+}
+
+@test "corpus: D2 entry missing labels key → error names id" {
+  cat > "$TEST_TMPDIR/corpus.yaml" <<'CYAML'
+entries:
+  - id: "no-labels"
+    pr: 1
+    head: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    base: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    patch_digest: "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    permalink: "https://example.com"
+    kind: "positive"
+    tier: "standard"
+    files_changed: 1
+    additions: 1
+    deletions: 0
+CYAML
+  _run_checker
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"no-labels"* ]]
+}
+
+@test "corpus: D3 labels is a string → error" {
+  cat > "$TEST_TMPDIR/corpus.yaml" <<'CYAML'
+entries:
+  - id: "str-labels"
+    pr: 1
+    head: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    base: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    patch_digest: "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    permalink: "https://example.com"
+    kind: "positive"
+    tier: "standard"
+    files_changed: 1
+    additions: 1
+    deletions: 0
+    labels: "not-a-list"
+CYAML
+  _run_checker
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"labels must be a list"* ]]
+}
+
+@test "corpus: D4 labels contains an int → error" {
+  cat > "$TEST_TMPDIR/corpus.yaml" <<'CYAML'
+entries:
+  - id: "int-label"
+    pr: 1
+    head: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    base: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    patch_digest: "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    permalink: "https://example.com"
+    kind: "positive"
+    tier: "standard"
+    files_changed: 1
+    additions: 1
+    deletions: 0
+    labels: [1, 2]
+CYAML
+  _run_checker
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"expected a mapping"* ]]
+}
+
+@test "corpus: D5 duplicate ids AND missing labels → both reported" {
+  cat > "$TEST_TMPDIR/corpus.yaml" <<CYAML
+entries:
+$_valid_entry
+  - id: "test-1"
+    pr: 2
+    head: "dddddddddddddddddddddddddddddddddddddddd"
+    base: "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+    patch_digest: "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+    permalink: "https://example.com"
+    kind: "positive"
+    tier: "standard"
+    files_changed: 1
+    additions: 1
+    deletions: 0
+CYAML
+  _run_checker
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"duplicate"* ]]
+  [[ "$output" == *"missing"* ]] || [[ "$output" == *"test-1"* ]]
+}
+
+@test "corpus: D6 top-level is a list → clean error" {
+  printf '%s\n%s\n' "- item1" "- item2" > "$TEST_TMPDIR/corpus.yaml"
+  _run_checker
+  [ "$status" -ne 0 ]
+}
+
+@test "corpus: D7 invalid YAML → clean error" {
+  printf '%s\n%s\n' "{{{" "invalid: [yaml" > "$TEST_TMPDIR/corpus.yaml"
+  _run_checker
+  [ "$status" -ne 0 ]
+}
+
+@test "corpus: property test — no field mutation causes a traceback" {
+  run python3 -I - "$REPO_ROOT/tests/bench/check-corpus.py" "$REPO_ROOT/tests/bench/corpus.yaml" "$TEST_TMPDIR" <<'PY'
+import copy, json, os, subprocess, sys, yaml
+
+checker = sys.argv[1]
+corpus_path = sys.argv[2]
+tmpdir = sys.argv[3]
+
+with open(corpus_path) as f:
+    corpus = yaml.safe_load(f)
+base_entry = copy.deepcopy(corpus["entries"][0])
+base_label = copy.deepcopy(base_entry["labels"][0])
+
+MUTATIONS = [None, [], {}, [1], {"a": 1}, 1, True, "x"]
+FREE_STR = {"id","permalink","file","defect","family","comment_url"}
+
+failures = []
+n = 0
+for field in list(base_entry.keys()):
+    for mut in MUTATIONS:
+        e = copy.deepcopy(base_entry)
+        e[field] = mut
+        doc = {"entries": [e]}
+        p = os.path.join(tmpdir, f"e-{n}.yaml")
+        with open(p, "w") as f:
+            yaml.dump(doc, f)
+        r = subprocess.run([sys.executable, "-I", checker, p], capture_output=True, text=True)
+        if "Traceback" in r.stdout or "Traceback" in r.stderr:
+            failures.append(f"entry.{field}={json.dumps(mut)!r}: Traceback")
+        if field in FREE_STR and isinstance(mut, str) and r.returncode != 0:
+            pass
+        n += 1
+
+for field in list(base_label.keys()):
+    for mut in MUTATIONS:
+        e = copy.deepcopy(base_entry)
+        e["labels"][0] = copy.deepcopy(base_label)
+        e["labels"][0][field] = mut
+        doc = {"entries": [e]}
+        p = os.path.join(tmpdir, f"l-{n}.yaml")
+        with open(p, "w") as f:
+            yaml.dump(doc, f)
+        r = subprocess.run([sys.executable, "-I", checker, p], capture_output=True, text=True)
+        if "Traceback" in r.stdout or "Traceback" in r.stderr:
+            failures.append(f"label.{field}={json.dumps(mut)!r}: Traceback")
+        n += 1
+
+if failures:
+    for f in failures:
+        print(f"FAIL: {f}")
+    sys.exit(1)
+print(f"OK: {n} mutations, 0 tracebacks")
 PY
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"0 tracebacks"* ]]
 }
