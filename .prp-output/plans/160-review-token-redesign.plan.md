@@ -224,6 +224,11 @@ Every pass therefore runs inside an **unprivileged bubblewrap sandbox**, using o
   - the conformance preflight passing;
   - no `post`/marker code being reachable from `replay.sh` (a bats test);
   - an unchanged comment count and latest `updated_at` on every corpus PR, before and after, queried read-only outside the passes.
+- AC0.4 *(added 2026-10-18 after rev 9, นุด proposal relayed by pane -3; accepted by psak)*: a read-only rounds report (`scripts/bench/review-rounds.py`, `python3 -I`) over the baseline review runs and GitHub data gives:
+  1. **Incremental fallback rate:** runs invoked with `--since-last-review` that ran a full review anyway (transcript has "No previous review found" or "Running full review instead", or no "Incremental review:" line), with count, rate, and the extra weighted tokens versus the incremental runs (via `review-cost.py`). Cause: `prompts/review-agents.md:73-101` @ `a68fd8d` finds the previous round only through the local `.prp-output/reviews/pr-<N>-agents-review.md` and lists changes with `git log --since`, which breaks across worktrees, headless runs and rebases. Observed 2026-10-18: psak's #171 rounds run from a worktree that holds no `pr-171-agents-review.md`.
+  2. **Rounds to ship per merged PR:** review rounds before merge, each classified as (a) a real Critical/Important, (b) the same family repeated, or (c) a fallback or failed run (e.g. a silent exit 0 as in #151 AC1, or a launcher failure with no comments posted).
+  3. The same report after cutover, so the plan reports the change in rounds and not only in tokens (Phase 4 gives prior findings to incremental passes deterministically, which removes the local-file dependency).
+  Read-only like AC0.3: transcripts and `gh api` GETs only. Boundary cases: a transcript with no mode line (counted as "unknown", never as incremental); a PR closed unmerged (excluded from rounds-to-ship, listed); a round with fewer than three per-pass comments (class c).
 
 **Boundary cases:** jsonl with no `usage`; subagent dir missing; a truncated line; a head missing on the remote (fetched by SHA, otherwise loud failure); a patch digest mismatch (abort).
 
