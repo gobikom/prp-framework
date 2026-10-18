@@ -38,6 +38,27 @@ teardown() { rm -rf -- "$TEST_TMPDIR" 2>/dev/null || true; }
   python3 -I -c "import json,sys; d=json.loads(sys.argv[1]); assert d['sessions'][0]['skipped_lines']==1" "$output"
   [[ "$output" != *"Traceback"* ]]
 }
+@test "fallback: unknown arm (invoked, no diff, no not-found)" {
+  run python3 -I "$RR" fallback --json "$FIX/unknown.jsonl"
+  [ "$status" -eq 0 ]
+  python3 -I -c "import json,sys; s=json.loads(sys.argv[1])['sessions'][0]; assert s['mode']=='unknown' and s['invoked'], s" "$output"
+}
+@test "fallback: incremental via pr-N-incremental.diff file" {
+  run python3 -I "$RR" fallback --json "$FIX/incremental-diff-file.jsonl"
+  [ "$status" -eq 0 ]
+  python3 -I -c "import json,sys; assert json.loads(sys.argv[1])['sessions'][0]['mode']=='incremental'" "$output"
+}
+@test "fallback: I1 — the arm fixtures cover every classifier arm" {
+  run python3 -I "$RR" fallback --json "$FIX/full-requested.jsonl" "$FIX/incremental.jsonl" "$FIX/incremental-diff-file.jsonl" "$FIX/fell-back-no-prev.jsonl" "$FIX/unknown.jsonl"
+  [ "$status" -eq 0 ]
+  python3 -I -c "import json,sys; m={s['mode'] for s in json.loads(sys.argv[1])['sessions']}; assert m=={'full-requested','incremental','fell-back','unknown'}, m" "$output"
+}
+@test "fallback: valid-JSON non-object lines are skipped, not a crash" {
+  run python3 -I "$RR" fallback --json "$FIX/non-object-line.jsonl"
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"Traceback"* ]]
+  python3 -I -c "import json,sys; assert json.loads(sys.argv[1])['sessions'][0]['skipped_lines']==2" "$output"
+}
 @test "fallback: markdown output shows skipped lines" {
   run python3 -I "$RR" fallback "$FIX/truncated.jsonl"
   [ "$status" -eq 0 ]
@@ -88,12 +109,42 @@ teardown() { rm -rf -- "$TEST_TMPDIR" 2>/dev/null || true; }
 @test "rounds: missing comments fixture → status error, exit 2 (not a 0-round merge)" {
   run env REVIEW_ROUNDS_GH_FIXTURES="$GH" python3 -I "$RR" rounds --json --repo test/repo --prs 66
   [ "$status" -eq 2 ]
-  python3 -I -c "import json,sys; s=sys.argv[1]; d=json.JSONDecoder().raw_decode(s, s.index('['))[0]; assert d[0]['status']=='error', d" "$output"
+  python3 -I -c "import json,sys; s=sys.argv[1]; d=json.JSONDecoder().raw_decode(s, s.index('[\n'))[0]; assert d[0]['status']=='error', d" "$output"
 }
 @test "rounds: missing pulls fixture → status error, exit 2 (not 'unmerged')" {
   run env REVIEW_ROUNDS_GH_FIXTURES="$GH" python3 -I "$RR" rounds --repo test/repo --prs 55
   [ "$status" -eq 2 ]
-  echo "$output" | grep -q 'PR #55: ERROR fixture missing'
+  echo "$output" | grep -q 'PR #55: ERROR RuntimeError: fixture missing'
+}
+
+@test "rounds: non-object comment → status error, exit 2, no traceback" {
+  run env REVIEW_ROUNDS_GH_FIXTURES="$GH" python3 -I "$RR" rounds --repo test/repo --prs 44
+  [ "$status" -eq 2 ]
+  [[ "$output" != *"Traceback"* ]]
+  echo "$output" | grep -q 'PR #44: ERROR TypeError: issues/44/comments\[0\] is not an object'
+}
+@test "rounds: comment body null → status error, exit 2, no traceback" {
+  run env REVIEW_ROUNDS_GH_FIXTURES="$GH" python3 -I "$RR" rounds --repo test/repo --prs 45
+  [ "$status" -eq 2 ]
+  [[ "$output" != *"Traceback"* ]]
+  echo "$output" | grep -q 'PR #45: ERROR TypeError: issues/45/comments\[0\].body is not a string'
+}
+@test "rounds: one bad PR in a batch keeps the good PR's result" {
+  run env REVIEW_ROUNDS_GH_FIXTURES="$GH" python3 -I "$RR" rounds --json --repo test/repo --prs 99,45
+  [ "$status" -eq 2 ]
+  python3 -I -c "import json,sys; s=sys.argv[1]; d=json.JSONDecoder().raw_decode(s, s.index('[\n'))[0]; st={r['pr']:r['status'] for r in d}; assert st=={99:'merged',45:'error'}, st; assert len(d[0]['rounds'])==4" "$output"
+}
+@test "rounds: --repo without a value → usage error, exit 1, no traceback" {
+  run python3 -I "$RR" rounds --prs 1 --repo
+  [ "$status" -eq 1 ]
+  [[ "$output" != *"Traceback"* ]]
+  echo "$output" | grep -q 'error: --repo needs a value'
+}
+@test "rounds: non-numeric --prs → usage error, exit 1, no traceback" {
+  run python3 -I "$RR" rounds --repo test/repo --prs abc
+  [ "$status" -eq 1 ]
+  [[ "$output" != *"Traceback"* ]]
+  echo "$output" | grep -q 'error: --prs must be comma-separated integers'
 }
 
 # --- misc ---

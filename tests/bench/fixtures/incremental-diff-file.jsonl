@@ -1,0 +1,4 @@
+{"type":"system","timestamp":"2026-01-01T12:00:00.000Z"}
+{"type":"human","message":{"content":"review --since-last-review"}}
+{"type":"assistant","message":{"content":[{"type":"tool_use","input":{"command":"git diff HEAD~1 > .prp-output/reviews/pr-42-incremental.diff"}}]}}
+{"type":"user","message":{"content":[{"type":"tool_result","content":"written"}]}}

@@ -31,8 +31,10 @@ def _read_jsonl(path):
     for line in open(path):
         line = line.strip()
         if not line: continue
-        try: lines.append(json.loads(line))
-        except json.JSONDecodeError: skipped += 1
+        try: obj = json.loads(line)
+        except json.JSONDecodeError: skipped += 1; continue
+        if isinstance(obj, dict): lines.append(obj)
+        else: skipped += 1  # valid JSON but not an event object
     return lines, skipped
 
 def _first_prompt(events):
@@ -176,6 +178,27 @@ def _normalise_title(t):
     t = re.sub(r"^[\w/.-]+:\d+[-:]\d*\s*", "", t.strip())
     return re.sub(r"[^\w\s]", "", t.lower()).strip()
 
+def _rounds_from_comments(pr_num, comments):
+    """Group per-pass comments into rounds by run id. Raises on a malformed comment."""
+    rounds = {}
+    for i, c in enumerate(comments):
+        if not isinstance(c, dict):
+            raise TypeError(f"issues/{pr_num}/comments[{i}] is not an object")
+        body = c.get("body")
+        if not isinstance(body, str):
+            raise TypeError(f"issues/{pr_num}/comments[{i}].body is not a string")
+        for m in FOOTER_PAT.finditer(body):
+            run_id = m.group(1)
+            if run_id not in rounds:
+                rounds[run_id] = {"run_id": run_id, "passes": [], "has_ci": False, "families": set()}
+            rounds[run_id]["passes"].append(m.group(2))
+            for cm in CI_COUNT_PAT.finditer(body):
+                if int(cm.group(2)) > 0:
+                    rounds[run_id]["has_ci"] = True
+                    for title in _section_titles(_section(body, cm)):
+                        rounds[run_id]["families"].add(_normalise_title(title))
+    return list(rounds.values())
+
 def cmd_rounds(repo, pr_numbers, as_json=False):
     results = []
     for pr_num in pr_numbers:
@@ -189,24 +212,11 @@ def cmd_rounds(repo, pr_numbers, as_json=False):
             if isinstance(comments, dict): comments = [comments]
             if not isinstance(comments, list):
                 raise RuntimeError(f"unexpected issues/{pr_num}/comments response shape")
+            round_list = _rounds_from_comments(pr_num, comments)
         except GhNotFound:
             results.append({"pr": pr_num, "status": "not-found", "rounds": []}); continue
-        except (RuntimeError, OSError, ValueError) as e:
-            results.append({"pr": pr_num, "status": "error", "error": str(e), "rounds": []}); continue
-        rounds = {}
-        for c in comments:
-            body = c.get("body", "")
-            for m in FOOTER_PAT.finditer(body):
-                run_id = m.group(1)
-                if run_id not in rounds:
-                    rounds[run_id] = {"run_id": run_id, "passes": [], "has_ci": False, "families": set()}
-                rounds[run_id]["passes"].append(m.group(2))
-                for cm in CI_COUNT_PAT.finditer(body):
-                    if int(cm.group(2)) > 0:
-                        rounds[run_id]["has_ci"] = True
-                        for title in _section_titles(_section(body, cm)):
-                            rounds[run_id]["families"].add(_normalise_title(title))
-        round_list = list(rounds.values())
+        except (RuntimeError, OSError, ValueError, TypeError, AttributeError, KeyError) as e:
+            results.append({"pr": pr_num, "status": "error", "error": f"{type(e).__name__}: {e}", "rounds": []}); continue
         prev_families = set()
         for rd in round_list:
             if len(rd["passes"]) < 3:
@@ -255,8 +265,15 @@ if __name__ == "__main__":
         repo = None; prs = []
         i = 1
         while i < len(args):
-            if args[i] == "--repo": repo = args[i+1]; i += 2
-            elif args[i] == "--prs": prs = [int(x) for x in args[i+1].split(",")]; i += 2
+            if args[i] in ("--repo", "--prs"):
+                if i + 1 >= len(args) or args[i+1].startswith("--"):
+                    print(f"error: {args[i]} needs a value", file=sys.stderr); sys.exit(1)
+                if args[i] == "--repo": repo = args[i+1]
+                else:
+                    try: prs = [int(x) for x in args[i+1].split(",")]
+                    except ValueError:
+                        print(f"error: --prs must be comma-separated integers, got {args[i+1]!r}", file=sys.stderr); sys.exit(1)
+                i += 2
             else: i += 1
         if not repo or not prs:
             print("error: --repo and --prs required", file=sys.stderr); sys.exit(1)
