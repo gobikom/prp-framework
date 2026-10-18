@@ -9,6 +9,13 @@ CONFORMANCE="$REPO_ROOT/scripts/review/conformance.sh"
 setup() {
   TEST_TMPDIR="$(mktemp -d)"
   echo "test content" > "$TEST_TMPDIR/file.txt"
+  # Stub harness binaries so tests run on CI (no real claude/codex)
+  if ! command -v claude >/dev/null 2>&1; then
+    mkdir -p "$TEST_TMPDIR/stub-bin"
+    printf '#!/usr/bin/env bash\necho "stub claude"\n' > "$TEST_TMPDIR/stub-bin/claude"
+    chmod +x "$TEST_TMPDIR/stub-bin/claude"
+    export PATH="$TEST_TMPDIR/stub-bin:$PATH"
+  fi
 }
 
 teardown() {
@@ -177,4 +184,64 @@ assert "important" in valid_severities
 assert "bogus" not in valid_severities
 PY
   [ "$status" -eq 0 ]
+}
+
+# --- I4a: clearenv in review pass ---
+
+@test "I4a: review pass uses --clearenv" {
+  run grep -c '\-\-clearenv' "$REPO_ROOT/scripts/review/sandbox.sh"
+  [[ "$output" -ge 2 ]]
+}
+
+@test "I4a: exported DECOY_SECRET_TOKEN absent inside review pass" {
+  export DECOY_SECRET_TOKEN="sk-ant-oat01-DECOY-NOT-REAL"
+  run "$SANDBOX" --harness claude-code --bundle "$TEST_TMPDIR" -- \
+    sh -c 'echo "VAL=${DECOY_SECRET_TOKEN:-ABSENT}"'
+  unset DECOY_SECRET_TOKEN
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"VAL=ABSENT"* ]]
+}
+
+# --- I4b: credential output scan ---
+
+@test "I4b: adapter rejects output containing sk-ant- pattern" {
+  mkdir -p "$TEST_TMPDIR/out"
+  printf '{"findings":[],"reviewed_head":"%s","pass":"code-reviewer","complete":true}\nsk-ant-oat01-FAKE-NOT-REAL\n' "$(printf 'a%.0s' {1..40})" > "$TEST_TMPDIR/out/pass.json"
+  run grep -qE 'sk-ant-' "$TEST_TMPDIR/out/pass.json"
+  [ "$status" -eq 0 ]
+}
+
+# --- I4c: conformance fails closed ---
+
+@test "I4c: conformance fails when bwrap stub exits 1" {
+  mkdir -p "$TEST_TMPDIR/bin"
+  cat > "$TEST_TMPDIR/bin/bwrap" <<'STUB'
+#!/usr/bin/env bash
+exit 1
+STUB
+  chmod +x "$TEST_TMPDIR/bin/bwrap"
+  run env PATH="$TEST_TMPDIR/bin:$PATH" "$CONFORMANCE" claude-code
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"FAIL"* ]]
+}
+
+# --- I4d: adapter error visibility ---
+
+@test "I4d: sandbox exit code visible in adapter" {
+  run "$SANDBOX" --harness claude-code --bundle "$TEST_TMPDIR" -- sh -c 'exit 3'
+  [ "$status" -ne 0 ]
+}
+
+# --- I4e: process cap ---
+
+@test "I4e: default process cap in sandbox argv" {
+  run grep -c 'DEFAULT_NPROC=' "$REPO_ROOT/scripts/review/sandbox.sh"
+  [[ "$output" -ge 1 ]]
+}
+
+@test "I4e: sandbox applies ulimit" {
+  run "$SANDBOX" --harness claude-code --bundle "$TEST_TMPDIR" --ulimit-nproc 50 -- \
+    bash -c 'ulimit -u'
+  [ "$status" -eq 0 ]
+  [[ "$output" == "50" ]]
 }
