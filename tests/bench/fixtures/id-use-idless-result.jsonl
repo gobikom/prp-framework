@@ -1,0 +1,4 @@
+{"type": "human", "message": {"content": "review --since-last-review"}}
+{"type": "assistant", "message": {"content": [{"type": "tool_use", "input": {"command": "git diff 1a2b3c4 5d6e7f8"}, "id": "tu_a"}]}}
+{"type": "user", "message": {"content": [{"type": "tool_result", "content": "diff --git a/x b/x"}]}}
+{"type": "assistant", "message": {"content": "Reviewing the code."}}

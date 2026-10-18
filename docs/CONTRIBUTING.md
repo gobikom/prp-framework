@@ -53,7 +53,7 @@ bats tests/scripts/scripts.bats    # helper scripts (8 tests)
 bats tests/commands/structure.bats # command markdown structure (89 tests)
 bats tests/adapters/parity.bats    # cross-adapter parity (28 tests)
 bats tests/bench/review-cost.bats  # dev/bench: review-cost.py token accounting (33 tests)
-bats tests/bench/review-rounds.bats # dev/bench: review-rounds.py fallback classifier (22 tests)
+bats tests/bench/review-rounds.bats # dev/bench: review-rounds.py fallback classifier (31 tests)
 ```
 
 ### E2E Infrastructure Tests

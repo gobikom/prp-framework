@@ -1,0 +1,3 @@
+{"type": "human", "message": {"content": "review --since-last-review"}}
+{"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "Agent", "input": {"subagent_type": "code-reviewer", "prompt": "Review the changes in .prp-output/reviews/pr-42-incremental.diff"}, "id": "tu_a"}]}}
+{"type": "user", "message": {"content": [{"type": "tool_result", "content": "No issues found.", "tool_use_id": "tu_a"}]}}

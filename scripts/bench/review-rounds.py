@@ -5,11 +5,13 @@ reads gh api, ships in a stacked PR.)
 
 Fallback classifier (tool-event based): a run whose first prompt carries
 --since-last-review is 'invoked'; any other run is 'full-requested' and is
-excluded from the fallback rate. Each tool command is paired with its own
-result. An invoked run is 'incremental' when a command on pr-N-incremental.diff
-or a two-SHA `git diff A B` / `A...B` did not fail with not-found; else
-'fell-back' when a command on the review file or .prp-output/reviews failed
-with not-found, or the assistant says "No previous review found" / "Running
+excluded from the fallback rate. Each tool command gets one outcome from its
+own paired result: ok, failed (a not-found about the review file or diff
+itself), error (another is_error result) or missing (no result); error and
+missing are never evidence. An invoked run is 'incremental' when a command on
+pr-N-incremental.diff or a two-SHA `git diff A B` / `A...B` is ok; else
+'fell-back' when a command on the review file or .prp-output/reviews failed,
+or the assistant says "No previous review found" / "Running
 full review"; anything else is 'unknown'. (AC0.4's extra-tokens delta, via
 review-cost.py, ships with `rounds` in the stacked PR.)
 
@@ -50,7 +52,8 @@ def _normalise_event(obj):
     """Raw transcript JSON object -> a fixed shape. The ONLY place raw event JSON is read.
 
     {"type": str, "text": str,
-     "blocks": [{"type": str, "text": str, "command": str, "content": str, "id": str, "tool_use_id": str}]}
+     "blocks": [{"type": str, "text": str, "command": str, "content": str, "id": str, "tool_use_id": str,
+                 "is_error": bool}]}
     Any field of the wrong type becomes "" / [] here, so the classifier never sees raw JSON.
     """
     msg = obj.get("message")
@@ -60,12 +63,16 @@ def _normalise_event(obj):
     if isinstance(content, list):
         for b in content:
             if not isinstance(b, dict): continue
-            inp = b.get("input")
-            cmd = inp.get("command") if isinstance(inp, dict) else None
-            command = cmd if isinstance(cmd, str) and cmd else _text_of(inp)
+            # Evidence is a shell command or the path a Read opened. Another tool's input (an
+            # Agent prompt, a Write body) that merely names a review path is not a command on it.
+            inp = b.get("input") if isinstance(b.get("input"), dict) else {}
+            cmd, path = inp.get("command"), inp.get("file_path")
+            command = cmd if isinstance(cmd, str) else \
+                path if b.get("name") == "Read" and isinstance(path, str) else ""
             blocks.append({"type": _str(b.get("type")), "text": _str(b.get("text")),
                            "command": command, "content": _text_of(b.get("content")),
-                           "id": _str(b.get("id")), "tool_use_id": _str(b.get("tool_use_id"))})
+                           "id": _str(b.get("id")), "tool_use_id": _str(b.get("tool_use_id")),
+                           "is_error": b.get("is_error") is True})
     return {"type": _str(obj.get("type")), "text": _str(content), "blocks": blocks}
 
 def _first_prompt(events):
@@ -83,29 +90,44 @@ TWO_SHA_PAT = re.compile(r"git diff [0-9a-f]{7,40}[\s.]+[0-9a-f]{7,40}")
 NOT_FOUND_PAT = re.compile(r"NOT_FOUND|No such file|not found|cannot access", re.I)
 FALLBACK_SAY_PAT = re.compile(r"No previous review found|Running full review")  # AC0.4 phrases
 
-def _tool_calls(events):
-    """[(command, result)] for every tool_use, in order.
+OK, FAILED, ERROR, MISSING = "ok", "failed", "error", "missing"
+BARE_NOT_FOUND_PAT = re.compile(r"NOT_FOUND\b.{0,80}")
+TARGET_PAT = re.compile(r"pr-\d+-agents-review\.md|\.prp-output/reviews\b|pr-\d+-incremental\.diff")
 
-    A result is paired by tool_use_id when the use has an id and a result carries it;
-    otherwise with the next unpaired result in order. A use with no result gets None.
+def _outcome(content, is_error):
+    """FAILED only on a not-found about the target itself: a line that names the review file,
+    the reviews dir or the incremental diff, a bare NOT_FOUND token line, or an is_error result
+    that says not-found. Not-found text inside command OUTPUT (a diff or a file listing code
+    that contains the words) is not a failure. Any other is_error result is ERROR."""
+    lines = [ln.strip() for ln in content.splitlines() if NOT_FOUND_PAT.search(ln)]
+    if any(TARGET_PAT.search(ln) or BARE_NOT_FOUND_PAT.fullmatch(ln) for ln in lines): return FAILED
+    if is_error: return FAILED if lines else ERROR
+    return OK
+
+def _tool_calls(events):
+    """([(command, outcome)] for every tool_use in order, orphan_result_count).
+
+    outcome is MISSING (no paired result), else _outcome(): FAILED (a not-found about the
+    target), ERROR (another is_error result) or OK. MISSING and ERROR are never evidence.
+    Pairing: a result with a tool_use_id pairs only with the earliest unpaired use of that
+    id (a resumed session replays history, so one id can appear more than once); a result
+    without one pairs with the earliest unpaired use that has no id either. A result
+    that pairs with nothing is an orphan: counted, never attached by guess.
     """
-    calls, by_id, unpaired = [], {}, []
+    cmds, results, by_id, idless, orphans = [], [], {}, [], 0
     for e in events:
         for block in e["blocks"]:
             if block["type"] == "tool_use":
-                calls.append([block["command"], None])
-                if block["id"]: by_id[block["id"]] = len(calls) - 1
-                unpaired.append(len(calls) - 1)
+                cmds.append(block["command"]); results.append(None)
+                if block["id"]: by_id.setdefault(block["id"], []).append(len(cmds) - 1)
+                else: idless.append(len(cmds) - 1)
             elif block["type"] == "tool_result":
-                i = by_id.pop(block["tool_use_id"], None) if block["tool_use_id"] else None
-                if i is None and unpaired: i = unpaired[0]
-                if i is not None:
-                    calls[i][1] = block["content"]
-                    if i in unpaired: unpaired.remove(i)
-    return [tuple(c) for c in calls]
-
-def _failed(result):
-    return result is not None and bool(NOT_FOUND_PAT.search(result))
+                q = by_id.get(block["tool_use_id"]) if block["tool_use_id"] else idless
+                i = q.pop(0) if q else None
+                if i is None: orphans += 1
+                else: results[i] = _outcome(block["content"], block["is_error"])
+    calls = [(c, MISSING if r is None else r) for c, r in zip(cmds, results)]
+    return calls, orphans
 
 def _assistant_text(events):
     for e in events:
@@ -115,36 +137,36 @@ def _assistant_text(events):
             if block["type"] == "text": yield block["text"]
 
 def classify_mode(events):
-    """'full-requested' | 'incremental' | 'fell-back' | 'unknown', and whether invoked.
+    """('full-requested' | 'incremental' | 'fell-back' | 'unknown', invoked, orphan_results).
 
-    incremental: a command that reads/writes pr-N-incremental.diff or runs a two-SHA
-      git diff, whose own result is not a not-found (a failed `cat` of the diff does not count);
-    fell-back: a command on the review file or .prp-output/reviews whose own result is
-      not-found, or the assistant says "No previous review found" / "Running full review";
-    unknown: anything else (never counted as incremental).
+    incremental: a command on pr-N-incremental.diff or a two-SHA git diff with outcome OK;
+    fell-back: a command on the review file or .prp-output/reviews with outcome FAILED, or
+      the assistant says "No previous review found" / "Running full review";
+    unknown: anything else. MISSING and ERROR outcomes never count as evidence.
     """
     prompt = _first_prompt(events)
     invoked = "--since-last-review" in prompt
-    if not invoked: return "full-requested", invoked
-    calls = _tool_calls(events)
-    if any((INCR_DIFF_PAT.search(c) or TWO_SHA_PAT.search(c)) and not _failed(r) for c, r in calls):
-        return "incremental", invoked
-    if any(REVIEW_FILE_PAT.search(c) and _failed(r) for c, r in calls) \
+    calls, orphans = _tool_calls(events)
+    if not invoked: return "full-requested", invoked, orphans
+    if any(o == OK and (INCR_DIFF_PAT.search(c) or TWO_SHA_PAT.search(c)) for c, o in calls):
+        return "incremental", invoked, orphans
+    if any(o == FAILED and REVIEW_FILE_PAT.search(c) for c, o in calls) \
             or any(FALLBACK_SAY_PAT.search(t) for t in _assistant_text(events)):
-        return "fell-back", invoked
-    return "unknown", invoked
+        return "fell-back", invoked, orphans
+    return "unknown", invoked, orphans
 
 def cmd_fallback(paths, as_json=False):
     results, errors = [], []
     for p in paths:
         try:
             events, skipped = _read_jsonl(p)
-            mode, invoked = classify_mode(events)
+            mode, invoked, orphans = classify_mode(events)
         except (OSError, ValueError) as e:  # missing, a directory, unreadable, non-UTF-8
             errors.append({"path": p, "error": f"{type(e).__name__}: {e}"}); continue
         except Exception as e:  # a bug, not bad input: report it with its location, never swallow it
             errors.append({"path": p, "error": f"internal {_where(e)}"}); continue
-        results.append({"path": os.path.basename(p), "mode": mode, "invoked": invoked, "skipped_lines": skipped})
+        results.append({"path": os.path.basename(p), "mode": mode, "invoked": invoked,
+                        "skipped_lines": skipped, "orphan_results": orphans})
     modes = [r["mode"] for r in results]
     invoked_runs = [r for r in results if r["invoked"]]
     fb = sum(1 for r in invoked_runs if r["mode"] == "fell-back")
@@ -171,6 +193,7 @@ def cmd_fallback(paths, as_json=False):
         skipped = sum(r["skipped_lines"] for r in results)
         print(f"| skipped (unparseable) lines | {skipped} |")
         print(f"| unreadable files | {len(errors)} |")
+        print(f"| orphan tool results | {sum(r['orphan_results'] for r in results)} |")
         if skipped:
             print(f"warning: {skipped} unparseable transcript line(s) excluded", file=sys.stderr)
     for e in errors:

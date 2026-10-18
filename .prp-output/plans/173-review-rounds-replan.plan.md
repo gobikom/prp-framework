@@ -155,6 +155,94 @@ the S1 head misclassifies and this head classifies correctly; all three join the
 run. Over the 60 real review transcripts, 7 runs change mode, all to the stricter side (fell-back →
 unknown 4, incremental → fell-back 2, incremental → unknown 1).
 
+## Revision 6 — S2 (run `20261018T115147Z-d693210b`, head e2684b2): same family again, so the representation changes
+
+S2 found 1 Critical in the classifier-precision family of rev 5: a diff command with NO paired
+result counted as incremental, because the result was `Optional[str]` and `_failed(None)` is
+False, so absence read as success. Same family in two rounds → no third point-patch. The
+representation is replaced instead.
+
+Invariant: classification uses only tool calls whose outcome is KNOWN. Each tool call has exactly
+one outcome, `ok` (a paired result that is not a not-found), `failed` (a paired not-found
+result) or `missing` (no paired result), and `missing` is never evidence for any arm.
+
+Pairing invariant: a result that carries a `tool_use_id` pairs only with the use of that id; a
+result without one pairs with the earliest unpaired use that also has no id. A result that pairs
+with nothing is an orphan. It is counted per session (`orphan_results`), never attached to a guess
+and never dropped silently.
+
+Boundary cases (one fixture per arm, each must fail on e2684b2 or be new behaviour):
+
+| case | fixture | expected |
+|---|---|---|
+| diff command, no result | `incr-diff-no-result.jsonl` | `unknown` (e2684b2: incremental) |
+| review-file command, no result | `review-file-no-result.jsonl` | `unknown` |
+| result whose id matches no use | `orphan-id.jsonl` | the use stays `missing` → `unknown`, `orphan_results` 1 (e2684b2: paired by position → incremental) |
+| id-less result after an id'd use | `id-use-idless-result.jsonl` | no positional pairing to the id'd use → `unknown`, `orphan_results` 1 |
+| ok / failed / phrase arms | existing fixtures | unchanged modes |
+
+### Rev 6 amendment: what counts as `failed` (from the real data, before S3)
+
+Sample: every tool_result in the real transcripts that `fallback` reads. `is_error` is `False` in 1323
+results, absent in 820, `True` in 69. Of the not-found lines, 17 name a review-target path, 17 are a
+bare `NOT_FOUND` token, 26 are a line inside diff output, and 173 are other text. Treating "any line
+contains not-found" as `failed` wrongly moved transcript `00ecdf39` from incremental to fell-back,
+because the diff it fetched contained the string `NOT_FOUND`.
+
+Rule: a result is `failed` when a not-found line names a review target
+(`pr-N-agents-review.md`, `.prp-output/reviews`, `pr-N-incremental.diff`), or when the whole line is a bare
+`NOT_FOUND…` token. A result with `is_error: true` that has a not-found line is also `failed`. One with no
+not-found line gets a fourth outcome, `error`, which like `missing` is never evidence. Every other
+result is `ok`.
+
+| case | fixture | expected |
+|---|---|---|
+| diff output that contains `NOT_FOUND` | `diff-output-says-not-found.jsonl` | `incremental` |
+| diff command, `is_error` true, no not-found line | `diff-command-errored.jsonl` | `unknown` |
+
+Two more rules come from the same real-data run:
+
+- **Evidence comes only from a shell command or a Read.** A tool_use's command is `input.command`,
+  or a Read's `input.file_path`. Any other tool's input is not a command. In the real review
+  sessions, 1164 Agent uses and 1100 Write uses name a review path, and e2684b2 treated all of them as
+  commands on that file. A sub-agent prompt that mentions `pr-N-incremental.diff` and returns ok
+  became false incremental evidence. Review prose saying "not found" became false fell-back evidence.
+- **A replayed id pairs FIFO.** A resumed session replays history, so one `tool_use_id` can appear
+  more than once (1408 repeated uses in the sample). Each id keeps a queue of unpaired uses. Before,
+  a later copy overwrote the earlier one, which left it `missing` and made its result an orphan.
+
+| case | fixture | expected (e2684b2) |
+|---|---|---|
+| Agent prompt names the incremental diff, result ok | `agent-prompt-names-diff.jsonl` | `unknown` (incremental) |
+| Read of the incremental diff, result is diff text | `read-incremental-diff.jsonl` | `incremental` |
+| same id used twice, two results | `replayed-id.jsonl` | `incremental`, `orphan_results` 0 |
+
+Real-data measurement: the 212 sessions on this host whose first prompt is
+`/prp-core:prp-review-agents`, run through e2684b2 and then through rev6.
+
+| mode | e2684b2 | rev6 |
+|---|---|---|
+| full-requested | 118 | 118 |
+| incremental | 51 | 50 |
+| fell-back | 16 | 8 |
+| unknown | 27 | 36 |
+| errors | 0 | 0 |
+
+Every session whose mode changed was checked, by the shape of its evidence lines only: matched
+token, line length, path-shaped tokens.
+- **9 fell-back → unknown.** The only "failed" evidence was a not-found phrase in review prose, or in a
+  result about some other path, such as a missing review clone. None of it was about the review file.
+- **1 incremental → fell-back (6c45fd03).** Its incremental diff command failed, and the review-file
+  read returned a bare `NOT_FOUND`.
+
+Transcript `00ecdf39` is incremental again. Rev6 also reports 22 `orphan_results` across the 212
+sessions: results with more copies than their uses. They are counted and never paired by guess.
+
+Verified by: the nine rev6 fixtures plus every existing arm fixture, the shape-mutation run over all
+of them (exit 0, `errors == []`), and `bats tests/bench/review-rounds.bats` at 31/31.
+
+Stop condition: if a later round finds this family again, the PR is closed and re-routed.
+
 ## Out of scope (to the ONE follow-up issue)
 
 Footer authorship is forgeable (security); the live `GhNotFound` path and the `gh api

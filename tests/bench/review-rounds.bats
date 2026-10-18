@@ -67,6 +67,51 @@ teardown() { rm -rf -- "$TEST_TMPDIR" 2>/dev/null || true; }
   [ "$status" -eq 0 ]
   python3 -I -c "import json,sys; d=json.loads(sys.argv[1]); assert 'extra_tokens_delta' not in d, d" "$output"
 }
+@test "fallback: rev6 — a diff command with no result is unknown (missing is never evidence)" {
+  run python3 -I "$RR" fallback --json "$FIX/incr-diff-no-result.jsonl"
+  [ "$status" -eq 0 ]
+  python3 -I -c "import json,sys; s=json.loads(sys.argv[1])['sessions'][0]; assert s['mode']=='unknown', s" "$output"
+}
+@test "fallback: rev6 — a review-file command with no result is unknown" {
+  run python3 -I "$RR" fallback --json "$FIX/review-file-no-result.jsonl"
+  [ "$status" -eq 0 ]
+  python3 -I -c "import json,sys; s=json.loads(sys.argv[1])['sessions'][0]; assert s['mode']=='unknown', s" "$output"
+}
+@test "fallback: rev6 — a result whose id matches no use is an orphan, not paired by order" {
+  run python3 -I "$RR" fallback --json "$FIX/orphan-id.jsonl"
+  [ "$status" -eq 0 ]
+  python3 -I -c "import json,sys; s=json.loads(sys.argv[1])['sessions'][0]; assert s['mode']=='unknown' and s['orphan_results']==1, s" "$output"
+}
+@test "fallback: rev6 — an id-less result never pairs with an id'd use" {
+  run python3 -I "$RR" fallback --json "$FIX/id-use-idless-result.jsonl"
+  [ "$status" -eq 0 ]
+  python3 -I -c "import json,sys; s=json.loads(sys.argv[1])['sessions'][0]; assert s['mode']=='unknown' and s['orphan_results']==1, s" "$output"
+}
+@test "fallback: rev6 — diff output that merely contains NOT_FOUND is still a successful diff" {
+  run python3 -I "$RR" fallback --json "$FIX/diff-output-says-not-found.jsonl"
+  [ "$status" -eq 0 ]
+  python3 -I -c "import json,sys; s=json.loads(sys.argv[1])['sessions'][0]; assert s['mode']=='incremental', s" "$output"
+}
+@test "fallback: rev6 — a diff command that errored without a not-found line is unknown, not evidence" {
+  run python3 -I "$RR" fallback --json "$FIX/diff-command-errored.jsonl"
+  [ "$status" -eq 0 ]
+  python3 -I -c "import json,sys; s=json.loads(sys.argv[1])['sessions'][0]; assert s['mode']=='unknown', s" "$output"
+}
+@test "fallback: rev6 — a replayed tool id pairs each result with its own use, no orphan" {
+  run python3 -I "$RR" fallback --json "$FIX/replayed-id.jsonl"
+  [ "$status" -eq 0 ]
+  python3 -I -c "import json,sys; s=json.loads(sys.argv[1])['sessions'][0]; assert s['mode']=='incremental' and s['orphan_results']==0, s" "$output"
+}
+@test "fallback: rev6 — an Agent prompt that names the diff is not a command on it" {
+  run python3 -I "$RR" fallback --json "$FIX/agent-prompt-names-diff.jsonl"
+  [ "$status" -eq 0 ]
+  python3 -I -c "import json,sys; s=json.loads(sys.argv[1])['sessions'][0]; assert s['mode']=='unknown', s" "$output"
+}
+@test "fallback: rev6 — a Read of the incremental diff is incremental evidence" {
+  run python3 -I "$RR" fallback --json "$FIX/read-incremental-diff.jsonl"
+  [ "$status" -eq 0 ]
+  python3 -I -c "import json,sys; s=json.loads(sys.argv[1])['sessions'][0]; assert s['mode']=='incremental', s" "$output"
+}
 @test "fallback: I1 — the arm fixtures cover every classifier arm" {
   run python3 -I "$RR" fallback --json "$FIX/full-requested.jsonl" "$FIX/incremental.jsonl" "$FIX/incremental-diff-file.jsonl" "$FIX/fell-back-no-prev.jsonl" "$FIX/unknown.jsonl"
   [ "$status" -eq 0 ]
@@ -110,7 +155,7 @@ teardown() { rm -rf -- "$TEST_TMPDIR" 2>/dev/null || true; }
 # --- I2 shape mutation (re-plan rev3): every field of the real fixtures, every wrong type ---
 @test "I2 mutation: fallback reads every wrong-type transcript variant without an error" {
   mkdir "$TEST_TMPDIR/t"
-  n=$(python3 -I "$BATS_TEST_DIRNAME/mutate_fixtures.py" transcripts "$TEST_TMPDIR/t" "$FIX"/incremental.jsonl "$FIX"/incremental-diff-file.jsonl "$FIX"/fell-back-no-prev.jsonl "$FIX"/fell-back-full.jsonl "$FIX"/unknown.jsonl "$FIX"/full-requested.jsonl "$FIX"/incr-diff-failed.jsonl "$FIX"/review-word-not-found.jsonl "$FIX"/paired-by-id.jsonl)
+  n=$(python3 -I "$BATS_TEST_DIRNAME/mutate_fixtures.py" transcripts "$TEST_TMPDIR/t" "$FIX"/incremental.jsonl "$FIX"/incremental-diff-file.jsonl "$FIX"/fell-back-no-prev.jsonl "$FIX"/fell-back-full.jsonl "$FIX"/unknown.jsonl "$FIX"/full-requested.jsonl "$FIX"/incr-diff-failed.jsonl "$FIX"/review-word-not-found.jsonl "$FIX"/paired-by-id.jsonl "$FIX"/incr-diff-no-result.jsonl "$FIX"/review-file-no-result.jsonl "$FIX"/orphan-id.jsonl "$FIX"/id-use-idless-result.jsonl "$FIX"/diff-output-says-not-found.jsonl "$FIX"/diff-command-errored.jsonl "$FIX"/replayed-id.jsonl "$FIX"/agent-prompt-names-diff.jsonl "$FIX"/read-incremental-diff.jsonl)
   [ "$n" -gt 500 ]
   rc=0; python3 -I "$RR" fallback --json "$TEST_TMPDIR"/t/*.jsonl > "$TEST_TMPDIR/out.json" 2> "$TEST_TMPDIR/err.txt" || rc=$?
   [ "$rc" -eq 0 ]
