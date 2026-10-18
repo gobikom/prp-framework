@@ -48,7 +48,7 @@ Schema sampled: `schemas/review-findings.schema.json` @ 0aac4e1. `family` is OPT
    ```
    ### Prior findings
    - <id12> resolved <file>:<start>-<end> regression_test: <path>::<name>|none
-   - <id12> open regression_test: none
+   - <id12> open <file>:<start>-<end> regression_test: none
    (or the single line "None." when the previous round had no critical/important finding for this pass,
     or "Not recorded: the previous round has no review-findings block." )
 
@@ -115,3 +115,48 @@ Schema sampled: `schemas/review-findings.schema.json` @ 0aac4e1. `family` is OPT
 - The reference checker (PR-A).
 - #154 (on hold).
 - Running regression tests: that is merger's job (R3-2).
+
+## Revision 2 (devlead-codex REVISE on eb5c8b4: 3 Important, 1 Moderate)
+Revision 2 replaces any earlier line it contradicts.
+
+**R2-1 Carry-over without fabrication** (codex #1).
+- With `--since-last-review --l2-comments`, a carried finding's JSON object is **copied from the previous round's validated `review-findings` JSON for the same pass**. It is canonical: re-serialised by `json.dumps(obj, sort_keys=True, separators=(",",":"))` and otherwise unchanged. The orchestrator never builds a finding object from prose.
+- If any pass's previous comment has no block, or a malformed or edited one, or its footer run id or line-1 head do not match a round on the PR, an incremental `--l2-comments` run is **refused**. Step B prints FATAL, and the run must be FULL, with every pass regenerating its findings independently.
+- `check-l2-body.py` gains a mode `--prior <comments.tsv> <current-run>` that reruns `prior-findings.py` over the same TSV and enforces:
+  - (a) the set of IDs in `### Prior findings` equals the previous round's C/I ID set exactly: none dropped, none duplicated, none added;
+  - (b) every `open` ID is in this comment's JSON exactly once;
+  - (c) every `resolved` ID is absent from this comment's JSON;
+  - (d) each item's `<file>:<start>-<end>` equals the previous object's.
+
+  Step C runs this mode for every pass. A FULL run uses the same check; when a previous round exists, its Prior findings must still list it.
+- New arms: P18 prose-only previous round + incremental → FATAL; P19 edited or malformed previous block → FATAL; P20 a carried finding dropped, P21 duplicated, P22 an extra item → each refused; P23 one open prior Important (in JSON) plus one resolved item (absent) through Step C → posted.
+
+**R2-2 Open-item grammar** (codex #2). Both `open` and `resolved` items carry `<file>:<start>-<end>`. The Design 3 example line is fixed, and P23 covers the accepting path through Step C.
+
+**R2-3 Once-only start and orphan handling** (codex #3).
+- `RUN_ID` is minted only in Step A, from the timestamp plus 32 random bits, and never read from anywhere else.
+- Step A always clears the previous run file. A retry is a new Step A, so it gets a new id and a new start comment, and the old start becomes an orphan. A run file holding a `START_URL` that is not on the PR, or whose comment was edited, is refused.
+- Step C fetches the start comment by its id (`gh api repos/{owner}/{repo}/issues/comments/<id>`) and requires:
+  - its body to be exactly the two lines for this `RUN_ID` and head;
+  - `created_at == updated_at`, i.e. unedited;
+  - its `created_at` to be earlier than the Step C run.
+- The pass comments carry the same `RUN_ID` and head (already enforced by the footer and line 1). A head move between the start and the posting → FATAL (the existing `NOW_HEAD` check).
+- Orphan starts (an agent failed, timed out or stopped after Step A) are never edited or deleted. Readers ignore a start comment without three matching pass comments, and SO#1367 PR-A states this.
+- New arms:
+  - P14: start posted, then a core agent fails → no pass comments, and the run file is unusable after a retry;
+  - P15: the head moves after the start → Step C FATAL;
+  - P16: a retry gives a new run id, Step C refuses the old run file, and a start comment edited after posting → refused.
+- **AC5 is replaced by AC5a + AC5b:**
+  - **AC5a (pre-merge, real reader):** devlead-glm runs the PR branch's prompt on a scratch draft PR in prp-framework, which gets a start comment and 3 passes. psak posts L2 and pings merger. merger's verdict must not count or cite the start comment, and the L2 recipe and safe-merge `--dry-run` selection must pick exactly 3. The scratch PR is closed unmerged.
+  - **AC5b (post-merge confirmation):** the first live round confirms the same. If it disagrees: freeze (psak counts no new-format round), revert via safe-merge, and record the freeze on #160.
+
+**R2-4 Field validity** (codex #4). `check-l2-body.py` also refuses:
+- `lines` with start > end;
+- `file` that is empty, absolute, contains `..`, a backslash or a leading `./`, or is absent at the reviewed head (`git cat-file -e <head>:<file>`);
+- `family` on a C/I finding that does not match `^[a-z0-9][a-z0-9-]{0,63}$`;
+- an empty `summary`;
+- duplicate JSON keys at any level (`object_pairs_hook`).
+
+New arms: P17a reversed range, P17b missing file, P17c empty or uppercase family, P17d duplicate key.
+
+**Size:** the helper growth is about +80 lines. The target stays ≤ 800 excluding adapters; if it is above 800, split the helpers + their bats into a base PR.
