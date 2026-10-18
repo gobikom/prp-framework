@@ -134,13 +134,46 @@ teardown() {
   [[ "$output" == *"VAL=ABSENT"* ]]
 }
 
-# --- I4b: credential output scan ---
+# --- I4b: credential output scan (unit: drive _scan_cred itself) ---
 
-@test "I4b: adapter rejects output containing sk-ant- pattern" {
-  mkdir -p "$TEST_TMPDIR/out"
-  printf '{"findings":[],"reviewed_head":"%s","pass":"code-reviewer","complete":true}\nsk-ant-oat01-FAKE-NOT-REAL\n' "$(printf 'a%.0s' {1..40})" > "$TEST_TMPDIR/out/pass.json"
-  run grep -qE 'sk-ant-' "$TEST_TMPDIR/out/pass.json"
+@test "I4b: _scan_cred detects sk-ant pattern, label only" {
+  source "$REPO_ROOT/scripts/review/cred-patterns.sh"
+  printf 'x sk-ant-oat01-FAKE-NOT-REAL y\n' > "$TEST_TMPDIR/poisoned.txt"
+  run _scan_cred "$TEST_TMPDIR/poisoned.txt"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"credential pattern: sk-ant"* ]]
+  [[ "$output" != *"sk-ant-oat01-FAKE-NOT-REAL"* ]]
+}
+
+@test "I4b: _scan_cred detects JWT pattern, label only" {
+  source "$REPO_ROOT/scripts/review/cred-patterns.sh"
+  printf 'x eyJhbGciOiJub25lIn0.eyJzdWIiOiJ4In0.fakesig y\n' > "$TEST_TMPDIR/poisoned.txt"
+  run _scan_cred "$TEST_TMPDIR/poisoned.txt"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"credential pattern: jwt"* ]]
+  [[ "$output" != *"eyJhbGciOiJub25lIn0"* ]]
+}
+
+@test "I4b: _scan_cred detects github-token pattern" {
+  source "$REPO_ROOT/scripts/review/cred-patterns.sh"
+  printf 'x ghp_FAKE0123456789abcdef y\n' > "$TEST_TMPDIR/poisoned.txt"
+  run _scan_cred "$TEST_TMPDIR/poisoned.txt"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"credential pattern: github-token"* ]]
+}
+
+@test "I4b: _scan_cred passes a clean file" {
+  source "$REPO_ROOT/scripts/review/cred-patterns.sh"
+  printf '{"findings":[],"reviewed_head":"x","complete":true}\n' > "$TEST_TMPDIR/clean.txt"
+  run _scan_cred "$TEST_TMPDIR/clean.txt"
   [ "$status" -eq 0 ]
+}
+
+@test "I4b: _scan_cred fails closed on unreadable file" {
+  source "$REPO_ROOT/scripts/review/cred-patterns.sh"
+  run _scan_cred "$TEST_TMPDIR/nonexistent-file.txt"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"credential scan failed"* ]]
 }
 
 # --- I4c: conformance fails closed ---
@@ -164,17 +197,17 @@ teardown() {
   [[ "$output" == "50" ]]
 }
 
-@test "I4b: JWT in output → adapter exits non-zero, fake JWT not on stderr" {
-  mkdir -p "$TEST_TMPDIR/out"
-  local fake_jwt="eyJhbGciOiJub25lIn0.eyJzdWIiOiJ4In0.fakesig"
-  printf '{"findings":[],"reviewed_head":"%s","pass":"code-reviewer","complete":true}\n%s\n' \
-    "$(printf 'a%.0s' {1..40})" "$fake_jwt" > "$TEST_TMPDIR/out/pass.json"
-  # The adapter's _scan_cred would catch this — test the pattern + label
-  run grep -qE 'eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.' "$TEST_TMPDIR/out/pass.json"
-  [ "$status" -eq 0 ]
-  # The label must NOT contain the JWT itself
-  label="jwt"
-  [[ "$label" != *"eyJ"* ]]
+@test "I4b: adapter fails closed on unknown --pass name" {
+  mkdir -p "$TEST_TMPDIR/stub-bin" "$TEST_TMPDIR/out" "$TEST_TMPDIR/.claude"
+  echo "dummy" > "$TEST_TMPDIR/.claude/.credentials.json"
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$TEST_TMPDIR/stub-bin/claude"
+  chmod +x "$TEST_TMPDIR/stub-bin/claude"
+  run env PATH="$TEST_TMPDIR/stub-bin:$PATH" HOME="$TEST_TMPDIR" \
+    bash "$REPO_ROOT/scripts/review/adapters/claude-code.sh" --pass code-reviwer-typo --bundle "$TEST_TMPDIR" --schema "$REPO_ROOT/schemas/review-findings.schema.json" --out "$TEST_TMPDIR/out" --timeout 5
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"no agent definition"* ]]
+  [[ "$output" == *"code-reviewer"* ]]
+  [ ! -f "$TEST_TMPDIR/out/pass.json" ]
 }
 
 @test "adapter flags: claude adapter uses strip-frontmatter" {
@@ -249,6 +282,37 @@ assert not bad, f'single-slash absolute pattern: {bad}'
   [ ! -f "$TEST_TMPDIR/out/raw-output.json" ]
   [ ! -f "$TEST_TMPDIR/out/stderr.log" ]
   [ ! -f "$TEST_TMPDIR/ev.jsonl" ]
+}
+
+# --- Adapter happy path: extraction + events-out copy ---
+@test "I4b: adapter happy path extracts structured_output to pass.json" {
+  mkdir -p "$TEST_TMPDIR/stub-bin" "$TEST_TMPDIR/out" "$TEST_TMPDIR/.claude"
+  echo "dummy" > "$TEST_TMPDIR/.claude/.credentials.json"
+  printf '#!/usr/bin/env bash\ncat <<"EOF"\n{"structured_output":{"findings":[{"id":"f1","severity":"Low","title":"t"}],"reviewed_head":"x","pass":"code-reviewer","complete":true}}\nEOF\nexit 0\n' > "$TEST_TMPDIR/stub-bin/claude"
+  chmod +x "$TEST_TMPDIR/stub-bin/claude"
+  run env PATH="$TEST_TMPDIR/stub-bin:$PATH" HOME="$TEST_TMPDIR" \
+    bash "$REPO_ROOT/scripts/review/adapters/claude-code.sh" --pass code-reviewer --bundle "$TEST_TMPDIR" --schema "$REPO_ROOT/schemas/review-findings.schema.json" --out "$TEST_TMPDIR/out" --events-out "$TEST_TMPDIR/ev.jsonl" --timeout 5
+  [ "$status" -eq 0 ]
+  [ -f "$TEST_TMPDIR/out/pass.json" ]
+  grep -q '"findings"' "$TEST_TMPDIR/out/pass.json"
+  grep -q '"f1"' "$TEST_TMPDIR/out/pass.json"
+  grep -q '"structured_output"' "$TEST_TMPDIR/ev.jsonl"
+  [ ! -s "$TEST_TMPDIR/out/stderr.log" ]
+}
+
+# --- Adapter final backstop: escaped credential decoded only in pass.json ---
+@test "I4b: adapter final pass.json scan catches escaped credential" {
+  mkdir -p "$TEST_TMPDIR/stub-bin" "$TEST_TMPDIR/out" "$TEST_TMPDIR/.claude"
+  echo "dummy" > "$TEST_TMPDIR/.claude/.credentials.json"
+  # ghp_... : the raw-output scan sees no literal 'ghp_', but json.loads
+  # decodes _ to '_' in pass.json — the final scan must fail closed there.
+  printf '#!/usr/bin/env bash\ncat <<"EOF"\n{"structured_output":{"findings":[],"note":"ghp\\u005fFAKE0123456789abcdef"}}\nEOF\nexit 0\n' > "$TEST_TMPDIR/stub-bin/claude"
+  chmod +x "$TEST_TMPDIR/stub-bin/claude"
+  run env PATH="$TEST_TMPDIR/stub-bin:$PATH" HOME="$TEST_TMPDIR" \
+    bash "$REPO_ROOT/scripts/review/adapters/claude-code.sh" --pass code-reviewer --bundle "$TEST_TMPDIR" --schema "$REPO_ROOT/schemas/review-findings.schema.json" --out "$TEST_TMPDIR/out" --timeout 5
+  [ "$status" -ne 0 ]
+  [ ! -f "$TEST_TMPDIR/out/pass.json" ]
+  [ ! -f "$TEST_TMPDIR/out/raw-output.json" ]
 }
 
 # --- I4: resolve_pkg_root behavior ---

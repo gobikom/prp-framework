@@ -48,7 +48,9 @@ else
       source "$SCRIPT_DIR/strip-frontmatter.sh"; strip_frontmatter "$AGENT_DEF"
       printf '\n\nReview the code bundle at /bundle/. The reviewed head is %s.\nReturn your findings as JSON matching the schema provided via --json-schema.\n' "$REVIEWED_HEAD"
     else
-      printf 'You are a review pass (%s). Review the code in /bundle/.\n' "$PASS"
+      available="$(cd "$REPO_ROOT/adapters/claude-code-agents" 2>/dev/null && ls -- *.md 2>/dev/null | sed 's/\.md$//' | tr '\n' ' ')"
+      echo "error: no agent definition for pass '$PASS' at $AGENT_DEF (available: ${available:-none}) — failing closed instead of running a generic prompt" >&2
+      exit 1
     fi
     printf 'Do NOT write any files. Do NOT use shell commands. Only read files with Read, Grep, Glob.\n'
   } > "$PROMPT_FILE"
