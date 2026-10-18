@@ -600,7 +600,7 @@ The sweep failures have now come up in R1 (path navigation), R2 (copied table), 
 - **Pinned schema:** unchanged (sha256 1250e78a…); the table content is unchanged.
 - **Verified by:** sweeps (a)–(c) in bats with derived counts; mutation tests (d) all killed; the reproduction above (array + `pattern`) is mutant 1 and must fail.
 
-## Revision 10 proposal: phase order and v1 scope after the round data (2026-10-18; round 11 REVISE 4 + round 12 REVISE 2 + round 13 REVISE 2 applied; PENDING round 14)
+## Revision 10 proposal: phase order and v1 scope after the round data (2026-10-18; round 11 REVISE 4 + round 12 REVISE 2 + round 13 REVISE 2 + round 14 REVISE 1 applied; PENDING round 15)
 
 **Input:** brief 20261018-1530-7c1e, relayed from pane -3 (นุด: "ทำ1 ก่อนครับ ถ้าได้ข้อมูลครบแล้วค่อยเริ่ม 2,3"). Data: Oracle `learning_2026-10-18_measurement-where-review-rounds-go-52-prs-merg`; scripts and `rounds.tsv` (175 lines) in `~/tmp/review-rounds-analysis-20261018/`. 52 PRs merged 2026-10-11..18, 310 rounds, median 5:
 
@@ -661,7 +661,12 @@ Stop-rule changes are นุด's decision (pane -3) and are not part of this re
     - **In the probe-child PR** (each AC is defined once, here; round 13):
       - **AC1.1p:** the probe variant of conformance, including (e).
       - **AC1.2p:** zero observed regressions (n=3) on the FULL corpus: all heads and all labels, probe-sourced labels included. It is required before unrestricted gating approval.
-    - **AC1.5, new in v1:** in replay, every probe-sourced corpus head triggers the unavailable exit, through the path map or `probe_requests`. A probe-label head that does not trigger it fails AC1.5. This keeps every probe-needing PR legacy-only until the child ships.
+    - **AC1.5, new in v1 (round 14: deterministic):** every probe-sourced corpus head triggers the unavailable exit through the **path map**, before any pass is dispatched. A model's `probe_requests` is stochastic, so it never counts toward AC1.5.
+      - The v1 path map is widened until it covers every known probe-sourced head. Each head is cited with the map rule that catches it.
+      - Test: in replay, all n=3 runs of every probe-sourced head exit unavailable before posting, including runs in which the model emits no request.
+      - If no map rule can cover a head without catching the whole tree, v1 gating is withheld for that head's class: the ruleset records the class as legacy-only, and the CLI exits unavailable on it.
+      - The `probe_requests` exit stays as a second line of defence for novel cases outside the corpus.
+      - This keeps every probe-needing PR legacy-only until the child ships.
   - **Harness approval in v1 is restricted:** the ruleset records "approved for non-probe reviews", not unrestricted approval (AC1.4). Unrestricted approval needs AC1.1p/AC1.2p.
   - **Phase 3 cutover and confirm adoption wait for the full corpus**, including probe labels. Cutover also requires: "the probe child sandbox has shipped and passes conformance (e)".
 - **Effect:** v1 is Phase 1 without the probe child, then Phase 1.5, then Phase 2, with probe-needing PRs routed to the legacy review.
@@ -708,7 +713,7 @@ Stop-rule changes are นุด's decision (pane -3) and are not part of this re
 **Verified by:**
 - the Phase 1.5 fmt tests (the CLI never emits fmt=1);
 - the Phase 6 tests: confirm is ineligible with no pinned gate tier; the `gate` > `standard` pair tests; conditional/probe ineligibility; fmt=1 versus fmt=2 predecessor;
-- the probe-unavailable bats test (two exits) and AC1.5 (every probe-label head triggers it);
+- the probe-unavailable bats test (two exits) and AC1.5 (every probe-sourced head exits unavailable through the path map in all n=3 runs, including runs with no request; an uncoverable class is legacy-only);
 - benchmark (b) on the deduplicated, validated corpus;
 - the AC0.4 fixtures (exhaustive position rules with a catchall, a two-rule fixture, post-2-clean dirty at one head, a post-clean merger head, multiple transitions, unknown/incomplete, joined no-comment attempts) and the 310 reconciliation of commented runs, reported apart from attempts;
 - AC1.2 on the confirmed non-probe head cohort (all n=3 runs request-free; excluded heads listed), with its coverage check re-run after exclusion (or "withheld"); AC1.2p defined once, in the probe-child PR.
