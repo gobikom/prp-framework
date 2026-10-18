@@ -66,8 +66,10 @@ teardown() {
 # --- Sandbox: probe child ---
 
 @test "sandbox: probe child has no network" {
+  # bash, not sh: dash has no /dev/tcp, so the probe would fail for a shell
+  # reason and print NET_BLOCKED under ANY sandbox (vacuous assertion).
   run "$SANDBOX" --probe --bundle "$TEST_TMPDIR" --timeout 10 -- \
-    sh -c '(echo >/dev/tcp/140.82.112.5/443) 2>/dev/null && echo "NET_OPEN" || echo "NET_BLOCKED"'
+    bash -c '(echo >/dev/tcp/140.82.112.5/443) 2>/dev/null && echo "NET_OPEN" || echo "NET_BLOCKED"'
   [ "$status" -eq 0 ] || [ "$status" -eq 124 ]
   [[ "$output" != *"NET_OPEN"* ]]
 }
