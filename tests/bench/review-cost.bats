@@ -316,3 +316,30 @@ PY
   python3 -I -c "import json,sys; d=json.loads(sys.argv[1]); assert len(d)==1 and d[0]['output']==9" "$output"
   [[ "$stderr" == *"Permission denied"* ]]
 }
+
+# --- field sync ---
+
+@test "review-cost.py: TOKEN_FIELDS matches UsageTotals fields" {
+  run python3 -I -c "
+import sys; sys.path.insert(0, '$REPO_ROOT/scripts/bench')
+import importlib, dataclasses
+rc = importlib.import_module('review-cost')
+fields = tuple(f.name for f in dataclasses.fields(rc.UsageTotals))
+assert rc.TOKEN_FIELDS == fields, f'{rc.TOKEN_FIELDS} != {fields}'
+"
+  [ "$status" -eq 0 ]
+}
+
+@test "review-cost.py: total sums main + all subagents per field" {
+  _make_session "$TEST_TMPDIR/project" "session-abc"
+  run --separate-stderr python3 -I "$RC" --json "$TEST_TMPDIR/project/"
+  [ "$status" -eq 0 ]
+  python3 -I - "$output" <<'PY'
+import json, sys
+s = json.loads(sys.argv[1])[0]
+assert s["output"] == s["main_output"] + s["agent_output"], \
+    f"output: {s['output']} != {s['main_output']} + {s['agent_output']}"
+assert s["cache_read"] == 9000000
+assert s["cache_create"] == 800000
+PY
+}

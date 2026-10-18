@@ -10,6 +10,7 @@ import os
 import pathlib
 import stat
 import sys
+import dataclasses
 from dataclasses import dataclass, field
 
 PRICE_RATIOS: dict[str, dict[str, float]] = {
@@ -46,6 +47,10 @@ class UsageTotals:
         )
 
 
+assert TOKEN_FIELDS == tuple(f.name for f in dataclasses.fields(UsageTotals)), \
+    f"TOKEN_FIELDS out of sync with UsageTotals: {TOKEN_FIELDS} vs {[f.name for f in dataclasses.fields(UsageTotals)]}"
+
+
 @dataclass
 class SessionCost:
     path: str
@@ -55,11 +60,10 @@ class SessionCost:
 
     @property
     def total(self) -> UsageTotals:
-        t = UsageTotals(self.main.input_tokens, self.main.cache_read_input_tokens,
-                        self.main.cache_creation_input_tokens, self.main.output_tokens)
-        for s in self.subagents.values():
+        t = UsageTotals()
+        for source in [self.main] + list(self.subagents.values()):
             for k in TOKEN_FIELDS:
-                setattr(t, k, getattr(t, k) + getattr(s, k))
+                setattr(t, k, getattr(t, k) + getattr(source, k))
         return t
 
     @property
