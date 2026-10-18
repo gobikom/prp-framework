@@ -48,7 +48,11 @@ else
       source "$SCRIPT_DIR/strip-frontmatter.sh"; strip_frontmatter "$AGENT_DEF"
       printf '\n\nReview the code bundle at /bundle/. The reviewed head is %s.\nReturn your findings as JSON matching the schema provided via --json-schema.\n' "$REVIEWED_HEAD"
     else
-      available="$(cd "$REPO_ROOT/adapters/claude-code-agents" 2>/dev/null && ls -- *.md 2>/dev/null | sed 's/\.md$//' | tr '\n' ' ')"
+      # Guarded assignment: under set -e an unguarded substitution would abort
+      # the script (silently) whenever the agents dir is missing or empty —
+      # the exact broken-install case this message exists to explain.
+      available=""
+      available="$(cd "$REPO_ROOT/adapters/claude-code-agents" 2>/dev/null && ls -- *.md 2>/dev/null | sed 's/\.md$//' | tr '\n' ' ')" || available=""
       echo "error: no agent definition for pass '$PASS' at $AGENT_DEF (available: ${available:-none}) — failing closed instead of running a generic prompt" >&2
       exit 1
     fi
