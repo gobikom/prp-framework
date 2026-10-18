@@ -1,0 +1,4 @@
+{"type": "human", "message": {"content": "review --since-last-review"}}
+{"type":"assistant","message":{"content":[{"type":"tool_use","input":{"command":"cat .prp-output/reviews/pr-42-incremental.diff"},"id":"tu_a","name":"Bash"},{"type":"tool_use","input":{"command":"git log --oneline -3"},"id":"tu_b","name":"Bash"}]}}
+{"type":"user","message":{"content":[{"type":"tool_result","content":"abc1234 fix","tool_use_id":"tu_b"},{"type":"tool_result","content":"cat: .prp-output/reviews/pr-42-incremental.diff: No such file or directory","tool_use_id":"tu_a"}]}}
+{"type": "assistant", "message": {"content": "Reviewing the code."}}
