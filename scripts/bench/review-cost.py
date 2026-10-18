@@ -113,21 +113,24 @@ def _sum_jsonl(path: str) -> tuple[UsageTotals, str]:
     """Sum usage from a jsonl file. Raises ValueError on the first malformed line."""
     totals = UsageTotals()
     first_ts = ""
-    with open(path) as f:
-        for lineno, line in enumerate(f, 1):
-            line = line.strip()
-            if not line:
-                continue
-            d, reason = _validate_line(line)
-            if d is None:
-                raise ValueError(f"{path}: line {lineno}: {reason}")
-            if not first_ts and "timestamp" in d:
-                first_ts = d["timestamp"]
-            msg = d.get("message")
-            if isinstance(msg, dict):
-                usage = msg.get("usage")
-                if isinstance(usage, dict):
-                    totals.add(usage)
+    try:
+        with open(path) as f:
+            for lineno, line in enumerate(f, 1):
+                line = line.strip()
+                if not line:
+                    continue
+                d, reason = _validate_line(line)
+                if d is None:
+                    raise ValueError(f"{path}: line {lineno}: {reason}")
+                if not first_ts and "timestamp" in d:
+                    first_ts = d["timestamp"]
+                msg = d.get("message")
+                if isinstance(msg, dict):
+                    usage = msg.get("usage")
+                    if isinstance(usage, dict):
+                        totals.add(usage)
+    except UnicodeDecodeError as e:
+        raise ValueError(f"{path}: not valid UTF-8 ({e})") from e
     return totals, first_ts
 
 

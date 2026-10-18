@@ -94,6 +94,17 @@ PY
   [[ "$stderr" == *"zzz-bad.jsonl"* ]]
 }
 
+@test "review-cost.py: P6 non-UTF-8 file → path on stderr, exit != 0" {
+  mkdir -p "$TEST_TMPDIR/project"
+  printf '%s\n%s\n' "$_good_line" "$_usage_line" > "$TEST_TMPDIR/project/aaa-good.jsonl"
+  printf '\xff\xfe\n' > "$TEST_TMPDIR/project/zzz-bad.jsonl"
+  run --separate-stderr python3 -I "$RC" --json "$TEST_TMPDIR/project/"
+  [ "$status" -ne 0 ]
+  python3 -I -c "import json,sys; d=json.loads(sys.argv[1]); assert len(d)==1 and d[0]['output']==5" "$output"
+  [[ "$stderr" == *"zzz-bad.jsonl"* ]]
+  [[ "$output" != *"Traceback"* ]] && [[ "$stderr" != *"Traceback"* ]]
+}
+
 @test "review-cost.py: P5 blank lines only → not malformed" {
   mkdir -p "$TEST_TMPDIR/project"
   printf '\n\n\n' > "$TEST_TMPDIR/project/blanks.jsonl"
