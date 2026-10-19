@@ -61,7 +61,7 @@ def main(tsv, pas, run, mode, as_json):
         lines = body.split("\n")
         while lines and not lines[-1].strip(): lines.pop()
         if not lines or not lines[0].startswith("Reviewed head: "): continue
-        m = FOOTER.match(lines[-1])
+        m = FOOTER.match(lines[-1].rstrip())
         if not m or m.group(2) != pas or m.group(1) == run: continue
         if best is None or at >= best[0]: best = (at, up, lines)
     if best is None: print("None."); return 0

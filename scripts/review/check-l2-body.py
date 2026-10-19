@@ -2,22 +2,31 @@
 """Check the new sections of one --l2-comments pass body (prp-framework#178).
 
 usage: check-l2-body.py <body.md> <reviewed-head> <pass>
-       check-l2-body.py --prior <body.md> <comments.tsv> <run.env>
+       check-l2-body.py --prior <body.md> <comments.tsv> <run.env> <expected-pass>
 Exit 0 = valid; 1 = invalid (reasons on stderr); 3 = usage/IO.
 Run by Step C with the installed framework's copy (python3 -I), never the PR's.
 The older format checks (line 1/2, headings, footer) stay in Step C itself.
 
---prior re-runs prior-findings.py over the same TSV and enforces, per SO#1367 R2-1/R3-2:
-the body's Prior findings itemise the previous round's critical/important findings exactly
-(none dropped, duplicated or added), every open item is in this round's JSON exactly once
-(incremental: canonically equal to the previous object), every resolved item is absent,
-and the Review-mode line matches the run file's MODE."""
+--prior takes the expected pass from the caller (Step C's pass loop) — NEVER from the
+body — and re-runs prior-findings.py over the same TSV with that trusted value, enforcing,
+per SO#1367 R2-1/R3-2: the body's Prior findings itemise the previous round's critical/
+important findings exactly (none dropped, duplicated or added), every open item is in this
+round's JSON exactly once (incremental: canonically equal to the previous object), every
+resolved item is absent, and the Review-mode line matches the run file's MODE. Line 2, the
+review-findings JSON's pass and the footer's pass= must all equal the expected pass, and the
+footer's run= must equal the run file's RUN_ID.
+Residual limitation (threat model, plan rev 5 R1): an actor with repo write access can
+delete prior comments; the check then sees a first round (tracked as prp-framework#184).
+Policy freeze until the follow-up PR lands: --prior results are NOT counted as Rule C /
+policy evidence of prior-round closure."""
 import hashlib, json, os, re, subprocess, sys, tempfile
 from collections import Counter
 
 FENCE = "```review-findings"
 PRIOR_H = "### Prior findings"
 NOT_RECORDED = "Not recorded: the previous round has no review-findings block."
+PASS_NAMES = ("code-reviewer", "security-reviewer", "silent-failure-hunter")
+FOOTER_RE = re.compile(r'^Generated-by: prp-review-agents v\S+ run=(\S+) pass=(\S+)( tier=trivial)?$')
 OPEN = re.compile(r'^- ([0-9a-f]{12}|-) open ([^ :]+):([0-9]+)-([0-9]+) regression_test: none$')
 RESOLVED = re.compile(r'^- ([0-9a-f]{12}|-) resolved was=([^ :]+):([0-9]+)-([0-9]+) fix=([^ :]+):([0-9]+)-([0-9]+) regression_test: ([^ ]+::.+|none)$')
 COUNT = re.compile(r'^### (Critical|Important) Issues \(([0-9]+) found\)\s*$')
@@ -133,7 +142,9 @@ def prior_rows(tsv, pas, run, mode, extra=()):
     if r.returncode == 3: print(r.stderr, file=sys.stderr); sys.exit(3)
     return r
 
-def check_prior(path, tsv, env_path):
+def check_prior(path, tsv, env_path, xpas):
+    if not re.fullmatch(r"\S+", xpas) or xpas not in PASS_NAMES:
+        return [f"expected pass {xpas!r} is not a core pass name (code-reviewer|security-reviewer|silent-failure-hunter)"]
     try: env = dict(l.split("=", 1) for l in open(env_path, encoding="utf-8").read().splitlines() if "=" in l)
     except (OSError, UnicodeDecodeError) as e: print(f"run file: {e}", file=sys.stderr); sys.exit(3)
     run, mode = env.get("RUN_ID", ""), env.get("MODE", "")
@@ -143,10 +154,21 @@ def check_prior(path, tsv, env_path):
     f, body_mode, items, why = structure(lines)
     if why: return why
     if body_mode != mode: return [f"Review-mode says {body_mode!r}, the run file says {mode!r}"]
-    if not lines[1].startswith("Passes run: "):
+    if lines[1] != f"Passes run: {xpas}":
         return ["body line 2 is not 'Passes run: <pass>'"]
-    pas = lines[1][len("Passes run: "):]
-    r = prior_rows(tsv, pas, run, mode)
+    fm = FOOTER_RE.match(lines[-1].rstrip())
+    if not fm:
+        return ["the footer is not the 'Generated-by: prp-review-agents v<ver> run=<run> pass=<pass>[ tier=trivial]' line"]
+    if fm.group(1) != run:
+        return ["footer run= is not the run file's RUN_ID"]
+    if fm.group(2) != xpas:
+        return ["footer pass= is not the expected pass"]
+    try: doc = load_json(lines[f + 1])
+    except (json.JSONDecodeError, ValueError): return ["review-findings is not JSON"]
+    if doc.get("pass") != xpas:
+        return ["review-findings pass is not the expected pass"]
+    r = prior_rows(tsv, xpas, run, mode)
+    if r.returncode == 5: return [f"prior-findings refused the prior-round evidence: {r.stderr.strip()[:160]}"]
     if r.returncode != 0: return [f"prior-findings: {r.stderr.strip()[:160]}"]
     out = r.stdout.rstrip("\n")
     if out == "None.":
@@ -164,17 +186,15 @@ def check_prior(path, tsv, env_path):
         if m: got[(m.group(1), m.group(2), m.group(3), m.group(4))] += 1   # (id, file, start, end): open location / resolved was=
     if want != got:
         return ["Prior findings items do not match the previous round exactly (dropped, duplicated or added)"]
-    try: doc = load_json(lines[f + 1])
-    except (json.JSONDecodeError, ValueError): return ["review-findings is not JSON"]
     jf = [x for x in doc.get("findings", []) if isinstance(x, dict) and x.get("severity") in ("critical", "important")]
-    jids = [fid(pas, x) for x in jf]
+    jids = [fid(xpas, x) for x in jf]
     canon = lambda o: json.dumps(o, sort_keys=True, separators=(",", ":"))
     prev_obj = {}
     if mode == "incremental":
-        rj = prior_rows(tsv, pas, run, mode, ("--json",))
+        rj = prior_rows(tsv, xpas, run, mode, ("--json",))
         if rj.returncode != 0: return [f"prior-findings --json: {rj.stderr.strip()[:160]}"]
         try:
-            for o in json.loads(rj.stdout): prev_obj[fid(pas, o)] = canon(o)
+            for o in json.loads(rj.stdout): prev_obj[fid(xpas, o)] = canon(o)
         except (json.JSONDecodeError, KeyError, TypeError, ValueError): return ["prior-findings --json is malformed"]
     for l in items:
         mo, mr = OPEN.match(l), RESOLVED.match(l)   # the keyword is literal text, not a group
@@ -188,14 +208,14 @@ def check_prior(path, tsv, env_path):
         if status == "resolved" and n != 0:
             return [f"resolved item {iid} still appears in this round's review-findings"]
         if status == "open" and mode == "incremental" and iid in prev_obj:
-            if [canon(x) for x in jf if fid(pas, x) == iid] != [prev_obj[iid]]:
+            if [canon(x) for x in jf if fid(xpas, x) == iid] != [prev_obj[iid]]:
                 return [f"carried item {iid} was not copied verbatim from the previous round"]
     return []
 
 if __name__ == "__main__":
     try:
-        if len(sys.argv) == 5 and sys.argv[1] == "--prior":
-            why = check_prior(sys.argv[2], sys.argv[3], sys.argv[4])
+        if len(sys.argv) == 6 and sys.argv[1] == "--prior":
+            why = check_prior(sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5])
         elif len(sys.argv) == 4:
             why = check(sys.argv[1], sys.argv[2], sys.argv[3])
         else:

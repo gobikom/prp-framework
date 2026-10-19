@@ -22,6 +22,7 @@ setup() {
   TSV="$TEST_TMPDIR/c.tsv"; : > "$TSV"
   B="$TEST_TMPDIR/b.md"
   printf 'REVIEWED_HEAD_SHA=%s\nPRP_VERSION=9.9.9\nRUN_ID=%s\nTIER=standard\nSTART_URL=https://github.com/o/r/pull/7#issuecomment-1\nMODE=full\n' "$HEAD" "$RUN" > "$TEST_TMPDIR/run.env"
+  printf 'REVIEWED_HEAD_SHA=%s\nPRP_VERSION=9.9.9\nRUN_ID=%s\nTIER=standard\nSTART_URL=https://github.com/o/r/pull/7#issuecomment-1\nMODE=incremental\n' "$HEAD" "$RUN" > "$TEST_TMPDIR/run.inc.env"
 }
 teardown() { cd /; rm -rf -- "$TEST_TMPDIR" 2>/dev/null || true; }
 
@@ -188,10 +189,10 @@ prev() { # prev <finds> [created] [updated] — a structured previous round for 
 
 # --- --prior mode: anchors and classification ---
 @test "--prior: no previous round requires exactly None." {
-  mkbody; run python3 -I "$C" --prior "$B" "$TSV" "$TEST_TMPDIR/run.env"
+  mkbody; run python3 -I "$C" --prior "$B" "$TSV" "$TEST_TMPDIR/run.env" code-reviewer
   [ "$status" -eq 0 ]
   mkbody 'Not recorded: the previous round has no review-findings block.'
-  run python3 -I "$C" --prior "$B" "$TSV" "$TEST_TMPDIR/run.env"
+  run python3 -I "$C" --prior "$B" "$TSV" "$TEST_TMPDIR/run.env" code-reviewer
   [ "$status" -eq 1 ]; [[ "$output" == *"must be exactly 'None.'"* ]]
 }
 
@@ -199,10 +200,10 @@ prev() { # prev <finds> [created] [updated] — a structured previous round for 
   local id1; id1=$(idof code-reviewer src/a.py 2 3 null-deref "NPE on None")
   prev "[$O1]"
   mkbody "- $id1 open src/a.py:2-3 regression_test: none" "[$O1]" full
-  run python3 -I "$C" --prior "$B" "$TSV" "$TEST_TMPDIR/run.env"
+  run python3 -I "$C" --prior "$B" "$TSV" "$TEST_TMPDIR/run.env" code-reviewer
   [ "$status" -eq 0 ]
   mkbody "- $id1 open src/a.py:2-3 regression_test: none" "[$O1]" incremental
-  run python3 -I "$C" --prior "$B" "$TSV" "$TEST_TMPDIR/run.env"
+  run python3 -I "$C" --prior "$B" "$TSV" "$TEST_TMPDIR/run.env" code-reviewer
   [ "$status" -eq 1 ]; [[ "$output" == *"Review-mode says 'incremental', the run file says 'full'"* ]]
 }
 
@@ -211,11 +212,11 @@ prev() { # prev <finds> [created] [updated] — a structured previous round for 
   printf 'REVIEWED_HEAD_SHA=%s\nPRP_VERSION=9.9.9\nRUN_ID=%s\nTIER=standard\nSTART_URL=https://github.com/o/r/pull/7#issuecomment-1\nMODE=incremental\n' "$HEAD" "$RUN" > "$TEST_TMPDIR/run.inc.env"
   prev "[$O1]"
   mkbody "- $id1 open src/a.py:2-3 regression_test: none" "[$O1]" incremental
-  run python3 -I "$C" --prior "$B" "$TSV" "$TEST_TMPDIR/run.inc.env"
+  run python3 -I "$C" --prior "$B" "$TSV" "$TEST_TMPDIR/run.inc.env" code-reviewer
   [ "$status" -eq 0 ]                                                        # identical object carries
   local OM='{"category":"correctness","evidence":"EDITED","family":"null-deref","file":"src/a.py","lines":[2,3],"severity":"important","summary":"NPE on None"}'
   mkbody "- $id1 open src/a.py:2-3 regression_test: none" "[$OM]" incremental   # evidence (not an id field) edited
-  run python3 -I "$C" --prior "$B" "$TSV" "$TEST_TMPDIR/run.inc.env"
+  run python3 -I "$C" --prior "$B" "$TSV" "$TEST_TMPDIR/run.inc.env" code-reviewer
   [ "$status" -eq 1 ]; [[ "$output" == *"was not copied verbatim from the previous round"* ]]
 }
 
@@ -224,14 +225,14 @@ prev() { # prev <finds> [created] [updated] — a structured previous round for 
   prev "[$O1]"
   mkbody "- $id1 open src/a.py:2-3 regression_test: none" "[$O1]"
   sed -i '2s/^Passes run: code-reviewer$/Passes run code-reviewer/' "$B"
-  run python3 -I "$C" --prior "$B" "$TSV" "$TEST_TMPDIR/run.env"
+  run python3 -I "$C" --prior "$B" "$TSV" "$TEST_TMPDIR/run.env" code-reviewer
   [ "$status" -eq 1 ]; [[ "$output" == *"body line 2 is not 'Passes run: <pass>'"* ]]
 }
 
 @test "an open prior item with no family id (-) demands a FULL re-review, not an impossible count" {
   prev '[{"category":"c","evidence":"e","file":"src/a.py","lines":[2,3],"severity":"important","summary":"s"}]'
   mkbody '- - open src/a.py:2-3 regression_test: none' '[]'
-  run python3 -I "$C" --prior "$B" "$TSV" "$TEST_TMPDIR/run.env"
+  run python3 -I "$C" --prior "$B" "$TSV" "$TEST_TMPDIR/run.env" code-reviewer
   [ "$status" -eq 1 ]
   [[ "$output" == *"has no family id"* ]]; [[ "$output" == *"re-run a FULL review"* ]]
   [[ "$output" != *"appears 0 times"* ]]
@@ -241,10 +242,10 @@ prev() { # prev <finds> [created] [updated] — a structured previous round for 
   prev '[]' 2026-01-01T00:00:00Z 2026-01-02T00:00:00Z
   printf 'REVIEWED_HEAD_SHA=%s\nPRP_VERSION=9.9.9\nRUN_ID=%s\nTIER=standard\nSTART_URL=https://github.com/o/r/pull/7#issuecomment-1\nMODE=incremental\n' "$HEAD" "$RUN" > "$TEST_TMPDIR/run.inc.env"
   mkbody 'None.' '[]' incremental
-  run python3 -I "$C" --prior "$B" "$TSV" "$TEST_TMPDIR/run.inc.env"
+  run python3 -I "$C" --prior "$B" "$TSV" "$TEST_TMPDIR/run.inc.env" code-reviewer
   [ "$status" -eq 1 ]; [[ "$output" == *"edited after posting"* ]]; [[ "$output" == *"must be FULL"* ]]
   mkbody 'None.' '[]' full
-  run python3 -I "$C" --prior "$B" "$TSV" "$TEST_TMPDIR/run.env"
+  run python3 -I "$C" --prior "$B" "$TSV" "$TEST_TMPDIR/run.env" code-reviewer
   [ "$status" -eq 1 ]; [[ "$output" == *"must be the 'Not recorded' line"* ]]
 }
 
@@ -252,16 +253,16 @@ prev() { # prev <finds> [created] [updated] — a structured previous round for 
   local id1 id2; id1=$(idof code-reviewer src/a.py 2 3 null-deref "NPE on None"); id2=$(idof code-reviewer src/a.py 5 6 race "race on x")
   prev "[$O1,$O2]"
   mkbody "- $id1 open src/a.py:2-3 regression_test: none" "[$O1]"      # id2 dropped
-  run python3 -I "$C" --prior "$B" "$TSV" "$TEST_TMPDIR/run.env"
+  run python3 -I "$C" --prior "$B" "$TSV" "$TEST_TMPDIR/run.env" code-reviewer
   [ "$status" -eq 1 ]; [[ "$output" == *"do not match the previous round exactly"* ]]
   prev "[$O1]"
   mkbody "- $id1 open src/a.py:2-3 regression_test: none
 - $id1 open src/a.py:2-3 regression_test: none" "[$O1]"                # duplicated
-  run python3 -I "$C" --prior "$B" "$TSV" "$TEST_TMPDIR/run.env"
+  run python3 -I "$C" --prior "$B" "$TSV" "$TEST_TMPDIR/run.env" code-reviewer
   [ "$status" -eq 1 ]; [[ "$output" == *"do not match the previous round exactly"* ]]
   mkbody "- $id1 open src/a.py:2-3 regression_test: none
 - 000000000000 open src/b.py:1-1 regression_test: none" "[$O1]"        # extra item
-  run python3 -I "$C" --prior "$B" "$TSV" "$TEST_TMPDIR/run.env"
+  run python3 -I "$C" --prior "$B" "$TSV" "$TEST_TMPDIR/run.env" code-reviewer
   [ "$status" -eq 1 ]; [[ "$output" == *"do not match the previous round exactly"* ]]
 }
 
@@ -270,18 +271,18 @@ prev() { # prev <finds> [created] [updated] — a structured previous round for 
   prev "[$O1,$O2]"
   mkbody "- $id1 open src/a.py:2-3 regression_test: none
 - $id2 resolved was=src/a.py:5-6 fix=src/b.py:1-2 regression_test: none" "[$O1,$O2]"   # id2 claimed resolved but still carried
-  run python3 -I "$C" --prior "$B" "$TSV" "$TEST_TMPDIR/run.env"
+  run python3 -I "$C" --prior "$B" "$TSV" "$TEST_TMPDIR/run.env" code-reviewer
   [ "$status" -eq 1 ]; [[ "$output" == *"still appears"* ]]
   mkbody "- $id1 open src/a.py:2-3 regression_test: none
 - $id2 resolved was=src/a.py:5-6 fix=src/b.py:1-2 regression_test: none" "[$O2]"        # id1 claimed open but dropped from the JSON
-  run python3 -I "$C" --prior "$B" "$TSV" "$TEST_TMPDIR/run.env"
+  run python3 -I "$C" --prior "$B" "$TSV" "$TEST_TMPDIR/run.env" code-reviewer
   [ "$status" -eq 1 ]; [[ "$output" == *"appears 0 times"* ]]
 }
 
 @test "P28: a body claiming Not recorded while the previous round is structured is refused" {
   prev "[$O1]"
   mkbody 'Not recorded: the previous round has no review-findings block.'
-  run python3 -I "$C" --prior "$B" "$TSV" "$TEST_TMPDIR/run.env"
+  run python3 -I "$C" --prior "$B" "$TSV" "$TEST_TMPDIR/run.env" code-reviewer
   [ "$status" -eq 1 ]; [[ "$output" == *"the previous round is structured: Prior findings must itemise it"* ]]
 }
 
@@ -290,4 +291,111 @@ prev() { # prev <finds> [created] [updated] — a structured previous round for 
   run python3 -I "$C" --prior "$B"; [ "$status" -eq 3 ]
   run python3 -I "$C" "$TEST_TMPDIR/nope.md" "$HEAD" code-reviewer; [ "$status" -eq 3 ]
   run python3 -I "$C" "$B" "$TSV" "$TEST_TMPDIR/nope.env" --prior 2>/dev/null; [ "$status" -eq 3 ]
+}
+
+# --- (a) matrix, plan rev 5: the expected pass is trusted argv, never body-derived ---
+
+prevp() { # prevp <pass> <finds> <version> <run-id> [footer-suffix] — a structured previous round for <pass>
+  printf 'Reviewed head: %s\nPasses run: %s\n\n### Critical Issues (0 found)\nNone.\n\n### Important Issues (0 found)\nNone.\n\n### Suggestions (0 found)\nNone.\n\n### Could not verify\nNothing.\n\n### Prior findings\nNone.\n\n```review-findings\n{"reviewed_head":"%s","pass":"%s","complete":true,"findings":%s}\n```\n\nReview-mode: full\n\nGenerated-by: prp-review-agents %s run=%s pass=%s%s\n' \
+    "$HEAD" "$1" "$HEAD" "$1" "$2" "$3" "$4" "$1" "${5:-}" | addc 2026-01-01T00:00:00Z 2026-01-01T00:00:00Z "$(cat)"
+}
+
+@test "(a) a non-core expected pass is refused with a named reason" {
+  mkbody
+  run python3 -I "$C" --prior "$B" "$TSV" "$TEST_TMPDIR/run.env" not-a-pass
+  [ "$status" -eq 1 ]; [[ "$output" == *"is not a core pass name"* ]]
+  run python3 -I "$C" --prior "$B" "$TSV" "$TEST_TMPDIR/run.env" ""
+  [ "$status" -eq 1 ]; [[ "$output" == *"is not a core pass name"* ]]
+}
+
+@test "(a) line 2 must equal the trusted expected pass — empty, blank, unknown and mismatched values are refused in both modes" {
+  mkbody; sed -i '2s/^Passes run: code-reviewer$/Passes run: /' "$B"
+  run python3 -I "$C" --prior "$B" "$TSV" "$TEST_TMPDIR/run.env" code-reviewer
+  [ "$status" -eq 1 ]; [[ "$output" == *"body line 2 is not 'Passes run: <pass>'"* ]]
+  mkbody; sed -i '2s/^Passes run: code-reviewer$/Passes run:    /' "$B"
+  run python3 -I "$C" --prior "$B" "$TSV" "$TEST_TMPDIR/run.env" code-reviewer
+  [ "$status" -eq 1 ]; [[ "$output" == *"body line 2 is not 'Passes run: <pass>'"* ]]
+  mkbody; sed -i '2s/^Passes run: code-reviewer$/Passes run: mystery-reviewer/' "$B"
+  run python3 -I "$C" --prior "$B" "$TSV" "$TEST_TMPDIR/run.env" code-reviewer
+  [ "$status" -eq 1 ]; [[ "$output" == *"body line 2 is not 'Passes run: <pass>'"* ]]
+  mkbody; sed -i '2s/^Passes run: code-reviewer$/Passes run: security-reviewer/' "$B"
+  run python3 -I "$C" --prior "$B" "$TSV" "$TEST_TMPDIR/run.env" code-reviewer
+  [ "$status" -eq 1 ]; [[ "$output" == *"body line 2 is not 'Passes run: <pass>'"* ]]
+  mkbody 'None.' '[]' incremental; sed -i '2s/^Passes run: code-reviewer$/Passes run: security-reviewer/' "$B"
+  run python3 -I "$C" --prior "$B" "$TSV" "$TEST_TMPDIR/run.inc.env" code-reviewer
+  [ "$status" -eq 1 ]; [[ "$output" == *"body line 2 is not 'Passes run: <pass>'"* ]]
+}
+
+@test "(a) simultaneous forgery: line 2, fence pass and footer pass all rewritten to another valid pass while the TSV holds an open prior for the real pass — refused in both modes" {
+  local id1; id1=$(idof code-reviewer src/a.py 2 3 null-deref "NPE on None")
+  prev "[$O1]"
+  mkbody "- $id1 open src/a.py:2-3 regression_test: none" "[$O1]" full
+  sed -i '2s/code-reviewer$/security-reviewer/; s/"pass":"code-reviewer"/"pass":"security-reviewer"/; s/ pass=code-reviewer$/ pass=security-reviewer/' "$B"
+  run python3 -I "$C" --prior "$B" "$TSV" "$TEST_TMPDIR/run.env" code-reviewer
+  [ "$status" -eq 1 ]; [[ "$output" == *"body line 2 is not 'Passes run: <pass>'"* ]]
+  mkbody "- $id1 open src/a.py:2-3 regression_test: none" "[$O1]" incremental
+  sed -i '2s/code-reviewer$/security-reviewer/; s/"pass":"code-reviewer"/"pass":"security-reviewer"/; s/ pass=code-reviewer$/ pass=security-reviewer/' "$B"
+  run python3 -I "$C" --prior "$B" "$TSV" "$TEST_TMPDIR/run.inc.env" code-reviewer
+  [ "$status" -eq 1 ]; [[ "$output" == *"body line 2 is not 'Passes run: <pass>'"* ]]
+}
+
+@test "(a) the fence JSON pass must equal the trusted expected pass (both modes)" {
+  mkbody; sed -i 's/"pass":"code-reviewer"/"pass":"security-reviewer"/' "$B"
+  run python3 -I "$C" --prior "$B" "$TSV" "$TEST_TMPDIR/run.env" code-reviewer
+  [ "$status" -eq 1 ]; [[ "$output" == *"review-findings pass is not the expected pass"* ]]
+  mkbody 'None.' '[]' incremental; sed -i 's/"pass":"code-reviewer"/"pass":"security-reviewer"/' "$B"
+  run python3 -I "$C" --prior "$B" "$TSV" "$TEST_TMPDIR/run.inc.env" code-reviewer
+  [ "$status" -eq 1 ]; [[ "$output" == *"review-findings pass is not the expected pass"* ]]
+}
+
+@test "(a) footer provenance: run= must be the run file's RUN_ID, pass= the expected pass, the shape exact (both modes)" {
+  mkbody; sed -i 's/run=20260102T000000Z-feedface pass=code-reviewer/run=20260101T000000Z-deadbeef pass=code-reviewer/' "$B"
+  run python3 -I "$C" --prior "$B" "$TSV" "$TEST_TMPDIR/run.env" code-reviewer
+  [ "$status" -eq 1 ]; [[ "$output" == *"footer run= is not the run file's RUN_ID"* ]]
+  mkbody; sed -i 's/ pass=code-reviewer$/ pass=security-reviewer/' "$B"
+  run python3 -I "$C" --prior "$B" "$TSV" "$TEST_TMPDIR/run.env" code-reviewer
+  [ "$status" -eq 1 ]; [[ "$output" == *"footer pass= is not the expected pass"* ]]
+  mkbody; sed -i 's/^Generated-by: prp-review-agents v9.9.9 run=/Generated-by: prp-review-agents v9.9.9 run =/' "$B"
+  run python3 -I "$C" --prior "$B" "$TSV" "$TEST_TMPDIR/run.env" code-reviewer
+  [ "$status" -eq 1 ]; [[ "$output" == *"the footer is not the 'Generated-by:"* ]]
+  mkbody 'None.' '[]' incremental; sed -i 's/run=20260102T000000Z-feedface pass=code-reviewer/run=20260101T000000Z-deadbeef pass=code-reviewer/' "$B"
+  run python3 -I "$C" --prior "$B" "$TSV" "$TEST_TMPDIR/run.inc.env" code-reviewer
+  [ "$status" -eq 1 ]; [[ "$output" == *"footer run= is not the run file's RUN_ID"* ]]
+}
+
+@test "(a) end-to-end footer shapes: every footer Step C accepts — per tier, version and run shape — is selected by the prior lookup (both modes)" {
+  local id1 idS idH
+  id1=$(idof code-reviewer src/a.py 2 3 null-deref "NPE on None")
+  idS=$(idof security-reviewer src/a.py 2 3 null-deref "NPE on None")
+  idH=$(idof silent-failure-hunter src/a.py 2 3 null-deref "NPE on None")
+  prevp code-reviewer          "[$O1]" v2.12.0 20250101T000000Z-aaaaaaaa
+  prevp security-reviewer      "[$O1]" v2.9.13 20250102T000000Z-bbbbbbbb
+  prevp silent-failure-hunter  "[$O1]" v2.12.0 20250103T000000Z-cccccccc
+  prevp code-reviewer          "[$O1]" v2.12.0 20250104T000000Z-dddddddd " tier=trivial"
+  mkbody "- $id1 open src/a.py:2-3 regression_test: none" "[$O1]" full code-reviewer
+  run python3 -I "$C" --prior "$B" "$TSV" "$TEST_TMPDIR/run.env" code-reviewer
+  [ "$status" -eq 0 ]
+  mkbody "- $idS open src/a.py:2-3 regression_test: none" "[$O1]" full security-reviewer
+  run python3 -I "$C" --prior "$B" "$TSV" "$TEST_TMPDIR/run.env" security-reviewer
+  [ "$status" -eq 0 ]
+  mkbody "- $idH open src/a.py:2-3 regression_test: none" "[$O1]" full silent-failure-hunter
+  run python3 -I "$C" --prior "$B" "$TSV" "$TEST_TMPDIR/run.env" silent-failure-hunter
+  [ "$status" -eq 0 ]
+  mkbody "- $id1 open src/a.py:2-3 regression_test: none" "[$O1]" incremental code-reviewer
+  run python3 -I "$C" --prior "$B" "$TSV" "$TEST_TMPDIR/run.inc.env" code-reviewer
+  [ "$status" -eq 0 ]
+  mkbody "- $idS open src/a.py:2-3 regression_test: none" "[$O1]" incremental security-reviewer
+  run python3 -I "$C" --prior "$B" "$TSV" "$TEST_TMPDIR/run.inc.env" security-reviewer
+  [ "$status" -eq 0 ]
+}
+
+@test "(a) end-to-end: a prior footer with trailing whitespace — accepted by Step C's structure check — is still selected, never silently skipped" {
+  local id1; id1=$(idof code-reviewer src/a.py 2 3 null-deref "NPE on None")
+  prevp code-reviewer "[$O1]" v2.12.0 20250105T000000Z-eeeeeeee " "
+  mkbody "- $id1 open src/a.py:2-3 regression_test: none" "[$O1]" full code-reviewer
+  run python3 -I "$C" --prior "$B" "$TSV" "$TEST_TMPDIR/run.env" code-reviewer
+  [ "$status" -eq 0 ]
+  mkbody "- $id1 open src/a.py:2-3 regression_test: none" "[$O1]" incremental code-reviewer
+  run python3 -I "$C" --prior "$B" "$TSV" "$TEST_TMPDIR/run.inc.env" code-reviewer
+  [ "$status" -eq 0 ]
 }
