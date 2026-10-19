@@ -220,7 +220,7 @@ Then run `install.sh` to create symlinks.
 | `tests/bench/review-rounds.bats` | bats tests for `review-rounds.py` (46 test cases); `tests/bench/mutate_fixtures.py` builds its shape-mutation and field-arm variants |
 | `tests/commands/l2-comments.bats` | bats tests for the `--l2-comments` posting flow, start comment and Prior findings (69 test cases) |
 | `tests/scripts/check-l2-body.bats` | bats tests for `check-l2-body.py` (30 test cases) |
-| `tests/scripts/prior-findings.bats` | bats tests for `prior-findings.py` (17 test cases) |
+| `tests/scripts/prior-findings.bats` | bats tests for `prior-findings.py` (21 test cases) |
 
 ## Adding a New Workflow
 

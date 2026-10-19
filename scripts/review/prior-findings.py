@@ -13,8 +13,12 @@ A previous-round pass comment is selected ONLY if every check passes (review fix
   - its line-1 Reviewed head equals the head that run's start comment records.
 Anything else (wrong author, no Generated-by footer, unknown run id, different head,
 edits) is untrusted and never selected — it can neither inject nor suppress findings.
-Carried content is untrusted data: a finding beyond the caps (file 200, category 40,
-summary 200, evidence 4000 chars, 16000 evidence chars total) refuses the run.
+Carried content is untrusted data: a finding beyond the per-field caps (file 200,
+category 40, summary 200, evidence 4000 chars) refuses the run in any mode — they mirror
+the posted schema, so a schema-valid prior never trips them. The 16000-evidence-char
+total is a reader-side bound on CARRIED evidence: it is enforced only where evidence is
+carried (an incremental run, or --json). A full TSV-rows run never refuses on the
+previous round's size — "re-run a FULL review" is a real recovery.
 Prints one of:
   "None."                       no trusted earlier round, or it had no critical/important finding
   "Not recorded: the previous round has no review-findings block."   (full mode only)
@@ -85,8 +89,11 @@ def classify(lines, pas):
     if not isinstance(fl, list): return ("unstructured", "review-findings findings is not a list")
     return ("structured", fl)
 
-def caps(found):
-    """carried content is untrusted data — refuse anything past the caps"""
+def caps(found, check_total):
+    """carried content is untrusted data — refuse anything past the caps.
+    Per-field caps mirror the posted schema and always apply; the 16000 total is a
+    reader-side bound on carried evidence, checked only when the output carries it
+    (incremental mode or --json) — a full rows round never refuses on prior size."""
     tot = 0
     for x in found:
         f, c = x.get("file"), x.get("category")
@@ -98,7 +105,7 @@ def caps(found):
             return bad("a carried finding exceeds the untrusted-content caps "
                        "(file 200, category 40, summary 200, evidence 4000 chars) — re-run a FULL review")
         tot += len(e)
-    if tot > CARRIED_MAX:
+    if check_total and tot > CARRIED_MAX:
         return bad(f"the carried evidence exceeds {CARRIED_MAX} chars in total — re-run a FULL review")
     return None
 
@@ -147,7 +154,7 @@ def main(tsv, pas, env_path, as_json):
                for x in found]
     except (KeyError, TypeError, IndexError, ValueError):
         return bad("a critical/important finding lacks file, lines or severity")
-    rc = caps(found)
+    rc = caps(found, as_json or mode != "full")
     if rc is not None: return rc
     if as_json:
         print(json.dumps(found, sort_keys=True, separators=(",", ":"))); return 0

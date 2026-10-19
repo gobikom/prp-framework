@@ -180,13 +180,58 @@ Generated-by: prp-review-agents v9.9.9 run=$RUN pass=start"          # this run'
   [ "$status" -eq 2 ]; [[ "$output" == *"untrusted-content caps"* ]]
 }
 
-@test "caps: carried evidence totalling over 16000 chars refuses the run" {
+@test "caps: carried evidence totalling over 16000 chars refuses an incremental run" {
+  local e3500; e3500=$(printf 'x%.0s' $(seq 1 3500))
+  local o; o=$(printf '{"category":"correctness","evidence":"%s","family":"f","file":"src/a.py","lines":[1,1],"severity":"important","summary":"s"}' "$e3500")
+  local arr; arr=$(printf '%s,' "$o" "$o" "$o" "$o" "$o"); arr="[${arr%,}]"
+  saddc "$PREV"
+  addc 2026-01-01T00:00:00Z 2026-01-01T00:00:00Z "$(cbody "$PREV" "$arr")"
+  run python3 -I "$P" "$TSV" code-reviewer "$TEST_TMPDIR/run.inc.env"
+  [ "$status" -eq 2 ]; [[ "$output" == *"16000 chars in total"* ]]
+}
+
+@test "caps: a FULL run over the same oversized prior runs — rows carry no evidence" {
   local e3500; e3500=$(printf 'x%.0s' $(seq 1 3500))
   local o; o=$(printf '{"category":"correctness","evidence":"%s","family":"f","file":"src/a.py","lines":[1,1],"severity":"important","summary":"s"}' "$e3500")
   local arr; arr=$(printf '%s,' "$o" "$o" "$o" "$o" "$o"); arr="[${arr%,}]"
   saddc "$PREV"
   addc 2026-01-01T00:00:00Z 2026-01-01T00:00:00Z "$(cbody "$PREV" "$arr")"
   run python3 -I "$P" "$TSV" code-reviewer "$TEST_TMPDIR/run.env"
+  [ "$status" -eq 0 ]
+  [ "${#lines[@]}" -eq 5 ]                       # one id-annotated row per finding, no refusal
+  [[ "${lines[0]}" == *$'\t'src/a.py$'\t'1$'\t'1$'\t'important$'\t'f ]]
+}
+
+@test "caps: the documented recovery works — after an oversized-prior refusal, re-run FULL succeeds" {
+  local e3500; e3500=$(printf 'x%.0s' $(seq 1 3500))
+  local o; o=$(printf '{"category":"correctness","evidence":"%s","family":"f","file":"src/a.py","lines":[1,1],"severity":"important","summary":"s"}' "$e3500")
+  local arr; arr=$(printf '%s,' "$o" "$o" "$o" "$o" "$o"); arr="[${arr%,}]"
+  saddc "$PREV"
+  addc 2026-01-01T00:00:00Z 2026-01-01T00:00:00Z "$(cbody "$PREV" "$arr")"
+  run python3 -I "$P" "$TSV" code-reviewer "$TEST_TMPDIR/run.inc.env"
+  [ "$status" -eq 2 ]; [[ "$output" == *"re-run a FULL review"* ]]
+  run python3 -I "$P" "$TSV" code-reviewer "$TEST_TMPDIR/run.env"   # the advised action itself
+  [ "$status" -eq 0 ]; [ "${#lines[@]}" -eq 5 ]
+}
+
+@test "caps: a normal-size prior round is carried in incremental mode" {
+  local e100; e100=$(printf 'x%.0s' $(seq 1 100))
+  local o; o=$(printf '{"category":"correctness","evidence":"%s","family":"f","file":"src/a.py","lines":[1,1],"severity":"important","summary":"s"}' "$e100")
+  saddc "$PREV"
+  addc 2026-01-01T00:00:00Z 2026-01-01T00:00:00Z "$(cbody "$PREV" "[$o]")"
+  run python3 -I "$P" "$TSV" code-reviewer "$TEST_TMPDIR/run.inc.env"
+  [ "$status" -eq 0 ]
+  local id; id=$(printf '%s' "code-reviewer|src/a.py|1|1|f|s" | sha256sum | cut -c1-12)
+  [ "$output" = "$(printf '%s\t%s\t%s\t%s\t%s\t%s' "$id" src/a.py 1 1 important f)" ]
+}
+
+@test "caps: --json still enforces the 16000 total in full mode — evidence is carried verbatim" {
+  local e3500; e3500=$(printf 'x%.0s' $(seq 1 3500))
+  local o; o=$(printf '{"category":"correctness","evidence":"%s","family":"f","file":"src/a.py","lines":[1,1],"severity":"important","summary":"s"}' "$e3500")
+  local arr; arr=$(printf '%s,' "$o" "$o" "$o" "$o" "$o"); arr="[${arr%,}]"
+  saddc "$PREV"
+  addc 2026-01-01T00:00:00Z 2026-01-01T00:00:00Z "$(cbody "$PREV" "$arr")"
+  run python3 -I "$P" "$TSV" code-reviewer "$TEST_TMPDIR/run.env" --json
   [ "$status" -eq 2 ]; [[ "$output" == *"16000 chars in total"* ]]
 }
 
