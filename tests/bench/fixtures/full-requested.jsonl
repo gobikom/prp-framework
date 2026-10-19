@@ -1,3 +1,3 @@
 {"type":"system","timestamp":"2026-01-01T12:00:00.000Z"}
-{"type":"human","message":{"content":"review this PR please"}}
+{"type": "human", "message": {"content": "<command-message>prp-review-agents</command-message>\n<command-name>/prp-core:prp-review-agents</command-name>\n<command-args>177 --l2-comments</command-args>"}}
 {"type":"assistant","message":{"content":"Starting a full review of the code."}}
