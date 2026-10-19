@@ -143,7 +143,9 @@ def check_prior(path, tsv, env_path):
     f, body_mode, items, why = structure(lines)
     if why: return why
     if body_mode != mode: return [f"Review-mode says {body_mode!r}, the run file says {mode!r}"]
-    pas = lines[1][len("Passes run: "):] if lines[1].startswith("Passes run: ") else ""
+    if not lines[1].startswith("Passes run: "):
+        return ["body line 2 is not 'Passes run: <pass>'"]
+    pas = lines[1][len("Passes run: "):]
     r = prior_rows(tsv, pas, run, mode)
     if r.returncode != 0: return [f"prior-findings: {r.stderr.strip()[:160]}"]
     out = r.stdout.rstrip("\n")
@@ -178,6 +180,8 @@ def check_prior(path, tsv, env_path):
         mo, mr = OPEN.match(l), RESOLVED.match(l)   # the keyword is literal text, not a group
         if not (mo or mr): continue
         iid, status = (mo or mr).group(1), "open" if mo else "resolved"
+        if iid == "-" and status == "open":
+            return ["an open previous-round finding has no family id — re-run a FULL review (critical/important findings need a family)"]
         n = jids.count(iid) if iid != "-" else 0
         if status == "open" and n != 1:
             return [f"open item {iid} appears {n} times in this round's review-findings (need exactly 1)"]

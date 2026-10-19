@@ -206,6 +206,37 @@ prev() { # prev <finds> [created] [updated] — a structured previous round for 
   [ "$status" -eq 1 ]; [[ "$output" == *"Review-mode says 'incremental', the run file says 'full'"* ]]
 }
 
+@test "incremental: a carried open item must be copied verbatim" {
+  local id1; id1=$(idof code-reviewer src/a.py 2 3 null-deref "NPE on None")
+  printf 'REVIEWED_HEAD_SHA=%s\nPRP_VERSION=9.9.9\nRUN_ID=%s\nTIER=standard\nSTART_URL=https://github.com/o/r/pull/7#issuecomment-1\nMODE=incremental\n' "$HEAD" "$RUN" > "$TEST_TMPDIR/run.inc.env"
+  prev "[$O1]"
+  mkbody "- $id1 open src/a.py:2-3 regression_test: none" "[$O1]" incremental
+  run python3 -I "$C" --prior "$B" "$TSV" "$TEST_TMPDIR/run.inc.env"
+  [ "$status" -eq 0 ]                                                        # identical object carries
+  local OM='{"category":"correctness","evidence":"EDITED","family":"null-deref","file":"src/a.py","lines":[2,3],"severity":"important","summary":"NPE on None"}'
+  mkbody "- $id1 open src/a.py:2-3 regression_test: none" "[$OM]" incremental   # evidence (not an id field) edited
+  run python3 -I "$C" --prior "$B" "$TSV" "$TEST_TMPDIR/run.inc.env"
+  [ "$status" -eq 1 ]; [[ "$output" == *"was not copied verbatim from the previous round"* ]]
+}
+
+@test "--prior: a body whose line 2 is not 'Passes run: <pass>' is refused — the parity check cannot be silently disabled" {
+  local id1; id1=$(idof code-reviewer src/a.py 2 3 null-deref "NPE on None")
+  prev "[$O1]"
+  mkbody "- $id1 open src/a.py:2-3 regression_test: none" "[$O1]"
+  sed -i '2s/^Passes run: code-reviewer$/Passes run code-reviewer/' "$B"
+  run python3 -I "$C" --prior "$B" "$TSV" "$TEST_TMPDIR/run.env"
+  [ "$status" -eq 1 ]; [[ "$output" == *"body line 2 is not 'Passes run: <pass>'"* ]]
+}
+
+@test "an open prior item with no family id (-) demands a FULL re-review, not an impossible count" {
+  prev '[{"category":"c","evidence":"e","file":"src/a.py","lines":[2,3],"severity":"important","summary":"s"}]'
+  mkbody '- - open src/a.py:2-3 regression_test: none' '[]'
+  run python3 -I "$C" --prior "$B" "$TSV" "$TEST_TMPDIR/run.env"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"has no family id"* ]]; [[ "$output" == *"re-run a FULL review"* ]]
+  [[ "$output" != *"appears 0 times"* ]]
+}
+
 @test "P19: an edited previous block is unstructured — incremental refuses, full demands Not recorded" {
   prev '[]' 2026-01-01T00:00:00Z 2026-01-02T00:00:00Z
   printf 'REVIEWED_HEAD_SHA=%s\nPRP_VERSION=9.9.9\nRUN_ID=%s\nTIER=standard\nSTART_URL=https://github.com/o/r/pull/7#issuecomment-1\nMODE=incremental\n' "$HEAD" "$RUN" > "$TEST_TMPDIR/run.inc.env"

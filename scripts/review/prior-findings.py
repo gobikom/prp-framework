@@ -70,13 +70,13 @@ def main(tsv, pas, run, mode, as_json):
         if mode != "full": return bad(payload + " — an incremental run must be FULL")
         print("Not recorded: the previous round has no review-findings block."); return 0
     found = [x for x in payload if isinstance(x, dict) and x.get("severity") in ("critical", "important")]
-    if as_json:
-        print(json.dumps(found, sort_keys=True, separators=(",", ":"))); return 0
-    try:
+    try:   # validate before either output: --json must not carry an object rows mode would refuse
         out = [f'{fid(pas, x)}\t{x["file"]}\t{x["lines"][0]}\t{x["lines"][1]}\t{x["severity"]}\t{x.get("family") or "-"}'
                for x in found]
     except (KeyError, TypeError, IndexError, ValueError):
         return bad("a critical/important finding lacks file, lines or severity")
+    if as_json:
+        print(json.dumps(found, sort_keys=True, separators=(",", ":"))); return 0
     print("\n".join(out) if out else "None.")
     return 0
 

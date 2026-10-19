@@ -77,6 +77,12 @@ addc() { printf '%s\t%s\t%s\n' "$1" "$2" "$(printf '%s' "$3" | base64 -w0)" >> "
   [ "$output" = "[$canon]" ]
 }
 
+@test "--json refuses a finding lacking file/lines — same validation as rows mode" {
+  addc 2026-01-01T00:00:00Z 2026-01-01T00:00:00Z "$(cbody "$PREV" '[{"severity":"important"}]')"
+  run python3 -I "$P" "$TSV" code-reviewer "$RUN" incremental --json
+  [ "$status" -eq 2 ]; [[ "$output" == *"lacks file, lines or severity"* ]]
+}
+
 @test "only medium or low findings → None." {
   local med='{"category":"correctness","evidence":"x","family":"f","file":"src/a.py","lines":[1,1],"severity":"medium","summary":"s"}'
   addc 2026-01-01T00:00:00Z 2026-01-01T00:00:00Z "$(cbody "$PREV" "[$med]")"
