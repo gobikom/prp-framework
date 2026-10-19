@@ -193,7 +193,7 @@ Then run `install.sh` to create symlinks.
 | ------ | ------- |
 | `scripts/generate-adapters.py` | Auto-generate all 5 adapters from prompts/ |
 | `scripts/review/check-l2-body.py` | Validates the `--l2-comments` pass-comment sections (Prior findings, `review-findings` JSON, `Review-mode`) — plain mode and `--prior` |
-| `scripts/review/prior-findings.py` | Extracts the previous round's critical/important findings from the PR comments TSV (rows + canonical `--json` for verbatim carry-over) |
+| `scripts/review/prior-findings.py` | Extracts the previous round's critical/important findings from the PR comments TSV (rows in every mode; canonical `--json` for verbatim carry-over, produced only in incremental runs) |
 | `scripts/install.sh` | Main installation script (auto-registers ralph hook) |
 | `scripts/sync.sh` | Sync updates for hard-copy (non-symlink) installs |
 | `scripts/cleanup-artifacts.sh` | Artifact cleanup utility |
@@ -218,7 +218,7 @@ Then run `install.sh` to create symlinks.
 | `tests/bench/review-cost.bats` | bats tests for `review-cost.py` (33 test cases) |
 | `scripts/bench/review-rounds.py` | Dev-only: classifies review transcripts as incremental / fell-back / unknown through one typed boundary; the invocation is not read yet (`invoked` always null, fallback rate unavailable) — the invocation reader ships in #177b (not installed into consumer projects) |
 | `tests/bench/review-rounds.bats` | bats tests for `review-rounds.py` (46 test cases); `tests/bench/mutate_fixtures.py` builds its shape-mutation and field-arm variants |
-| `tests/commands/l2-comments.bats` | bats tests for the `--l2-comments` posting flow, start comment and Prior findings (69 test cases) |
+| `tests/commands/l2-comments.bats` | bats tests for the `--l2-comments` posting flow, start comment and Prior findings (75 test cases) |
 | `tests/scripts/check-l2-body.bats` | bats tests for `check-l2-body.py` (30 test cases) |
 | `tests/scripts/prior-findings.bats` | bats tests for `prior-findings.py` (21 test cases) |
 

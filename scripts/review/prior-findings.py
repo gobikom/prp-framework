@@ -92,8 +92,8 @@ def classify(lines, pas):
 def caps(found, check_total):
     """carried content is untrusted data — refuse anything past the caps.
     Per-field caps mirror the posted schema and always apply; the 16000 total is a
-    reader-side bound on carried evidence, checked only when the output carries it
-    (incremental mode or --json) — a full rows round never refuses on prior size."""
+    reader-side bound on carried evidence, checked only in an incremental run —
+    a full round never refuses on prior size (rows or --json)."""
     tot = 0
     for x in found:
         f, c = x.get("file"), x.get("category")
@@ -154,7 +154,7 @@ def main(tsv, pas, env_path, as_json):
                for x in found]
     except (KeyError, TypeError, IndexError, ValueError):
         return bad("a critical/important finding lacks file, lines or severity")
-    rc = caps(found, as_json or mode != "full")
+    rc = caps(found, mode != "full")
     if rc is not None: return rc
     if as_json:
         print(json.dumps(found, sort_keys=True, separators=(",", ":"))); return 0

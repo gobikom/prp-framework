@@ -225,14 +225,15 @@ Generated-by: prp-review-agents v9.9.9 run=$RUN pass=start"          # this run'
   [ "$output" = "$(printf '%s\t%s\t%s\t%s\t%s\t%s' "$id" src/a.py 1 1 important f)" ]
 }
 
-@test "caps: --json still enforces the 16000 total in full mode — evidence is carried verbatim" {
+@test "caps: --json in a full round does not enforce the 16000 total — only an incremental round may refuse on the cap" {
   local e3500; e3500=$(printf 'x%.0s' $(seq 1 3500))
   local o; o=$(printf '{"category":"correctness","evidence":"%s","family":"f","file":"src/a.py","lines":[1,1],"severity":"important","summary":"s"}' "$e3500")
   local arr; arr=$(printf '%s,' "$o" "$o" "$o" "$o" "$o"); arr="[${arr%,}]"
   saddc "$PREV"
   addc 2026-01-01T00:00:00Z 2026-01-01T00:00:00Z "$(cbody "$PREV" "$arr")"
   run python3 -I "$P" "$TSV" code-reviewer "$TEST_TMPDIR/run.env" --json
-  [ "$status" -eq 2 ]; [[ "$output" == *"16000 chars in total"* ]]
+  [ "$status" -eq 0 ]                       # the wiring never calls --json in a full round; if asked, it carries without refusing
+  [ "$(printf '%s' "$output" | grep -o '"severity":"important"' | wc -l)" -eq 5 ]
 }
 
 @test "usage and IO: bad args or a bad run file → 3, unreadable or malformed input → 2 or 3" {

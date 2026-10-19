@@ -799,3 +799,116 @@ repo_files() {
   [ ! -e .prp-output/reviews/pr-7-l2-code-reviewer.md ]
   [ "$(wc -l < "$WORK_LOG")" -eq 0 ]
 }
+
+# cap-scope boundary matrix (#185 round 3): command-level arms driving the real Step B wiring.
+# pyshim <log> — a python3 wrapper that logs its argv (one line per call) then execs the real one,
+# so an arm can prove the --json invocation ran or did not; run stepB via
+#   run env PATH="$WORK/pyshim:$PATH" bash stepB-filled.sh
+pyshim() {
+  local real; real=$(command -v python3)
+  mkdir -p "$WORK/pyshim"
+  cat > "$WORK/pyshim/python3" <<SHIM
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >> '$1'
+exec '$real' "\$@"
+SHIM
+  chmod +x "$WORK/pyshim/python3"
+}
+
+mkbig() { # 5 distinct schema-valid findings x 3500-char evidence (17500 total): over the 16000 cap, under every per-field cap
+  local e i arr=""; e=$(printf 'x%.0s' $(seq 1 3500))
+  for i in 1 2 3 4 5; do
+    arr+="$(printf '{"category":"correctness","evidence":"%s","family":"fam%d","file":"src/a.py","lines":[%d,%d],"severity":"important","summary":"s%d"}' "$e" "$i" "$i" "$i" "$i"),"
+  done
+  printf '[%s]' "${arr%,}"
+}
+
+bigprior() { # a trusted oversized previous round for code-reviewer, in the fixture TSV
+  local big; big=$(mkbig)
+  sled 20260101T000000Z-deadbeef
+  addc 2026-01-02T00:00:00Z 2026-01-02T00:00:00Z "$(prev_body code-reviewer 20260101T000000Z-deadbeef "$big")"
+  export FAKE_COMMENTS_TSV="$PWD/pr-7-comments.src"   # a copy: Step B's fetch redirects the TSV itself
+  cp .prp-output/reviews/pr-7-comments.tsv "$FAKE_COMMENTS_TSV"
+}
+
+@test "cap-a: Step B over an oversized trusted prior in a FULL round exits 0 — prior-findings --json is never called" {
+  bigprior
+  start; [ "$status" -eq 0 ]
+  step B > stepB.sh; [ -s stepB.sh ]
+  pyshim "$WORK/pycalls.log"; : > "$WORK/pycalls.log"
+  sed "s/<pass>/code-reviewer/g" stepB.sh > stepB-filled.sh
+  run env PATH="$WORK/pyshim:$PATH" bash stepB-filled.sh
+  [ "$status" -eq 0 ]
+  grep -q 'prior-findings.py' "$WORK/pycalls.log"       # the rows call ran
+  [ "$(grep -c -- '--json' "$WORK/pycalls.log")" -eq 0 ]   # the carry channel stayed closed (positively asserted: a bats `!` cannot fail)
+  [ "$(wc -l < "$WORK_LOG")" -eq 0 ]
+}
+
+@test "cap-b: Step B over the same oversized prior in an incremental round is refused — FATAL, no --json call" {
+  bigprior
+  T_ARGS="--since-last-review" L2_MODE=incremental start; [ "$status" -eq 0 ]
+  step B > stepB.sh
+  pyshim "$WORK/pycalls.log"; : > "$WORK/pycalls.log"
+  sed "s/<pass>/code-reviewer/g" stepB.sh > stepB-filled.sh
+  run env PATH="$WORK/pyshim:$PATH" bash stepB-filled.sh
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"FATAL: prior-findings failed"* ]]
+  [[ "$output" == *"16000 chars in total"* ]]
+  [ "$(grep -c -- '--json' "$WORK/pycalls.log")" -eq 0 ]   # positively asserted: a bats `!` cannot fail
+  [ "$(wc -l < "$WORK_LOG")" -eq 0 ]
+}
+
+@test "cap-c: Step B in an incremental round over a normal-size prior carries it — --json called exactly once" {
+  local o1; o1='{"category":"correctness","evidence":"b is None","family":"null-deref","file":"src/a.py","lines":[2,3],"severity":"important","summary":"NPE on None"}'
+  sled 20260101T000000Z-deadbeef
+  addc 2026-01-02T00:00:00Z 2026-01-02T00:00:00Z "$(prev_body code-reviewer 20260101T000000Z-deadbeef "[$o1]")"
+  export FAKE_COMMENTS_TSV="$PWD/pr-7-comments.src"
+  cp .prp-output/reviews/pr-7-comments.tsv "$FAKE_COMMENTS_TSV"
+  T_ARGS="--since-last-review" L2_MODE=incremental start; [ "$status" -eq 0 ]
+  step B > stepB.sh
+  pyshim "$WORK/pycalls.log"; : > "$WORK/pycalls.log"
+  sed "s/<pass>/code-reviewer/g" stepB.sh > stepB-filled.sh
+  run env PATH="$WORK/pyshim:$PATH" bash stepB-filled.sh
+  [ "$status" -eq 0 ]
+  [ "$(grep -c -- '--json' "$WORK/pycalls.log")" -eq 1 ]
+}
+
+@test "cap-d: Step B with no prior in a FULL round runs (None.) — --json never called" {
+  start; [ "$status" -eq 0 ]
+  step B > stepB.sh
+  pyshim "$WORK/pycalls.log"; : > "$WORK/pycalls.log"
+  sed "s/<pass>/code-reviewer/g" stepB.sh > stepB-filled.sh
+  run env PATH="$WORK/pyshim:$PATH" bash stepB-filled.sh
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"None."* ]]
+  [ "$(grep -c -- '--json' "$WORK/pycalls.log")" -eq 0 ]   # positively asserted: a bats `!` cannot fail
+}
+
+@test "cap-e: the documented recovery — after the incremental refusal, re-running FULL works end to end" {
+  repo_files                     # a real head: the posting checks verify the reviewed commit exists
+  bigprior
+  T_ARGS="--since-last-review" L2_MODE=incremental start; [ "$status" -eq 0 ]
+  step B > stepB.sh; sed "s/<pass>/code-reviewer/g" stepB.sh > stepB-filled.sh
+  run bash stepB-filled.sh                        # the incremental round refuses the oversized prior
+  [ "$status" -ne 0 ]; [[ "$output" == *"FATAL: prior-findings failed"* ]]
+  T_ARGS= L2_MODE= start; [ "$status" -eq 0 ]     # the advised action: re-run FULL
+  run bash stepB-filled.sh
+  [ "$status" -eq 0 ]
+  local big prior id i; big=$(mkbig); prior=""
+  for i in 1 2 3 4 5; do
+    id=$(idof code-reviewer src/a.py "$i" "$i" "fam$i" "s$i")
+    prior+="- $id open src/a.py:$i-$i regression_test: none"$'\n'
+  done
+  body code-reviewer "${prior%$'\n'}" "$big"
+  body security-reviewer; body silent-failure-hunter
+  T_ARGS= post
+  [ "$status" -eq 0 ]
+  [ "$(wc -l < "$WORK_LOG")" -eq 3 ]
+}
+
+@test "cap-f: the wiring and the checker gate --json on incremental alike — drift on either side fails" {
+  step B > stepB.sh; [ -s stepB.sh ]
+  grep -q '^MODE=$(sed -n .s/^MODE=//p.' stepB.sh                                    # Step B reads the run file's mode (parse, never execute)
+  sed -n '/^if \[ "$MODE" = incremental \]; then$/,/^fi$/p' stepB.sh | grep -q -- '--json'   # ...and the --json call sits inside that gate
+  sed -n '/if mode == "incremental":/,/prev_obj\[/p' "$ROOT/scripts/review/check-l2-body.py" | grep -q -- '--json'   # the checker's --json re-run sits inside the same-named gate
+}
