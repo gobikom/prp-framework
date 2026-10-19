@@ -47,6 +47,12 @@ teardown() { rm -rf -- "$TEST_TMPDIR" 2>/dev/null || true; }
   [ "$status" -eq 0 ]
   python3 -I -c "import json,sys; d=json.loads(sys.argv[1]); assert d['fallback_rate']==1.0 and d['fell_back']==1 and d['invoked']==1 and d['undecided']==1 and d['full_requested']==0, d" "$output"
 }
+
+@test "ladder: ok incremental read wins over later fallback signals" {
+  run python3 -I "$RR" fallback --json "$FIX/incr-read-then-fallback-say.jsonl"
+  [ "$status" -eq 0 ]
+  python3 -I -c "import json,sys; d=json.loads(sys.argv[1]); s=d['sessions'][0]; assert s['mode']=='incremental' and s['invoked'] is True, d; assert d['incremental']==1 and d['fell_back']==0 and d['fallback_rate']==0.0, d" "$output"
+}
 @test "fallback: no parseable user prompt → unknown (invocation.none), never full-requested" {
   : > "$TEST_TMPDIR/empty.jsonl"; printf 'not json {{{\n{"type":"summary","summary":"x"}\n' > "$TEST_TMPDIR/garbage.jsonl"
   printf '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"ok"}]}}\n' > "$TEST_TMPDIR/resumed.jsonl"

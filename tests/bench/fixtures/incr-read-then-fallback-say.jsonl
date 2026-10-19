@@ -1,0 +1,7 @@
+{"type":"system","timestamp":"2026-01-01T12:00:00.000Z"}
+{"type": "human", "message": {"content": "<command-message>prp-review-agents</command-message>\n<command-name>/prp-core:prp-review-agents</command-name>\n<command-args>177 --l2-comments --since-last-review</command-args>"}}
+{"type":"assistant","message":{"content":[{"type":"tool_use","input":{"command":"cat .prp-output/reviews/pr-42-incremental.diff"},"id":"toolu_fx10","name":"Bash"}]}}
+{"type":"user","message":{"content":[{"type":"tool_result","content":"diff --git a/x b/x\n+y","tool_use_id":"toolu_fx10"}]}}
+{"type":"assistant","message":{"content":[{"type":"tool_use","input":{"command":"test -f .prp-output/reviews/pr-42-agents-review.md"},"id":"toolu_fx11","name":"Bash"}]}}
+{"type":"user","message":{"content":[{"type":"tool_result","content":"NOT_FOUND: pr-42-agents-review.md","tool_use_id":"toolu_fx11"}]}}
+{"type":"assistant","message":{"content":"The incremental diff was thin. Running full review."}}
