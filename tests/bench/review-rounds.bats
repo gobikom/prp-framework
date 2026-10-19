@@ -26,20 +26,39 @@ teardown() { rm -rf -- "$TEST_TMPDIR" 2>/dev/null || true; }
   [ "$status" -eq 0 ]
   python3 -I -c "import json,sys; m=json.loads(sys.argv[1])['sessions'][0]['mode']; assert m!='fell-back', f'got {m}'" "$output"
 }
-@test "fallback: invocation not read — fallback_rate null in JSON, markdown says unavailable" {
-  run python3 -I "$RR" fallback --json "$FIX/full-requested.jsonl" "$FIX/incremental.jsonl"
+@test "fallback: full-requested excluded from rate" {
+  run python3 -I "$RR" fallback --json "$FIX/full-requested.jsonl"
   [ "$status" -eq 0 ]
-  python3 -I -c "import json,sys; d=json.loads(sys.argv[1]); assert d['fallback_rate'] is None and all(s['invoked'] is None and s['invocation_reason']=='invocation.not-read' for s in d['sessions']), d" "$output"
+  python3 -I -c "import json,sys; d=json.loads(sys.argv[1]); assert d['sessions'][0]['mode']=='full-requested' and d['invoked']==0" "$output"
+}
+@test "fallback: markdown rate line states the lower bound over identified invocations" {
   run python3 -I "$RR" fallback "$FIX/full-requested.jsonl" "$FIX/incremental.jsonl"
   [ "$status" -eq 0 ]
-  echo "$output" | grep -q '^fallback rate: unavailable — invocation not read (see #177b)$'
+  echo "$output" | grep -q '^| fallback rate (lower bound) | 0\.0% of 1 identified invocations |$'
 }
-@test "fallback: no parseable user prompt → unknown (invocation not read; #177b restores the reason)" {
+@test "fallback: nonzero rate asserted — single fell-back, mixed with full-requested, and with undecided" {
+  run python3 -I "$RR" fallback --json "$FIX/fell-back-no-prev.jsonl"
+  [ "$status" -eq 0 ]
+  python3 -I -c "import json,sys; d=json.loads(sys.argv[1]); assert d['fallback_rate']==1.0 and d['fell_back']==1 and d['invoked']==1 and d['full_requested']==0, d" "$output"
+  run python3 -I "$RR" fallback --json "$FIX/fell-back-no-prev.jsonl" "$FIX/full-requested.jsonl"
+  [ "$status" -eq 0 ]
+  python3 -I -c "import json,sys; d=json.loads(sys.argv[1]); assert d['fallback_rate']==1.0 and d['fell_back']==1 and d['invoked']==1 and d['full_requested']==1, d" "$output"
+  run python3 -I "$RR" fallback --json "$FIX/fell-back-no-prev.jsonl" "$FIX/prompt-body.jsonl"
+  [ "$status" -eq 0 ]
+  python3 -I -c "import json,sys; d=json.loads(sys.argv[1]); assert d['fallback_rate']==1.0 and d['fell_back']==1 and d['invoked']==1 and d['undecided']==1 and d['full_requested']==0, d" "$output"
+}
+
+@test "ladder: ok incremental read wins over later fallback signals" {
+  run python3 -I "$RR" fallback --json "$FIX/incr-read-then-fallback-say.jsonl"
+  [ "$status" -eq 0 ]
+  python3 -I -c "import json,sys; d=json.loads(sys.argv[1]); s=d['sessions'][0]; assert s['mode']=='incremental' and s['invoked'] is True, d; assert d['incremental']==1 and d['fell_back']==0 and d['fallback_rate']==0.0, d" "$output"
+}
+@test "fallback: no parseable user prompt → unknown (invocation.none), never full-requested" {
   : > "$TEST_TMPDIR/empty.jsonl"; printf 'not json {{{\n{"type":"summary","summary":"x"}\n' > "$TEST_TMPDIR/garbage.jsonl"
   printf '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"ok"}]}}\n' > "$TEST_TMPDIR/resumed.jsonl"
   run python3 -I "$RR" fallback --json "$TEST_TMPDIR/empty.jsonl" "$TEST_TMPDIR/garbage.jsonl" "$TEST_TMPDIR/resumed.jsonl"
   [ "$status" -eq 0 ]
-  python3 -I -c "import json,sys; ss=json.loads(sys.argv[1])['sessions']; assert all(s['mode']=='unknown' and s['invoked'] is None and s['invocation_reason']=='invocation.not-read' and s['unknown_fields']==[] for s in ss), ss" "$output"
+  python3 -I -c "import json,sys; ss=json.loads(sys.argv[1])['sessions']; assert all(s['mode']=='unknown' and s['invoked'] is None and s['invocation_reason']=='invocation.none' and s['unknown_fields']==[] for s in ss), ss" "$output"
 }
 @test "fallback: truncated line counted" {
   run python3 -I "$RR" fallback --json "$FIX/truncated.jsonl"
@@ -47,10 +66,10 @@ teardown() { rm -rf -- "$TEST_TMPDIR" 2>/dev/null || true; }
   python3 -I -c "import json,sys; d=json.loads(sys.argv[1]); assert d['sessions'][0]['skipped_lines']==1" "$output"
   [[ "$output" != *"Traceback"* ]]
 }
-@test "fallback: unknown arm (no diff, no not-found; invocation not read)" {
+@test "fallback: unknown arm (invoked, no diff, no not-found)" {
   run python3 -I "$RR" fallback --json "$FIX/unknown.jsonl"
   [ "$status" -eq 0 ]
-  python3 -I -c "import json,sys; s=json.loads(sys.argv[1])['sessions'][0]; assert s['mode']=='unknown' and s['invoked'] is None, s" "$output"
+  python3 -I -c "import json,sys; s=json.loads(sys.argv[1])['sessions'][0]; assert s['mode']=='unknown' and s['invoked'], s" "$output"
 }
 @test "fallback: incremental via pr-N-incremental.diff file" {
   run python3 -I "$RR" fallback --json "$FIX/incremental-diff-file.jsonl"
@@ -122,10 +141,10 @@ teardown() { rm -rf -- "$TEST_TMPDIR" 2>/dev/null || true; }
   [ "$status" -eq 0 ]
   python3 -I -c "import json,sys; s=json.loads(sys.argv[1])['sessions'][0]; assert s['mode']=='incremental', s" "$output"
 }
-@test "fallback: I1 — the arm fixtures cover every classifier arm (evidence modes)" {
+@test "fallback: I1 — the arm fixtures cover every classifier arm" {
   run python3 -I "$RR" fallback --json "$FIX/full-requested.jsonl" "$FIX/incremental.jsonl" "$FIX/incremental-diff-file.jsonl" "$FIX/fell-back-no-prev.jsonl" "$FIX/unknown.jsonl"
   [ "$status" -eq 0 ]
-  python3 -I -c "import json,sys; m={s['mode'] for s in json.loads(sys.argv[1])['sessions']}; assert m=={'incremental','fell-back','unknown'}, m" "$output"
+  python3 -I -c "import json,sys; m={s['mode'] for s in json.loads(sys.argv[1])['sessions']}; assert m=={'full-requested','incremental','fell-back','unknown'}, m" "$output"
 }
 @test "fallback: valid-JSON non-object lines are skipped, not a crash" {
   run python3 -I "$RR" fallback --json "$FIX/non-object-line.jsonl"
@@ -210,6 +229,66 @@ _arm() {
 @test "boundary: only the _norm_* functions and _read_jsonl read raw JSON (.get)" {
   run awk '/^def /{fn=$2} /\.get\(/ && fn !~ /^(_norm_|_read_jsonl)/ {print FILENAME":"NR": "fn}' "$RR"
   [ -z "$output" ]
+}
+
+# --- #177b: the invocation reader — one test per arm; invocation-arms.tsv is the oracle ---
+_inv() {
+  mkdir "$TEST_TMPDIR/ia"
+  python3 -I "$BATS_TEST_DIRNAME/mutate_fixtures.py" invocation-arms "$TEST_TMPDIR/ia" > /dev/null
+  python3 -I "$RR" fallback --json "$TEST_TMPDIR"/ia/*.jsonl > "$TEST_TMPDIR/out.json"
+  run python3 -I "$BATS_TEST_DIRNAME/mutate_fixtures.py" check-inv "$TEST_TMPDIR/ia/invocation-arms.tsv" "$TEST_TMPDIR/out.json" "$1"
+  echo "$output"
+  [ "$status" -eq 0 ]
+}
+@test "invocation-arm: A1 no user record" { _inv A1; }
+@test "invocation-arm: A2 first user content empty" { _inv A2; }
+@test "invocation-arm: A3 first user text block empty (r2 shape)" { _inv A3; }
+@test "invocation-arm: A4 whitespace-only text" { _inv A4; }
+@test "invocation-arm: A5 brief quoting the command, no tag" { _inv A5; }
+@test "invocation-arm: A6 brief first, envelope with flag, incremental" { _inv A6; }
+@test "invocation-arm: A7 envelope without flag" { _inv A7; }
+@test "invocation-arm: A8 name tag without command-args" { _inv A8; }
+@test "invocation-arm: A9 --since-last-reviewer is not the flag" { _inv A9; }
+@test "invocation-arm: A10 Skill call with flag, failed review read" { _inv A10; }
+@test "invocation-arm: A11 Skill input.args absent" { _inv A11; }
+@test "invocation-arm: A12 Skill input.args = 5" { _inv A12; }
+@test "invocation-arm: A13 Skill call for another skill" { _inv A13; }
+@test "invocation-arm: A14 two envelopes, flag mixed" { _inv A14; }
+@test "invocation-arm: A15 envelope + boundary UNKNOWN (exact tuple)" { _inv A15; }
+@test "invocation-arm: A16 brief quoting an envelope + real envelope" { _inv A16; }
+@test "invocation-arm: A17 /compact envelope quoting the command" { _inv A17; }
+@test "invocation-arm: A18 empty args, flag only in later plain text" { _inv A18; }
+@test "invocation-arm: A19 two command-args tags" { _inv A19; }
+@test "invocation-arm: A20 envelope + Skill call" { _inv A20; }
+@test "invocation-arm: A21 envelope inside a text block" { _inv A21; }
+@test "invocation-arm: A22 flag-like args are not the flag (3 rows)" { _inv A22; }
+@test "invocation-arm: A23 flag split across arg lines" { _inv A23; }
+@test "invocation-arm: A24 malformed beats multiple" { _inv A24; }
+@test "invocation-arm: A25 flag text in a brief does not decide; the envelope does" { _inv A25; }
+@test "invocation-arm: A26 Skill input not a dict + envelope" { _inv A26; }
+@test "invocation-arm: A27 Skill input.skill absent + envelope" { _inv A27; }
+@test "invocation-arm: mutation (b) — first-user-text or substring fallback fails ≥ 3 arms" {
+  mkdir "$TEST_TMPDIR/ia"
+  python3 -I "$BATS_TEST_DIRNAME/mutate_fixtures.py" invocation-arms "$TEST_TMPDIR/ia" > /dev/null
+  # (b1) every user str content becomes the invocation's args (the r1/r2 family)
+  sed 's|m = ENVELOPE_PAT.match(txt)|m = re.match(r"(.*)", txt, re.S)|' "$RR" > "$TEST_TMPDIR/rr-b1.py"
+  python3 -I "$TEST_TMPDIR/rr-b1.py" fallback --json "$TEST_TMPDIR"/ia/*.jsonl > "$TEST_TMPDIR/b1.json"
+  python3 -I -c "import json,sys; d=json.load(open(sys.argv[1])); assert d['errors']==[] and d['total']>0, d['errors'][:3]" "$TEST_TMPDIR/b1.json"
+  run python3 -I "$BATS_TEST_DIRNAME/mutate_fixtures.py" check-inv "$TEST_TMPDIR/ia/invocation-arms.tsv" "$TEST_TMPDIR/b1.json"
+  [ "$(echo "$output" | grep -c ':')" -ge 3 ]
+  # (b2) a command-args tag anywhere in user text is trusted as the envelope
+  sed -e '/^NAME_TAG_PAT = re.compile/a ARGS_TAG_PAT = re.compile(r"<command-args>([^<]*)</command-args>")' \
+      -e 's|m = ENVELOPE_PAT.match(txt)|m = ARGS_TAG_PAT.search(txt)|' "$RR" > "$TEST_TMPDIR/rr-b2.py"
+  python3 -I "$TEST_TMPDIR/rr-b2.py" fallback --json "$TEST_TMPDIR"/ia/*.jsonl > "$TEST_TMPDIR/b2.json"
+  python3 -I -c "import json,sys; d=json.load(open(sys.argv[1])); assert d['errors']==[] and d['total']>0, d['errors'][:3]" "$TEST_TMPDIR/b2.json"
+  run python3 -I "$BATS_TEST_DIRNAME/mutate_fixtures.py" check-inv "$TEST_TMPDIR/ia/invocation-arms.tsv" "$TEST_TMPDIR/b2.json"
+  [ "$(echo "$output" | grep -c ':')" -ge 3 ]
+}
+@test "boundary: the flag token is read only inside the invocation reader" {
+  [ "$(grep -c -- '--since-last-review' "$RR")" -eq 1 ]
+  fl=$(grep -n -- '--since-last-review' "$RR" | head -1 | cut -d: -f1)
+  mk=$(grep -n '^# --- the invocation reader' "$RR" | cut -d: -f1)
+  [ -n "$fl" ] && [ -n "$mk" ] && [ "$fl" -ge "$mk" ]
 }
 
 # --- misc ---

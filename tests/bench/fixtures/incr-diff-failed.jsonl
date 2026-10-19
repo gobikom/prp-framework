@@ -1,4 +1,4 @@
-{"type": "human", "message": {"content": "review --since-last-review"}}
+{"type": "human", "message": {"content": "<command-message>prp-review-agents</command-message>\n<command-name>/prp-core:prp-review-agents</command-name>\n<command-args>177 --l2-comments --since-last-review</command-args>"}}
 {"type":"assistant","message":{"content":[{"type":"tool_use","input":{"command":"cat .prp-output/reviews/pr-42-incremental.diff"},"id":"toolu_fx01","name":"Bash"}]}}
 {"type":"user","message":{"content":[{"type":"tool_result","content":"cat: .prp-output/reviews/pr-42-incremental.diff: No such file or directory","tool_use_id":"toolu_fx01"}]}}
 {"type": "assistant", "message": {"content": "Reviewing the code."}}

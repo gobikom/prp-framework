@@ -11,16 +11,22 @@ never incremental / fell-back, and lists the fields in 'unknown_fields'.
 Expected types come from 212 real review sessions (plan
 .prp-output/plans/176-review-rounds-typed.plan.md).
 
-Evidence classifier (#177 base): the invocation is NOT read. Every session
-reports invoked null with reason 'invocation.not-read'; there is no
-'full-requested' and no fallback rate (JSON 'fallback_rate': null; the
-markdown prints 'fallback rate: unavailable — invocation not read (see
-#177b)'). Deciding invocation from a positively identified review invocation
-is #177b's layer. Each tool command gets one outcome from its own paired
+Invocation reader (#177b): 'invoked' is True or False ONLY when the session
+has exactly one positively identified review invocation — a user record whose
+whole str content is this skill's slash envelope (command-message /
+command-name / command-args), or an assistant Skill tool_use whose input.skill
+is this skill — and the value is read ONLY from that invocation's own args
+(the incremental flag as a whole whitespace token). Every other case is mode
+'unknown', invoked null, with a named reason in 'unknown_fields', the first by
+malformed > skill > args > multiple > boundary-field > none; a boundary
+UNKNOWN field makes the session undecidable for both layers. One identified
+invocation without the flag is 'full-requested'. The fallback rate is a lower
+bound over identified invocations; undecidable sessions are excluded.
+Each tool command gets one outcome from its own paired
 result (paired by tool_use_id, earliest unpaired use first): ok, failed (a
 not-found about the review file or diff itself), error (another is_error
-result) or missing (no result); error and missing are never evidence. A
-session is 'incremental' when a command on pr-N-incremental.diff or a
+result) or missing (no result); error and missing are never evidence. An
+invoked session is 'incremental' when a command on pr-N-incremental.diff or a
 two-SHA `git diff A B` / `A...B` is ok; else 'fell-back' when a command on
 the review file or .prp-output/reviews failed, or the assistant says
 "No previous review found" / "Running full review"; anything else is
@@ -106,7 +112,19 @@ def _norm_block(b, unk):
         out["text"] = _norm_typed(b.get("text", _ABSENT), _is_str, "text.text", unk)
     elif btype == "tool_use":
         out["id"] = _norm_typed(b.get("id", _ABSENT), _is_id, "tool_use.id", unk)
-        out["command"] = _norm_command(b, unk)
+        name = _norm_typed(b.get("name", _ABSENT), _is_str, "tool_use.name", unk)
+        out["name"] = name
+        inp = _norm_typed(b.get("input", _ABSENT), _is_dict, "tool_use.input", unk)
+        if name == "Skill":
+            # The invocation reader's fields (#177b): kept typed; absent is never
+            # normalised to "" (an empty arg list is a real, decidable value).
+            if inp is UNKNOWN:
+                out["skill"] = out["args"] = UNKNOWN
+            else:
+                sk, ag = inp.get("skill", _ABSENT), inp.get("args", _ABSENT)
+                out["skill"] = sk if _is_str(sk) else UNKNOWN
+                out["args"] = ag if _is_str(ag) else UNKNOWN
+        out["command"] = _norm_command(name, inp, unk)
     elif btype == "tool_result":
         out["tool_use_id"] = _norm_typed(b.get("tool_use_id", _ABSENT), _is_id, "tool_result.tool_use_id", unk)
         ie = b.get("is_error", _ABSENT)
@@ -115,11 +133,9 @@ def _norm_block(b, unk):
         out["content"] = _norm_result_text(b.get("content", _ABSENT), unk)
     return out
 
-def _norm_command(b, unk):
+def _norm_command(name, inp, unk):
     """Evidence is a shell command or the path a Read opened; another tool's input is not a command.
     Returns str, None (a tool with no command) or UNKNOWN."""
-    name = _norm_typed(b.get("name", _ABSENT), _is_str, "tool_use.name", unk)
-    inp = _norm_typed(b.get("input", _ABSENT), _is_dict, "tool_use.input", unk)
     if name is UNKNOWN or inp is UNKNOWN: return UNKNOWN
     if name == "Read":
         return _norm_typed(inp.get("file_path", _ABSENT), _is_str, "Read.file_path", unk)
@@ -147,7 +163,58 @@ def _norm_result_text(c, unk):
     return "\n".join(parts)
 # --- end of the boundary ------------------------------------------------------
 
-INVOCATION_NOT_READ = "invocation.not-read"  # #177 base: the invocation reader ships in #177b
+# --- the invocation reader (#177b): the only code that decides 'invoked' ----------
+REVIEW_SKILL = "prp-core:prp-review-agents"
+NAME_TAG_PAT = re.compile(r"<command-name>/?prp-core:prp-review-agents</command-name>")
+ENVELOPE_PAT = re.compile(
+    r"\A\s*<command-message>[^<]*</command-message>\s*"
+    r"<command-name>/?prp-core:prp-review-agents</command-name>\s*"
+    r"<command-args>([^<]*)</command-args>\s*\Z")
+FLAG = "--since-last-review"
+INVOCATION_MALFORMED = "invocation.malformed"
+INVOCATION_SKILL = "invocation.skill"
+INVOCATION_ARGS = "invocation.args"
+INVOCATION_MULTIPLE = "invocation.multiple"
+INVOCATION_BOUNDARY = "invocation.boundary-field"
+INVOCATION_NONE = "invocation.none"
+INVOCATION_PRECEDENCE = (INVOCATION_MALFORMED, INVOCATION_SKILL, INVOCATION_ARGS,
+                         INVOCATION_MULTIPLE)
+
+def _invocation(events):
+    """(evidence_args, reasons): the args of every positively identified review
+    invocation, and every invocation reason that applies.
+
+    Evidence: a user record whose whole str content is the slash envelope (args =
+    its command-args), or an assistant Skill tool_use for the review skill (args =
+    input.args). The review name tag anywhere else in user text — quoted in a
+    brief, doubled, missing its args tag, or inside a list-content text block —
+    is malformed: a text block is never evidence. An undecidable Skill input
+    (input not a dict, skill absent or not a str) might be the review, so it is
+    a reason, never 'some other skill'."""
+    evidence, reasons = [], set()
+    for e in events:
+        t = e["type"]
+        if t == "user" or t == "human":
+            if e["blocks"]:
+                for blk in e["blocks"]:
+                    if blk["type"] == "text" and isinstance(blk["text"], str) \
+                            and NAME_TAG_PAT.search(blk["text"]):
+                        reasons.add(INVOCATION_MALFORMED)
+            else:
+                txt = e["text"]
+                m = ENVELOPE_PAT.match(txt)
+                if m: evidence.append(m.group(1))
+                elif NAME_TAG_PAT.search(txt): reasons.add(INVOCATION_MALFORMED)
+        elif t == "assistant":
+            for blk in e["blocks"]:
+                if blk["type"] == "tool_use" and blk["name"] == "Skill":
+                    if blk["skill"] is UNKNOWN:
+                        reasons.add(INVOCATION_SKILL)
+                    elif blk["skill"] == REVIEW_SKILL:
+                        if isinstance(blk["args"], str): evidence.append(blk["args"])
+                        else: reasons.add(INVOCATION_ARGS)
+    if len(evidence) > 1: reasons.add(INVOCATION_MULTIPLE)
+    return evidence, reasons
 
 REVIEW_FILE_PAT = re.compile(r"pr-\d+-agents-review\.md|\.prp-output/reviews\b")
 INCR_DIFF_PAT = re.compile(r"pr-\d+-incremental\.diff")
@@ -196,58 +263,80 @@ def _assistant_text(events):
             if block["type"] == "text": yield block["text"]
 
 def classify_mode(events):
-    """(mode, orphan_results, unknown_fields).
+    """(mode, invoked, orphan_results, unknown_fields, invocation_reason).
 
-    mode: 'unknown' whenever any field is UNKNOWN (pairing not attempted); otherwise
-    'incremental', 'fell-back' or 'unknown' as in the module doc. The invocation is
-    not read in #177 base, so there is no 'full-requested'.
+    mode: 'unknown' whenever any boundary field is UNKNOWN or any invocation
+    reason applies (pairing not attempted); 'full-requested' when the one
+    identified invocation lacks the flag; else the evidence ladder as in the
+    module doc. invoked: True/False only from the one identified invocation's
+    own args, else None. invocation_reason: the first reason by
+    malformed > skill > args > multiple > boundary-field > none, else None.
     """
-    unknown_fields = sorted({f for e in events for f in e["unknown"]})
-    if unknown_fields: return "unknown", None, unknown_fields
+    evidence, reasons = _invocation(events)
+    boundary_unknown = {f for e in events for f in e["unknown"]}
+    unknown_fields = sorted(boundary_unknown | reasons)
+    reason = next((r for r in INVOCATION_PRECEDENCE if r in reasons), None)
+    if reason is None and boundary_unknown: reason = INVOCATION_BOUNDARY
+    if reason is None and not evidence: reason = INVOCATION_NONE
+    if reason is not None:
+        return "unknown", None, None, unknown_fields, reason
+    if FLAG not in evidence[0].split():
+        return "full-requested", False, None, unknown_fields, None
     calls, orphans = _tool_calls(events)
     cmd_calls = [(c, o) for c, o in calls if isinstance(c, str)]
     if any(o == OK and (INCR_DIFF_PAT.search(c) or TWO_SHA_PAT.search(c)) for c, o in cmd_calls):
-        return "incremental", orphans, []
+        return "incremental", True, orphans, unknown_fields, None
     if any(o == FAILED and REVIEW_FILE_PAT.search(c) for c, o in cmd_calls) \
             or any(FALLBACK_SAY_PAT.search(t) for t in _assistant_text(events)):
-        return "fell-back", orphans, []
-    return "unknown", orphans, []
+        return "fell-back", True, orphans, unknown_fields, None
+    return "unknown", True, orphans, unknown_fields, None
 
 def cmd_fallback(paths, as_json=False):
     results, errors = [], []
     for p in paths:
         try:
             events, skipped = _read_jsonl(p)
-            mode, orphans, unknown_fields = classify_mode(events)
+            mode, invoked, orphans, unknown_fields, inv_reason = classify_mode(events)
         except (OSError, ValueError) as e:  # missing, a directory, unreadable, non-UTF-8
             errors.append({"path": p, "error": f"{type(e).__name__}: {e}"}); continue
         except Exception as e:  # a bug, not bad input: report it with its location, never swallow it
             errors.append({"path": p, "error": f"internal {_where(e)}"}); continue
-        results.append({"path": os.path.basename(p), "mode": mode,
-                        "invoked": None, "invocation_reason": INVOCATION_NOT_READ,
-                        "skipped_lines": skipped, "orphan_results": orphans,
-                        "unknown_fields": unknown_fields})
-    inc = sum(1 for r in results if r["mode"] == "incremental")
-    fb = sum(1 for r in results if r["mode"] == "fell-back")
-    unk = sum(1 for r in results if r["mode"] == "unknown")
+        results.append({"path": os.path.basename(p), "mode": mode, "invoked": invoked,
+                        "invocation_reason": inv_reason, "skipped_lines": skipped,
+                        "orphan_results": orphans, "unknown_fields": unknown_fields})
+    invoked_runs = [r for r in results if r["invoked"] is True]
+    fb = sum(1 for r in invoked_runs if r["mode"] == "fell-back")
+    inc = sum(1 for r in invoked_runs if r["mode"] == "incremental")
+    unk = sum(1 for r in invoked_runs if r["mode"] == "unknown")
+    full_req = sum(1 for r in results if r["mode"] == "full-requested")
+    undecided = sum(1 for r in results if r["invoked"] is None)
     with_unknown = sum(1 for r in results if r["unknown_fields"])
+    inv_total = len(invoked_runs)
+    rate = fb / inv_total if inv_total else 0
     orphans = sum(r["orphan_results"] or 0 for r in results)
     if as_json:
-        json.dump({"sessions": results, "total": len(results),
-                   "incremental": inc, "fell_back": fb, "unknown": unk,
+        json.dump({"sessions": results, "total": len(results), "invoked": inv_total,
+                   "fell_back": fb, "incremental": inc, "unknown": unk,
+                   "full_requested": full_req, "undecided": undecided,
                    "sessions_with_unknown_fields": with_unknown,
-                   "fallback_rate": None, "errors": errors}, sys.stdout, indent=2)
+                   "fallback_rate": round(rate, 3), "errors": errors}, sys.stdout, indent=2)
     else:
         skipped = sum(r["skipped_lines"] for r in results)
-        rows = [("incremental", inc), ("fell-back", fb), ("unknown", unk),
+        rows = [("invoked incremental", inv_total), ("→ incremental", inc), ("→ fell-back", fb),
+                ("→ unknown", unk), ("full-requested", full_req),
+                ("undecidable invocation", undecided),
                 ("sessions with unknown fields (mode unknown)", with_unknown),
-                ("total", len(results)), ("skipped (unparseable) lines", skipped),
-                ("unreadable files", len(errors)), ("orphan tool results", orphans)]
+                ("total", len(results)),
+                ("fallback rate (lower bound)", f"{rate:.1%} of {inv_total} identified invocations"),
+                ("skipped (unparseable) lines", skipped), ("unreadable files", len(errors)),
+                ("orphan tool results", orphans)]
         print("| mode | count |\n|------|-------|")
         for k, v in rows: print(f"| {k} | {v} |")
-        print("fallback rate: unavailable — invocation not read (see #177b)")
         if skipped:
             print(f"warning: {skipped} unparseable transcript line(s) excluded", file=sys.stderr)
+        if undecided:
+            print(f"note: the fallback rate is a lower bound — {undecided} session(s) have no "
+                  f"positively identified single invocation and are excluded", file=sys.stderr)
     for e in errors:
         print(f"error: {e['path']}: {e['error']}", file=sys.stderr)
     return 2 if errors else 0
