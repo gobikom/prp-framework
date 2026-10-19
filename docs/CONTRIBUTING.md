@@ -120,6 +120,8 @@ If you need tool-specific content (e.g., Claude Code XML wrapping), edit the ove
 vim prompts/overlays/claude-code/plan.md
 ```
 
+When editing `prompts/review-agents.md`: the `--l2-comments` Step A / Step B / Step C bash fences are extracted and executed verbatim by `tests/commands/l2-comments.bats` (the adapter must contain exactly one `**Step A` marker, in section 2.0c), and the pass-comment format they produce is checked by `scripts/review/check-l2-body.py`. The provenance footer stays byte-for-byte the last line with no trailing fields — safe-merge's and merger's footer regexes are anchored — so a new field goes on its own line above it (as `Review-mode:` does).
+
 ### 2. Generate All Adapters
 
 Run the auto-generation script to produce all 5 adapter formats:
@@ -190,6 +192,8 @@ Then run `install.sh` to create symlinks.
 | File | Purpose |
 | ------ | ------- |
 | `scripts/generate-adapters.py` | Auto-generate all 5 adapters from prompts/ |
+| `scripts/review/check-l2-body.py` | Validates the `--l2-comments` pass-comment sections (Prior findings, `review-findings` JSON, `Review-mode`) — plain mode and `--prior` |
+| `scripts/review/prior-findings.py` | Extracts the previous round's critical/important findings from the PR comments TSV (rows + canonical `--json` for verbatim carry-over) |
 | `scripts/install.sh` | Main installation script (auto-registers ralph hook) |
 | `scripts/sync.sh` | Sync updates for hard-copy (non-symlink) installs |
 | `scripts/cleanup-artifacts.sh` | Artifact cleanup utility |
@@ -214,6 +218,9 @@ Then run `install.sh` to create symlinks.
 | `tests/bench/review-cost.bats` | bats tests for `review-cost.py` (33 test cases) |
 | `scripts/bench/review-rounds.py` | Dev-only: classifies review transcripts as incremental / fell-back / unknown through one typed boundary; the invocation is not read yet (`invoked` always null, fallback rate unavailable) — the invocation reader ships in #177b (not installed into consumer projects) |
 | `tests/bench/review-rounds.bats` | bats tests for `review-rounds.py` (46 test cases); `tests/bench/mutate_fixtures.py` builds its shape-mutation and field-arm variants |
+| `tests/commands/l2-comments.bats` | bats tests for the `--l2-comments` posting flow, start comment and Prior findings (66 test cases) |
+| `tests/scripts/check-l2-body.bats` | bats tests for `check-l2-body.py` (30 test cases) |
+| `tests/scripts/prior-findings.bats` | bats tests for `prior-findings.py` (10 test cases) |
 
 ## Adding a New Workflow
 

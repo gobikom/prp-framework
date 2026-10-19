@@ -30,7 +30,7 @@ Format: `<pr-number> [aspects: comments|tests|errors|types|code|security|deps|do
 
 Flags set shell variables used below: `--no-commit` → `NO_COMMIT=1`; `--l2-comments` → `L2_COMMENTS=1` and `NO_COMMIT=1`.
 
-`--l2-comments` (prp-framework#142): post one PR comment per core pass in the L2 format instead of the aggregated review, and never commit review artifacts (it implies `--no-commit`). See "Per-pass L2 comments" under Output.
+`--l2-comments` (prp-framework#142, #178): post one PR comment per core pass in the L2 format instead of the aggregated review, and never commit review artifacts (it implies `--no-commit`). The run starts with the 2.0c start comment, and each pass comment carries a `review-findings` JSON block and a `Prior findings` section. See "Per-pass L2 comments" under Output.
 
 ## Mission
 
@@ -496,6 +496,40 @@ echo "TIER=$TIER"
 
 With `TIER=trivial`, 2.2 spawns only Agent 1 (`code-reviewer`), 2.3 spawns nothing, and the run posts one per-pass comment (see "Per-pass L2 comments").
 
+### 2.0c Start the L2 Run (`--l2-comments` only, SO#1367 Rule E, prp-framework#178)
+
+Invariant: an `--l2-comments` run posts exactly **one start comment before any agent starts**, and its run id is the one every pass comment of the run carries. The comment's server `created_at` is when the round began. Nothing reads it yet; readers that select pass comments by line 1 `Reviewed head:` (safe-merge, the L2 recipe) never select the start comment because its line 1 is `Review started:`.
+
+Run it in every `--l2-comments` run, right after 2.0b and before 2.1.1. Without `--l2-comments`, run nothing here. If it prints FATAL, STOP: start no agent. A start comment left behind by a run that then stops is an orphan: never edit or delete it — the next run posts its own.
+
+**Step A — start the run** (clears any earlier run's files, reads the reviewed head saved in Phase 2.0, draws `RUN_ID` — minted here and nowhere else — posts the start comment, then saves the run values for Steps B and C; `L2_MODE=incremental` only in a `--since-last-review` run, unset means full):
+
+```bash
+D=.prp-output/reviews
+rm -f "$D/pr-{NUMBER}-l2-run.env" "$D/pr-{NUMBER}-l2-run.env.used" "$D"/pr-{NUMBER}-l2-*-reviewer.md "$D/pr-{NUMBER}-l2-silent-failure-hunter.md" "$D/pr-{NUMBER}-l2-start.md"
+REVIEWED_HEAD_SHA=$(cat "$D/pr-{NUMBER}-reviewed-head" 2>/dev/null) || REVIEWED_HEAD_SHA=""
+[ ${#REVIEWED_HEAD_SHA} -eq 40 ] && printf '%s' "$REVIEWED_HEAD_SHA" | grep -qxE '[0-9a-f]{40}' || { echo "FATAL: no reviewed head saved by Phase 2.0 ($D/pr-{NUMBER}-reviewed-head) — re-run the review from Phase 2.0 and every agent after it (the head is captured before the agents, never at posting time)" >&2; exit 1; }
+[ -L .prp ] || { echo "FATAL: .prp is not a symlink to the installed prp-framework — no comments posted" >&2; exit 1; }
+PRP_DIR=$(readlink -f .prp) || { echo "FATAL: cannot resolve .prp" >&2; exit 1; }
+PRP_VERSION=$(git -C "$PRP_DIR" describe --tags --abbrev=0 --match 'v[0-9]*' 2>/dev/null) || { echo "FATAL: cannot read the prp-framework release tag — no comments posted" >&2; exit 1; }
+PRP_VERSION="${PRP_VERSION#v}"   # the latest release tag reachable from the installed framework; the footer adds the v
+printf '%s' "$PRP_VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$' || { echo "FATAL: release tag '$PRP_VERSION' is not a version" >&2; exit 1; }
+RAND=$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n') && [ ${#RAND} -eq 8 ] || { echo "FATAL: cannot draw a run id" >&2; exit 1; }
+RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)-$RAND"
+TIER=$(cat "$D/pr-{NUMBER}-tier" 2>/dev/null) || TIER=""
+case "$TIER" in trivial|standard) ;; *) echo "FATAL: no tier saved by 2.0b ($D/pr-{NUMBER}-tier) — run 2.0b, then the agents" >&2; exit 1 ;; esac
+MODE=${L2_MODE:-full}
+case "$MODE" in full|incremental) ;; *) echo "FATAL: L2_MODE must be full or incremental, not '$MODE'" >&2; exit 1 ;; esac
+NOW_HEAD=$(gh pr view {NUMBER} --json headRefOid -q .headRefOid) || { echo "FATAL: cannot read the PR head (gh failed) — no start comment, no agents started" >&2; exit 1; }
+[ "$NOW_HEAD" = "$REVIEWED_HEAD_SHA" ] || { echo "FATAL: PR head moved ($REVIEWED_HEAD_SHA -> $NOW_HEAD) — re-run from Phase 2.0, no start comment, no agents started" >&2; exit 1; }
+printf 'Review started: head=%s run=%s\nGenerated-by: prp-review-agents v%s run=%s pass=start\n' "$REVIEWED_HEAD_SHA" "$RUN_ID" "$PRP_VERSION" "$RUN_ID" > "$D/pr-{NUMBER}-l2-start.md" || { echo "FATAL: cannot write the start comment" >&2; exit 1; }
+START_URL=$(gh pr comment {NUMBER} --body-file "$D/pr-{NUMBER}-l2-start.md") || { echo "FATAL: posting the start comment failed — no agents started; re-run Step A" >&2; exit 1; }
+printf '%s' "$START_URL" | grep -qxE 'https://github\.com/[^ ]+#issuecomment-[0-9]+' || { echo "FATAL: the start comment post returned no comment URL ('$START_URL') — no agents started; re-run Step A" >&2; exit 1; }
+# written only after the start comment is up: without it there is no run file, so Step C posts nothing
+printf 'REVIEWED_HEAD_SHA=%s\nPRP_VERSION=%s\nRUN_ID=%s\nTIER=%s\nSTART_URL=%s\nMODE=%s\n' "$REVIEWED_HEAD_SHA" "$PRP_VERSION" "$RUN_ID" "$TIER" "$START_URL" "$MODE" > "$D/pr-{NUMBER}-l2-run.env" || { echo "FATAL: cannot save the run file — no agents started" >&2; exit 1; }
+cat "$D/pr-{NUMBER}-l2-run.env"
+```
+
 ### 2.1 Prepare Agent Context
 
 Before spawning agents, prepare the shared context information:
@@ -581,6 +615,8 @@ Use severity levels: Critical, High, Medium, Low
 Only report issues with 80%+ confidence.
 Also note Strengths — what is done well.
 
+END WITH review-findings (prp-framework#178): end your reply with a fenced block whose info string is `review-findings` holding exactly ONE line — this pass's JSON per schemas/review-findings.schema.json: {\"reviewed_head\":\"<the 40-hex reviewed head from the context file>\",\"pass\":\"code-reviewer\",\"complete\":true,\"findings\":[…]} listing EVERY finding from your Findings table as {\"file\",\"lines\":[start,end],\"severity\",\"category\",\"family\",\"summary\",\"evidence\"} with Critical→critical, High→important, Medium→medium, Low→low; set \"family\" (a short lowercase kebab-case defect-family slug, e.g. \"nil-guard\") on every critical/important finding; complete:false only if you did not finish. In a --since-last-review run, findings covers the whole reviewed head including still-open carried findings, so the JSON matches your headings. No raw newlines inside JSON strings.
+
 After your Findings table, add a Pattern Sweep Results section:
 ## Pattern Sweep Results
 | Pattern | Files Swept | Instances Found |
@@ -622,7 +658,9 @@ Report findings as structured markdown:
 | Severity | Issue | File:Line | Attack Vector | Remediation |
 |----------|-------|-----------|---------------|-------------|
 
-Use severity levels: Critical, High, Medium, Low"
+Use severity levels: Critical, High, Medium, Low
+
+END WITH review-findings (prp-framework#178): end your reply with a fenced block whose info string is `review-findings` holding exactly ONE line — this pass's JSON per schemas/review-findings.schema.json: {\"reviewed_head\":\"<the 40-hex reviewed head from the context file>\",\"pass\":\"security-reviewer\",\"complete\":true,\"findings\":[…]} listing EVERY finding from your Findings table as {\"file\",\"lines\":[start,end],\"severity\",\"category\",\"family\",\"summary\",\"evidence\"} with Critical→critical, High→important, Medium→medium, Low→low; set \"family\" (a short lowercase kebab-case defect-family slug, e.g. \"injection\") on every critical/important finding; complete:false only if you did not finish. In a --since-last-review run, findings covers the whole reviewed head including still-open carried findings, so the JSON matches your headings. No raw newlines inside JSON strings."
 )
 ```
 
@@ -664,6 +702,8 @@ Report findings as structured markdown:
 |----------|-------|-----------|------------|-----|
 
 Use severity levels: Critical, High, Medium, Low
+
+END WITH review-findings (prp-framework#178): end your reply with a fenced block whose info string is `review-findings` holding exactly ONE line — this pass's JSON per schemas/review-findings.schema.json: {\"reviewed_head\":\"<the 40-hex reviewed head from the context file>\",\"pass\":\"silent-failure-hunter\",\"complete\":true,\"findings\":[…]} listing EVERY finding from your Findings table as {\"file\",\"lines\":[start,end],\"severity\",\"category\",\"family\",\"summary\",\"evidence\"} with Critical→critical, High→important, Medium→medium, Low→low; set \"family\" (a short lowercase kebab-case defect-family slug, e.g. \"swallowed-error\") on every critical/important finding; complete:false only if you did not finish. In a --since-last-review run, findings covers the whole reviewed head including still-open carried findings, so the JSON matches your headings. No raw newlines inside JSON strings.
 
 After your Findings table, add a Pattern Sweep Results section:
 ## Pattern Sweep Results
@@ -1315,39 +1355,57 @@ Passes run: <code-reviewer|security-reviewer|silent-failure-hunter>
 ### Could not verify
 <what this pass could not check, or "Nothing.">
 
+### Prior findings
+<- <id12> open <file>:<start>-<end> regression_test: none
+|- <id12> resolved was=<file>:<start>-<end> fix=<file2>:<start2>-<end2> regression_test: <path>::<name>|none
+|or exactly "None." (no previous critical/important finding for this pass)
+|or exactly "Not recorded: the previous round has no review-findings block." (previous round unstructured, FULL run only)
+
+```review-findings
+<one line: this pass's findings JSON, per schemas/review-findings.schema.json>
+```
+
+Review-mode: <full|incremental>
+
 Generated-by: prp-review-agents v<PRP_VERSION> run=<RUN_ID> pass=<pass name>[ tier=trivial]
 ```
 
 Rules the L2 verifier enforces (so do them exactly):
 - Line 1 is exactly `Reviewed head: ` + `$REVIEWED_HEAD_SHA` saved by Phase 2.0 (never re-queried); line 2 is exactly `Passes run: ` + the pass name. No other text on those lines, and neither line, nor a `Generated-by:` line, appears anywhere else in the body.
 - Exactly one each of `### Critical Issues (N found)`, `### Important Issues (N found)`, `### Suggestions (N found)` and `### Could not verify`, spelled exactly so; no `safe-merge-review` text anywhere in the body (any case).
-- The last line is the `Generated-by:` footer. `RUN_ID` is the same for all three comments of a run and new for every run; `PRP_VERSION` is the installed framework's release version. ` tier=trivial` is appended only in a trivial run, whose one comment is `code-reviewer`.
+- Exactly one `### Prior findings` heading, then its items (or `None.` / the one `Not recorded: …` line), then exactly one ```` ```review-findings ```` fence holding exactly ONE line of JSON, then only blank lines, then exactly one `Review-mode: full` or `Review-mode: incremental` line, then only blank lines, then the footer. The footer is byte-for-byte the LAST non-blank line — no trailing fields (safe-merge's footer regex is anchored; a trailing `mode=` field fails provenance, so mode lives on its own line).
+- The footer's `RUN_ID` is the one Step A (2.0c) drew and saved — the same for all comments of a run, new for every run; `PRP_VERSION` is the installed framework's release version; ` tier=trivial` is appended only in a trivial run, whose one comment is `code-reviewer`.
+- The JSON line: `reviewed_head` = the run's reviewed head, `pass` = this pass, `complete` = true, and the count of `severity=="critical"` / `severity=="important"` equals the two heading Ns. Every critical/important finding carries a `family`. `scripts/review/check-l2-body.py` (the installed framework's copy) enforces all of this plus the Prior-findings item grammar — Step C runs it; never hand-wave a body past it.
 - Write each body with the Write tool (or a quoted heredoc), never through an unquoted shell string.
 - Post each comment once and never edit it (the verifier rejects an edited comment).
 
 The posting runs as **three separate steps**, because every shell starts fresh; the run values travel in a file, never retyped:
 
-**Step A — start the run** (run only in an `--l2-comments` run; clears any earlier run's files, reads the reviewed head saved in Phase 2.0, prints `RUN_ID` and `PRP_VERSION` for the footers and saves them):
+Step A already ran, at 2.0c, **before the agents** (SO#1367 Rule E): it drew `RUN_ID`, posted the start comment and saved `REVIEWED_HEAD_SHA`, `PRP_VERSION`, `RUN_ID`, `TIER`, `START_URL` and `MODE` in `.prp-output/reviews/pr-{NUMBER}-l2-run.env`. If that file is missing or stale, go back to 2.0c — never re-draw a run id here.
+
+**Step B — write the bodies** to `.prp-output/reviews/pr-{NUMBER}-l2-<pass>.md`, using the values Step A saved, in the format above: three at `TIER=standard`, only `code-reviewer` (footer ending ` tier=trivial`) at `TIER=trivial`. Each body's `review-findings` JSON line is the agent's own fenced `review-findings` block from its reply, copied verbatim — the orchestrator NEVER writes, completes or repairs a finding for an agent; an agent whose reply has no valid block is a FATAL for the run (post nothing). The `Review-mode:` line is the run file's `MODE`.
+
+For the `### Prior findings` section, first fetch the PR's comments and extract the previous round's findings for each pass with the installed framework's helper (read-only, stdlib only):
 
 ```bash
 D=.prp-output/reviews
-rm -f "$D/pr-{NUMBER}-l2-run.env" "$D/pr-{NUMBER}-l2-run.env.used" "$D"/pr-{NUMBER}-l2-*-reviewer.md "$D/pr-{NUMBER}-l2-silent-failure-hunter.md"
-REVIEWED_HEAD_SHA=$(cat "$D/pr-{NUMBER}-reviewed-head" 2>/dev/null) || REVIEWED_HEAD_SHA=""
-[ ${#REVIEWED_HEAD_SHA} -eq 40 ] && printf '%s' "$REVIEWED_HEAD_SHA" | grep -qxE '[0-9a-f]{40}' || { echo "FATAL: no reviewed head saved by Phase 2.0 ($D/pr-{NUMBER}-reviewed-head) — re-run the review from Phase 2.0 and every agent after it (the head is captured before the agents, never at posting time)" >&2; exit 1; }
-[ -L .prp ] || { echo "FATAL: .prp is not a symlink to the installed prp-framework — no comments posted" >&2; exit 1; }
-PRP_DIR=$(readlink -f .prp) || { echo "FATAL: cannot resolve .prp" >&2; exit 1; }
-PRP_VERSION=$(git -C "$PRP_DIR" describe --tags --abbrev=0 --match 'v[0-9]*' 2>/dev/null) || { echo "FATAL: cannot read the prp-framework release tag — no comments posted" >&2; exit 1; }
-PRP_VERSION="${PRP_VERSION#v}"   # the latest release tag reachable from the installed framework; the footer adds the v
-printf '%s' "$PRP_VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$' || { echo "FATAL: release tag '$PRP_VERSION' is not a version" >&2; exit 1; }
-RAND=$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n') && [ ${#RAND} -eq 8 ] || { echo "FATAL: cannot draw a run id" >&2; exit 1; }
-RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)-$RAND"
-TIER=$(cat "$D/pr-{NUMBER}-tier" 2>/dev/null) || TIER=""
-case "$TIER" in trivial|standard) ;; *) echo "FATAL: no tier saved by 2.0b ($D/pr-{NUMBER}-tier) — run 2.0b, then the agents" >&2; exit 1 ;; esac
-printf 'REVIEWED_HEAD_SHA=%s\nPRP_VERSION=%s\nRUN_ID=%s\nTIER=%s\n' "$REVIEWED_HEAD_SHA" "$PRP_VERSION" "$RUN_ID" "$TIER" > "$D/pr-{NUMBER}-l2-run.env" || { echo "FATAL: cannot save the run file" >&2; exit 1; }
-cat "$D/pr-{NUMBER}-l2-run.env"
+REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner)
+gh api --paginate "repos/$REPO/issues/{NUMBER}/comments" --jq '.[] | [.created_at, .updated_at, (.body | @base64)] | @tsv' > "$D/pr-{NUMBER}-comments.tsv" \
+  || { echo "FATAL: cannot read the PR comments — no bodies written" >&2; exit 1; }
+rm -f "$D"/pr-{NUMBER}-l2-*.md   # a stale body from an aborted attempt must never be posted later
+PRP_DIR=$(readlink -f .prp)
+# per pass: rows (id, file, start, end, severity, family) and the canonical carried objects
+python3 -I "$PRP_DIR/scripts/review/prior-findings.py" "$D/pr-{NUMBER}-comments.tsv" <pass> <RUN_ID from the run file> <MODE from the run file> \
+  || { echo "FATAL: prior-findings failed for <pass> — no bodies written" >&2; exit 1; }
+python3 -I "$PRP_DIR/scripts/review/prior-findings.py" "$D/pr-{NUMBER}-comments.tsv" <pass> <RUN_ID> <MODE> --json \
+  || { echo "FATAL: prior-findings --json failed for <pass> — no bodies written" >&2; exit 1; }
 ```
 
-**Step B — write the bodies** to `.prp-output/reviews/pr-{NUMBER}-l2-<pass>.md`, using the values Step A printed, in the format above: three at `TIER=standard`, only `code-reviewer` (footer ending ` tier=trivial`) at `TIER=trivial` (with `--since-last-review`, the previous reviewed head for the incremental note is the `Reviewed head:` of the last review round on the PR).
+Then, per pass:
+- `None.` → the body's Prior findings is exactly `None.`.
+- `Not recorded: …` (FULL run after an unstructured previous round) → the body's Prior findings is exactly that line.
+- rows → itemise EVERY row, none dropped, in the row order: a finding this run's pass still reports is `open` (its `was`/open location `<file>:<start>-<end>` is the row's), one the pass no longer reports is `resolved` with `was=` the row's location and `fix=` the H2 range of this PR's fix (the orchestrator reads it from the diff; `fix=` may be another file or shifted lines). `open` items keep `regression_test: none`; `resolved` items carry the test `path::<name>` or `none`.
+- In an incremental run (`MODE=incremental`), each carried `open` finding's JSON object is copied verbatim from the `--json` output (canonical `json.dumps(sort_keys=True, separators=(",",":"))` form) — never rebuilt from prose; Step C's `--prior` check rejects a rewritten object. In a FULL run against a structured previous round, the JSON is only this run's agents' findings, and Prior findings still itemises the previous round.
 
 **Step C — check all three, then post all three** (nothing is posted unless every body passes; the run file is consumed before the first post, so a replay cannot post a run twice):
 
@@ -1355,13 +1413,15 @@ cat "$D/pr-{NUMBER}-l2-run.env"
 D=.prp-output/reviews
 ENV_F="$D/pr-{NUMBER}-l2-run.env"
 [ -s "$ENV_F" ] || { echo "FATAL: $ENV_F missing — run Step A (a run file is used once; after a failed post, start a new run)" >&2; exit 1; }
-# parse, never execute: exactly three known keys with validated values
-REVIEWED_HEAD_SHA=$(sed -n 's/^REVIEWED_HEAD_SHA=//p' "$ENV_F"); PRP_VERSION=$(sed -n 's/^PRP_VERSION=//p' "$ENV_F"); RUN_ID=$(sed -n 's/^RUN_ID=//p' "$ENV_F"); TIER=$(sed -n 's/^TIER=//p' "$ENV_F")
-[ "$(wc -l < "$ENV_F")" -eq 4 ] \
+# parse, never execute: exactly six known keys with validated values
+REVIEWED_HEAD_SHA=$(sed -n 's/^REVIEWED_HEAD_SHA=//p' "$ENV_F"); PRP_VERSION=$(sed -n 's/^PRP_VERSION=//p' "$ENV_F"); RUN_ID=$(sed -n 's/^RUN_ID=//p' "$ENV_F"); TIER=$(sed -n 's/^TIER=//p' "$ENV_F"); START_URL=$(sed -n 's/^START_URL=//p' "$ENV_F"); MODE=$(sed -n 's/^MODE=//p' "$ENV_F")
+[ "$(wc -l < "$ENV_F")" -eq 6 ] \
   && printf '%s' "$REVIEWED_HEAD_SHA" | grep -qxE '[0-9a-f]{40}' \
   && printf '%s' "$PRP_VERSION" | grep -qxE '[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?' \
   && printf '%s' "$RUN_ID" | grep -qxE '[0-9]{8}T[0-9]{6}Z-[0-9a-f]{8}' \
   && printf '%s' "$TIER" | grep -qxE 'trivial|standard' \
+  && printf '%s' "$START_URL" | grep -qxE 'https://github\.com/[^ ]+#issuecomment-[0-9]+' \
+  && printf '%s' "$MODE" | grep -qxE 'full|incremental' \
   || { echo "FATAL: $ENV_F is not a valid run file" >&2; exit 1; }
 [ "$(cat "$D/pr-{NUMBER}-reviewed-head" 2>/dev/null)" = "$REVIEWED_HEAD_SHA" ] || { echo "FATAL: the run file is not from this review (reviewed head differs) — run Step A" >&2; exit 1; }
 NOW_HEAD=$(gh pr view {NUMBER} --json headRefOid -q .headRefOid) || { echo "FATAL: cannot read the PR head (gh failed) — nothing posted" >&2; exit 1; }
@@ -1387,6 +1447,27 @@ for PASS in $PASSES; do
   ! grep -qi 'safe-merge-review' "$F" || why="$why safe-merge-review text"
   [ "$(tail -n1 "$F")" = "Generated-by: prp-review-agents v$PRP_VERSION run=$RUN_ID pass=$PASS$SUFFIX" ] || why="$why footer"
   [ -z "$why" ] || { echo "FATAL: $F is not in the L2 format ($why) — nothing posted" >&2; exit 1; }
+done
+# the start comment this run posted at 2.0c: on this PR, exactly this run's two lines, unedited, older than this check
+PRP_DIR=$(readlink -f .prp) || { echo "FATAL: cannot resolve .prp" >&2; exit 1; }
+REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner) || { echo "FATAL: cannot read the repo slug (gh failed) — nothing posted" >&2; exit 1; }
+START_ID=${START_URL##*#issuecomment-}
+case "$START_ID" in ''|*[!0-9]*) echo "FATAL: the run file's START_URL has no comment id ('$START_URL') — nothing posted" >&2; exit 1 ;; esac
+SRAW=$(gh api "repos/$REPO/issues/comments/$START_ID" --jq '[.created_at, .updated_at, (.body | @base64)] | @tsv') \
+  || { echo "FATAL: cannot fetch the start comment $START_ID — nothing posted" >&2; exit 1; }
+IFS=$'\t' read -r S_CR S_UP S_B64 <<< "$SRAW"
+SBODY=$(printf '%s' "$S_B64" | base64 -d 2>/dev/null | tr -d '\r') || { echo "FATAL: the start comment $START_ID is unreadable — nothing posted" >&2; exit 1; }
+[ "$SBODY" = "$(printf 'Review started: head=%s run=%s\nGenerated-by: prp-review-agents v%s run=%s pass=start' "$REVIEWED_HEAD_SHA" "$RUN_ID" "$PRP_VERSION" "$RUN_ID")" ] \
+  || { echo "FATAL: the start comment $START_ID is not exactly this run's two lines — nothing posted" >&2; exit 1; }
+[ -n "$S_CR" ] && [ "$S_CR" = "$S_UP" ] || { echo "FATAL: the start comment $START_ID was edited after posting — nothing posted" >&2; exit 1; }
+[ "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \> "$S_CR" ] || { echo "FATAL: the start comment $START_ID is not older than this check — nothing posted" >&2; exit 1; }
+# the new sections (Prior findings, review-findings JSON, Review-mode): the installed helper, two modes, once per pass
+for PASS in $PASSES; do
+  F="$D/pr-{NUMBER}-l2-$PASS.md"
+  python3 -I "$PRP_DIR/scripts/review/check-l2-body.py" "$F" "$REVIEWED_HEAD_SHA" "$PASS" \
+    || { echo "FATAL: $F failed the review-findings check — nothing posted" >&2; exit 1; }
+  python3 -I "$PRP_DIR/scripts/review/check-l2-body.py" --prior "$F" "$D/pr-{NUMBER}-comments.tsv" "$ENV_F" "$PASS" \
+    || { echo "FATAL: $F failed the prior-findings check — nothing posted" >&2; exit 1; }
 done
 mv "$ENV_F" "$ENV_F.used" || { echo "FATAL: cannot consume the run file — nothing posted" >&2; exit 1; }
 POSTED=""
