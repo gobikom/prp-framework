@@ -36,6 +36,14 @@ teardown() { rm -rf -- "$TEST_TMPDIR" 2>/dev/null || true; }
   [ "$status" -eq 0 ]
   echo "$output" | grep -q '^| fallback rate (lower bound) | 0\.0% of 1 identified invocations |$'
 }
+@test "fallback: nonzero rate asserted — single fell-back, and mixed with full-requested" {
+  run python3 -I "$RR" fallback --json "$FIX/fell-back-no-prev.jsonl"
+  [ "$status" -eq 0 ]
+  python3 -I -c "import json,sys; d=json.loads(sys.argv[1]); assert d['fallback_rate']==1.0 and d['fell_back']==1 and d['invoked']==1 and d['full_requested']==0, d" "$output"
+  run python3 -I "$RR" fallback --json "$FIX/fell-back-no-prev.jsonl" "$FIX/full-requested.jsonl"
+  [ "$status" -eq 0 ]
+  python3 -I -c "import json,sys; d=json.loads(sys.argv[1]); assert d['fallback_rate']==1.0 and d['fell_back']==1 and d['invoked']==1 and d['full_requested']==1, d" "$output"
+}
 @test "fallback: no parseable user prompt → unknown (invocation.none), never full-requested" {
   : > "$TEST_TMPDIR/empty.jsonl"; printf 'not json {{{\n{"type":"summary","summary":"x"}\n' > "$TEST_TMPDIR/garbage.jsonl"
   printf '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"ok"}]}}\n' > "$TEST_TMPDIR/resumed.jsonl"
