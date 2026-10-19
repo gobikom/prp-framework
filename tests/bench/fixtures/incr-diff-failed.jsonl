@@ -1,0 +1,4 @@
+{"type": "human", "message": {"content": "review --since-last-review"}}
+{"type":"assistant","message":{"content":[{"type":"tool_use","input":{"command":"cat .prp-output/reviews/pr-42-incremental.diff"},"id":"toolu_fx01","name":"Bash"}]}}
+{"type":"user","message":{"content":[{"type":"tool_result","content":"cat: .prp-output/reviews/pr-42-incremental.diff: No such file or directory","tool_use_id":"toolu_fx01"}]}}
+{"type": "assistant", "message": {"content": "Reviewing the code."}}
