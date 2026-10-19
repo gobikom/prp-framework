@@ -21,8 +21,8 @@ setup() {
   HEAD=$(git rev-parse HEAD)
   TSV="$TEST_TMPDIR/c.tsv"; : > "$TSV"
   B="$TEST_TMPDIR/b.md"
-  printf 'REVIEWED_HEAD_SHA=%s\nPRP_VERSION=9.9.9\nRUN_ID=%s\nTIER=standard\nSTART_URL=https://github.com/o/r/pull/7#issuecomment-1\nMODE=full\n' "$HEAD" "$RUN" > "$TEST_TMPDIR/run.env"
-  printf 'REVIEWED_HEAD_SHA=%s\nPRP_VERSION=9.9.9\nRUN_ID=%s\nTIER=standard\nSTART_URL=https://github.com/o/r/pull/7#issuecomment-1\nMODE=incremental\n' "$HEAD" "$RUN" > "$TEST_TMPDIR/run.inc.env"
+  printf 'REVIEWED_HEAD_SHA=%s\nPRP_VERSION=9.9.9\nRUN_ID=%s\nTIER=standard\nSTART_URL=https://github.com/o/r/pull/7#issuecomment-1\nMODE=full\nORCHESTRATOR_LOGIN=orchestrator\n' "$HEAD" "$RUN" > "$TEST_TMPDIR/run.env"
+  printf 'REVIEWED_HEAD_SHA=%s\nPRP_VERSION=9.9.9\nRUN_ID=%s\nTIER=standard\nSTART_URL=https://github.com/o/r/pull/7#issuecomment-1\nMODE=incremental\nORCHESTRATOR_LOGIN=orchestrator\n' "$HEAD" "$RUN" > "$TEST_TMPDIR/run.inc.env"
 }
 teardown() { cd /; rm -rf -- "$TEST_TMPDIR" 2>/dev/null || true; }
 
@@ -36,9 +36,14 @@ mkbody() {
     "$HEAD" "$pass" "$nc" "$ni" "$prior" "$HEAD" "$pass" "$finds" "$mode" "$RUN" "$pass" > "$B"
 }
 
-addc() { printf '%s\t%s\t%s\n' "$1" "$2" "$(printf '%s' "$3" | base64 -w0)" >> "$TSV"; }
+addc() { printf '%s\t%s\t%s\t%s\n' "$1" "$2" "${4:-orchestrator}" "$(printf '%s' "$3" | base64 -w0)" >> "$TSV"; }
 
-prev() { # prev <finds> [created] [updated] — a structured previous round for code-reviewer
+sled() { # sled <run-id> — the ledger start comment for <run-id> at HEAD, by the orchestrator
+  addc 2026-01-01T00:00:00Z 2026-01-01T00:00:00Z "$(printf 'Review started: head=%s run=%s\nGenerated-by: prp-review-agents v9.9.9 run=%s pass=start\n' "$HEAD" "$1" "$1")"
+}
+
+prev() { # prev <finds> [created] [updated] — a ledgered structured previous round for code-reviewer
+  sled "$PREV"
   printf 'Reviewed head: %s\nPasses run: code-reviewer\n\n### Critical Issues (0 found)\nNone.\n\n### Important Issues (0 found)\nNone.\n\n### Suggestions (0 found)\nNone.\n\n### Could not verify\nNothing.\n\n### Prior findings\nNone.\n\n```review-findings\n{"reviewed_head":"%s","pass":"code-reviewer","complete":true,"findings":%s}\n```\n\nReview-mode: full\n\nGenerated-by: prp-review-agents v9.9.9 run=%s pass=code-reviewer\n' \
     "$HEAD" "$HEAD" "$1" "$PREV" | addc "${2:-2026-01-01T00:00:00Z}" "${3:-${2:-2026-01-01T00:00:00Z}}" "$(cat)"
 }
@@ -209,7 +214,6 @@ prev() { # prev <finds> [created] [updated] — a structured previous round for 
 
 @test "incremental: a carried open item must be copied verbatim" {
   local id1; id1=$(idof code-reviewer src/a.py 2 3 null-deref "NPE on None")
-  printf 'REVIEWED_HEAD_SHA=%s\nPRP_VERSION=9.9.9\nRUN_ID=%s\nTIER=standard\nSTART_URL=https://github.com/o/r/pull/7#issuecomment-1\nMODE=incremental\n' "$HEAD" "$RUN" > "$TEST_TMPDIR/run.inc.env"
   prev "[$O1]"
   mkbody "- $id1 open src/a.py:2-3 regression_test: none" "[$O1]" incremental
   run python3 -I "$C" --prior "$B" "$TSV" "$TEST_TMPDIR/run.inc.env" code-reviewer
@@ -238,15 +242,14 @@ prev() { # prev <finds> [created] [updated] — a structured previous round for 
   [[ "$output" != *"appears 0 times"* ]]
 }
 
-@test "P19: an edited previous block is unstructured — incremental refuses, full demands Not recorded" {
+@test "P19: an edited previous comment is untrusted — never the previous round, None. carries in both modes" {
   prev '[]' 2026-01-01T00:00:00Z 2026-01-02T00:00:00Z
-  printf 'REVIEWED_HEAD_SHA=%s\nPRP_VERSION=9.9.9\nRUN_ID=%s\nTIER=standard\nSTART_URL=https://github.com/o/r/pull/7#issuecomment-1\nMODE=incremental\n' "$HEAD" "$RUN" > "$TEST_TMPDIR/run.inc.env"
   mkbody 'None.' '[]' incremental
   run python3 -I "$C" --prior "$B" "$TSV" "$TEST_TMPDIR/run.inc.env" code-reviewer
-  [ "$status" -eq 1 ]; [[ "$output" == *"edited after posting"* ]]; [[ "$output" == *"must be FULL"* ]]
+  [ "$status" -eq 0 ]
   mkbody 'None.' '[]' full
   run python3 -I "$C" --prior "$B" "$TSV" "$TEST_TMPDIR/run.env" code-reviewer
-  [ "$status" -eq 1 ]; [[ "$output" == *"must be the 'Not recorded' line"* ]]
+  [ "$status" -eq 0 ]
 }
 
 @test "P20/P21/P22: a dropped, duplicated, or extra prior item is refused" {
@@ -295,7 +298,8 @@ prev() { # prev <finds> [created] [updated] — a structured previous round for 
 
 # --- (a) matrix, plan rev 5: the expected pass is trusted argv, never body-derived ---
 
-prevp() { # prevp <pass> <finds> <version> <run-id> [footer-suffix] — a structured previous round for <pass>
+prevp() { # prevp <pass> <finds> <version> <run-id> [footer-suffix] — a ledgered structured previous round for <pass>
+  sled "$4"
   printf 'Reviewed head: %s\nPasses run: %s\n\n### Critical Issues (0 found)\nNone.\n\n### Important Issues (0 found)\nNone.\n\n### Suggestions (0 found)\nNone.\n\n### Could not verify\nNothing.\n\n### Prior findings\nNone.\n\n```review-findings\n{"reviewed_head":"%s","pass":"%s","complete":true,"findings":%s}\n```\n\nReview-mode: full\n\nGenerated-by: prp-review-agents %s run=%s pass=%s%s\n' \
     "$HEAD" "$1" "$HEAD" "$1" "$2" "$3" "$4" "$1" "${5:-}" | addc 2026-01-01T00:00:00Z 2026-01-01T00:00:00Z "$(cat)"
 }

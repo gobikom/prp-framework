@@ -183,10 +183,10 @@ elif sys.argv[2]=='notype':
   printf '{"reviewed_head":"%s","pass":"code-reviewer","complete":true,"findings":[{"file":"x","lines":[1,2],"severity":"critical","category":"c","family":"f","summary":"s","evidence":"e"}]}' "$(printf 'a%.0s' {1..40})" > "$TEST_TMPDIR/d.json"
   run python3 -I "$V" "$TEST_TMPDIR/d.json"; [ "$status" -eq 0 ]
 }
-@test "doc sweep: 48 mutants, exit 0" {
+@test "doc sweep: 53 mutants, exit 0" {
   run python3 -I "$REPO_ROOT/tests/scripts/fixtures/doc-sweep.py" "$V" "$S"
   [ "$status" -eq 0 ]
-  [[ "$output" =~ generated=48( |$) ]] && [[ "$output" =~ bad=0( |$) ]]
+  [[ "$output" =~ generated=53( |$) ]] && [[ "$output" =~ bad=0( |$) ]]
 }
 @test "pin refusal: modified copy → 2, doc not opened" {
   mkdir -p "$TEST_TMPDIR/scripts/review" "$TEST_TMPDIR/schemas"

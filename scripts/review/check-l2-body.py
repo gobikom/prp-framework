@@ -8,7 +8,9 @@ Run by Step C with the installed framework's copy (python3 -I), never the PR's.
 The older format checks (line 1/2, headings, footer) stay in Step C itself.
 
 --prior takes the expected pass from the caller (Step C's pass loop) — NEVER from the
-body — and re-runs prior-findings.py over the same TSV with that trusted value, enforcing,
+body — and re-runs prior-findings.py over the same TSV and run.env with that trusted
+value (the run file carries RUN_ID/MODE plus ORCHESTRATOR_LOGIN, the only trusted
+author; prior-findings enforces author + start-comment ledger + head binding), enforcing,
 per SO#1367 R2-1/R3-2: the body's Prior findings itemise the previous round's critical/
 important findings exactly (none dropped, duplicated or added), every open item is in this
 round's JSON exactly once (incremental: canonically equal to the previous object), every
@@ -136,8 +138,8 @@ def fid(pas, x):
     s, e = x["lines"]
     return hashlib.sha256(f'{pas}|{x["file"]}|{s}|{e}|{x["family"]}|{x["summary"]}'.encode()).hexdigest()[:12]
 
-def prior_rows(tsv, pas, run, mode, extra=()):
-    r = subprocess.run([sys.executable, "-I", os.path.join(HERE, "prior-findings.py"), tsv, pas, run, mode, *extra],
+def prior_rows(tsv, pas, env_path, extra=()):
+    r = subprocess.run([sys.executable, "-I", os.path.join(HERE, "prior-findings.py"), tsv, pas, env_path, *extra],
                        capture_output=True, text=True)
     if r.returncode == 3: print(r.stderr, file=sys.stderr); sys.exit(3)
     return r
@@ -167,7 +169,7 @@ def check_prior(path, tsv, env_path, xpas):
     except (json.JSONDecodeError, ValueError): return ["review-findings is not JSON"]
     if doc.get("pass") != xpas:
         return ["review-findings pass is not the expected pass"]
-    r = prior_rows(tsv, xpas, run, mode)
+    r = prior_rows(tsv, xpas, env_path)
     if r.returncode == 5: return [f"prior-findings refused the prior-round evidence: {r.stderr.strip()[:160]}"]
     if r.returncode != 0: return [f"prior-findings: {r.stderr.strip()[:160]}"]
     out = r.stdout.rstrip("\n")
@@ -191,7 +193,7 @@ def check_prior(path, tsv, env_path, xpas):
     canon = lambda o: json.dumps(o, sort_keys=True, separators=(",", ":"))
     prev_obj = {}
     if mode == "incremental":
-        rj = prior_rows(tsv, xpas, run, mode, ("--json",))
+        rj = prior_rows(tsv, xpas, env_path, ("--json",))
         if rj.returncode != 0: return [f"prior-findings --json: {rj.stderr.strip()[:160]}"]
         try:
             for o in json.loads(rj.stdout): prev_obj[fid(xpas, o)] = canon(o)

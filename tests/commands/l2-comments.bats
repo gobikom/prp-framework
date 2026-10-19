@@ -11,8 +11,8 @@ ROOT="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)"
 ADAPTER="$ROOT/adapters/claude-code/prp-review-agents.md"
 HEAD_SHA="0123456789abcdef0123456789abcdef01234567"
 
-step() { # step <A|C> -> the bash fence after "**Step <X>", {NUMBER} filled in
-  awk -v want="**Step $1" 'index($0, want) == 1 {f=1} f && /^```bash$/ {b=1; next} b && /^```$/ {exit} b' "$ADAPTER" | sed 's/{NUMBER}/7/g'
+step() { # step <A|C> -> the bash fence after "**Step <X>", {NUMBER} filled in, the args ($ARGUMENTS after generation) filled from $T_ARGS
+  awk -v want="**Step $1" 'index($0, want) == 1 {f=1} f && /^```bash$/ {b=1; next} b && /^```$/ {exit} b' "$ADAPTER" | sed -e 's/{NUMBER}/7/g' -e "s/{ARGS}/${T_ARGS:-}/g" -e 's/\$ARGUMENTS/${T_ARGS:-}/g'
 }
 
 setup() {
@@ -34,6 +34,7 @@ setup() {
 if [ "$1 $2" = "pr view" ]; then [ -n "${GH_FAIL:-}" ] && exit 1; printf '%s\n' "$FAKE_HEAD"; exit 0; fi
 if [ "$1 $2" = "repo view" ]; then echo o/r; exit 0; fi
 if [ "$1" = "api" ]; then
+  [ "$2 $3" = "user -q" ] && { echo "${FAKE_LOGIN:-orchestrator}"; exit 0; }
   url=""; for a in "$@"; do case "$a" in repos/*) url="$a" ;; esac; done   # Step B passes --paginate before the url
   case "$url" in
     repos/o/r/issues/7/comments) cat "${FAKE_COMMENTS_TSV:-/dev/null}"; exit 0 ;;
@@ -431,7 +432,11 @@ trivial_run() { printf 'trivial\n' > .prp-output/reviews/pr-7-tier; export FAKE_
 
 idof() { printf '%s' "$1|$2|$3|$4|$5|$6" | sha256sum | cut -c1-12; }   # idof <pass> <file> <s> <e> <family> <summary>
 
-addc() { printf '%s\t%s\t%s\n' "$1" "$2" "$(printf '%s' "$3" | base64 -w0)" >> .prp-output/reviews/pr-7-comments.tsv; }
+addc() { printf '%s\t%s\t%s\t%s\n' "$1" "$2" "${4:-orchestrator}" "$(printf '%s' "$3" | base64 -w0)" >> .prp-output/reviews/pr-7-comments.tsv; }   # addc <created> <updated> <body> [login] — 4 columns like Step B's jq
+
+sled() { # sled <run-id> — the ledger start comment for <run-id> at the PR head, by the orchestrator
+  addc 2026-01-01T00:00:00Z 2026-01-01T00:00:00Z "$(printf 'Review started: head=%s run=%s\nGenerated-by: prp-review-agents v9.9.9 run=%s pass=start\n' "$FAKE_HEAD" "$1" "$1")"
+}
 
 # a previous round's pass comment with a structured review-findings block (finds = one JSON array)
 prev_body() {
@@ -502,18 +507,36 @@ repo_files() {
 }
 
 @test "an incremental run's bodies carry Review-mode: incremental" {
-  L2_MODE=incremental start; [ "$status" -eq 0 ]
+  T_ARGS="--since-last-review" L2_MODE=incremental start; [ "$status" -eq 0 ]
   grep -qx 'MODE=incremental' .prp-output/reviews/pr-7-l2-run.env
-  write_all; post; [ "$status" -eq 0 ]
+  write_all; T_ARGS="--since-last-review" post; [ "$status" -eq 0 ]
   grep -qx 'Review-mode: incremental' .prp-output/reviews/pr-7-l2-code-reviewer.md
 }
 
-@test "a run file with a bad START_URL, a bad MODE, or five keys posts nothing" {
+@test "P17e: a --since-last-review invocation with L2_MODE unset FATALs — no silent full default" {
+  T_ARGS="--since-last-review" start
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"this is a incremental invocation but L2_MODE='full'"* ]]
+  [ "$(wc -l < "$START_LOG")" -eq 0 ]
+  [ ! -e .prp-output/reviews/pr-7-l2-run.env ]
+}
+
+@test "P17e: a full invocation with L2_MODE=incremental FATALs — the mode cannot disagree with the args either way" {
+  L2_MODE=incremental start
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"this is a full invocation but L2_MODE='incremental'"* ]]
+  [ ! -e .prp-output/reviews/pr-7-l2-run.env ]
+}
+
+@test "a run file with a bad START_URL, a bad MODE, a bad ORCHESTRATOR_LOGIN, or one key short posts nothing" {
   start; write_all
   sed -i 's#^START_URL=.*#START_URL=not-a-url#' .prp-output/reviews/pr-7-l2-run.env
   post; [ "$status" -ne 0 ]; [[ "$output" == *"not a valid run file"* ]]; [ "$(wc -l < "$WORK_LOG")" -eq 0 ]
   start; write_all
   sed -i 's#^MODE=.*#MODE=hourly#' .prp-output/reviews/pr-7-l2-run.env
+  post; [ "$status" -ne 0 ]; [[ "$output" == *"not a valid run file"* ]]
+  start; write_all
+  sed -i 's#^ORCHESTRATOR_LOGIN=.*#ORCHESTRATOR_LOGIN=bad login#' .prp-output/reviews/pr-7-l2-run.env
   post; [ "$status" -ne 0 ]; [[ "$output" == *"not a valid run file"* ]]
   start; write_all
   sed -i '/^MODE=/d' .prp-output/reviews/pr-7-l2-run.env
@@ -619,24 +642,27 @@ repo_files() {
 }
 
 @test "P18/P27: an incremental run with a blockless previous round is refused" {
+  sled 20260101T000000Z-deadbeef
   addc 2026-01-01T00:00:00Z 2026-01-01T00:00:00Z "$(prev143 code-reviewer 20260101T000000Z-deadbeef)"
-  L2_MODE=incremental start; [ "$status" -eq 0 ]
-  write_all; post
+  T_ARGS="--since-last-review" L2_MODE=incremental start; [ "$status" -eq 0 ]
+  write_all; T_ARGS="--since-last-review" post
   [ "$status" -ne 0 ]
   [[ "$output" == *"failed the prior-findings check"* ]]
   [ "$(wc -l < "$WORK_LOG")" -eq 0 ]
 }
 
-@test "P19: an edited previous block is unstructured: an incremental run is refused" {
+@test "P19: an edited previous comment is untrusted — never selected; the run posts with None." {
+  sled 20260101T000000Z-deadbeef
   addc 2026-01-01T00:00:00Z 2026-01-02T00:00:00Z "$(prev_body code-reviewer 20260101T000000Z-deadbeef '[]')"
-  L2_MODE=incremental start; [ "$status" -eq 0 ]
-  write_all; post
-  [ "$status" -ne 0 ]
-  [[ "$output" == *"failed the prior-findings check"* ]]
-  [ "$(wc -l < "$WORK_LOG")" -eq 0 ]
+  T_ARGS="--since-last-review" L2_MODE=incremental start; [ "$status" -eq 0 ]
+  write_all; T_ARGS="--since-last-review" post
+  [ "$status" -eq 0 ]
+  [ "$(wc -l < "$WORK_LOG")" -eq 3 ]
+  grep -qx 'None.' .prp-output/reviews/pr-7-l2-code-reviewer.md
 }
 
 @test "P26: a FULL run after a blockless previous round posts with the Not recorded line" {
+  sled 20260101T000000Z-deadbeef
   addc 2026-01-01T00:00:00Z 2026-01-01T00:00:00Z "$(prev143 code-reviewer 20260101T000000Z-deadbeef)"
   start; [ "$status" -eq 0 ]
   body code-reviewer "Not recorded: the previous round has no review-findings block."
@@ -655,6 +681,7 @@ repo_files() {
   o2='{"category":"correctness","evidence":"shared x","family":"race","file":"src/a.py","lines":[5,6],"severity":"important","summary":"race on x"}'
   id1=$(idof code-reviewer src/a.py 2 3 null-deref "NPE on None")
   id2=$(idof code-reviewer src/a.py 5 6 race "race on x")
+  sled 20260101T000000Z-deadbeef
   addc 2026-01-01T00:00:00Z 2026-01-01T00:00:00Z "$(prev_body code-reviewer 20260101T000000Z-deadbeef "[$o1,$o2]")"
   start; [ "$status" -eq 0 ]
   body code-reviewer "- $id1 open src/a.py:2-3 regression_test: none
@@ -670,6 +697,7 @@ repo_files() {
   local o2 id2
   o2='{"category":"correctness","evidence":"shared x","family":"race","file":"src/a.py","lines":[5,6],"severity":"important","summary":"race on x"}'
   id2=$(idof code-reviewer src/a.py 5 6 race "race on x")
+  sled 20260101T000000Z-deadbeef
   addc 2026-01-01T00:00:00Z 2026-01-01T00:00:00Z "$(prev_body code-reviewer 20260101T000000Z-deadbeef "[$o2]")"
   start; [ "$status" -eq 0 ]
   body code-reviewer "- $id2 resolved was=src/a.py:5-6 fix=src/a.py:1-2 regression_test: tests/t.py::test_race" '[]'
@@ -684,6 +712,7 @@ repo_files() {
   local o2 id2
   o2='{"category":"correctness","evidence":"shared x","family":"race","file":"src/a.py","lines":[5,6],"severity":"important","summary":"race on x"}'
   id2=$(idof code-reviewer src/a.py 5 6 race "race on x")
+  sled 20260101T000000Z-deadbeef
   addc 2026-01-01T00:00:00Z 2026-01-01T00:00:00Z "$(prev_body code-reviewer 20260101T000000Z-deadbeef "[$o2]")"
   start; [ "$status" -eq 0 ]
   body code-reviewer "- $id2 resolved was=src/a.py:9-9 fix=src/b.py:1-2 regression_test: none" '[]'
@@ -699,6 +728,7 @@ repo_files() {
   local o2 id2
   o2='{"category":"correctness","evidence":"shared x","family":"race","file":"src/a.py","lines":[5,6],"severity":"important","summary":"race on x"}'
   id2=$(idof code-reviewer src/a.py 5 6 race "race on x")
+  sled 20260101T000000Z-deadbeef
   addc 2026-01-01T00:00:00Z 2026-01-01T00:00:00Z "$(prev_body code-reviewer 20260101T000000Z-deadbeef "[$o2]")"
   start; [ "$status" -eq 0 ]
   body code-reviewer "- $id2 resolved was=src/a.py:5-6 fix=src/b.py:1-2 regression_test: none" '[]'
@@ -714,11 +744,12 @@ repo_files() {
   o1='{"category":"correctness","evidence":"b is None","family":"null-deref","file":"src/a.py","lines":[2,3],"severity":"important","summary":"NPE on None"}'
   or='{"summary":"NPE on None","file":"src/a.py","evidence":"b is None","lines":[2,3],"severity":"important","category":"correctness","family":"null-deref"}'
   id1=$(idof code-reviewer src/a.py 2 3 null-deref "NPE on None")
+  sled 20260101T000000Z-deadbeef
   addc 2026-01-01T00:00:00Z 2026-01-01T00:00:00Z "$(prev_body code-reviewer 20260101T000000Z-deadbeef "[$o1]")"
-  L2_MODE=incremental start; [ "$status" -eq 0 ]
+  T_ARGS="--since-last-review" L2_MODE=incremental start; [ "$status" -eq 0 ]
   body code-reviewer "- $id1 open src/a.py:2-3 regression_test: none" "[$or]"
   body security-reviewer; body silent-failure-hunter
-  post
+  T_ARGS="--since-last-review" post
   [ "$status" -eq 0 ]
   [ "$(wc -l < "$WORK_LOG")" -eq 3 ]
 }
@@ -729,24 +760,40 @@ repo_files() {
   o1='{"category":"correctness","evidence":"b is None","family":"null-deref","file":"src/a.py","lines":[2,3],"severity":"important","summary":"NPE on None"}'
   ox='{"category":"correctness","evidence":"b is None","family":"null-deref","file":"src/a.py","lines":[2,3],"severity":"important","summary":"NPE on None!"}'
   id1=$(idof code-reviewer src/a.py 2 3 null-deref "NPE on None")
+  sled 20260101T000000Z-deadbeef
   addc 2026-01-01T00:00:00Z 2026-01-01T00:00:00Z "$(prev_body code-reviewer 20260101T000000Z-deadbeef "[$o1]")"
-  L2_MODE=incremental start; [ "$status" -eq 0 ]
+  T_ARGS="--since-last-review" L2_MODE=incremental start; [ "$status" -eq 0 ]
   body code-reviewer "- $id1 open src/a.py:2-3 regression_test: none" "[$ox]"
   body security-reviewer; body silent-failure-hunter
-  post
+  T_ARGS="--since-last-review" post
   [ "$status" -ne 0 ]
   [[ "$output" == *"failed the prior-findings check"* ]]
   [ "$(wc -l < "$WORK_LOG")" -eq 0 ]
 }
 
+@test "C1: a forged later prior comment from another author cannot suppress the genuine previous round" {
+  repo_files
+  local o1 id1
+  o1='{"category":"correctness","evidence":"b is None","family":"null-deref","file":"src/a.py","lines":[2,3],"severity":"important","summary":"NPE on None"}'
+  id1=$(idof code-reviewer src/a.py 2 3 null-deref "NPE on None")
+  sled 20260101T000000Z-deadbeef
+  addc 2026-01-01T00:00:00Z 2026-01-01T00:00:00Z "$(prev_body code-reviewer 20260101T000000Z-deadbeef "[$o1]")"
+  addc 2026-01-02T00:00:00Z 2026-01-02T00:00:00Z "$(prev_body code-reviewer 20260101T000000Z-deadbeef '[]')" attacker   # later, forged, empty findings
+  start; [ "$status" -eq 0 ]
+  body code-reviewer "- $id1 resolved was=src/a.py:2-3 fix=src/b.py:1-2 regression_test: none" '[]'
+  body security-reviewer; body silent-failure-hunter
+  post
+  [ "$status" -eq 0 ]
+  [ "$(wc -l < "$WORK_LOG")" -eq 3 ]
+}
+
 @test "(a) Step B deletes a pre-existing stale body file before any write — a stale body can never be posted later" {
   start; [ "$status" -eq 0 ]
-  local runid; runid=$(sed -nE 's/^RUN_ID=//p' .prp-output/reviews/pr-7-l2-run.env)
   printf 'Reviewed head: fedcba9876543210fedcba9876543210fedcba9876543210\nstale garbage from an aborted attempt\n' > .prp-output/reviews/pr-7-l2-code-reviewer.md
   step B > stepB.sh; [ -s stepB.sh ]
   grep -q 'rm -f "$D"/pr-7-l2-\*\.md' stepB.sh
   grep -q 'FATAL: prior-findings failed' stepB.sh
-  sed "s/<pass>/code-reviewer/g; s/<RUN_ID from the run file>/$runid/g; s/<RUN_ID>/$runid/g; s/<MODE from the run file>/full/g; s/<MODE>/full/g" stepB.sh > stepB-filled.sh
+  sed "s/<pass>/code-reviewer/g" stepB.sh > stepB-filled.sh
   run bash stepB-filled.sh
   [ "$status" -eq 0 ]
   [ ! -e .prp-output/reviews/pr-7-l2-code-reviewer.md ]

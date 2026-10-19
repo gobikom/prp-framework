@@ -218,9 +218,9 @@ Then run `install.sh` to create symlinks.
 | `tests/bench/review-cost.bats` | bats tests for `review-cost.py` (33 test cases) |
 | `scripts/bench/review-rounds.py` | Dev-only: classifies review transcripts as incremental / fell-back / unknown through one typed boundary; the invocation is not read yet (`invoked` always null, fallback rate unavailable) — the invocation reader ships in #177b (not installed into consumer projects) |
 | `tests/bench/review-rounds.bats` | bats tests for `review-rounds.py` (46 test cases); `tests/bench/mutate_fixtures.py` builds its shape-mutation and field-arm variants |
-| `tests/commands/l2-comments.bats` | bats tests for the `--l2-comments` posting flow, start comment and Prior findings (66 test cases) |
+| `tests/commands/l2-comments.bats` | bats tests for the `--l2-comments` posting flow, start comment and Prior findings (69 test cases) |
 | `tests/scripts/check-l2-body.bats` | bats tests for `check-l2-body.py` (30 test cases) |
-| `tests/scripts/prior-findings.bats` | bats tests for `prior-findings.py` (10 test cases) |
+| `tests/scripts/prior-findings.bats` | bats tests for `prior-findings.py` (17 test cases) |
 
 ## Adding a New Workflow
 

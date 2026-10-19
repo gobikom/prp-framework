@@ -4,7 +4,7 @@ Exit 0=valid, 1=doc invalid (JSON path), 2=schema refused, 3=usage/IO.
 HANDLERS is the single source of keyword checks; ENFORCED is derived from it."""
 import hashlib, json, os, re, sys
 
-SCHEMA_SHA256 = "1250e78a6805c0ac543737045b0176290945a84cba93a31c171bd350767ccc4d"
+SCHEMA_SHA256 = "bf4f8086c7f7c8c2a863075d80606b627c82f8ca5c1bcac9d74137843b442165"
 ANNOTATIONS = {"title", "description"}
 ROOT_ONLY = {"$schema", "$defs"}
 REF_PAT = re.compile(r'^#/\$defs/[A-Za-z0-9_]+$')
