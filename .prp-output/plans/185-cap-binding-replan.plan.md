@@ -264,8 +264,8 @@ guard), tests ~127 across three files, docs ~18. Total ≈ 265.
 
 | PR | Files | Lines (measured + est.) | Base | Boundary arms |
 |---|---|---|---|---|
-| PR-1 — caps/prior engine | prior-findings.py, prior-findings.bats, validate-findings.py (+guard), schema, review-schema.bats (+arm-a refusal test, MINUS the two drift tests — deferred to PR-3) | 443 + ~20 = ~463 | origin/main | (a) script-side refusal |
-| PR-2 — checker + `--bind` | check-l2-body.py (+`--bind`), check-l2-body.bats (+arm tests) | 165 + ~210 = ~375 | PR-1 branch | (b) (c) (d) (e) (f) |
+| PR-1 — validator slice | validate-findings.py (+missing-input guard), schema, review-schema.bats (+arm-a refusal test, MINUS the two drift tests — deferred to PR-3) | 128 measured + ~20 est. = ~148 (brief 89bc estimated ≈172; measured after the remedy-C cut) | origin/main | (a) script-side refusal |
+| PR-2 — prior-findings pair + checker `--bind` | prior-findings.py, prior-findings.bats, check-l2-body.py (+`--bind`), check-l2-body.bats (+arm tests) | 480 measured + ~210 est. = ~690 | PR-1 branch | (b) (c) (d) (e) (f) |
 | PR-3 — wiring + binding activation | prompts/review-agents.md (+fix), l2-comments.bats (+arm g), tests/commands/structure.bats (+adapter grep), CHANGELOG, CONTRIBUTING, review-schema.bats drift tests re-added from 9cfdde7; 6 regenerated adapters (excluded); plan artifact (excluded) | 753 + 24 + ~25 = ~802 | PR-2 branch | (g) + MUST re-add both deferred drift tests |
 
 Drift-test deferral (remedy A, psak brief 20261020-1723-9dbe): the two review-schema.bats
@@ -275,6 +275,13 @@ from PR-1 to PR-3 — they assert PR-3's prompt/adapter cap tokens and can never
 before PR-3 lands. PR-3 MUST re-add both tests verbatim from 9cfdde7 once its
 prompts/adapters are in; if PR-3's realized size then exceeds ~800, move CHANGELOG.md
 (11 lines) to PR-1 or PR-2 rather than trimming tests.
+
+Matched-pair rule (remedy C, psak brief 20261020-1739-89bc): prior-findings.py +
+prior-findings.bats moved from PR-1 to PR-2 — prior-findings.py ↔ check-l2-body.py are a
+matched interface pair (landed together in #183; #185 evolves both) and must ship in the
+same PR. A PR-1 carrying only prior-findings.py broke main's untouched check-l2-body.bats
+(10 `--prior`-family failures on #186's first head, CI red). PR-1 is now the validator
+slice (~148 lines); PR-2 reunites the pair (~690 lines).
 
 Only PR-3 changes `prompts/`, so only PR-3 regenerates the 6 adapters (per the rule:
 regenerate in each PR that changes `prompts/`). Stack total ≈ 1640 hand-written lines
@@ -287,14 +294,18 @@ regenerate in each PR that changes `prompts/`). Stack total ≈ 1640 hand-writte
    one merges. All three PR bodies carry this plan's path (Design-first). Commit the plan
    artifact itself on PR-1's branch (`git add -f .prp-output/plans/185-cap-binding-replan.plan.md`,
    agent-devops#801); it is a docs artifact, excluded from line counts.
-2. **PR-1 — caps/prior engine** (files/lines per the PR-size table). Safe alone: it changes
-   no prompts/wiring, so main's posting path is untouched; the new script modes
-   (`--enforce-caps` plumbing, prior-findings) are invoked by nothing on main — code that
-   nothing calls yet. No path is added where a body posts unbound or a stale fence is consumed.
-3. **PR-2 — checker + `--bind`**. Safe alone: it only strengthens `check-l2-body.py`, which
-   main's wiring calls in plain mode with the plain contract preserved (the CAPLINE rejection
-   matches lines main's pipeline never emits; `--prior`/`--bind` are invoked by nothing yet).
-   No new posting path.
+2. **PR-1 — validator slice** (files/lines per the PR-size table). Safe alone: it changes
+   no prompts/wiring, so main's posting path is untouched; the new script mode
+   (`--enforce-caps` plumbing) is invoked by nothing on main — code that nothing calls
+   yet — and the missing-input guard only turns a silent empty consume into a loud
+   exit-3 refusal (fail-closed). No path is added where a body posts unbound or a stale
+   fence is consumed.
+3. **PR-2 — prior-findings pair + checker `--bind`**. Safe alone: it lands the matched
+   pair prior-findings.py ↔ check-l2-body.py together (remedy C: a PR carrying only one
+   half breaks main's untouched check-l2-body.bats — the #186 first-head CI red), with
+   main's plain contract preserved (verified locally: full suite 216 ok / 0 fail with the
+   pair reunited), and it only strengthens `check-l2-body.py`, which main's wiring calls
+   in plain mode (`--prior`/`--bind` are invoked by nothing yet). No new posting path.
 4. **PR-3 — wiring + binding activation**. The only PR that changes `prompts/` (hence the
    only one regenerating the 6 adapters). It lands the 2.0c wiring TOGETHER with the
    run-stamped fence names, the bind manifest, the widened Step A cleanup and the Step C
