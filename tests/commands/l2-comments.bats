@@ -91,12 +91,17 @@ teardown() { rm -rf "$WORK"; }
 # arm passes its own items; finds: the review-findings JSON array — the headings' counts are
 # derived from it, so a body and its JSON can never disagree by accident)
 body() {
-  local pass="$1" prior="${2:-}" finds="${3:-[]}" sfx="" mode nc ni; . .prp-output/reviews/pr-7-l2-run.env   # the test reads its own fixture file
+  local pass="$1" prior="${2:-}" finds="${3:-[]}" cnv="${4:-Nothing.}" sfx="" mode nc ni; . .prp-output/reviews/pr-7-l2-run.env   # the test reads its own fixture file
   [ "${TIER:-}" = trivial ] && sfx=" tier=trivial"; mode="${MODE:-full}"
   [ -n "$prior" ] || { [ "$mode" = full ] && prior='None (full review)' || prior='None.'; }
   nc=$(grep -o '"severity":"critical"' <<<"$finds" | wc -l); ni=$(grep -o '"severity":"important"' <<<"$finds" | wc -l)
-  printf 'Reviewed head: %s\nPasses run: %s\n\n### Critical Issues (%s found)\nNone.\n\n### Important Issues (%s found)\nNone.\n\n### Suggestions (0 found)\nNone.\n\n### Could not verify\nNothing.\n\n### Prior findings\n%s\n\n```review-findings\n{"reviewed_head":"%s","pass":"%s","complete":true,"findings":%s}\n```\n\nReview-mode: %s\n\nGenerated-by: prp-review-agents v%s run=%s pass=%s%s\n' \
-    "$REVIEWED_HEAD_SHA" "$pass" "$nc" "$ni" "$prior" "$REVIEWED_HEAD_SHA" "$pass" "$finds" "$mode" "$PRP_VERSION" "$RUN_ID" "$pass" "$sfx" > ".prp-output/reviews/pr-7-l2-$pass.md"
+  printf 'Reviewed head: %s\nPasses run: %s\n\n### Critical Issues (%s found)\nNone.\n\n### Important Issues (%s found)\nNone.\n\n### Suggestions (0 found)\nNone.\n\n### Could not verify\n%s\n\n### Prior findings\n%s\n\n```review-findings\n{"reviewed_head":"%s","pass":"%s","complete":true,"findings":%s}\n```\n\nReview-mode: %s\n\nGenerated-by: prp-review-agents v%s run=%s pass=%s%s\n' \
+    "$REVIEWED_HEAD_SHA" "$pass" "$nc" "$ni" "$cnv" "$prior" "$REVIEWED_HEAD_SHA" "$pass" "$finds" "$mode" "$PRP_VERSION" "$RUN_ID" "$pass" "$sfx" > ".prp-output/reviews/pr-7-l2-$pass.md"
+}
+
+# Step B input (#185 round-7 fix): the agent's fenced review-findings line, saved verbatim to a file
+fence() { # fence <pass> [findings-array]
+  printf '{"reviewed_head":"%s","pass":"%s","complete":true,"findings":%s}\n' "${FAKE_HEAD:-$HEAD_SHA}" "$1" "${2:-[]}" > ".prp-output/reviews/pr-7-l2-$1.fence"
 }
 
 start() { run env -u REVIEWED_HEAD_SHA -u L2_COMMENTS bash stepA.sh; }   # a fresh shell: nothing inherited
@@ -792,6 +797,7 @@ repo_files() {
 
 @test "(a) Step B deletes a pre-existing stale body file before any write — a stale body can never be posted later" {
   start; [ "$status" -eq 0 ]
+  fence code-reviewer
   printf 'Reviewed head: fedcba9876543210fedcba9876543210fedcba9876543210\nstale garbage from an aborted attempt\n' > .prp-output/reviews/pr-7-l2-code-reviewer.md
   step B > stepB.sh; [ -s stepB.sh ]
   grep -q 'rm -f "$D"/pr-7-l2-\*\.md' stepB.sh
@@ -837,6 +843,7 @@ bigprior() { # a trusted oversized previous round for code-reviewer, in the fixt
 @test "cap-a: Step B over an oversized trusted prior in a FULL round exits 0 — prior-findings is never called at all" {
   bigprior
   start; [ "$status" -eq 0 ]
+  fence code-reviewer
   step B > stepB.sh; [ -s stepB.sh ]
   pyshim "$WORK/pycalls.log"; : > "$WORK/pycalls.log"
   sed "s/<pass>/code-reviewer/g" stepB.sh > stepB-filled.sh
@@ -867,6 +874,7 @@ bigprior() { # a trusted oversized previous round for code-reviewer, in the fixt
   export FAKE_COMMENTS_TSV="$PWD/pr-7-comments.src"
   cp .prp-output/reviews/pr-7-comments.tsv "$FAKE_COMMENTS_TSV"
   T_ARGS="--since-last-review" L2_MODE=incremental start; [ "$status" -eq 0 ]
+  fence code-reviewer
   step B > stepB.sh
   pyshim "$WORK/pycalls.log"; : > "$WORK/pycalls.log"
   sed "s/<pass>/code-reviewer/g" stepB.sh > stepB-filled.sh
@@ -877,6 +885,7 @@ bigprior() { # a trusted oversized previous round for code-reviewer, in the fixt
 
 @test "cap-d: Step B with no prior in a FULL round runs clean — prior-findings is never called" {
   start; [ "$status" -eq 0 ]
+  fence code-reviewer
   step B > stepB.sh
   pyshim "$WORK/pycalls.log"; : > "$WORK/pycalls.log"
   sed "s/<pass>/code-reviewer/g" stepB.sh > stepB-filled.sh
@@ -893,6 +902,7 @@ bigprior() { # a trusted oversized previous round for code-reviewer, in the fixt
   run bash stepB-filled.sh                        # the incremental round refuses the oversized prior
   [ "$status" -ne 0 ]; [[ "$output" == *"FATAL: prior-findings failed"* ]]
   pyshim "$WORK/pycalls.log"; : > "$WORK/pycalls.log"
+  fence code-reviewer
   T_ARGS= L2_MODE= start; [ "$status" -eq 0 ]     # the advised action: re-run FULL
   run env PATH="$WORK/pyshim:$PATH" bash stepB-filled.sh
   [ "$status" -eq 0 ]
@@ -920,4 +930,32 @@ bigprior() { # a trusted oversized previous round for code-reviewer, in the fixt
   sed -n '/if mode == "incremental":/,/prev_obj\[/p' "$ROOT/scripts/review/check-l2-body.py" | grep -q -- '--json'   # the checker's --json re-run sits inside the same-named gate
   grep -q 'accepts no prior open/resolved marking' "$ROOT/scripts/review/check-l2-body.py"   # the checker's FULL branch refuses prior-id marking...
   grep -q "must be exactly the line 'None (full review)'" "$ROOT/scripts/review/check-l2-body.py"   # ...and demands the fixed line — the same FULL/incremental split as the wiring
+}
+
+
+# --- length-cap enforcement, command level (#185 round-7 fix) ---
+@test "cap-len-a: Step B drops a 201-char-summary finding via --enforce-caps, names it, and the other findings still post" {
+  repo_files                     # a real head: the posting checks verify the reviewed commit exists
+  start; [ "$status" -eq 0 ]
+  local ok bad; ok='{"category":"correctness","evidence":"e","family":"fam","file":"src/b.py","lines":[1,2],"severity":"low","summary":"ok defect"}'
+  bad=$(python3 -I -c "import json;print(json.dumps({'category':'correctness','evidence':'e','family':'fam2','file':'src/a.py','lines':[3,4],'severity':'low','summary':'z'*201},separators=(',',':')))")
+  fence code-reviewer "[$bad,$ok]"
+  step B > stepB.sh; sed "s/<pass>/code-reviewer/g" stepB.sh > stepB-filled.sh
+  run bash stepB-filled.sh
+  [ "$status" -eq 0 ]
+  [ "$(sed -n 2p .prp-output/reviews/pr-7-l2-code-reviewer.fence.ok)" = "- L2-FINDING-CAP findings[0].summary 201>200 not-posted" ]
+  local farr; farr=$(python3 -I -c "import json,sys;print(json.dumps(json.loads(open(sys.argv[1]).readline())['findings'],separators=(',',':')))" .prp-output/reviews/pr-7-l2-code-reviewer.fence.ok)
+  body code-reviewer '' "$farr" "- L2-FINDING-CAP findings[0].summary 201>200 not-posted"
+  body security-reviewer; body silent-failure-hunter
+  post
+  [ "$status" -eq 0 ]
+  [ "$(wc -l < "$WORK_LOG")" -eq 3 ]   # the round posted all three comments despite the cap breach
+}
+
+@test "cap-len-b: Step B without the agent fence file is a FATAL — no bodies written" {
+  start; [ "$status" -eq 0 ]
+  step B > stepB.sh; sed "s/<pass>/code-reviewer/g" stepB.sh > stepB-filled.sh
+  run bash stepB-filled.sh
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"FATAL: --enforce-caps failed for code-reviewer"* ]]
 }

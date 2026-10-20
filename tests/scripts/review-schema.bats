@@ -221,3 +221,87 @@ elif sys.argv[2]=='notype':
   run python3 -I "$TEST_TMPDIR/scripts/review/validate-findings.py" /nonexistent
   [ "$status" -eq 2 ]; [[ "$output" == *"not an object"* ]]
 }
+
+# --- length caps: prompt parity, boundary, --enforce-caps (#185 round-7 fix) ---
+PROMPT="$REPO_ROOT/prompts/review-agents.md"
+_capdoc() { # _capdoc <file> <summary-len> [extra-findings-json]
+  python3 -I -c "
+import json, sys
+f = {'file':'src/a.py','lines':[1,2],'severity':'low','category':'x-y','summary':'a'*int(sys.argv[2]),'evidence':'e'}
+extra = json.loads(sys.argv[3]) if len(sys.argv) > 3 else []
+json.dump({'reviewed_head':'a'*40,'pass':'code-reviewer','complete':True,'findings':[f]+extra}, open(sys.argv[1],'w'))" "$1" "$2" "${3:-[]}"
+}
+@test "caps: the prompt states exactly the schema's length caps (no drift)" {
+  run python3 -I - "$S" "$PROMPT" <<'PY'
+import json, re, sys
+schema = json.load(open(sys.argv[1]))
+want = set()
+for d in ("finding", "probe_request"):
+    for f, spec in schema["$defs"][d]["properties"].items():
+        if "maxLength" in spec: want.add(f"{d}.{f}<={spec['maxLength']}")
+got = set(re.findall(r"[a-z_]+\.[a-z_]+<=[0-9]+", open(sys.argv[2]).read()))
+assert got == want, f"prompt caps != schema caps: missing={sorted(want-got)} stale={sorted(got-want)}"
+PY
+  [ "$status" -eq 0 ]
+}
+@test "caps: every regenerated adapter carries the prompt's cap tokens" {
+  local f tok
+  for f in "$REPO_ROOT"/adapters/claude-code/prp-review-agents.md "$REPO_ROOT"/adapters/codex/prp-review-agents/SKILL.md \
+           "$REPO_ROOT"/adapters/opencode/review-agents.md "$REPO_ROOT"/adapters/gemini/review-agents.toml \
+           "$REPO_ROOT"/adapters/antigravity/prp-review-agents.md "$REPO_ROOT"/adapters/thclaws/prp-review-agents/SKILL.md; do
+    for tok in 'finding.file<=200' 'finding.category<=40' 'finding.summary<=200' 'finding.evidence<=4000' \
+               'probe_request.command<=4096' 'probe_request.purpose<=200' 'probe_request.expected<=200'; do
+      grep -q -- "$tok" "$f" || { echo "missing $tok in $f"; return 1; }
+    done
+  done
+}
+@test "boundary: summary at 200 chars validates; 201 is refused as too long" {
+  _capdoc "$TEST_TMPDIR/b200.json" 200
+  _capdoc "$TEST_TMPDIR/b201.json" 201
+  run python3 -I "$V" "$TEST_TMPDIR/b200.json"
+  [ "$status" -eq 0 ]
+  run python3 -I "$V" "$TEST_TMPDIR/b201.json"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *'$.findings[0].summary: too long'* ]]
+}
+@test "enforce-caps: a 201-char summary drops only that finding — the others still post, the breach named" {
+  _capdoc "$TEST_TMPDIR/cap.json" 201 '[{"category":"c","evidence":"e","file":"src/b.py","lines":[1,2],"severity":"low","summary":"ok"}]'
+  python3 -I "$V" --enforce-caps "$TEST_TMPDIR/cap.json" > "$TEST_TMPDIR/cap.ok"
+  run python3 -I -c "
+import json, sys
+ls = open(sys.argv[1]).read().splitlines()
+d = json.loads(ls[0])
+assert len(ls) == 2, ls
+assert len(d['findings']) == 1 and d['findings'][0]['summary'] == 'ok' and d['findings'][0]['file'] == 'src/b.py', d['findings']
+assert ls[1] == '- L2-FINDING-CAP findings[0].summary 201>200 not-posted', ls[1]" "$TEST_TMPDIR/cap.ok"
+  [ "$status" -eq 0 ]
+}
+@test "enforce-caps: no breach — output is the doc line alone (200-char boundary stays)" {
+  _capdoc "$TEST_TMPDIR/b200.json" 200
+  python3 -I "$V" --enforce-caps "$TEST_TMPDIR/b200.json" > "$TEST_TMPDIR/b200.ok"
+  run python3 -I -c "
+import json, sys
+ls = open(sys.argv[1]).read().splitlines()
+d = json.loads(ls[0])
+assert len(ls) == 1 and len(d['findings']) == 1 and len(d['findings'][0]['summary']) == 200, ls" "$TEST_TMPDIR/b200.ok"
+  [ "$status" -eq 0 ]
+}
+@test "enforce-caps: an over-cap probe_request is dropped and named; a non-object doc is refused" {
+  python3 -I -c "
+import json, sys
+doc = {'reviewed_head':'a'*40,'pass':'probe','complete':True,'findings':[],
+       'probe_requests':[{'id':'p','command':'x'*5000,'purpose':'p','expected':'e'}]}
+json.dump(doc, open(sys.argv[1],'w'))" "$TEST_TMPDIR/probe.json"
+  python3 -I "$V" --enforce-caps "$TEST_TMPDIR/probe.json" > "$TEST_TMPDIR/probe.ok"
+  run python3 -I -c "
+import json, sys
+ls = open(sys.argv[1]).read().splitlines()
+d = json.loads(ls[0])
+assert len(ls) == 2 and d['probe_requests'] == [], ls
+assert ls[1] == '- L2-FINDING-CAP probe_requests[0].command 5000>4096 not-posted', ls[1]" "$TEST_TMPDIR/probe.ok"
+  [ "$status" -eq 0 ]
+  printf '[]' > "$TEST_TMPDIR/arr.json"
+  run python3 -I "$V" --enforce-caps "$TEST_TMPDIR/arr.json"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"not a JSON object"* ]]
+}

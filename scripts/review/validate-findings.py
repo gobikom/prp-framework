@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 """Validate JSON against the pinned review-findings schema.
-Exit 0=valid, 1=doc invalid (JSON path), 2=schema refused, 3=usage/IO.
+usage: validate-findings.py <doc.json>                 exit 0=valid, 1=doc invalid (JSON path), 2=schema refused, 3=usage/IO
+       validate-findings.py --enforce-caps <doc.json>  round-7 fix (#185): print the doc as ONE line with every
+       findings/probe_requests element that breaks a schema length cap dropped, then one
+       '- L2-FINDING-CAP <element>.<field> <len>><cap> not-posted' line per breach. Exit 0 even
+       when elements were dropped — a cap breach never loses the round, it is named. Surviving
+       elements are untouched (byte-preserved through json round-trip). 1=not JSON/not an object.
 HANDLERS is the single source of keyword checks; ENFORCED is derived from it."""
 import hashlib, json, os, re, sys
 
@@ -125,10 +130,42 @@ def validate(doc, node, defs, path="$"):
             if err: return err
     return None
 
+def _no_dupes(pairs):
+    keys = [k for k, _ in pairs]
+    if len(keys) != len(set(keys)): raise ValueError("duplicate JSON key")
+    return dict(pairs)
+
+def enforce_caps(doc, defs):
+    """(#185 round-7 fix) drop findings/probe_requests elements that break a schema length
+    cap; return (doc, breaches), each breach a (path, length, cap) triple. A dropped element
+    is named per breached field; surviving elements are returned untouched — the caller
+    never edits a finding."""
+    breaches = []
+    for key, dname in (("findings", "finding"), ("probe_requests", "probe_request")):
+        caps = {f: spec["maxLength"] for f, spec in defs.get(dname, {}).get("properties", {}).items()
+                if isinstance(spec, dict) and isinstance(spec.get("maxLength"), int)}
+        elems = doc.get(key)
+        if not isinstance(elems, list): continue
+        keep = []
+        for i, el in enumerate(elems):
+            bad = []
+            if isinstance(el, dict):
+                for f, cap in caps.items():
+                    if isinstance(el.get(f), str) and len(el[f]) > cap:
+                        bad.append((f"{key}[{i}].{f}", len(el[f]), cap))
+            breaches.extend(bad)
+            if not bad: keep.append(el)
+        doc[key] = keep
+    return doc, breaches
+
 if __name__ == "__main__":
     try:
-        if len(sys.argv) != 2:
-            print("usage: validate-findings.py <doc.json>", file=sys.stderr); sys.exit(3)
+        if len(sys.argv) == 2:
+            mode, doc_path = "check", sys.argv[1]
+        elif len(sys.argv) == 3 and sys.argv[1] == "--enforce-caps":
+            mode, doc_path = "enforce", sys.argv[2]
+        else:
+            print("usage: validate-findings.py <doc.json> | validate-findings.py --enforce-caps <doc.json>", file=sys.stderr); sys.exit(3)
         sp = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../schemas/review-findings.schema.json")
         try: raw = open(sp, "rb").read()
         except OSError as e: print(f"schema: {e}", file=sys.stderr); sys.exit(2)
@@ -137,7 +174,17 @@ if __name__ == "__main__":
         schema = json.loads(raw)
         err = check_schema(schema)
         if err: print(err, file=sys.stderr); sys.exit(2)
-        try: doc = json.load(open(sys.argv[1]))
+        if mode == "enforce":
+            try: doc = json.load(open(doc_path), object_pairs_hook=_no_dupes)
+            except OSError as e: print(f"doc: {e}", file=sys.stderr); sys.exit(3)
+            except (json.JSONDecodeError, ValueError) as e: print(f"doc: {e}", file=sys.stderr); sys.exit(1)
+            if not isinstance(doc, dict): print("doc: not a JSON object", file=sys.stderr); sys.exit(1)
+            doc, breaches = enforce_caps(doc, schema.get("$defs", {}))
+            print(json.dumps(doc, separators=(",", ":")))
+            for path, ln, cap in breaches:
+                print(f"- L2-FINDING-CAP {path} {ln}>{cap} not-posted")
+            sys.exit(0)
+        try: doc = json.load(open(doc_path))
         except (OSError, json.JSONDecodeError) as e: print(f"doc: {e}", file=sys.stderr); sys.exit(3)
         err = validate(doc, schema, schema.get("$defs", {}))
         if err: print(err, file=sys.stderr); sys.exit(1)

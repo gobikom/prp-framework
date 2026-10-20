@@ -416,3 +416,24 @@ prevp() { # prevp <pass> <finds> <version> <run-id> [footer-suffix] — a ledger
   run python3 -I "$C" --prior "$B" "$TSV" "$TEST_TMPDIR/run.env" code-reviewer
   [ "$status" -eq 1 ]; [[ "$output" == *"FULL round accepts no prior open/resolved marking"* ]]
 }
+
+# --- L2-FINDING-CAP rejection lines (#185 round-7 fix: a cap breach never loses the round) ---
+@test "a well-formed L2-FINDING-CAP rejection line under Could not verify passes" {
+  mkbody
+  sed -i 's/^Nothing\.$/- L2-FINDING-CAP findings[0].summary 279>200 not-posted/' "$B"
+  run python3 -I "$C" "$B" "$HEAD" code-reviewer
+  [ "$status" -eq 0 ]
+}
+@test "a malformed L2-FINDING-CAP line is refused" {
+  mkbody
+  sed -i 's/^Nothing\.$/- L2-FINDING-CAP findings[0].summary too long to post/' "$B"
+  run python3 -I "$C" "$B" "$HEAD" code-reviewer
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"bad L2-FINDING-CAP line"* ]]
+}
+@test "a rejection line after the incremental scope line passes (probe cap named)" {
+  mkbody "" '[]' incremental
+  sed -i 's/^Nothing\.$/Incremental: files changed since 0000000000000000000000000000000000000000; earlier open findings carried over\n- L2-FINDING-CAP probe_requests[0].command 4200>4096 not-posted/' "$B"
+  run python3 -I "$C" "$B" "$HEAD" code-reviewer
+  [ "$status" -eq 0 ]
+}

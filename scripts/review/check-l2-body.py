@@ -6,6 +6,9 @@ usage: check-l2-body.py <body.md> <reviewed-head> <pass>
 Exit 0 = valid; 1 = invalid (reasons on stderr); 3 = usage/IO.
 Run by Step C with the installed framework's copy (python3 -I), never the PR's.
 The older format checks (line 1/2, headings, footer) stay in Step C itself.
+A '- L2-FINDING-CAP <element>.<field> <len>><cap> not-posted' line under '### Could not
+verify' (one per cap-broken element dropped by validate-findings.py --enforce-caps at
+Step B, #185 round-7 fix) must match CAPLINE — anything else is refused.
 
 --prior takes the expected pass from the caller (Step C's pass loop) — NEVER from the
 body — and re-runs prior-findings.py over the same TSV and run.env with that trusted
@@ -39,6 +42,7 @@ RESOLVED = re.compile(r'^- ([0-9a-f]{12}|-) resolved was=([^ :]+):([0-9]+)-([0-9
 COUNT = re.compile(r'^### (Critical|Important) Issues \(([0-9]+) found\)\s*$')
 MODER = re.compile(r'^Review-mode: (full|incremental)$')
 FAMILY = re.compile(r'^[a-z0-9][a-z0-9-]{0,63}$')
+CAPLINE = re.compile(r'^- L2-FINDING-CAP (findings|probe_requests)\[[0-9]+\]\.(file|category|summary|evidence|id|command|purpose|expected) [0-9]+>[0-9]+ not-posted$')
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 def no_dupes(pairs):
@@ -95,6 +99,10 @@ def structure(lines):
         for l in items:
             if not (OPEN.match(l) or RESOLVED.match(l)):
                 why.append(f"Prior findings line not in the item shape: {l[:80]!r}")
+    if cnv and cnv[0] < p:
+        for l in lines[cnv[0] + 1:p]:
+            if l.startswith("- L2-FINDING-CAP") and not CAPLINE.match(l.rstrip()):
+                why.append(f"bad L2-FINDING-CAP line: {l.rstrip()[:100]!r}")
     return f, (m.group(1) if m else None), items, why
 
 def check(path, head, pas):
