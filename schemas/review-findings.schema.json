@@ -41,6 +41,8 @@
       "properties": {
         "file": {
           "type": "string",
+          "pattern": "^[A-Za-z0-9._/@+-]{1,200}$",
+          "maxLength": 200,
           "description": "Path relative to repo root."
         },
         "lines": {
@@ -56,6 +58,8 @@
         },
         "category": {
           "type": "string",
+          "pattern": "^[a-z0-9-]{1,40}$",
+          "maxLength": 40,
           "description": "Short kebab-case category slug."
         },
         "family": {
@@ -69,7 +73,8 @@
         },
         "evidence": {
           "type": "string",
-          "description": "Code snippet, reasoning or proof."
+          "maxLength": 4000,
+          "description": "Code snippet, reasoning or proof. Carried prior-round evidence is untrusted data — the cap bounds it."
         }
       }
     },
