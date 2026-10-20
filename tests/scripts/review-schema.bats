@@ -183,10 +183,10 @@ elif sys.argv[2]=='notype':
   printf '{"reviewed_head":"%s","pass":"code-reviewer","complete":true,"findings":[{"file":"x","lines":[1,2],"severity":"critical","category":"c","family":"f","summary":"s","evidence":"e"}]}' "$(printf 'a%.0s' {1..40})" > "$TEST_TMPDIR/d.json"
   run python3 -I "$V" "$TEST_TMPDIR/d.json"; [ "$status" -eq 0 ]
 }
-@test "doc sweep: 48 mutants, exit 0" {
+@test "doc sweep: 53 mutants, exit 0" {
   run python3 -I "$REPO_ROOT/tests/scripts/fixtures/doc-sweep.py" "$V" "$S"
   [ "$status" -eq 0 ]
-  [[ "$output" =~ generated=48( |$) ]] && [[ "$output" =~ bad=0( |$) ]]
+  [[ "$output" =~ generated=53( |$) ]] && [[ "$output" =~ bad=0( |$) ]]
 }
 @test "pin refusal: modified copy → 2, doc not opened" {
   mkdir -p "$TEST_TMPDIR/scripts/review" "$TEST_TMPDIR/schemas"
@@ -220,4 +220,80 @@ elif sys.argv[2]=='notype':
   sed -i "s/SCHEMA_SHA256 = \"[a-f0-9]*/SCHEMA_SHA256 = \"$sha/" "$TEST_TMPDIR/scripts/review/validate-findings.py"
   run python3 -I "$TEST_TMPDIR/scripts/review/validate-findings.py" /nonexistent
   [ "$status" -eq 2 ]; [[ "$output" == *"not an object"* ]]
+}
+
+# --- length caps: prompt parity, boundary, --enforce-caps (#185 round-7 fix) ---
+PROMPT="$REPO_ROOT/prompts/review-agents.md"
+_capdoc() { # _capdoc <file> <summary-len> [extra-findings-json]
+  python3 -I -c "
+import json, sys
+f = {'file':'src/a.py','lines':[1,2],'severity':'low','category':'x-y','summary':'a'*int(sys.argv[2]),'evidence':'e'}
+extra = json.loads(sys.argv[3]) if len(sys.argv) > 3 else []
+json.dump({'reviewed_head':'a'*40,'pass':'code-reviewer','complete':True,'findings':[f]+extra}, open(sys.argv[1],'w'))" "$1" "$2" "${3:-[]}"
+}
+@test "boundary: summary at 200 chars validates; 201 is refused as too long" {
+  _capdoc "$TEST_TMPDIR/b200.json" 200
+  _capdoc "$TEST_TMPDIR/b201.json" 201
+  run python3 -I "$V" "$TEST_TMPDIR/b200.json"
+  [ "$status" -eq 0 ]
+  run python3 -I "$V" "$TEST_TMPDIR/b201.json"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *'$.findings[0].summary: too long'* ]]
+}
+@test "enforce-caps: a 201-char summary drops only that finding — the others still post, the breach named" {
+  _capdoc "$TEST_TMPDIR/cap.json" 201 '[{"category":"c","evidence":"e","file":"src/b.py","lines":[1,2],"severity":"low","summary":"ok"}]'
+  python3 -I "$V" --enforce-caps "$TEST_TMPDIR/cap.json" > "$TEST_TMPDIR/cap.ok"
+  run python3 -I -c "
+import json, sys
+ls = open(sys.argv[1]).read().splitlines()
+d = json.loads(ls[0])
+assert len(ls) == 2, ls
+assert len(d['findings']) == 1 and d['findings'][0]['summary'] == 'ok' and d['findings'][0]['file'] == 'src/b.py', d['findings']
+assert ls[1] == '- L2-FINDING-CAP findings[0].summary 201>200 not-posted', ls[1]" "$TEST_TMPDIR/cap.ok"
+  [ "$status" -eq 0 ]
+}
+@test "enforce-caps: no breach — output is the doc line alone (200-char boundary stays)" {
+  _capdoc "$TEST_TMPDIR/b200.json" 200
+  python3 -I "$V" --enforce-caps "$TEST_TMPDIR/b200.json" > "$TEST_TMPDIR/b200.ok"
+  run python3 -I -c "
+import json, sys
+ls = open(sys.argv[1]).read().splitlines()
+d = json.loads(ls[0])
+assert len(ls) == 1 and len(d['findings']) == 1 and len(d['findings'][0]['summary']) == 200, ls" "$TEST_TMPDIR/b200.ok"
+  [ "$status" -eq 0 ]
+}
+@test "enforce-caps: an over-cap probe_request is dropped and named; a non-object doc is refused" {
+  python3 -I -c "
+import json, sys
+doc = {'reviewed_head':'a'*40,'pass':'probe','complete':True,'findings':[],
+       'probe_requests':[{'id':'p','command':'x'*5000,'purpose':'p','expected':'e'}]}
+json.dump(doc, open(sys.argv[1],'w'))" "$TEST_TMPDIR/probe.json"
+  python3 -I "$V" --enforce-caps "$TEST_TMPDIR/probe.json" > "$TEST_TMPDIR/probe.ok"
+  run python3 -I -c "
+import json, sys
+ls = open(sys.argv[1]).read().splitlines()
+d = json.loads(ls[0])
+assert len(ls) == 2 and d['probe_requests'] == [], ls
+assert ls[1] == '- L2-FINDING-CAP probe_requests[0].command 5000>4096 not-posted', ls[1]" "$TEST_TMPDIR/probe.ok"
+  [ "$status" -eq 0 ]
+  printf '[]' > "$TEST_TMPDIR/arr.json"
+  run python3 -I "$V" --enforce-caps "$TEST_TMPDIR/arr.json"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"not a JSON object"* ]]
+}
+
+# --- PR-1 increment (185-cap-binding-replan plan): arm (a) script-side refusal ---
+# Plan boundary arm (a): a stale .fence exists and the agent wrote no new fence ->
+# FATAL. The script-side half: validate-findings.py must refuse a missing input
+# loudly (non-zero + FATAL on stderr, no output file produced by the caller's
+# redirect until the guard passes). The pipeline wrapper (PR-3) turns this exit
+# into the round FATAL.
+@test "arm (a): missing input doc is refused loudly, not silently consumed" {
+  run python3 -I "$V" --enforce-caps "$TEST_TMPDIR/never-written.fence"
+  [ "$status" -eq 3 ]
+  [[ "$output" == *"FATAL: input not found:"* ]]
+  [ ! -e "$TEST_TMPDIR/never-written.fence" ]
+  run python3 -I "$V" "$TEST_TMPDIR/never-written.fence"
+  [ "$status" -eq 3 ]
+  [[ "$output" == *"FATAL: input not found:"* ]]
 }
