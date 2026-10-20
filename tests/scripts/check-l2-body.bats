@@ -21,7 +21,7 @@ setup() {
   HEAD=$(git rev-parse HEAD)
   TSV="$TEST_TMPDIR/c.tsv"; : > "$TSV"
   B="$TEST_TMPDIR/b.md"
-  printf 'REVIEWED_HEAD_SHA=%s\nPRP_VERSION=9.9.9\nRUN_ID=%s\nTIER=standard\nSTART_URL=https://github.com/o/r/pull/7#issuecomment-1\nMODE=full\nORCHESTRATOR_LOGIN=orchestrator\n' "$HEAD" "$RUN" > "$TEST_TMPDIR/run.env"
+  printf 'REVIEWED_HEAD_SHA=%s\nPRP_VERSION=9.9.9\nRUN_ID=%s\nTIER=standard\nSTART_URL=https://github.com/o/r/pull/7#issuecomment-1\nMODE=%s\nORCHESTRATOR_LOGIN=orchestrator\n' "$HEAD" "$RUN" full > "$TEST_TMPDIR/run.env"
   printf 'REVIEWED_HEAD_SHA=%s\nPRP_VERSION=9.9.9\nRUN_ID=%s\nTIER=standard\nSTART_URL=https://github.com/o/r/pull/7#issuecomment-1\nMODE=incremental\nORCHESTRATOR_LOGIN=orchestrator\n' "$HEAD" "$RUN" > "$TEST_TMPDIR/run.inc.env"
 }
 teardown() { cd /; rm -rf -- "$TEST_TMPDIR" 2>/dev/null || true; }
@@ -30,7 +30,10 @@ idof() { printf '%s' "$1|$2|$3|$4|$5|$6" | sha256sum | cut -c1-12; }
 
 # a full pass body; heading counts derive from <2> so a body and its JSON agree unless the test breaks one
 mkbody() {
-  local prior="${1:-None.}" finds="${2:-[]}" mode="${3:-full}" pass="${4:-code-reviewer}" nc ni
+  # prior defaults to the mode's fixed line: 'None (full review)' in a FULL run, 'None.' in an
+  # incremental run (a FULL round reads no prior content — check-l2-body.py's full branch)
+  local prior="${1:-}" finds="${2:-[]}" mode="${3:-full}" pass="${4:-code-reviewer}" nc ni
+  [ -n "$prior" ] || { [ "$mode" = full ] && prior='None (full review)' || prior='None.'; }
   nc=$(grep -o '"severity":"critical"' <<<"$finds" | wc -l); ni=$(grep -o '"severity":"important"' <<<"$finds" | wc -l)
   printf 'Reviewed head: %s\nPasses run: %s\n\n### Critical Issues (%s found)\nNone.\n\n### Important Issues (%s found)\nNone.\n\n### Suggestions (0 found)\nNone.\n\n### Could not verify\nNothing.\n\n### Prior findings\n%s\n\n```review-findings\n{"reviewed_head":"%s","pass":"%s","complete":true,"findings":%s}\n```\n\nReview-mode: %s\n\nGenerated-by: prp-review-agents v9.9.9 run=%s pass=%s\n' \
     "$HEAD" "$pass" "$nc" "$ni" "$prior" "$HEAD" "$pass" "$finds" "$mode" "$RUN" "$pass" > "$B"
@@ -193,19 +196,28 @@ prev() { # prev <finds> [created] [updated] — a ledgered structured previous r
 }
 
 # --- --prior mode: anchors and classification ---
-@test "--prior: no previous round requires exactly None." {
+@test "--prior: FULL with no prior lookup requires exactly 'None (full review)'; incremental with no previous round requires exactly None." {
   mkbody; run python3 -I "$C" --prior "$B" "$TSV" "$TEST_TMPDIR/run.env" code-reviewer
   [ "$status" -eq 0 ]
   mkbody 'Not recorded: the previous round has no review-findings block.'
   run python3 -I "$C" --prior "$B" "$TSV" "$TEST_TMPDIR/run.env" code-reviewer
-  [ "$status" -eq 1 ]; [[ "$output" == *"must be exactly 'None.'"* ]]
+  [ "$status" -eq 1 ]; [[ "$output" == *"must be exactly the line 'None (full review)'"* ]]
+  mkbody 'None.'
+  run python3 -I "$C" --prior "$B" "$TSV" "$TEST_TMPDIR/run.env" code-reviewer
+  [ "$status" -eq 1 ]; [[ "$output" == *"must be exactly the line 'None (full review)'"* ]]
+  mkbody 'None.' '[]' incremental
+  run python3 -I "$C" --prior "$B" "$TSV" "$TEST_TMPDIR/run.inc.env" code-reviewer
+  [ "$status" -eq 0 ]
 }
 
-@test "--prior: an open carried item and its object pass; the run file's MODE must match the body" {
+@test "--prior: a FULL body carrying prior-id marking is refused; an incremental carried open item passes; the run file's MODE must match the body" {
   local id1; id1=$(idof code-reviewer src/a.py 2 3 null-deref "NPE on None")
   prev "[$O1]"
   mkbody "- $id1 open src/a.py:2-3 regression_test: none" "[$O1]" full
   run python3 -I "$C" --prior "$B" "$TSV" "$TEST_TMPDIR/run.env" code-reviewer
+  [ "$status" -eq 1 ]; [[ "$output" == *"FULL round accepts no prior open/resolved marking"* ]]
+  mkbody "- $id1 open src/a.py:2-3 regression_test: none" "[$O1]" incremental
+  run python3 -I "$C" --prior "$B" "$TSV" "$TEST_TMPDIR/run.inc.env" code-reviewer
   [ "$status" -eq 0 ]
   mkbody "- $id1 open src/a.py:2-3 regression_test: none" "[$O1]" incremental
   run python3 -I "$C" --prior "$B" "$TSV" "$TEST_TMPDIR/run.env" code-reviewer
@@ -235,19 +247,19 @@ prev() { # prev <finds> [created] [updated] — a ledgered structured previous r
 
 @test "an open prior item with no family id (-) demands a FULL re-review, not an impossible count" {
   prev '[{"category":"c","evidence":"e","file":"src/a.py","lines":[2,3],"severity":"important","summary":"s"}]'
-  mkbody '- - open src/a.py:2-3 regression_test: none' '[]'
-  run python3 -I "$C" --prior "$B" "$TSV" "$TEST_TMPDIR/run.env" code-reviewer
+  mkbody '- - open src/a.py:2-3 regression_test: none' '[]' incremental
+  run python3 -I "$C" --prior "$B" "$TSV" "$TEST_TMPDIR/run.inc.env" code-reviewer
   [ "$status" -eq 1 ]
   [[ "$output" == *"has no family id"* ]]; [[ "$output" == *"re-run a FULL review"* ]]
   [[ "$output" != *"appears 0 times"* ]]
 }
 
-@test "P19: an edited previous comment is untrusted — never the previous round, None. carries in both modes" {
+@test "P19: an edited previous comment is untrusted — never the previous round; the mode's no-prior line carries in both modes" {
   prev '[]' 2026-01-01T00:00:00Z 2026-01-02T00:00:00Z
   mkbody 'None.' '[]' incremental
   run python3 -I "$C" --prior "$B" "$TSV" "$TEST_TMPDIR/run.inc.env" code-reviewer
   [ "$status" -eq 0 ]
-  mkbody 'None.' '[]' full
+  mkbody 'None (full review)' '[]' full
   run python3 -I "$C" --prior "$B" "$TSV" "$TEST_TMPDIR/run.env" code-reviewer
   [ "$status" -eq 0 ]
 }
@@ -255,17 +267,17 @@ prev() { # prev <finds> [created] [updated] — a ledgered structured previous r
 @test "P20/P21/P22: a dropped, duplicated, or extra prior item is refused" {
   local id1 id2; id1=$(idof code-reviewer src/a.py 2 3 null-deref "NPE on None"); id2=$(idof code-reviewer src/a.py 5 6 race "race on x")
   prev "[$O1,$O2]"
-  mkbody "- $id1 open src/a.py:2-3 regression_test: none" "[$O1]"      # id2 dropped
-  run python3 -I "$C" --prior "$B" "$TSV" "$TEST_TMPDIR/run.env" code-reviewer
+  mkbody "- $id1 open src/a.py:2-3 regression_test: none" "[$O1]" incremental      # id2 dropped
+  run python3 -I "$C" --prior "$B" "$TSV" "$TEST_TMPDIR/run.inc.env" code-reviewer
   [ "$status" -eq 1 ]; [[ "$output" == *"do not match the previous round exactly"* ]]
   prev "[$O1]"
   mkbody "- $id1 open src/a.py:2-3 regression_test: none
-- $id1 open src/a.py:2-3 regression_test: none" "[$O1]"                # duplicated
-  run python3 -I "$C" --prior "$B" "$TSV" "$TEST_TMPDIR/run.env" code-reviewer
+- $id1 open src/a.py:2-3 regression_test: none" "[$O1]" incremental                # duplicated
+  run python3 -I "$C" --prior "$B" "$TSV" "$TEST_TMPDIR/run.inc.env" code-reviewer
   [ "$status" -eq 1 ]; [[ "$output" == *"do not match the previous round exactly"* ]]
   mkbody "- $id1 open src/a.py:2-3 regression_test: none
-- 000000000000 open src/b.py:1-1 regression_test: none" "[$O1]"        # extra item
-  run python3 -I "$C" --prior "$B" "$TSV" "$TEST_TMPDIR/run.env" code-reviewer
+- 000000000000 open src/b.py:1-1 regression_test: none" "[$O1]" incremental        # extra item
+  run python3 -I "$C" --prior "$B" "$TSV" "$TEST_TMPDIR/run.inc.env" code-reviewer
   [ "$status" -eq 1 ]; [[ "$output" == *"do not match the previous round exactly"* ]]
 }
 
@@ -273,19 +285,19 @@ prev() { # prev <finds> [created] [updated] — a ledgered structured previous r
   local id1 id2; id1=$(idof code-reviewer src/a.py 2 3 null-deref "NPE on None"); id2=$(idof code-reviewer src/a.py 5 6 race "race on x")
   prev "[$O1,$O2]"
   mkbody "- $id1 open src/a.py:2-3 regression_test: none
-- $id2 resolved was=src/a.py:5-6 fix=src/b.py:1-2 regression_test: none" "[$O1,$O2]"   # id2 claimed resolved but still carried
-  run python3 -I "$C" --prior "$B" "$TSV" "$TEST_TMPDIR/run.env" code-reviewer
+- $id2 resolved was=src/a.py:5-6 fix=src/b.py:1-2 regression_test: none" "[$O1,$O2]" incremental   # id2 claimed resolved but still carried
+  run python3 -I "$C" --prior "$B" "$TSV" "$TEST_TMPDIR/run.inc.env" code-reviewer
   [ "$status" -eq 1 ]; [[ "$output" == *"still appears"* ]]
   mkbody "- $id1 open src/a.py:2-3 regression_test: none
-- $id2 resolved was=src/a.py:5-6 fix=src/b.py:1-2 regression_test: none" "[$O2]"        # id1 claimed open but dropped from the JSON
-  run python3 -I "$C" --prior "$B" "$TSV" "$TEST_TMPDIR/run.env" code-reviewer
+- $id2 resolved was=src/a.py:5-6 fix=src/b.py:1-2 regression_test: none" "[$O2]" incremental        # id1 claimed open but dropped from the JSON
+  run python3 -I "$C" --prior "$B" "$TSV" "$TEST_TMPDIR/run.inc.env" code-reviewer
   [ "$status" -eq 1 ]; [[ "$output" == *"appears 0 times"* ]]
 }
 
 @test "P28: a body claiming Not recorded while the previous round is structured is refused" {
   prev "[$O1]"
-  mkbody 'Not recorded: the previous round has no review-findings block.'
-  run python3 -I "$C" --prior "$B" "$TSV" "$TEST_TMPDIR/run.env" code-reviewer
+  mkbody 'Not recorded: the previous round has no review-findings block.' '[]' incremental
+  run python3 -I "$C" --prior "$B" "$TSV" "$TEST_TMPDIR/run.inc.env" code-reviewer
   [ "$status" -eq 1 ]; [[ "$output" == *"the previous round is structured: Prior findings must itemise it"* ]]
 }
 
@@ -367,7 +379,7 @@ prevp() { # prevp <pass> <finds> <version> <run-id> [footer-suffix] — a ledger
   [ "$status" -eq 1 ]; [[ "$output" == *"footer run= is not the run file's RUN_ID"* ]]
 }
 
-@test "(a) end-to-end footer shapes: every footer Step C accepts — per tier, version and run shape — is selected by the prior lookup (both modes)" {
+@test "(a) end-to-end footer shapes: incremental selects every footer shape Step C accepts — per tier, version and run shape; FULL reads no prior content at all" {
   local id1 idS idH
   id1=$(idof code-reviewer src/a.py 2 3 null-deref "NPE on None")
   idS=$(idof security-reviewer src/a.py 2 3 null-deref "NPE on None")
@@ -376,30 +388,31 @@ prevp() { # prevp <pass> <finds> <version> <run-id> [footer-suffix] — a ledger
   prevp security-reviewer      "[$O1]" v2.9.13 20250102T000000Z-bbbbbbbb
   prevp silent-failure-hunter  "[$O1]" v2.12.0 20250103T000000Z-cccccccc
   prevp code-reviewer          "[$O1]" v2.12.0 20250104T000000Z-dddddddd " tier=trivial"
-  mkbody "- $id1 open src/a.py:2-3 regression_test: none" "[$O1]" full code-reviewer
+  # FULL: no prior lookup happens — the fixed 'None (full review)' line passes with open
+  # structured priors sitting in the TSV, exactly as the plan invariant requires
+  mkbody '' '[]' full code-reviewer
   run python3 -I "$C" --prior "$B" "$TSV" "$TEST_TMPDIR/run.env" code-reviewer
   [ "$status" -eq 0 ]
-  mkbody "- $idS open src/a.py:2-3 regression_test: none" "[$O1]" full security-reviewer
-  run python3 -I "$C" --prior "$B" "$TSV" "$TEST_TMPDIR/run.env" security-reviewer
-  [ "$status" -eq 0 ]
-  mkbody "- $idH open src/a.py:2-3 regression_test: none" "[$O1]" full silent-failure-hunter
-  run python3 -I "$C" --prior "$B" "$TSV" "$TEST_TMPDIR/run.env" silent-failure-hunter
-  [ "$status" -eq 0 ]
+  # incremental: the prior lookup selects the latest ledgered comment per pass — the
+  # code-reviewer body here resolves against the tier=trivial-shaped comment (20250104)
   mkbody "- $id1 open src/a.py:2-3 regression_test: none" "[$O1]" incremental code-reviewer
   run python3 -I "$C" --prior "$B" "$TSV" "$TEST_TMPDIR/run.inc.env" code-reviewer
   [ "$status" -eq 0 ]
   mkbody "- $idS open src/a.py:2-3 regression_test: none" "[$O1]" incremental security-reviewer
   run python3 -I "$C" --prior "$B" "$TSV" "$TEST_TMPDIR/run.inc.env" security-reviewer
   [ "$status" -eq 0 ]
+  mkbody "- $idH open src/a.py:2-3 regression_test: none" "[$O1]" incremental silent-failure-hunter
+  run python3 -I "$C" --prior "$B" "$TSV" "$TEST_TMPDIR/run.inc.env" silent-failure-hunter
+  [ "$status" -eq 0 ]
 }
 
-@test "(a) end-to-end: a prior footer with trailing whitespace — accepted by Step C's structure check — is still selected, never silently skipped" {
-  local id1; id1=$(idof code-reviewer src/a.py 2 3 null-deref "NPE on None")
+@test "(a) end-to-end: a prior footer with trailing whitespace — accepted by Step C's structure check — is still selected incrementally, never silently skipped; FULL refuses resolved marking too" {
+  local id1 id2; id1=$(idof code-reviewer src/a.py 2 3 null-deref "NPE on None"); id2=$(idof code-reviewer src/a.py 5 6 race "race on x")
   prevp code-reviewer "[$O1]" v2.12.0 20250105T000000Z-eeeeeeee " "
-  mkbody "- $id1 open src/a.py:2-3 regression_test: none" "[$O1]" full code-reviewer
-  run python3 -I "$C" --prior "$B" "$TSV" "$TEST_TMPDIR/run.env" code-reviewer
-  [ "$status" -eq 0 ]
   mkbody "- $id1 open src/a.py:2-3 regression_test: none" "[$O1]" incremental code-reviewer
   run python3 -I "$C" --prior "$B" "$TSV" "$TEST_TMPDIR/run.inc.env" code-reviewer
   [ "$status" -eq 0 ]
+  mkbody "- $id2 resolved was=src/a.py:5-6 fix=src/b.py:1-2 regression_test: none" '[]' full code-reviewer
+  run python3 -I "$C" --prior "$B" "$TSV" "$TEST_TMPDIR/run.env" code-reviewer
+  [ "$status" -eq 1 ]; [[ "$output" == *"FULL round accepts no prior open/resolved marking"* ]]
 }

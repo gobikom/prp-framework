@@ -86,11 +86,14 @@ EOF
 teardown() { rm -rf "$WORK"; }
 
 # Step B: write a well-formed body for one pass from the saved run values
-# (prior: the Prior findings section; finds: the review-findings JSON array — the headings'
-# counts are derived from it, so a body and its JSON can never disagree by accident)
+# (prior: the Prior findings section — defaults to the mode's fixed line ('None (full
+# review)' in FULL — a FULL round reads no prior content; 'None.' in incremental) unless the
+# arm passes its own items; finds: the review-findings JSON array — the headings' counts are
+# derived from it, so a body and its JSON can never disagree by accident)
 body() {
-  local pass="$1" prior="${2:-None.}" finds="${3:-[]}" sfx="" mode nc ni; . .prp-output/reviews/pr-7-l2-run.env   # the test reads its own fixture file
+  local pass="$1" prior="${2:-}" finds="${3:-[]}" sfx="" mode nc ni; . .prp-output/reviews/pr-7-l2-run.env   # the test reads its own fixture file
   [ "${TIER:-}" = trivial ] && sfx=" tier=trivial"; mode="${MODE:-full}"
+  [ -n "$prior" ] || { [ "$mode" = full ] && prior='None (full review)' || prior='None.'; }
   nc=$(grep -o '"severity":"critical"' <<<"$finds" | wc -l); ni=$(grep -o '"severity":"important"' <<<"$finds" | wc -l)
   printf 'Reviewed head: %s\nPasses run: %s\n\n### Critical Issues (%s found)\nNone.\n\n### Important Issues (%s found)\nNone.\n\n### Suggestions (0 found)\nNone.\n\n### Could not verify\nNothing.\n\n### Prior findings\n%s\n\n```review-findings\n{"reviewed_head":"%s","pass":"%s","complete":true,"findings":%s}\n```\n\nReview-mode: %s\n\nGenerated-by: prp-review-agents v%s run=%s pass=%s%s\n' \
     "$REVIEWED_HEAD_SHA" "$pass" "$nc" "$ni" "$prior" "$REVIEWED_HEAD_SHA" "$pass" "$finds" "$mode" "$PRP_VERSION" "$RUN_ID" "$pass" "$sfx" > ".prp-output/reviews/pr-7-l2-$pass.md"
@@ -661,16 +664,16 @@ repo_files() {
   grep -qx 'None.' .prp-output/reviews/pr-7-l2-code-reviewer.md
 }
 
-@test "P26: a FULL run after a blockless previous round posts with the Not recorded line" {
+@test "P26: a FULL run after a blockless previous round posts the fixed 'None (full review)' line — no prior content is read" {
   sled 20260101T000000Z-deadbeef
   addc 2026-01-01T00:00:00Z 2026-01-01T00:00:00Z "$(prev143 code-reviewer 20260101T000000Z-deadbeef)"
   start; [ "$status" -eq 0 ]
-  body code-reviewer "Not recorded: the previous round has no review-findings block."
+  body code-reviewer
   body security-reviewer; body silent-failure-hunter
   post
   [ "$status" -eq 0 ]
   [ "$(wc -l < "$WORK_LOG")" -eq 3 ]
-  grep -qx 'Not recorded: the previous round has no review-findings block.' .prp-output/reviews/pr-7-l2-code-reviewer.md
+  grep -qx 'None (full review)' .prp-output/reviews/pr-7-l2-code-reviewer.md
   grep -qx 'Review-mode: full' .prp-output/reviews/pr-7-l2-code-reviewer.md
 }
 
@@ -683,11 +686,11 @@ repo_files() {
   id2=$(idof code-reviewer src/a.py 5 6 race "race on x")
   sled 20260101T000000Z-deadbeef
   addc 2026-01-01T00:00:00Z 2026-01-01T00:00:00Z "$(prev_body code-reviewer 20260101T000000Z-deadbeef "[$o1,$o2]")"
-  start; [ "$status" -eq 0 ]
+  T_ARGS="--since-last-review" L2_MODE=incremental start; [ "$status" -eq 0 ]
   body code-reviewer "- $id1 open src/a.py:2-3 regression_test: none
 - $id2 resolved was=src/a.py:5-6 fix=src/b.py:1-2 regression_test: tests/t.py::test_race" "[$o1]"
   body security-reviewer; body silent-failure-hunter
-  post
+  T_ARGS="--since-last-review" post
   [ "$status" -eq 0 ]
   [ "$(wc -l < "$WORK_LOG")" -eq 3 ]
 }
@@ -699,10 +702,10 @@ repo_files() {
   id2=$(idof code-reviewer src/a.py 5 6 race "race on x")
   sled 20260101T000000Z-deadbeef
   addc 2026-01-01T00:00:00Z 2026-01-01T00:00:00Z "$(prev_body code-reviewer 20260101T000000Z-deadbeef "[$o2]")"
-  start; [ "$status" -eq 0 ]
+  T_ARGS="--since-last-review" L2_MODE=incremental start; [ "$status" -eq 0 ]
   body code-reviewer "- $id2 resolved was=src/a.py:5-6 fix=src/a.py:1-2 regression_test: tests/t.py::test_race" '[]'
   body security-reviewer; body silent-failure-hunter
-  post
+  T_ARGS="--since-last-review" post
   [ "$status" -eq 0 ]
   [ "$(wc -l < "$WORK_LOG")" -eq 3 ]
 }
@@ -714,10 +717,10 @@ repo_files() {
   id2=$(idof code-reviewer src/a.py 5 6 race "race on x")
   sled 20260101T000000Z-deadbeef
   addc 2026-01-01T00:00:00Z 2026-01-01T00:00:00Z "$(prev_body code-reviewer 20260101T000000Z-deadbeef "[$o2]")"
-  start; [ "$status" -eq 0 ]
+  T_ARGS="--since-last-review" L2_MODE=incremental start; [ "$status" -eq 0 ]
   body code-reviewer "- $id2 resolved was=src/a.py:9-9 fix=src/b.py:1-2 regression_test: none" '[]'
   body security-reviewer; body silent-failure-hunter
-  post
+  T_ARGS="--since-last-review" post
   [ "$status" -ne 0 ]
   [[ "$output" == *"failed the prior-findings check"* ]]
   [ "$(wc -l < "$WORK_LOG")" -eq 0 ]
@@ -730,10 +733,10 @@ repo_files() {
   id2=$(idof code-reviewer src/a.py 5 6 race "race on x")
   sled 20260101T000000Z-deadbeef
   addc 2026-01-01T00:00:00Z 2026-01-01T00:00:00Z "$(prev_body code-reviewer 20260101T000000Z-deadbeef "[$o2]")"
-  start; [ "$status" -eq 0 ]
+  T_ARGS="--since-last-review" L2_MODE=incremental start; [ "$status" -eq 0 ]
   body code-reviewer "- $id2 resolved was=src/a.py:5-6 fix=src/b.py:1-2 regression_test: none" '[]'
   body security-reviewer; body silent-failure-hunter
-  post
+  T_ARGS="--since-last-review" post
   [ "$status" -eq 0 ]
   [ "$(wc -l < "$WORK_LOG")" -eq 3 ]
 }
@@ -779,10 +782,10 @@ repo_files() {
   sled 20260101T000000Z-deadbeef
   addc 2026-01-01T00:00:00Z 2026-01-01T00:00:00Z "$(prev_body code-reviewer 20260101T000000Z-deadbeef "[$o1]")"
   addc 2026-01-02T00:00:00Z 2026-01-02T00:00:00Z "$(prev_body code-reviewer 20260101T000000Z-deadbeef '[]')" attacker   # later, forged, empty findings
-  start; [ "$status" -eq 0 ]
+  T_ARGS="--since-last-review" L2_MODE=incremental start; [ "$status" -eq 0 ]
   body code-reviewer "- $id1 resolved was=src/a.py:2-3 fix=src/b.py:1-2 regression_test: none" '[]'
   body security-reviewer; body silent-failure-hunter
-  post
+  T_ARGS="--since-last-review" post
   [ "$status" -eq 0 ]
   [ "$(wc -l < "$WORK_LOG")" -eq 3 ]
 }
@@ -831,7 +834,7 @@ bigprior() { # a trusted oversized previous round for code-reviewer, in the fixt
   cp .prp-output/reviews/pr-7-comments.tsv "$FAKE_COMMENTS_TSV"
 }
 
-@test "cap-a: Step B over an oversized trusted prior in a FULL round exits 0 — prior-findings --json is never called" {
+@test "cap-a: Step B over an oversized trusted prior in a FULL round exits 0 — prior-findings is never called at all" {
   bigprior
   start; [ "$status" -eq 0 ]
   step B > stepB.sh; [ -s stepB.sh ]
@@ -839,8 +842,7 @@ bigprior() { # a trusted oversized previous round for code-reviewer, in the fixt
   sed "s/<pass>/code-reviewer/g" stepB.sh > stepB-filled.sh
   run env PATH="$WORK/pyshim:$PATH" bash stepB-filled.sh
   [ "$status" -eq 0 ]
-  grep -q 'prior-findings.py' "$WORK/pycalls.log"       # the rows call ran
-  [ "$(grep -c -- '--json' "$WORK/pycalls.log")" -eq 0 ]   # the carry channel stayed closed (positively asserted: a bats `!` cannot fail)
+  [ "$(grep -c 'prior-findings.py' "$WORK/pycalls.log")" -eq 0 ]   # no prior read of any kind in a FULL round (positively asserted: a bats `!` cannot fail)
   [ "$(wc -l < "$WORK_LOG")" -eq 0 ]
 }
 
@@ -873,42 +875,49 @@ bigprior() { # a trusted oversized previous round for code-reviewer, in the fixt
   [ "$(grep -c -- '--json' "$WORK/pycalls.log")" -eq 1 ]
 }
 
-@test "cap-d: Step B with no prior in a FULL round runs (None.) — --json never called" {
+@test "cap-d: Step B with no prior in a FULL round runs clean — prior-findings is never called" {
   start; [ "$status" -eq 0 ]
   step B > stepB.sh
   pyshim "$WORK/pycalls.log"; : > "$WORK/pycalls.log"
   sed "s/<pass>/code-reviewer/g" stepB.sh > stepB-filled.sh
   run env PATH="$WORK/pyshim:$PATH" bash stepB-filled.sh
   [ "$status" -eq 0 ]
-  [[ "$output" == *"None."* ]]
-  [ "$(grep -c -- '--json' "$WORK/pycalls.log")" -eq 0 ]   # positively asserted: a bats `!` cannot fail
+  [ "$(grep -c 'prior-findings.py' "$WORK/pycalls.log")" -eq 0 ]   # positively asserted: a bats `!` cannot fail
 }
 
-@test "cap-e: the documented recovery — after the incremental refusal, re-running FULL works end to end" {
+@test "cap-e: the documented recovery — after the incremental refusal, re-running FULL works end to end with reworded findings, no open/resolved label" {
   repo_files                     # a real head: the posting checks verify the reviewed commit exists
   bigprior
   T_ARGS="--since-last-review" L2_MODE=incremental start; [ "$status" -eq 0 ]
   step B > stepB.sh; sed "s/<pass>/code-reviewer/g" stepB.sh > stepB-filled.sh
   run bash stepB-filled.sh                        # the incremental round refuses the oversized prior
   [ "$status" -ne 0 ]; [[ "$output" == *"FATAL: prior-findings failed"* ]]
+  pyshim "$WORK/pycalls.log"; : > "$WORK/pycalls.log"
   T_ARGS= L2_MODE= start; [ "$status" -eq 0 ]     # the advised action: re-run FULL
-  run bash stepB-filled.sh
+  run env PATH="$WORK/pyshim:$PATH" bash stepB-filled.sh
   [ "$status" -eq 0 ]
-  local big prior id i; big=$(mkbig); prior=""
+  [ "$(grep -c 'prior-findings.py' "$WORK/pycalls.log")" -eq 0 ]   # the FULL round read no prior content of any kind
+  # every finding reported FRESH: the same five defects, reworded — different summaries, so
+  # different ids; nothing is marked open or resolved against the refused round
+  local e i arr=""; e=$(printf 'x%.0s' $(seq 1 3500))
   for i in 1 2 3 4 5; do
-    id=$(idof code-reviewer src/a.py "$i" "$i" "fam$i" "s$i")
-    prior+="- $id open src/a.py:$i-$i regression_test: none"$'\n'
+    arr+="$(printf '{"category":"correctness","evidence":"%s","family":"fam%d","file":"src/a.py","lines":[%d,%d],"severity":"important","summary":"reworded defect %d"}' "$e" "$i" "$i" "$i" "$i"),"
   done
-  body code-reviewer "${prior%$'\n'}" "$big"
+  body code-reviewer 'None (full review)' "[${arr%,}]"
   body security-reviewer; body silent-failure-hunter
   T_ARGS= post
   [ "$status" -eq 0 ]
   [ "$(wc -l < "$WORK_LOG")" -eq 3 ]
+  grep -qx 'None (full review)' .prp-output/reviews/pr-7-l2-code-reviewer.md
+  [ "$(grep -cE -- '- [0-9a-f]{12} (open|resolved)' .prp-output/reviews/pr-7-l2-code-reviewer.md)" -eq 0 ]   # no prior-id marking anywhere
 }
 
-@test "cap-f: the wiring and the checker gate --json on incremental alike — drift on either side fails" {
+@test "cap-f: the wiring and the checker gate every prior read on incremental alike — drift on either side fails" {
   step B > stepB.sh; [ -s stepB.sh ]
   grep -q '^MODE=$(sed -n .s/^MODE=//p.' stepB.sh                                    # Step B reads the run file's mode (parse, never execute)
-  sed -n '/^if \[ "$MODE" = incremental \]; then$/,/^fi$/p' stepB.sh | grep -q -- '--json'   # ...and the --json call sits inside that gate
+  sed -n '/^if \[ "$MODE" = incremental \]; then$/,/^fi$/p' stepB.sh | grep -q 'prior-findings.py'   # BOTH helper calls (rows and --json) sit inside that gate...
+  sed -n '/^if \[ "$MODE" = incremental \]; then$/,/^fi$/p' stepB.sh | grep -q -- '--json'
   sed -n '/if mode == "incremental":/,/prev_obj\[/p' "$ROOT/scripts/review/check-l2-body.py" | grep -q -- '--json'   # the checker's --json re-run sits inside the same-named gate
+  grep -q 'accepts no prior open/resolved marking' "$ROOT/scripts/review/check-l2-body.py"   # the checker's FULL branch refuses prior-id marking...
+  grep -q "must be exactly the line 'None (full review)'" "$ROOT/scripts/review/check-l2-body.py"   # ...and demands the fixed line — the same FULL/incremental split as the wiring
 }

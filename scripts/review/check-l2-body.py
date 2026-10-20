@@ -11,10 +11,14 @@ The older format checks (line 1/2, headings, footer) stay in Step C itself.
 body — and re-runs prior-findings.py over the same TSV and run.env with that trusted
 value (the run file carries RUN_ID/MODE plus ORCHESTRATOR_LOGIN, the only trusted
 author; prior-findings enforces author + start-comment ledger + head binding), enforcing,
-per SO#1367 R2-1/R3-2: the body's Prior findings itemise the previous round's critical/
-important findings exactly (none dropped, duplicated or added), every open item is in this
-round's JSON exactly once (incremental: canonically equal to the previous object), every
-resolved item is absent, and the Review-mode line matches the run file's MODE. Line 2, the
+per SO#1367 R2-1/R3-2 — in an INCREMENTAL run — that the body's Prior findings itemise the
+previous round's critical/important findings exactly (none dropped, duplicated or added),
+every open item is in this round's JSON exactly once (canonically equal to the previous
+object), every resolved item is absent, and the Review-mode line matches the run file's
+MODE. In a FULL round no prior lookup happens at all: the Prior findings section must be
+exactly the fixed line "None (full review)" and any prior-id open/resolved marking is
+refused — every finding is reported fresh (plan 185-cap-scope-replan, round-5 extension).
+Line 2, the
 review-findings JSON's pass and the footer's pass= must all equal the expected pass, and the
 footer's run= must equal the run file's RUN_ID.
 Residual limitation (threat model, plan rev 5 R1): an actor with repo write access can
@@ -27,6 +31,7 @@ from collections import Counter
 FENCE = "```review-findings"
 PRIOR_H = "### Prior findings"
 NOT_RECORDED = "Not recorded: the previous round has no review-findings block."
+NONE_FULL = "None (full review)"
 PASS_NAMES = ("code-reviewer", "security-reviewer", "silent-failure-hunter")
 FOOTER_RE = re.compile(r'^Generated-by: prp-review-agents v\S+ run=(\S+) pass=(\S+)( tier=trivial)?$')
 OPEN = re.compile(r'^- ([0-9a-f]{12}|-) open ([^ :]+):([0-9]+)-([0-9]+) regression_test: none$')
@@ -86,7 +91,7 @@ def structure(lines):
     if not m: why.append("after the fence: only blanks, exactly one 'Review-mode: full|incremental' line, only blanks, then the 'Generated-by:' footer as the last line")
     items = [l.rstrip() for l in lines[p + 1:f] if l.strip()]
     if not items: why.append("Prior findings is empty")
-    elif items != ["None."] and not (len(items) == 1 and items[0].startswith("Not recorded: ")):
+    elif items != ["None."] and items != [NONE_FULL] and not (len(items) == 1 and items[0].startswith("Not recorded: ")):
         for l in items:
             if not (OPEN.match(l) or RESOLVED.match(l)):
                 why.append(f"Prior findings line not in the item shape: {l[:80]!r}")
@@ -169,6 +174,14 @@ def check_prior(path, tsv, env_path, xpas):
     except (json.JSONDecodeError, ValueError): return ["review-findings is not JSON"]
     if doc.get("pass") != xpas:
         return ["review-findings pass is not the expected pass"]
+    if mode == "full":
+        # the plan invariant (185-cap-scope-replan, round-5 extension): a FULL round never
+        # reads prior-round content — no prior lookup, no open/resolved marking. Findings are
+        # reported fresh and the section is the fixed line; prior-id marking exists only in
+        # incremental rounds (below).
+        if any(OPEN.match(l) or RESOLVED.match(l) for l in items):
+            return ["a FULL round accepts no prior open/resolved marking — report findings fresh and write the line 'None (full review)'"]
+        return [] if items == [NONE_FULL] else ["a FULL round's Prior findings must be exactly the line 'None (full review)'"]
     r = prior_rows(tsv, xpas, env_path)
     if r.returncode == 5: return [f"prior-findings refused the prior-round evidence: {r.stderr.strip()[:160]}"]
     if r.returncode != 0: return [f"prior-findings: {r.stderr.strip()[:160]}"]
