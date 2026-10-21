@@ -281,7 +281,7 @@ PYX
   [ "$(grep -c 'def split_frontmatter' "$script")" -eq 1 ]
 }
 
-# ── A1 round-1 fixes (#161): lenient but VISIBLE; guarded output-side reads ──
+# ── A1 round-1 fixes (#161): strict overlay; guarded output-side reads ──
 
 @test "A1-r3 command carrying a frontmatter key (adapter-only) is an unknown command key naming the command" {
   make_tree
@@ -445,4 +445,85 @@ expect_counted_error() {
   # and read_utf8 must exist exactly once
   [ "$(grep -c 'def read_utf8' "$script")" -eq 1 ] || {
     echo "read_utf8 is not defined exactly once" >&2; return 1; }
+}
+
+# ── A1 review round 1 (#161): stat, parse-value, type and write paths ───────
+
+@test "A1-r4 row: overlay frontmatter with an impossible date — counted error, no traceback" {
+  make_tree
+  printf -- '---\nd: 2001-13-45\n---\n# objective\nOBJ\n' > "$TREE/prompts/overlays/claude-code/plan.md"
+  gen
+  expect_counted_error "prompts/overlays/claude-code/plan.md"
+}
+
+@test "A1-r4 row: adapters.yml with an impossible date — Error: Invalid YAML, exit 1, no traceback" {
+  make_tree
+  printf 'zz: 2001-13-45\n' >> "$TREE/adapters.yml"
+  gen
+  [ "$rc" -eq 1 ] && echo "$err" | grep -qF "Invalid YAML" && ! echo "$err" | grep -q Traceback \
+    || { echo "rc=$rc err=$err" >&2; return 1; }
+}
+
+@test "A1-r4 row: overlay frontmatter that is a list — counted error naming the file" {
+  make_tree
+  printf -- '---\n- a\n---\n# objective\nOBJ\n' > "$TREE/prompts/overlays/claude-code/plan.md"
+  gen
+  expect_counted_error "must be a mapping"
+}
+
+@test "A1-r4 row: overlay skip_before that is not a string — counted error" {
+  make_tree
+  printf -- '---\nskip_before: 5\n---\n# objective\nOBJ\n' > "$TREE/prompts/overlays/claude-code/plan.md"
+  gen
+  expect_counted_error "'skip_before'"
+}
+
+@test "A1-r4 row: overlay directory unreadable (chmod 000) — counted error, no traceback" {
+  [ "$(id -u)" -ne 0 ] || skip "root reads chmod 000 dirs"
+  make_tree
+  chmod 000 "$TREE/prompts/overlays/claude-code"
+  gen
+  chmod 755 "$TREE/prompts/overlays/claude-code"
+  [ "$rc" -eq 1 ] && echo "$err" | grep -qF "prompts/overlays/claude-code" && ! echo "$err" | grep -q Traceback \
+    || { echo "rc=$rc err=$err" >&2; return 1; }
+  echo "$out" | grep -qE ', [1-9][0-9]* errors' || { echo "error not counted" >&2; return 1; }
+}
+
+@test "A1-r4 row: dangling-symlink overlay — counted error, not a silent skip" {
+  make_tree
+  ln -sf /nonexistent-overlay-target "$TREE/prompts/overlays/claude-code/plan.md"
+  gen
+  expect_counted_error "prompts/overlays/claude-code/plan.md"
+}
+
+@test "A1-r4 row: output directory unreadable (chmod 000) — counted error, no traceback" {
+  [ "$(id -u)" -ne 0 ] || skip "root reads chmod 000 dirs"
+  make_tree
+  gen
+  [ "$rc" -eq 0 ]
+  chmod 000 "$TREE/adapters/claude-code"
+  gen
+  chmod 755 "$TREE/adapters/claude-code"
+  [ "$rc" -eq 1 ] && echo "$err" | grep -qF "adapters/claude-code" && ! echo "$err" | grep -q Traceback \
+    || { echo "rc=$rc err=$err" >&2; return 1; }
+  echo "$out" | grep -qE ', [1-9][0-9]* errors' || { echo "error not counted" >&2; return 1; }
+}
+
+@test "A1-r4 row: unencodable value (lone surrogate) — counted error, existing output not truncated" {
+  make_tree
+  gen
+  [ "$rc" -eq 0 ]
+  local before; before=$(wc -c < "$TREE/adapters/claude-code/prp-qa.md")
+  python3 - "$TREE/adapters.yml" <<'PYS'
+import sys, yaml
+p = sys.argv[1]
+c = yaml.safe_load(open(p, encoding="utf-8"))
+c["commands"]["qa"]["description"] = {"default": "\ud800 x"}
+open(p, "w", encoding="utf-8", errors="surrogatepass").write(
+    yaml.safe_dump(c, sort_keys=False, allow_unicode=True))
+PYS
+  gen
+  [ "$rc" -eq 1 ] && ! echo "$err" | grep -q Traceback || { echo "rc=$rc err=$err" >&2; return 1; }
+  [ "$(wc -c < "$TREE/adapters/claude-code/prp-qa.md")" -eq "$before" ] \
+    || { echo "existing output was truncated" >&2; return 1; }
 }

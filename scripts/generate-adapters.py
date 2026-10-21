@@ -13,6 +13,7 @@ Usage:
 """
 
 import argparse
+import os
 import re
 import sys
 from pathlib import Path
@@ -51,15 +52,24 @@ class GenerationError(Exception):
     it, and its per-command boundary catches it)."""
 
 
-def read_utf8(path) -> str:
-    """The ONLY filesystem read in this script (#161 round-3 re-plan).
+def read_utf8(path, optional: bool = False):
+    """The ONLY filesystem access in this script (#161 round-3 re-plan).
 
     Any OSError or UnicodeDecodeError becomes a GenerationError naming the
     file and the exception type, so no read can end in a traceback or a
     silent exit 0. Callers count it (generate_all) or exit 1 (load_config).
+    optional=True returns None for a file that is absent, or whose parent is
+    not a directory (no stat() beside
+    the read: Path.exists() raises PermissionError); a dangling symlink is
+    an error, not an absent file.
     """
     try:
         return Path(path).read_text(encoding="utf-8")
+    except (FileNotFoundError, NotADirectoryError) as e:
+        if optional and not os.path.islink(path):
+            return None
+        raise GenerationError(
+            f"error: Cannot read {display_path(path)}: {type(e).__name__}: {e}")
     except (OSError, UnicodeDecodeError) as e:
         raise GenerationError(
             f"error: Cannot read {display_path(path)}: {type(e).__name__}: {e}")
@@ -93,13 +103,13 @@ KNOWN_COMMAND_KEYS = {"description", "description-overrides", "argument-hint",
 
 def load_config() -> dict:
     """Load and validate adapters.yml config."""
-    if not CONFIG_PATH.exists():
-        print(f"Error: Config file not found: {CONFIG_PATH}", file=sys.stderr)
-        sys.exit(1)
-
     try:
-        config = yaml.safe_load(read_utf8(CONFIG_PATH))
-    except yaml.YAMLError as e:
+        text = read_utf8(CONFIG_PATH, optional=True)
+        if text is None:
+            print(f"Error: Config file not found: {CONFIG_PATH}", file=sys.stderr)
+            sys.exit(1)
+        config = yaml.safe_load(text)
+    except (yaml.YAMLError, ValueError) as e:
         print(f"Error: Invalid YAML in {CONFIG_PATH}: {e}", file=sys.stderr)
         sys.exit(1)
     except GenerationError as e:
@@ -259,10 +269,9 @@ def read_overlay(adapter: str, name: str) -> dict | None:
     ...content appended after main body...
     """
     path = OVERLAYS_DIR / adapter / f"{name}.md"
-    if not path.exists():
+    text = read_utf8(path, optional=True)
+    if text is None:
         return None
-
-    text = read_utf8(path)
 
     # Parse YAML frontmatter through the ONE splitter, split_frontmatter.
     # A malformed region (parse error or invalid YAML) is a GenerationError
@@ -273,10 +282,18 @@ def read_overlay(adapter: str, name: str) -> dict | None:
     if fm is not None:
         try:
             meta = yaml.safe_load(fm)
-        except yaml.YAMLError as e:
+        except (yaml.YAMLError, ValueError) as e:
             raise GenerationError(
                 f"error: invalid overlay frontmatter YAML in "
                 f"{display_path(path)}: {e}")
+        if meta is not None and not isinstance(meta, dict):
+            raise GenerationError(
+                f"error: overlay frontmatter in {display_path(path)} must be "
+                f"a mapping, got {type(meta).__name__}")
+        if meta and not isinstance(meta.get("skip_before", ""), str):
+            raise GenerationError(
+                f"error: overlay frontmatter 'skip_before' in "
+                f"{display_path(path)} must be a string")
         if meta:
             overlay["meta"] = meta
         text = body.strip()
@@ -603,6 +620,14 @@ def generate_all(config: dict, adapter_filter: str | None = None,
                 print(f"  {e}", file=sys.stderr)
                 stats["errors"] += 1
                 continue
+            except (ValueError, TypeError, AttributeError, KeyError) as e:
+                # Last resort for the invariant "never a traceback": a bug or
+                # an input shape no check anticipated is still a named,
+                # counted error that fails the run.
+                print(f"  error: unexpected {type(e).__name__} generating "
+                      f"{adapter_name}/{cmd_name}: {e}", file=sys.stderr)
+                stats["errors"] += 1
+                continue
 
             if not content:
                 stats["skipped"] += 1
@@ -629,25 +654,24 @@ def generate_all(config: dict, adapter_filter: str | None = None,
                 continue
 
             # Check if content changed
-            if out_path.exists():
-                try:
-                    existing = read_utf8(out_path)
-                except GenerationError as e:
-                    # Never overwrite an output the generator could not read:
-                    # named error, counted, continue (the write path below is
-                    # unreachable for this file because we `continue` here).
-                    print(f"  {e}", file=sys.stderr)
-                    stats["errors"] += 1
-                    continue
+            try:
+                existing = read_utf8(out_path, optional=True)
+            except GenerationError as e:
+                # Never overwrite an output the generator could not read:
+                # named error, counted, continue (the write path below is
+                # unreachable for this file because we `continue` here).
+                print(f"  {e}", file=sys.stderr)
+                stats["errors"] += 1
+                continue
+            if existing is None:
+                if show_diff:
+                    print(f"  [NEW] {out_path}")
+            else:
                 if existing == content:
                     stats["unchanged"] += 1
                     continue
-
                 if show_diff:
                     print(f"  [CHANGED] {out_path}")
-            else:
-                if show_diff:
-                    print(f"  [NEW] {out_path}")
 
             # Ensure parent directory exists (for codex prp-{name}/ dirs)
             try:
@@ -659,9 +683,11 @@ def generate_all(config: dict, adapter_filter: str | None = None,
                 continue
 
             try:
-                out_path.write_text(content, encoding="utf-8")
+                # encode BEFORE the file is opened: an unencodable value
+                # (lone surrogate) must not truncate the existing output
+                out_path.write_bytes(content.encode("utf-8"))
                 stats["generated"] += 1
-            except OSError as e:
+            except (OSError, UnicodeEncodeError) as e:
                 print(f"  ERROR: Failed to write {display_path(out_path)}: {e}",
                       file=sys.stderr)
                 stats["errors"] += 1
