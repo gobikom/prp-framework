@@ -4,7 +4,8 @@
 Usage: fault_inject.py <tree> <class> <exception> [fresh]
 Patches ONE failure class to raise <exception> for ONE target input, runs
 main(), exits with its code (3 + "PROPAGATED" if KeyboardInterrupt/SystemExit
-escapes). Classes: stat read yaml-config yaml-overlay overlay-type write.
+escapes). Classes: stat read yaml-config yaml-overlay overlay-type write surrogate
+(surrogate = a "bad\\ud800" adapter beside a good one).
 Unless "fresh"/"write", an unpatched run first populates adapters/; for "stat"
 one output is then made stale so mkdir (is_dir -> Path.stat) runs.
 """
@@ -16,7 +17,7 @@ import sys
 import yaml
 
 tree, klass, exc_name = sys.argv[1:4]
-fresh = (len(sys.argv) > 4 and sys.argv[4] == "fresh") or klass == "write"
+fresh = (len(sys.argv) > 4 and sys.argv[4] == "fresh") or klass in ("write", "surrogate")
 
 EXCEPTIONS = {
     "OSError": lambda: OSError(5, "injected I/O error"),
@@ -32,9 +33,7 @@ spec = importlib.util.spec_from_file_location(
     "generate_adapters", pathlib.Path(tree) / "scripts" / "generate-adapters.py")
 gen = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(gen)
-PROMPT = "prompts/qa.md"
-OUT_DIR = "adapters/codex/prp-qa"
-OUT_FILE = "adapters/codex/prp-qa/SKILL.md"
+PROMPT, OUT_DIR, OUT_FILE = "prompts/qa.md", "adapters/codex/prp-qa", "adapters/codex/prp-qa/SKILL.md"
 
 
 def wrap_path_method(name, fragment):
@@ -60,8 +59,6 @@ def patch_yaml(marker, result=None):
 
 
 class BadMapping(dict):
-    """Passes isinstance(dict) and then raises on the value-type check."""
-
     def get(self, *a, **kw):
         raise make_exc()
 
@@ -79,6 +76,15 @@ def apply_patch():
         patch_yaml("command: plan", result=lambda: BadMapping(command="plan"))
     elif klass == "write":
         wrap_path_method("write_bytes", OUT_FILE)
+    elif klass == "surrogate":
+        orig = gen.load_config
+
+        def load_config():
+            cfg = orig()
+            cfg["commands"] = {"qa": cfg["commands"]["qa"]}
+            cfg["adapters"]["bad\ud800"] = dict(cfg["adapters"]["claude-code"])
+            return cfg
+        gen.load_config = load_config
     else:
         raise SystemExit(f"unknown class {klass}")
 
