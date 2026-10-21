@@ -19,8 +19,12 @@ git clone https://github.com/YOUR_USERNAME/prp-framework.git
 cd prp-framework
 
 # Install dev dependencies (for running tests)
-brew install bats-core jq   # macOS
-# apt-get install bats jq   # Ubuntu/Debian
+brew install bats-core jq bubblewrap   # macOS
+# apt-get install bats jq bubblewrap   # Ubuntu/Debian
+# Note: the sandbox tests (tests/scripts/sandbox.bats) require bubblewrap (bwrap).
+# On Ubuntu 24.04, bwrap may fail with "Operation not permitted" due to AppArmor;
+# the CI workaround (see .github/workflows/ci.yml) is:
+#   sudo sysctl kernel.apparmor_restrict_unprivileged_userns=0
 
 # Create feature branch
 git checkout -b feature/your-feature-name
@@ -39,6 +43,7 @@ cd .prp && ./scripts/install.sh
 # Run every test suite
 bats tests/install/install.bats tests/run-all/state-file.bats tests/ralph/ralph-stop.bats \
      tests/scripts/scripts.bats tests/commands/structure.bats tests/adapters/parity.bats \
+     tests/bench/review-cost.bats tests/bench/review-rounds.bats \
      tests/e2e/install-sandbox.bats tests/e2e/state-lifecycle.bats tests/e2e/scripts-sandbox.bats
 ```
 
@@ -51,6 +56,8 @@ bats tests/ralph/ralph-stop.bats   # ralph stop hook (23 tests)
 bats tests/scripts/scripts.bats    # helper scripts (8 tests)
 bats tests/commands/structure.bats # command markdown structure (89 tests)
 bats tests/adapters/parity.bats    # cross-adapter parity (28 tests)
+bats tests/bench/review-cost.bats  # dev/bench: review-cost.py token accounting (33 tests)
+bats tests/bench/review-rounds.bats # dev/bench: review-rounds.py evidence classifier — invocation not read until #177b (46 tests)
 ```
 
 ### E2E Infrastructure Tests
@@ -203,6 +210,10 @@ Then run `install.sh` to create symlinks.
 | `tests/e2e/scripts-sandbox.bats` | E2E cleanup-artifacts.sh tests (5 test cases) |
 | `adapters/claude-code/prp-feature-review.md` | Feature review with token optimization |
 | `adapters/claude-code/prp-feature-review-agents.md` | Multi-agent feature review |
+| `scripts/bench/review-cost.py` | Dev-only: sums Claude Code session token usage for cost reporting (not installed into consumer projects) |
+| `tests/bench/review-cost.bats` | bats tests for `review-cost.py` (33 test cases) |
+| `scripts/bench/review-rounds.py` | Dev-only: classifies review transcripts as incremental / fell-back / unknown through one typed boundary; the invocation is not read yet (`invoked` always null, fallback rate unavailable) — the invocation reader ships in #177b (not installed into consumer projects) |
+| `tests/bench/review-rounds.bats` | bats tests for `review-rounds.py` (46 test cases); `tests/bench/mutate_fixtures.py` builds its shape-mutation and field-arm variants |
 
 ## Adding a New Workflow
 

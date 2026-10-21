@@ -1,0 +1,200 @@
+# Replay benchmark corpus for prp-framework#160.
+# Schema: entry = reviewed head + frozen metadata + labelled findings.
+# Labels filled by psak; tooling/schema by devlead-claude.
+#
+# Label schema (per entry):
+#   file, lines: [start, end], defect, severity (critical|important),
+#   family, source_pass, comment_url
+
+entries:
+  - id: "156-r1"
+    pr: 156
+    head: "f3869af5792ed9db43cfa83cacc3c00b9cff74e3"
+    base: "a68fd8d33f3357f16bd5b9c531a8e49f1f1b9cbb"
+    patch_digest: "1a48125ac07ee7a2fe47cbf70d5c0c1fd45d107cb5d1390eea9e3fa96bd1bcc9"
+    permalink: "https://github.com/gobikom/prp-framework/pull/156#issuecomment-6231548469"
+    kind: "positive"
+    tier: "standard"
+    files_changed: 12
+    additions: 183
+    deletions: 31
+    labels:
+      - file: adapters/antigravity/prp-review-agents.md
+        lines: [327, 333]
+        defect: "Blocking-wait prose claims run_in_background=false for all adapters; 5 of 6 adapters (antigravity, codex, gemini, opencode, thclaws) do not have it. Root at prompts/review-agents.md:327."
+        severity: critical
+        family: adapter-prose-drift
+        source_pass: [code-reviewer]
+        comment_url: https://github.com/gobikom/prp-framework/pull/156#issuecomment-6231548469
+      - file: tests/commands/review-rounds.bats
+        lines: [115, 132]
+        defect: "Test treats grep exit 2 (file missing) as a pass, so a missing file passes."
+        severity: critical
+        family: test-false-pass
+        source_pass: [silent-failure-hunter]
+        comment_url: https://github.com/gobikom/prp-framework/pull/156#issuecomment-6231549006
+      - file: scripts/generate-adapters.py
+        lines: [159, 187]
+        defect: "Placeholder substitution is unvalidated; a placeholder typo is silently left in output."
+        severity: critical
+        family: generator-silent-substitution
+        source_pass: [silent-failure-hunter]
+        comment_url: https://github.com/gobikom/prp-framework/pull/156#issuecomment-6231549006
+      - file: tests/commands/review-rounds.bats
+        lines: [105, 129]
+        defect: "Uses undefined `fail` helper (lines 105, 110, 112, 129), so failing assertions error instead of failing cleanly."
+        severity: important
+        family: test-false-pass
+        source_pass: [silent-failure-hunter]
+        comment_url: https://github.com/gobikom/prp-framework/pull/156#issuecomment-6231549006
+
+  - id: "156-r2"
+    pr: 156
+    head: "9c64ef762fd596c45e82f739e12ef739cec16905"
+    base: "a68fd8d33f3357f16bd5b9c531a8e49f1f1b9cbb"
+    patch_digest: "dfb577f7175c7d90dfa0005e7c65732210f60652fba8155c29688cada03d8c15"
+    permalink: "https://github.com/gobikom/prp-framework/pull/156#issuecomment-6232090685"
+    kind: "positive"
+    tier: "standard"
+    files_changed: 13
+    additions: 360
+    deletions: 31
+    labels:
+      - file: scripts/generate-adapters.py
+        lines: [196, 221]
+        defect: "Unsubstituted-placeholder guard checks only literal known placeholder names; a placeholder-name typo is uncaught."
+        severity: critical
+        family: generator-silent-substitution
+        source_pass: [code-reviewer, silent-failure-hunter]
+        comment_url: https://github.com/gobikom/prp-framework/pull/156#issuecomment-6232090685
+      - file: adapters.yml
+        lines: [23, 23]
+        defect: "agent_blocking_prose_other is dead config: generate-adapters.py:206-212 never reads it."
+        severity: important
+        family: dead-config
+        source_pass: [code-reviewer, silent-failure-hunter]
+        comment_url: https://github.com/gobikom/prp-framework/pull/156#issuecomment-6232090685
+
+  - id: "156-r4"
+    pr: 156
+    head: "10bc1c53d31b3af575d088698cbeec9f686d354a"
+    base: "a68fd8d33f3357f16bd5b9c531a8e49f1f1b9cbb"
+    patch_digest: "65d940ef4955e9a8844e10eccec33188084fc6b61b24f0437e7e712955aa7709"
+    permalink: "https://github.com/gobikom/prp-framework/pull/156#issuecomment-6232661739"
+    kind: "positive"
+    tier: "standard"
+    files_changed: 13
+    additions: 608
+    deletions: 33
+    labels:
+      - file: scripts/generate-adapters.py
+        lines: [159, 161]
+        defect: "read_overlay swallows yaml.YAMLError with `pass` (pre-existing, outside the diff)."
+        severity: critical
+        family: generator-swallowed-error
+        source_pass: [silent-failure-hunter]
+        comment_url: https://github.com/gobikom/prp-framework/pull/156#issuecomment-6232662196
+      - file: scripts/generate-adapters.py
+        lines: [456, 630]
+        defect: "A missing prompt file is counted as skipped, not as an error (456-459, 536-538, 630)."
+        severity: important
+        family: generator-swallowed-error
+        source_pass: [silent-failure-hunter]
+        comment_url: https://github.com/gobikom/prp-framework/pull/156#issuecomment-6232662196
+
+  - id: "152-r1"
+    pr: 152
+    head: "ca1328191b5ff040e4fbc62f2746685338c42597"
+    base: "2c113a33e2d16c08bc58e04a7eedd7c52bc69caa"
+    patch_digest: "bd2ced930631d5c707d6f033d52b03ac9713b4bfe3a083eb0de82e516e28c30a"
+    permalink: "https://github.com/gobikom/prp-framework/pull/152#issuecomment-6177611172"
+    kind: "positive"
+    tier: "standard"
+    files_changed: 12
+    additions: 1623
+    deletions: 7
+    labels:
+      - file: prompts/review-agents.md
+        lines: [1494, 1575]
+        defect: "Aggregated mode never records a round (1494-1515, 1513, 1575), so the round cap does not hold."
+        severity: important
+        family: round-ledger-not-recorded
+        source_pass: [code-reviewer, silent-failure-hunter]
+        comment_url: https://github.com/gobikom/prp-framework/pull/152#issuecomment-6177611172
+
+  - id: "152-r2"
+    pr: 152
+    head: "433397d4cf5b4ef7621dc9522ca3ea23c4c6522e"
+    base: "2c113a33e2d16c08bc58e04a7eedd7c52bc69caa"
+    patch_digest: "c4c64cdf8909cee14f02a97872dc1386ba4f23f4bac078cc15650c09b5f0884c"
+    permalink: "https://github.com/gobikom/prp-framework/pull/152#issuecomment-6177962099"
+    kind: "positive"
+    tier: "standard"
+    files_changed: 12
+    additions: 2147
+    deletions: 7
+    labels:
+      - file: prompts/review-agents.md
+        lines: [1533, 1631]
+        defect: "Step Cb-agg mints a run, exits 0 and never records the round (1631, 1533, 1544-1557). Same family as R1."
+        severity: important
+        family: round-ledger-not-recorded
+        source_pass: [silent-failure-hunter]
+        comment_url: https://github.com/gobikom/prp-framework/pull/152#issuecomment-6177963292
+
+  - id: "152-r3"
+    pr: 152
+    head: "c81c2fa877644a64b4635bb6e5f53693db3eb811"
+    base: "2c113a33e2d16c08bc58e04a7eedd7c52bc69caa"
+    patch_digest: "88af35640bea6646f54695ba90ecaa10224491820a4959d5df69e3bd9d85792e"
+    permalink: "https://github.com/gobikom/prp-framework/pull/152#issuecomment-6178479074"
+    kind: "positive"
+    tier: "standard"
+    files_changed: 13
+    additions: 2850
+    deletions: 14
+    labels:
+      - file: prompts/review-agents.md
+        lines: [521, 1639]
+        defect: "Duplicated, contradictory instructions (521-523 vs 1639)."
+        severity: important
+        family: prompt-contradiction
+        source_pass: [code-reviewer]
+        comment_url: https://github.com/gobikom/prp-framework/pull/152#issuecomment-6178479074
+      - file: prompts/review-agents.md
+        lines: [1466, 1475]
+        defect: "Step A reuses the abandoned run id."
+        severity: important
+        family: run-id-reuse
+        source_pass: [code-reviewer, silent-failure-hunter]
+        comment_url: https://github.com/gobikom/prp-framework/pull/152#issuecomment-6178479074
+      - file: prompts/review-agents.md
+        lines: [497, 1630]
+        defect: "A stale record-pending marker blocks later rounds (497-501, 1549-1550, 1577-1578, 1603-1604, 1629-1630)."
+        severity: important
+        family: round-ledger-not-recorded
+        source_pass: [silent-failure-hunter]
+        comment_url: https://github.com/gobikom/prp-framework/pull/152#issuecomment-6178480505
+      - file: prompts/review-agents.md
+        lines: [1550, 1604]
+        defect: "The 'no run file' FATAL tells the operator to re-run, which double-counts the round."
+        severity: important
+        family: round-ledger-not-recorded
+        source_pass: [silent-failure-hunter]
+        comment_url: https://github.com/gobikom/prp-framework/pull/152#issuecomment-6178480505
+
+  - id: "131-r1"
+    pr: 131
+    head: "a004218c4a9f4fd1243124c28f505752c18c0233"
+    base: "9be9fdd48c6569dda2e5eca63ba24bc17e10c751"
+    patch_digest: "93f338e89cc8e17f18f732f11fe85fd7b176138f73c897f9a9f3410013d2eb36"
+    permalink: "https://github.com/gobikom/prp-framework/pull/131#issuecomment-6052502150"
+    kind: "negative"
+    tier: "trivial"
+    files_changed: 1
+    additions: 62
+    deletions: 27
+    labels: []
+
+  # Docs control: PENDING — no docs-only PR has --l2-comments review data.
+  # psak to commission a review run and add the entry.

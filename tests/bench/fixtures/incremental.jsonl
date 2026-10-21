@@ -1,0 +1,6 @@
+{"type":"system","timestamp":"2026-01-01T12:00:00.000Z"}
+{"type": "human", "message": {"content": "<command-message>prp-review-agents</command-message>\n<command-name>/prp-core:prp-review-agents</command-name>\n<command-args>177 --l2-comments --since-last-review</command-args>"}}
+{"type":"assistant","message":{"content":[{"type":"tool_use","input":{"command":"ls .prp-output/reviews/"},"id":"toolu_fx01","name":"Bash"}]}}
+{"type":"user","message":{"content":[{"type":"tool_result","content":"pr-42-agents-review.md 12K FOUND","tool_use_id":"toolu_fx01"}]}}
+{"type":"assistant","message":{"content":[{"type":"tool_use","input":{"command":"git diff abc1234 def5678"},"id":"toolu_fx02","name":"Bash"}]}}
+{"type":"user","message":{"content":[{"type":"tool_result","content":"diff output...","tool_use_id":"toolu_fx02"}]}}

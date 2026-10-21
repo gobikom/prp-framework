@@ -1,0 +1,4 @@
+{"type": "human", "message": {"content": "<command-message>prp-review-agents</command-message>\n<command-name>/prp-core:prp-review-agents</command-name>\n<command-args>177 --l2-comments --since-last-review</command-args>"}}
+{"type":"assistant","message":{"content":[{"type":"tool_use","id":"tu_d","input":{"command":"git diff 1a2b3c4..5d6e7f8 -- src/x.py"},"name":"Bash"}]}}
+{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"tu_d","is_error":false,"content":"@@ -1,2 +1,3 @@\n+    return NOT_FOUND\n-    # file not found\n"}]}}
+{"type": "assistant", "message": {"content": "Reviewing the code."}}

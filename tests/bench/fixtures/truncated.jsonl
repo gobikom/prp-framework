@@ -1,0 +1,4 @@
+{"type":"system","timestamp":"2026-01-01T12:00:00.000Z"}
+{"type":"human","message":{"content":"review"}}
+not valid json at all - truncated
+{"type":"assistant","message":{"content":"done"}}

@@ -1,0 +1,3 @@
+{"type": "human", "message": {"content": "<command-message>prp-review-agents</command-message>\n<command-name>/prp-core:prp-review-agents</command-name>\n<command-args>177 --l2-comments --since-last-review</command-args>"}}
+{"type":"assistant","message":{"content":[{"type":"tool_use","input":{"command":"test -f .prp-output/reviews/pr-42-agents-review.md"},"id":"toolu_fx01","name":"Bash"}]}}
+{"type": "assistant", "message": {"content": "Reviewing the code."}}

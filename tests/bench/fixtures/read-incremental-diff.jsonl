@@ -1,0 +1,3 @@
+{"type": "human", "message": {"content": "<command-message>prp-review-agents</command-message>\n<command-name>/prp-core:prp-review-agents</command-name>\n<command-args>177 --l2-comments --since-last-review</command-args>"}}
+{"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "Read", "input": {"file_path": "/repo/.prp-output/reviews/pr-42-incremental.diff"}, "id": "tu_a"}]}}
+{"type": "user", "message": {"content": [{"type": "tool_result", "content": "diff --git a/x b/x\n+y", "tool_use_id": "tu_a"}]}}
