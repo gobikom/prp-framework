@@ -31,6 +31,26 @@ OVERLAYS_DIR = PROMPTS_DIR / "overlays"
 ADAPTERS_DIR = ROOT_DIR / "adapters"
 CONFIG_PATH = ROOT_DIR / "adapters.yml"
 
+# Round-3 re-plan: adapter and command names are used to build filesystem
+# paths (file_pattern .replace("{name}", ...)), so they are validated up
+# front. This rejects absolute keys (/etc/passwd), traversal (../x), empty,
+# uppercase and spaced names with a named load-time error.
+NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
+
+
+def display_path(p) -> str:
+    """Round-3 re-plan: one helper for every user-facing path in a message.
+
+    relative_to(ROOT_DIR) as a str when the path is inside the tree, str(p)
+    otherwise (an absolute outside path raised ValueError from messages
+    before — the round-3 Critical). Never raises for a bad path.
+    """
+    try:
+        return str(p.relative_to(ROOT_DIR))
+    except ValueError:
+        return str(p)
+
+
 # Required top-level keys in adapters.yml
 REQUIRED_CONFIG_KEYS = {"adapters", "commands"}
 REQUIRED_ADAPTER_KEYS = {"file_pattern", "format", "args_placeholder",
@@ -74,6 +94,16 @@ class GenerationError(Exception):
     when any error was counted."""
 
 
+class GenerationError(Exception):
+    """An input the generator failed to read or parse, or an output it
+    could not build correctly. The generator never exits 0 on such a
+    failure (the #156 round-4 widened invariant, re-routed as PR A):
+    every failure is an error counted in stats["errors"], never a silent
+    skip. generate_all() catches one per command, counts it, and
+    continues, so a single run reports every broken input; main() exits 1
+    when any error was counted."""
+
+
 # ---------------------------------------------------------------------------
 # Config loading
 # ---------------------------------------------------------------------------
@@ -85,10 +115,16 @@ def load_config() -> dict:
         sys.exit(1)
 
     try:
-        with open(CONFIG_PATH) as f:
+        with open(CONFIG_PATH, encoding="utf-8") as f:
             config = yaml.safe_load(f)
     except yaml.YAMLError as e:
         print(f"Error: Invalid YAML in {CONFIG_PATH}: {e}", file=sys.stderr)
+        sys.exit(1)
+    except (OSError, UnicodeDecodeError) as e:
+        # #157 round 1: a config the generator cannot read or decode is a
+        # named error, never a raw UnicodeDecodeError traceback (it is a
+        # ValueError, so it slipped past the yaml.YAMLError catch above).
+        print(f"Error: Cannot read {CONFIG_PATH}: {e}", file=sys.stderr)
         sys.exit(1)
 
     # Validate top-level structure (a non-mapping adapters.yml — list,
@@ -113,6 +149,61 @@ def load_config() -> dict:
                       f"mapping, got {type(cfg).__name__}", file=sys.stderr)
                 sys.exit(1)
 
+    # Round-3 re-plan: names are validated before any work — they build
+    # filesystem paths, so /etc/passwd, ../x, empty, uppercase and spaced
+    # names are load-time errors (this was the round-3 Critical: an absolute
+    # command key later raised ValueError from the path-shrinking helper
+    # inside an f-string and crashed the run with a raw traceback).
+    for section in ("adapters", "commands"):
+        for name in config[section]:
+            if not isinstance(name, str) or not NAME_RE.match(name):
+                print(f"Error: invalid {section[:-1]} name {name!r} in adapters.yml — "
+                      f"must match ^[a-z0-9][a-z0-9-]*$ "
+                      f"(lowercase alphanumerics and hyphens, no slashes)", file=sys.stderr)
+                sys.exit(1)
+
+    # Round-3 re-plan: type-check the value of every required and known key
+    # (the types adapters.yml documents). A wrong-typed value (null, int,
+    # list where str/mapping/bool is documented) previously surfaced as a
+    # TypeError far from the config, or crashed mid-run (round-3 Important:
+    # args_placeholder: null → TypeError in substitute_placeholders).
+    # Config-level errors stay fatal: named, exit 1, before any work.
+    ADAPTER_VALUE_TYPES = {
+        "file_pattern": str, "format": str, "args_placeholder": str,
+        "tool_command_template": str, "artifact_suffix": str,
+        "frontmatter": dict, "group_dirs": dict, "overlays": bool,
+        "wrapper": str,
+        "agent_blocking_param": str, "agent_blocking_prose_claude": str,
+    }
+    COMMAND_VALUE_TYPES = {
+        "description": dict, "description-overrides": dict,
+        "argument-hint": str, "codex-short-description": str,
+        "group": str, "opencode-agent": str,
+    }
+
+    def check_value_types(section: str, name: str, cfg: dict, types: dict) -> None:
+        # Checks only the keys whose documented type is known; keys the
+        # generator does not read (e.g. alias / alias-of on commands) are
+        # skipped. bool is a subclass of int but of no other checked type,
+        # so a plain isinstance test already rejects true/false for str.
+        for key, value in cfg.items():
+            want = types.get(key)
+            if want is None:
+                continue
+            if not isinstance(value, want):
+                print(f"Error: adapters.yml {section} '{name}' key '{key}' must be "
+                      f"{want.__name__}, got {type(value).__name__}", file=sys.stderr)
+                sys.exit(1)
+        # nested shape: frontmatter.fields is a list of str
+        if isinstance(cfg.get("frontmatter"), dict):
+            fields = cfg["frontmatter"].get("fields")
+            if fields is not None and (
+                    not isinstance(fields, list)
+                    or not all(isinstance(x, str) for x in fields)):
+                print(f"Error: adapters.yml {section} '{name}' key 'frontmatter.fields' "
+                      f"must be a list of strings", file=sys.stderr)
+                sys.exit(1)
+
     # Validate adapter entries
     for name, cfg in config["adapters"].items():
         missing_keys = REQUIRED_ADAPTER_KEYS - set(cfg.keys())
@@ -126,6 +217,7 @@ def load_config() -> dict:
             print("Error: Check adapters.yml for typos — valid keys: "
                   f"{sorted(KNOWN_ADAPTER_KEYS)}", file=sys.stderr)
             sys.exit(1)
+        check_value_types("adapter", name, cfg, ADAPTER_VALUE_TYPES)
 
     # Validate command entries
     for name, cfg in config["commands"].items():
@@ -133,6 +225,9 @@ def load_config() -> dict:
         if missing_keys:
             print(f"Error: Command '{name}' missing keys: {missing_keys}", file=sys.stderr)
             sys.exit(1)
+        # (alias / alias-of are generator-read keys with their own handling;
+        # frontmatter.fields shape is checked for adapters above.)
+        check_value_types("command", name, cfg, COMMAND_VALUE_TYPES)
 
     return config
 
@@ -220,19 +315,22 @@ def read_prompt(name: str) -> str:
     if not path.exists():
         raise GenerationError(
             f"error: prompt file for configured command '{name}' is missing: "
-            f"{path.relative_to(ROOT_DIR)}")
+            f"{display_path(path)}")
     try:
-        text = path.read_text()
-    except OSError as e:
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as e:
+        # #157 round 1: invalid UTF-8 raises UnicodeDecodeError (a
+        # ValueError), which is not an OSError — catching only OSError let a
+        # raw traceback abort the run, hiding every other broken input.
         raise GenerationError(
             f"error: cannot read prompt for configured command '{name}': "
-            f"{path.relative_to(ROOT_DIR)}: {e}")
+            f"{display_path(path)}: {e}")
     if not text.strip():
         # Round-6 Important A: an empty or whitespace-only prompt previously
         # shipped an empty command body and exited 0.
         raise GenerationError(
             f"error: prompt file for configured command '{name}' is empty "
-            f"or whitespace-only: {path.relative_to(ROOT_DIR)}")
+            f"or whitespace-only: {display_path(path)}")
     return text
 
 
@@ -261,10 +359,12 @@ def read_overlay(adapter: str, name: str) -> dict | None:
         return None
 
     try:
-        text = path.read_text()
-    except OSError as e:
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as e:
+        # #157 round 1: same rule as read_prompt — an undecodable overlay is
+        # a named GenerationError, never a raw traceback.
         raise GenerationError(
-            f"error: cannot read overlay {path.relative_to(ROOT_DIR)}: {e}")
+            f"error: cannot read overlay {display_path(path)}: {e}")
 
     # Parse YAML frontmatter. A broken frontmatter is a hard error naming the
     # overlay file and the YAML error (round-4 Critical): swallowing it here
@@ -276,7 +376,7 @@ def read_overlay(adapter: str, name: str) -> dict | None:
     # unterminated frontmatter is an error naming this file; round 9: an
     # indented delimiter anywhere in the frontmatter region is an error
     # naming the file and line).
-    fm, body = split_frontmatter(text, path.relative_to(ROOT_DIR))
+    fm, body = split_frontmatter(text, display_path(path))
     if fm is not None:
         try:
             meta = yaml.safe_load(fm)
@@ -284,13 +384,13 @@ def read_overlay(adapter: str, name: str) -> dict | None:
                 raise GenerationError(
                     f"error: overlay frontmatter must be a mapping, got "
                     f"{type(meta).__name__}: "
-                    f"{path.relative_to(ROOT_DIR)}")
+                    f"{display_path(path)}")
             if meta:
                 overlay["meta"] = meta
         except yaml.YAMLError as e:
             raise GenerationError(
                 f"error: invalid YAML frontmatter in overlay "
-                f"{path.relative_to(ROOT_DIR)}: {e}")
+                f"{display_path(path)}: {e}")
         text = body.strip()
 
     # Parse sections: lines starting with "# section_name"
@@ -624,6 +724,7 @@ def validate_generated(rel_path: str, content: str) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Core generation# ---------------------------------------------------------------------------
 # Core generation
 # ---------------------------------------------------------------------------
 
@@ -727,6 +828,12 @@ def generate_all(config: dict, adapter_filter: str | None = None,
 
         for cmd_name in commands:
             cmd_cfg = commands[cmd_name]
+            # Round-3 re-plan: the WHOLE body for one (adapter, command)
+            # pair is a single unit. GenerationError keeps its specific
+            # message; the catch-all turns any OTHER exception (a wrong-typed
+            # config value that slipped through, a bad path shape, a bug)
+            # into a named, counted error — and the run CONTINUES. No input
+            # can end the run with a Python traceback.
             try:
                 rel_path, content = generate_adapter_file(adapter_name, cmd_name, config)
             except GenerationError as e:
@@ -734,6 +841,11 @@ def generate_all(config: dict, adapter_filter: str | None = None,
                 # error counted in stats["errors"] — printed and CONTINUED, so
                 # one run reports every broken input; main() exits 1.
                 print(f"  {e}", file=sys.stderr)
+                stats["errors"] += 1
+                continue
+            except Exception as e:
+                print(f"  error: {adapter_name}/{cmd_name}: "
+                      f"unexpected {type(e).__name__}: {e}", file=sys.stderr)
                 stats["errors"] += 1
                 continue
 
@@ -774,7 +886,20 @@ def generate_all(config: dict, adapter_filter: str | None = None,
 
             # Check if content changed
             if out_path.exists():
-                existing = out_path.read_text()
+                try:
+                    existing = out_path.read_text(encoding="utf-8")
+                except (OSError, UnicodeDecodeError) as e:
+                    # #157 round 1: an existing output the generator cannot
+                    # read or decode is a named error counted in
+                    # stats["errors"] — the run CONTINUES so one broken file
+                    # cannot hide the others (an uncaught read previously
+                    # aborted the whole run; invalid UTF-8 crashed with a raw
+                    # traceback). The file is left untouched: never overwrite
+                    # output we could not read.
+                    print(f"  error: cannot read existing output {out_path}: {e}",
+                          file=sys.stderr)
+                    stats["errors"] += 1
+                    continue
                 if existing == content:
                     stats["unchanged"] += 1
                     continue
@@ -786,13 +911,20 @@ def generate_all(config: dict, adapter_filter: str | None = None,
                     print(f"  [NEW] {out_path}")
 
             # Ensure parent directory exists (for codex prp-{name}/ dirs)
-            out_path.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                out_path.parent.mkdir(parents=True, exist_ok=True)
+            except OSError as e:
+                print(f"  error: cannot create directory "
+                      f"{display_path(out_path.parent)}: {e}", file=sys.stderr)
+                stats["errors"] += 1
+                continue
 
             try:
-                out_path.write_text(content)
+                out_path.write_text(content, encoding="utf-8")
                 stats["generated"] += 1
             except OSError as e:
-                print(f"  ERROR: Failed to write {out_path}: {e}", file=sys.stderr)
+                print(f"  ERROR: Failed to write {display_path(out_path)}: {e}",
+                      file=sys.stderr)
                 stats["errors"] += 1
 
     return stats
@@ -820,19 +952,27 @@ def main():
     )
     args = parser.parse_args()
 
-    config = load_config()
+    # Round-3 re-plan: last-resort handler — anything escaping load_config()
+    # or generate_all() prints ONE named "internal error" line and exits 1,
+    # never a traceback. KeyboardInterrupt / SystemExit propagate (they are
+    # BaseException, not Exception, so this except does not touch them).
+    try:
+        config = load_config()
 
-    if args.adapter and args.adapter not in config["adapters"]:
-        print(f"Error: Unknown adapter '{args.adapter}'", file=sys.stderr)
-        print(f"Available: {', '.join(config['adapters'].keys())}", file=sys.stderr)
-        sys.exit(1)
+        if args.adapter and args.adapter not in config["adapters"]:
+            print(f"Error: Unknown adapter '{args.adapter}'", file=sys.stderr)
+            print(f"Available: {', '.join(config['adapters'].keys())}", file=sys.stderr)
+            sys.exit(1)
 
-    stats = generate_all(
-        config,
-        adapter_filter=args.adapter,
-        dry_run=args.dry_run,
-        show_diff=args.diff or args.dry_run,
-    )
+        stats = generate_all(
+            config,
+            adapter_filter=args.adapter,
+            dry_run=args.dry_run,
+            show_diff=args.diff or args.dry_run,
+        )
+    except Exception as e:
+        print(f"error: internal: {type(e).__name__}: {e}", file=sys.stderr)
+        return 1
 
     print(f"\n{'='*60}")
     print(f"Results: {stats['generated']} generated, {stats['unchanged']} unchanged, "
