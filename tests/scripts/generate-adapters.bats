@@ -172,8 +172,6 @@ HOOK4
   [ -z "$bad" ] || { echo "read/write without encoding=:" >&2; printf '%s\n' "$bad" >&2; return 1; }
 }
 
-# ── split_frontmatter boundary table (the ONLY frontmatter splitter) ──
-
 @test "split_frontmatter boundary table (rounds 8+9, direct): plain, dash-in-value, trailing space/tab, CRLF, none, fenced body, errors" {
   make_tree
   python3 - "$TREE/scripts/generate-adapters.py" <<'PYX'
@@ -214,13 +212,8 @@ PYX
   [ "$rc1" -eq 1 ] || { echo 'stray split("---" found:' >&2; printf '%s\n' "$p1" >&2; return 1; }
   rc2=0; p2=$(grep -nE 're\.split\(.*---' "$script") || rc2=$?
   [ "$rc2" -eq 1 ] || { echo 'stray re.split on --- found:' >&2; printf '%s\n' "$p2" >&2; return 1; }
-  # In A1 split_frontmatter is DEFINED here (the only splitter); #157's
-  # read_overlay and validate_generated are the two call sites, pinned by
-  # #157's grep test (def + 2 calls).
   [ "$(grep -c 'def split_frontmatter' "$script")" -eq 1 ]
 }
-
-# ── A1 round-1 fixes (#161): strict overlay; guarded output-side reads ──
 
 @test "A1-r3 command carrying a frontmatter key (adapter-only) is an unknown command key naming the command" {
   make_tree
@@ -308,8 +301,6 @@ expect_counted_error() {
 
 @test "A1-r3 invariant: every read goes through read_utf8 — no read_text(/open( outside it" {
   local script="$ROOT/scripts/generate-adapters.py"
-  # every read_text( / open( call must live inside read_utf8's definition;
-  # list the offending sites first so a RED run names them.
   local body_start body_end bad n
   body_start=$(grep -n 'def read_utf8' "$script" | cut -d: -f1)
   if [ -n "$body_start" ]; then
@@ -321,7 +312,6 @@ expect_counted_error() {
   fi
   [ -z "$bad" ] || {
     echo "reads outside read_utf8:" >&2; printf '%s\n' "$bad" >&2; return 1; }
-  # and read_utf8 must exist exactly once
   [ "$(grep -c 'def read_utf8' "$script")" -eq 1 ] || {
     echo "read_utf8 is not defined exactly once" >&2; return 1; }
 }
@@ -386,14 +376,19 @@ open(p,'w',encoding='utf-8',errors='surrogatepass').write(yaml.safe_dump(c,sort_
     || { echo "rc=$rc2 $e2" >&2; return 1; }
 }
 
-@test "A1-r4b partial failure: one of two inputs fails -> the other is produced, exactly 1 error" {
-  make_tree
-  local rc2=0 e2
-  e2=$(python3 "$ROOT/tests/scripts/fault_inject.py" "$TREE" write OSError fresh 2>&1 >"$BATS_TEST_TMPDIR/p.out") || rc2=$?
-  [ "$rc2" -eq 1 ] || { echo "expected exit 1, got $rc2: $e2" >&2; return 1; }
-  grep -qE ', 1 errors' "$BATS_TEST_TMPDIR/p.out" || { echo "not exactly 1 error: $(tail -2 "$BATS_TEST_TMPDIR/p.out")" >&2; return 1; }
-  [ -f "$TREE/adapters/claude-code/prp-qa.md" ] || { echo "other output not produced" >&2; return 1; }
-  [ ! -f "$TREE/adapters/codex/prp-qa/SKILL.md" ] || { echo "failed output was written" >&2; return 1; }
+@test "A1-r4b partial failure: one of two inputs fails (write / lone-surrogate adapter) -> named, exactly 1 error, the other produced" {
+  local klass token rc2 e2
+  for klass in write surrogate; do
+    make_tree "pf-$klass"
+    token="SKILL.md"; [ "$klass" = surrogate ] && token='bad\ud800'
+    rc2=0
+    e2=$(python3 "$ROOT/tests/scripts/fault_inject.py" "$TREE" "$klass" OSError fresh 2>&1 >"$BATS_TEST_TMPDIR/p.out") || rc2=$?
+    [ "$rc2" -eq 1 ] || { echo "[$klass] expected exit 1, got $rc2: $e2" >&2; return 1; }
+    case "$e2" in *Traceback*) echo "[$klass] Traceback: $e2" >&2; return 1 ;; esac
+    case "$e2" in *"$token"*) ;; *) echo "[$klass] '$token' not named: $e2" >&2; return 1 ;; esac
+    grep -qE ', 1 errors' "$BATS_TEST_TMPDIR/p.out" || { echo "[$klass] not exactly 1 error: $(tail -2 "$BATS_TEST_TMPDIR/p.out")" >&2; return 1; }
+    [ -f "$TREE/adapters/claude-code/prp-qa.md" ] || { echo "[$klass] other output not produced" >&2; return 1; }
+  done
 }
 
 @test "A1-r4b grep invariant: 'except Exception' only at the two boundaries; no bare except / BaseException" {
