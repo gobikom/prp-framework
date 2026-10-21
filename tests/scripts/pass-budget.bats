@@ -135,6 +135,17 @@ body() { printf 'Reviewed head: x\n\n### Could not verify\n%b\n\nGenerated-by: y
   done
 }
 
+@test "check-body catches marker variants written with markup" {
+  for m in '- Pass timeboxed: 1 probe' '**Pass timeboxed**: 1 probe' 'pass timeboxed: 1 probe' '  Pass timeboxed: 1 probe' 'PASS-TIMEBOXED: 1 probe' '* _Pass timeboxed_ 1 probe' '> Pass timeboxed: 1 probe'; do
+    body "$m"
+    run bash "$P" check-body b.md
+    [ "$status" -eq 1 ]
+    body "$m\nFollow-up: https://github.com/o/r/issues/5"
+    run bash "$P" check-body b.md
+    [ "$status" -eq 0 ]
+  done
+}
+
 @test "check-body ignores the marker mid line" {
   body 'The pass was not Pass timeboxed at all'
   run bash "$P" check-body b.md

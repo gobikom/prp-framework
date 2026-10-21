@@ -73,7 +73,8 @@ case "$SUB" in
   check-body)
     f="${1:-}"
     [[ -n "$f" && -r "$f" && ! -L "$f" ]] || die "check-body needs a readable regular file"
-    if grep -q '^Pass timeboxed' "$f"; then
+    # tolerant of agent markup (bullet, bold, indent, case, hyphen): over-matching only demands a link
+    if grep -qiE '^[[:space:]>]*([-*+][[:space:]]+)?[*_]*pass[[:space:]-]+timeboxed' "$f"; then
       grep -qxE 'Follow-up: https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/issues/[0-9]+' "$f" \
         || { echo "pass says 'Pass timeboxed' but has no 'Follow-up: https://github.com/<owner>/<repo>/issues/<n>' line" >&2; exit 1; }
     fi

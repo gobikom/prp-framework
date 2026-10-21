@@ -28,7 +28,13 @@ setup() {
 if [ "$1 $2" = "pr view" ]; then [ -n "${GH_FAIL:-}" ] && exit 1; printf '%s\n' "$FAKE_HEAD"; exit 0; fi
 if [ "$1" = "api" ]; then   # the round-cap read (Phase 2.0): last lines of the PR comments
   [ -n "${API_FAIL:-}" ] && exit 1
-  [ -n "${FAKE_COMMENTS:-}" ] && cat "$FAKE_COMMENTS"; exit 0
+  # apply the REAL --jq filter from the prompt to comment JSON, as `gh api --paginate --jq` does per page
+  filter=""; while [ $# -gt 0 ]; do [ "$1" = "--jq" ] && filter="$2"; shift; done
+  [ -n "$filter" ] || exit 1
+  if [ -n "${FAKE_COMMENTS_JSON:-}" ]; then jq -r "$filter" "$FAKE_COMMENTS_JSON" || exit 1; exit 0; fi
+  # FAKE_COMMENTS = one footer line per comment; wrap each as a multi-line body with a trailing newline
+  [ -n "${FAKE_COMMENTS:-}" ] && jq -R -s 'split("\n")[:-1] | map({body: ("Reviewed head: x\n\n### Could not verify\nNothing.\n\n" + . + "\n")})' "$FAKE_COMMENTS" | jq -r "$filter"
+  exit 0
 fi
 if [ "$1 $2" = "pr comment" ]; then
   f=""; while [ $# -gt 0 ]; do [ "$1" = "--body-file" ] && f="$2"; shift; done
@@ -278,6 +284,33 @@ runs() { local i p; for ((i = 1; i <= $1; i++)); do for p in code-reviewer secur
   [ "$status" -ne 0 ]
   [[ "$output" == *"ROUND-CAP: refused"* ]]
   [[ "$output" == *"round cap — no agents started"* ]]
+  [ ! -e .prp-output/reviews/pr-7-reviewed-head ]
+}
+
+@test "Phase 2.0 runs the real jq filter over paginated comment JSON" {
+  phase20 > p20.sh; repo_here
+  # two pages (gh --paginate applies --jq per page): a multi-line body, a plain comment and a CRLF-free footer
+  { runs 5 | jq -R -s 'split("\n")[:-1] | map({body: ("review text\nmore\n" + . + "\n")})'
+    runs 10 | tail -n +16 | jq -R -s 'split("\n")[:-1] | map({body: ("other\n" + . + "\n")}) + [{body: "LGTM"}]'; } > c.json
+  FAKE_COMMENTS_JSON="$PWD/c.json" run env -u REVIEWED_HEAD_SHA bash p20.sh
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"ROUND-CAP: refused"* ]]
+}
+
+@test "Phase 2.0 allows round 10 over paginated comment JSON with ordinary comments" {
+  phase20 > p20.sh; repo_here
+  { runs 4 | jq -R -s 'split("\n")[:-1] | map({body: ("text\n" + . + "\n")}) + [{body: "LGTM"}, {body: "a\nb\nc"}]'
+    runs 9 | tail -n +13 | jq -R -s 'split("\n")[:-1] | map({body: ("text\n" + . + "\n")})'; } > c.json
+  FAKE_COMMENTS_JSON="$PWD/c.json" run env -u REVIEWED_HEAD_SHA bash p20.sh
+  [ "$status" -eq 0 ]
+  [ "$(cat .prp-output/reviews/pr-7-reviewed-head)" = "$FAKE_HEAD" ]
+}
+
+@test "Phase 2.0 refuses on a comment with a null body" {
+  phase20 > p20.sh; repo_here
+  printf '[{"body": null}]\n' > c.json
+  FAKE_COMMENTS_JSON="$PWD/c.json" run env -u REVIEWED_HEAD_SHA bash p20.sh
+  [ "$status" -ne 0 ]
   [ ! -e .prp-output/reviews/pr-7-reviewed-head ]
 }
 
