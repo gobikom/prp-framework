@@ -3,6 +3,13 @@
 # (prp-framework#157 split 1/2 — PR A1, fix/generator-config-validation).
 # Every test runs against a temp copy of the tree, never the real adapters/.
 #
+# Re-cut of #158 (prp-framework#151 AC1 / #156 round-2): the {agent_*}
+# generation-time placeholder namespace is a CLOSED registry (GEN_PLACEHOLDERS
+# in a reserved namespace, regex {agent_[a-z0-9_]*} with re.I); the prose
+# token {agent} (no underscore) is outside it and generates unchanged; every
+# prose/param value lives in adapters.yml (canary proves the generator READS
+# the shared top-level key).
+#
 # Run: bats tests/scripts/generate-adapters.bats
 
 ROOT="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)"
@@ -40,6 +47,180 @@ gen() {
   [ "$rc" -eq 1 ] || { echo "expected exit 1, got $rc" >&2; return 1; }
   echo "$err" | grep -qF "has unknown keys: ['wrapperr']" || { echo "error does not name the key: $err" >&2; return 1; }
   echo "$err" | grep -qF 'valid keys' || { echo "error does not list valid keys: $err" >&2; return 1; }
+}
+
+# ── {agent_*} placeholder namespace (re-cut of #158, #151 AC1) ─────────────
+
+@test "correct tree: exit 0; claude-code 10/10 params + claim; other 5 have 0 params + the neutral sentence" {
+  make_tree
+  gen
+  [ "$rc" -eq 0 ] || { echo "generator failed: $err" >&2; return 1; }
+  local d="$TREE/adapters/claude-code/prp-review-agents.md"
+  local dispatches params
+  dispatches=$(grep -c '^Agent($' "$d")
+  params=$(grep -c '^  run_in_background=false,$' "$d")
+  [ "$dispatches" -eq 10 ] || { echo "claude-code dispatches: $dispatches (want 10)" >&2; return 1; }
+  [ "$params" -eq 10 ] || { echo "claude-code run_in_background params: $params (want 10)" >&2; return 1; }
+  grep -qF 'therefore passes' "$d"  # the scoped claim
+  # the other five: zero params, neutral sentence present, no claim
+  local f
+  for f in \
+    adapters/antigravity/prp-review-agents.md \
+    adapters/codex/prp-review-agents/SKILL.md \
+    adapters/gemini/review-agents.toml \
+    adapters/opencode/review-agents.md \
+    adapters/thclaws/prp-review-agents/SKILL.md
+  do
+    [ "$(grep -c '^  run_in_background=false,$' "$TREE/$f")" -eq 0 ]
+    grep -qF 'In the Claude Code adapter every Agent' "$TREE/$f"
+    [ "$(grep -cF 'therefore passes' "$TREE/$f")" -eq 0 ]
+  done
+  # and nothing anywhere contains a brace token containing BLOCKING
+  ! grep -rE '\{[A-Za-z0-9_]*BLOCKING[A-Za-z0-9_]*\}' "$TREE/adapters"
+}
+
+@test "positive: claude-code adapter has the scoped claim; no generated adapter contains a brace token containing BLOCKING" {
+  # This is the test that FAILS on the prose-prefix-typo tree ({AGNT_BLOCKING_PROSE}
+  # outside the namespace): the claim disappears and the literal brace token ships.
+  make_tree
+  gen
+  [ "$rc" -eq 0 ] || { echo "generator failed: $err" >&2; return 1; }
+  grep -qF 'therefore passes' "$TREE/adapters/claude-code/prp-review-agents.md"
+  ! grep -rE '\{[A-Za-z0-9_]*BLOCKING[A-Za-z0-9_]*\}' "$TREE/adapters"
+}
+
+@test "suffix typo {AGENT_BLOCKING_PARAMM}: exit 1, error names the token and the file" {
+  make_tree
+  sed -i 's/{AGENT_BLOCKING_PARAM}/{AGENT_BLOCKING_PARAMM}/g' "$TREE/prompts/review-agents.md"
+  grep -qF '{AGENT_BLOCKING_PARAMM}' "$TREE/prompts/review-agents.md" || { echo "mutation did not take" >&2; return 1; }
+  gen
+  [ "$rc" -eq 1 ] || { echo "expected exit 1, got $rc" >&2; return 1; }
+  echo "$err" | grep -qF "'{AGENT_BLOCKING_PARAMM}'" || { echo "error does not name the token: $err" >&2; return 1; }
+  echo "$err" | grep -qF 'prompts/review-agents.md' || { echo "error does not name the file: $err" >&2; return 1; }
+}
+
+@test "case variant {agent_blocking_param} / {Agent_Blocking_Param}: exit 1" {
+  make_tree case1
+  sed -i 's/{AGENT_BLOCKING_PARAM}/{agent_blocking_param}/g' "$TREE/prompts/review-agents.md"
+  grep -qF '{agent_blocking_param}' "$TREE/prompts/review-agents.md" || { echo "mutation did not take" >&2; return 1; }
+  gen
+  [ "$rc" -eq 1 ] || { echo "lowercase variant: expected exit 1, got $rc" >&2; return 1; }
+  echo "$err" | grep -qF "'{agent_blocking_param}'"
+  make_tree case2
+  sed -i 's/{AGENT_BLOCKING_PARAM}/{Agent_Blocking_Param}/g' "$TREE/prompts/review-agents.md"
+  grep -qF '{Agent_Blocking_Param}' "$TREE/prompts/review-agents.md" || { echo "mutation did not take" >&2; return 1; }
+  gen
+  [ "$rc" -eq 1 ] || { echo "mixed-case variant: expected exit 1, got $rc" >&2; return 1; }
+  echo "$err" | grep -qF "'{Agent_Blocking_Param}'"
+}
+
+@test "unknown name {AGENT_FOO}: exit 1" {
+  make_tree
+  printf '\nprobe {AGENT_FOO}\n' >> "$TREE/prompts/review-agents.md"
+  gen
+  [ "$rc" -eq 1 ] || { echo "expected exit 1, got $rc" >&2; return 1; }
+  echo "$err" | grep -qF "'{AGENT_FOO}'"
+}
+
+@test "prefix typo {AGNT_BLOCKING_PARAM}: generator exit 0 by design; review-rounds count test FAILS on the temp tree" {
+  # The namespace covers only {agent_*} tokens — a prefix typo is outside it,
+  # so the generator CANNOT catch it (by design; runtime placeholders like
+  # {NUMBER} share this shape). The safety net is the bats structure test:
+  # review-rounds.bats counts Agent( dispatch blocks vs run_in_background
+  # parameters. review-rounds.bats resolves ROOT from its own location, so a
+  # copy placed inside the temp tree at tests/commands/ sees the TEMP tree's
+  # adapters — where dispatches=10 and params=0, so the count test fails.
+  make_tree
+  sed -i 's/{AGENT_BLOCKING_PARAM}/{AGNT_BLOCKING_PARAM}/g' "$TREE/prompts/review-agents.md"
+  grep -qF '{AGNT_BLOCKING_PARAM}' "$TREE/prompts/review-agents.md" || { echo "mutation did not take" >&2; return 1; }
+  gen
+  [ "$rc" -eq 0 ] || { echo "generator should exit 0 (token outside namespace), got $rc: $err" >&2; return 1; }
+  local d="$TREE/adapters/claude-code/prp-review-agents.md"
+  [ "$(grep -c '^Agent($' "$d")" -eq 10 ]
+  [ "$(grep -c '^  run_in_background=false,$' "$d")" -eq 0 ]
+  grep -qF '{AGNT_BLOCKING_PARAM}' "$d"  # the literal ships into the output
+  # run the REAL count test against the temp tree and require it to FAIL
+  mkdir -p "$TREE/tests/commands"
+  cp "$ROOT/tests/commands/review-rounds.bats" "$TREE/tests/commands/"
+  rr_rc=0
+  bats --filter 'every Agent dispatch in the claude-code adapter passes' \
+    "$TREE/tests/commands/review-rounds.bats" >"$BATS_TEST_TMPDIR/rr.out" 2>&1 || rr_rc=$?
+  [ "$rr_rc" -ne 0 ] || {
+    echo "review-rounds count test PASSED on the typo tree — the safety net is broken" >&2
+    cat "$BATS_TEST_TMPDIR/rr.out" >&2
+    return 1
+  }
+  grep -q 'dispatches: 10, parameters: 0' "$BATS_TEST_TMPDIR/rr.out" || {
+    echo "count test failed for an unexpected reason:" >&2
+    cat "$BATS_TEST_TMPDIR/rr.out" >&2
+    return 1
+  }
+}
+
+@test "prose prefix typo {AGNT_BLOCKING_PROSE}: the positive test fails (claim gone, brace token ships)" {
+  make_tree
+  sed -i 's/{AGENT_BLOCKING_PROSE}/{AGNT_BLOCKING_PROSE}/g' "$TREE/prompts/review-agents.md"
+  grep -qF '{AGNT_BLOCKING_PROSE}' "$TREE/prompts/review-agents.md" || { echo "mutation did not take" >&2; return 1; }
+  gen
+  [ "$rc" -eq 0 ] || { echo "generator should exit 0 (outside namespace), got $rc: $err" >&2; return 1; }
+  local d="$TREE/adapters/claude-code/prp-review-agents.md"
+  # claim gone (would fail the positive test's first assertion)
+  [ "$(grep -cF 'therefore passes' "$d")" -eq 0 ]
+  # literal brace token ships (would fail its second assertion)
+  grep -qF '{AGNT_BLOCKING_PROSE}' "$d"
+}
+
+@test "missing prose config value: exit 1 naming the key (claude stanza claim / top-level neutral)" {
+  make_tree missing-claude
+  grep -v 'agent_blocking_prose_claude:' "$ROOT/adapters.yml" > "$TREE/adapters.yml"
+  gen
+  [ "$rc" -eq 1 ] || { echo "missing claude claim: expected exit 1, got $rc" >&2; return 1; }
+  echo "$err" | grep -qF "'agent_blocking_prose_claude'" || { echo "error does not name the key: $err" >&2; return 1; }
+
+  make_tree missing-other
+  grep -v '^agent_blocking_prose_other:' "$ROOT/adapters.yml" > "$TREE/adapters.yml"
+  gen
+  [ "$rc" -eq 1 ] || { echo "missing neutral sentence: expected exit 1, got $rc" >&2; return 1; }
+  echo "$err" | grep -qF "'agent_blocking_prose_other'" || { echo "error does not name the key: $err" >&2; return 1; }
+}
+
+@test "canary: changing the top-level neutral prose value appears in all 5 non-claude adapters" {
+  make_tree
+  sed -i 's/^agent_blocking_prose_other: " In the/agent_blocking_prose_other: " CANARYPROSE In the/' "$TREE/adapters.yml"
+  grep -q 'CANARYPROSE' "$TREE/adapters.yml" || { echo "canary mutation did not take" >&2; return 1; }
+  gen
+  [ "$rc" -eq 0 ] || { echo "generator failed: $err" >&2; return 1; }
+  local f
+  for f in \
+    adapters/antigravity/prp-review-agents.md \
+    adapters/codex/prp-review-agents/SKILL.md \
+    adapters/gemini/review-agents.toml \
+    adapters/opencode/review-agents.md \
+    adapters/thclaws/prp-review-agents/SKILL.md
+  do
+    grep -q 'CANARYPROSE' "$TREE/$f" || { echo "canary missing from $f — the generator is not reading the top-level key" >&2; return 1; }
+  done
+  # claude-code keeps the claim, not the neutral canary
+  ! grep -q 'CANARYPROSE' "$TREE/adapters/claude-code/prp-review-agents.md"
+}
+
+@test "{agent} (no underscore) is outside the namespace and generates unchanged" {
+  make_tree
+  gen
+  [ "$rc" -eq 0 ] || { echo "generator failed: $err" >&2; return 1; }
+  local n=0 f
+  for f in \
+    adapters/antigravity/prp-review-agents.md \
+    adapters/claude-code/prp-review-agents.md \
+    adapters/codex/prp-review-agents/SKILL.md \
+    adapters/gemini/review-agents.toml \
+    adapters/opencode/review-agents.md \
+    adapters/thclaws/prp-review-agents/SKILL.md
+  do
+    grep -qF 'waiting on {agent}' "$TREE/$f" || { echo "{agent} missing from $f" >&2; return 1; }
+    n=$((n + 1))
+  done
+  [ "$n" -eq 6 ]
 }
 
 @test "adapters.yml not a mapping (list / scalar): exit 1 with a named error (round 6 input table)" {
@@ -533,6 +714,9 @@ expect_fail("toml-empty-desc", "gemini/prp-x.toml",
             'description = ""\nprompt = """\nbody\n"""\n', "empty description field")
 expect_fail("toml-empty-body", "gemini/prp-x.toml",
             'description = "d"\nprompt = """\n\n"""\n', "empty command body")
+expect_fail("ns-token", "codex/prp-x/SKILL.md",
+            "---\ndescription: \"d\"\n---\nbody with {AGENT_FOO} inside\n",
+            "'{AGENT_FOO}'")
 # a description containing "---" must not mis-split frontmatter from body
 expect_fail("dash-desc-ws-body", "claude-code/prp-x.md",
             "---\ndescription: \"pre---post\"\n---\n\n   \n", "empty command body")

@@ -14,6 +14,12 @@
 #
 # Every test writes only under "$BATS_TEST_TMPDIR".
 #
+# Round-1 follow-up (prp-framework#156): the prose/param tests now cover every
+# adapter individually (the blocking claim may appear only where every dispatch
+# block carries the parameter), counting goes through count() so a grep error
+# can never masquerade as a zero, and no test calls a `fail` helper — bats
+# defines none; this file's echo+return 1 convention is used throughout.
+#
 # Run: bats tests/commands/review-rounds.bats
 
 ROOT="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)"
@@ -31,6 +37,25 @@ adapters/gemini/review-agents.toml
 adapters/opencode/review-agents.md
 adapters/thclaws/prp-review-agents/SKILL.md
 "
+
+# The six adapter paths (EXPECTED_FILES minus the prompt) and the five
+# non-claude-code adapters, as plain strings — bats' preprocessor accepts
+# multi-line quoted strings (EXPECTED_FILES above) but not multi-line command
+# substitution at top level. The list test below ("the adapter lists ...")
+# asserts set-equality of these lists against EXPECTED_FILES, so adding or
+# removing an adapter fails the tests until every list is updated (round-6
+# Important B: the comment used to claim a cross-check that did not exist).
+ADAPTER_FILES="adapters/antigravity/prp-review-agents.md
+adapters/claude-code/prp-review-agents.md
+adapters/codex/prp-review-agents/SKILL.md
+adapters/gemini/review-agents.toml
+adapters/opencode/review-agents.md
+adapters/thclaws/prp-review-agents/SKILL.md"
+OTHER_ADAPTERS="adapters/antigravity/prp-review-agents.md
+adapters/codex/prp-review-agents/SKILL.md
+adapters/gemini/review-agents.toml
+adapters/opencode/review-agents.md
+adapters/thclaws/prp-review-agents/SKILL.md"
 
 # check_file FILE — fail unless FILE exists and is a readable regular file.
 check_file() { # <file>
@@ -81,6 +106,22 @@ pos() { # <file> <ERE>
   return 1
 }
 
+# count FILE ERE — print the number of matching lines. A grep error (exit >= 2:
+# bad pattern, unreadable/missing file) fails the test instead of printing a
+# silent 0 — the old `n=$(grep -c ...) || n=0` idiom coerced errors into zeroes
+# and could fabricate an equal-count pass.
+count() { # <file> <ERE>
+  check_file "$1" || return 1
+  rc=0
+  n=$(grep -cE -- "$2" "$1" 2>/dev/null) || rc=$?
+  if [ "$rc" -ge 2 ]; then
+    echo "count: grep error (exit $rc) for pattern '$2' on $1 — not a pass" >&2
+    return 1
+  fi
+  [ "$rc" -eq 1 ] && n=0
+  echo "$n"
+}
+
 # all_neg ERE / all_pos ERE — run neg/pos over the FULL expected file set.
 all_neg() { # <ERE>
   for f in $EXPECTED_FILES; do
@@ -94,6 +135,98 @@ all_pos() { # <ERE>
     pos "$ROOT/$f" "$1" || return 1
   done
   return 0
+}
+
+@test "every Agent dispatch in the claude-code adapter passes run_in_background=false (#151 AC1)" {
+  # prp-framework#151 AC1: on Claude Code 2.1.302 an Agent call runs in the
+  # background unless run_in_background=false is passed — without it each
+  # finished agent is its own task-notification turn (one wake per reviewer).
+  # Count 'Agent(' dispatch blocks and 'run_in_background=false' parameters:
+  # they must be equal, and at least 10 (3 core + 7 conditional).
+  # Round-1 fix 2+4: counts come from count() (a missing/unreadable adapter or
+  # grep error fails here instead of counting 0) and failures use this file's
+  # echo+return 1 convention — bats defines no `fail` helper.
+  local dispatches params
+  dispatches=$(count "$ADAPTER" '^Agent\($') || return 1
+  params=$(count "$ADAPTER" '^  run_in_background=false,$') || return 1
+  [ "$dispatches" -ge 10 ] || {
+    echo "expected at least 10 Agent dispatch blocks, counted: $dispatches" >&2
+    return 1
+  }
+  [ "$dispatches" -eq "$params" ] || {
+    echo "every Agent dispatch must pass run_in_background=false — dispatches: $dispatches, parameters: $params" >&2
+    return 1
+  }
+  # R3 fix: equal totals do not prove pairing — one block could lose the
+  # parameter while another gains a duplicate. Require the parameter on the
+  # line directly after EVERY `Agent(` line, block by block.
+  local unpaired
+  unpaired=$(awk '
+    prev == "Agent(" && $0 != "  run_in_background=false," { bad++ }
+    { prev = $0 }
+    END { print bad + 0 }
+  ' "$ADAPTER") || return 1
+  [ "$unpaired" -eq 0 ] || {
+    echo "$unpaired Agent dispatch block(s) lack run_in_background=false directly after 'Agent('" >&2
+    return 1
+  }
+}
+
+@test "no other-runtime adapter carries the Claude-Code-only blocking kwarg (#151 AC1)" {
+  # The kwarg is claude-code-only (adapters.yml: agent_blocking_param); the
+  # generator's substitute_placeholders maps {AGENT_BLOCKING_PARAM} to "" for
+  # every other runtime. No dispatch block in the other five adapters may
+  # contain run_in_background — their Agent tools would reject the parameter.
+  # Round-1 fix 2: neg() — a missing/renamed adapter or a grep error (exit 2)
+  # now fails this test; the old `if grep -q` shape treated exit 2 as
+  # "no match" and passed on a missing file.
+  local f
+  for f in $OTHER_ADAPTERS; do
+    neg "$ROOT/$f" '^  run_in_background=false,$' || return 1
+  done
+}
+
+@test "the blocking-prose claim is true in every adapter: claimed only where every dispatch carries it (#156 round 1)" {
+  # The "therefore passes" sentence asserts that every Agent dispatch in THIS
+  # adapter passes run_in_background=false. That is true only where the
+  # dispatch blocks actually carry the parameter (claude-code). Where they do
+  # not, the adapter must carry the scoped neutral sentence instead — never
+  # the unscoped claim. (At f3869af all six adapters carried the claim while
+  # five had zero parameters; this test fails on that text.)
+  local f dispatches params claims
+  for f in $ADAPTER_FILES; do
+    dispatches=$(count "$ROOT/$f" '^Agent\($') || return 1
+    params=$(count "$ROOT/$f" '^  run_in_background=false,$') || return 1
+    claims=$(count "$ROOT/$f" 'therefore passes') || return 1
+    [ "$dispatches" -ge 10 ] || {
+      echo "$f: expected at least 10 Agent dispatch blocks, counted: $dispatches" >&2
+      return 1
+    }
+    if [ "$claims" -gt 0 ]; then
+      if [ "$params" -ne "$dispatches" ]; then
+        echo "$f: prose claims every dispatch passes run_in_background=false, but dispatches: $dispatches, parameters: $params" >&2
+        return 1
+      fi
+    else
+      # no claim -> the scoped neutral sentence must carry the scoping instead
+      # (matched by its stable first line: the value lives in adapters.yml and
+      # its line wrapping may change without changing the scoping itself)
+      pos "$ROOT/$f" 'In the Claude Code adapter every Agent' || return 1
+    fi
+  done
+  # the source placeholders match the dispatch set: one {AGENT_BLOCKING_PARAM}
+  # per Agent dispatch block, and exactly one {AGENT_BLOCKING_PROSE} sentence
+  local prompt_params prompt_prose
+  prompt_params=$(count "$ROOT/prompts/review-agents.md" '\{AGENT_BLOCKING_PARAM\}') || return 1
+  prompt_prose=$(count "$ROOT/prompts/review-agents.md" '\{AGENT_BLOCKING_PROSE\}') || return 1
+  [ "$prompt_params" -eq "$dispatches" ] || {
+    echo "prompt has $prompt_params {AGENT_BLOCKING_PARAM} placeholders but the adapters have $dispatches dispatch blocks" >&2
+    return 1
+  }
+  [ "$prompt_prose" -eq 1 ] || {
+    echo "expected exactly 1 {AGENT_BLOCKING_PROSE} placeholder in the prompt, found: $prompt_prose" >&2
+    return 1
+  }
 }
 
 @test "the expected file set is exactly the prompt plus the 6 adapters, all present and readable" {
@@ -196,4 +329,27 @@ all_pos() { # <ERE>
   [ -s "$stepA" ]
   neg "$stepA" 'curr-run\.env'
   pos "$stepA" 'RUN_ID="\$\(date -u \+%Y%m%dT%H%M%SZ\)-\$RAND"'
+}
+
+@test "the adapter lists match EXPECTED_FILES exactly (set equality; round-6 Important B)" {
+  # ADAPTER_FILES must be EXPECTED_FILES minus the prompt; OTHER_ADAPTERS must
+  # be ADAPTER_FILES minus claude-code. Set equality: a 7th adapter (or a
+  # removed one) changes EXPECTED_FILES, and these lists must be updated in
+  # the same commit or this test fails — no adapter can silently lose coverage.
+  local expected_adapters expected_others
+  expected_adapters="$(printf '%s\n' $EXPECTED_FILES | grep '^adapters/' | sort)"
+  expected_others="$(printf '%s\n' $ADAPTER_FILES | grep -v '^adapters/claude-code/' | sort)"
+  [ "$(printf '%s\n' $ADAPTER_FILES | sort)" = "$expected_adapters" ] || {
+    echo "ADAPTER_FILES != EXPECTED_FILES adapters:" >&2
+    diff <(printf '%s\n' $ADAPTER_FILES | sort) <(printf '%s\n' "$expected_adapters") >&2
+    return 1
+  }
+  [ "$(printf '%s\n' $OTHER_ADAPTERS | sort)" = "$expected_others" ] || {
+    echo "OTHER_ADAPTERS != ADAPTER_FILES minus claude-code:" >&2
+    diff <(printf '%s\n' $OTHER_ADAPTERS | sort) <(printf '%s\n' "$expected_others") >&2
+    return 1
+  }
+  # and exactly 6 / 5 entries
+  [ "$(printf '%s\n' $ADAPTER_FILES | wc -l)" -eq 6 ]
+  [ "$(printf '%s\n' $OTHER_ADAPTERS | wc -l)" -eq 5 ]
 }
