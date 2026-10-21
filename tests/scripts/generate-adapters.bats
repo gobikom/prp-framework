@@ -405,6 +405,50 @@ HOOK
   done
 }
 
+@test "A1b command value types: alias / alias-of wrong type -> named load-time error, nothing generated" {
+  local key pyval want spec fails=""
+  for spec in "alias:'false':bool, got str" "alias:['plan']:bool, got list" "alias-of:['plan']:str, got list" "alias-of:None:str, got NoneType"; do
+    IFS=: read -r key pyval want <<<"$spec"
+    make_tree "cvt-$(echo "$key$pyval" | tr -cd 'a-z0-9')"
+    python3 - "$TREE" "$key" "$pyval" <<'HOOK'
+import ast, sys, yaml
+t, key, pyval = sys.argv[1:4]
+p = f"{t}/adapters.yml"
+c = yaml.safe_load(open(p))
+c["commands"]["qa"][key] = ast.literal_eval(pyval)
+yaml.safe_dump(c, open(p, "w"), sort_keys=False)
+HOOK
+    gen
+    [ "$rc" -eq 1 ] || fails+="[$spec] exit $rc"$'\n'
+    case "$err" in *Traceback*) fails+="[$spec] Traceback"$'\n' ;; esac
+    case "$err" in *"command 'qa' key '$key' must be $want"*) ;; *) fails+="[$spec] key not named: $err"$'\n' ;; esac
+    [ ! -e "$TREE/adapters" ] || fails+="[$spec] output generated"$'\n'
+  done
+  [ -z "$fails" ] || { printf '%s' "$fails" >&2; return 1; }
+}
+
+@test "A1b description values: non-str entry in description / description-overrides -> named load-time error, nothing generated" {
+  local dkey entry pyval spec fails=""
+  for spec in "description:default:123" "description:default:None" "description-overrides:gemini:['x']" "description-overrides:codex:3.14"; do
+    IFS=: read -r dkey entry pyval <<<"$spec"
+    make_tree "dv-$(echo "$dkey$entry" | tr -cd 'a-z0-9')"
+    python3 - "$TREE" "$dkey" "$entry" "$pyval" <<'HOOK'
+import ast, sys, yaml
+t, dkey, entry, pyval = sys.argv[1:5]
+p = f"{t}/adapters.yml"
+c = yaml.safe_load(open(p))
+c["commands"]["qa"].setdefault(dkey, {})[entry] = ast.literal_eval(pyval)
+yaml.safe_dump(c, open(p, "w"), sort_keys=False)
+HOOK
+    gen
+    [ "$rc" -eq 1 ] || fails+="[$spec] exit $rc"$'\n'
+    case "$err" in *Traceback*) fails+="[$spec] Traceback"$'\n' ;; esac
+    case "$err" in *"key '$dkey' entry"*"must be a string"*) ;; *) fails+="[$spec] values not named: $err"$'\n' ;; esac
+    [ ! -e "$TREE/adapters" ] || fails+="[$spec] output generated"$'\n'
+  done
+  [ -z "$fails" ] || { printf '%s' "$fails" >&2; return 1; }
+}
+
 # ── A1 re-plan #2: ONE exception boundary (tests/scripts/fault_inject.py) ──
 
 @test "A1-r4b fault injection: every class x exception -> no Traceback, rc != 0, input named" {

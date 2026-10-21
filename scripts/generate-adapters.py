@@ -175,12 +175,14 @@ def load_config() -> dict:
         "description": dict, "description-overrides": dict,
         "argument-hint": str, "codex-short-description": str,
         "group": str, "opencode-agent": str,
+        "alias": bool, "alias-of": str,
     }
 
     def check_value_types(section: str, name: str, cfg: dict, types: dict) -> None:
-        # Checks only the keys whose documented type is known; keys the
-        # generator does not read (e.g. alias / alias-of on commands) are
-        # skipped. bool is a subclass of int but of no other checked type,
+        # Checks every key whose documented type is known, including
+        # alias / alias-of (generate_adapter_file reads both; a truthy
+        # alias: "false" string silently stubbed the prompt body).
+        # bool is a subclass of int but of no other checked type,
         # so a plain isinstance test already rejects true/false for str.
         for key, value in cfg.items():
             want = types.get(key)
@@ -190,6 +192,16 @@ def load_config() -> dict:
                 print(f"Error: adapters.yml {section} '{name}' key '{key}' must be "
                       f"{want.__name__}, got {type(value).__name__}", file=sys.stderr)
                 sys.exit(1)
+        # description / description-overrides map adapter names to the text
+        # written into each adapter's frontmatter; a non-str value (int,
+        # null) previously died mid-generation in yaml_quote with half the
+        # output tree already written, or silently wrote description: ""
+        for dkey in ("description", "description-overrides"):
+            for dk, dv in (cfg.get(dkey) or {}).items():
+                if not isinstance(dv, str):
+                    print(f"Error: adapters.yml {section} '{name}' key '{dkey}' entry "
+                          f"{dk!r}: {dv!r} must be a string", file=sys.stderr)
+                    sys.exit(1)
         # group_dirs: a group name and its directory build output paths, so
         # both must be plain names (an absolute or ../ value wrote outside adapters/)
         for gk, gv in (cfg.get("group_dirs") or {}).items():
