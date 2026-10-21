@@ -591,9 +591,57 @@ def generate_adapter_file(adapter_name: str, cmd_name: str, config: dict) -> tup
     return rel_path, content
 
 
+def generate_unit(adapter_name: str, cmd_name: str, config: dict, ctx: dict,
+                  dry_run: bool, show_diff: bool) -> str:
+    """One (adapter, command) unit; returns the stats key. Raises on failure
+    (generate_all counts it); ctx["path"] is the last file touched."""
+    adapter_cfg = config["adapters"][adapter_name]
+    cmd_cfg = config["commands"][cmd_name]
+    ctx["path"] = display_path(PROMPTS_DIR / f"{cmd_name}.md")
+    rel_path, content = generate_adapter_file(adapter_name, cmd_name, config)
+    if not content:
+        return "skipped"
+
+    # Determine output directory (may differ for grouped commands)
+    cmd_group = cmd_cfg.get("group")
+    group_dirs = adapter_cfg.get("group_dirs", {})
+    if cmd_group and cmd_group in group_dirs:
+        adapter_dir = ADAPTERS_DIR / group_dirs[cmd_group]
+    else:
+        adapter_dir = ADAPTERS_DIR / adapter_name
+
+    out_path = adapter_dir / rel_path
+    ctx["path"] = display_path(out_path)
+
+    # Path traversal check
+    if not validate_output_path(out_path, adapter_dir):
+        raise GenerationError(
+            f"error: Path traversal detected: {display_path(out_path)}")
+
+    if dry_run:
+        print(f"  [DRY RUN] Would write: {out_path}")
+        return "generated"
+
+    existing = read_utf8(out_path, optional=True)
+    if existing is None:
+        if show_diff:
+            print(f"  [NEW] {out_path}")
+    else:
+        if existing == content:
+            return "unchanged"
+        if show_diff:
+            print(f"  [CHANGED] {out_path}")
+
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    # encode BEFORE opening: a lone surrogate must not truncate the output
+    out_path.write_bytes(content.encode("utf-8"))
+    return "generated"
+
+
 def generate_all(config: dict, adapter_filter: str | None = None,
                  dry_run: bool = False, show_diff: bool = False) -> dict[str, int]:
-    """Generate all adapter files. Returns stats."""
+    """Generate all adapter files. Returns stats. The per-unit boundary:
+    no exception leaves as a traceback; each is ONE counted error."""
     stats = {"generated": 0, "skipped": 0, "errors": 0, "unchanged": 0}
 
     adapters_to_gen = (
@@ -602,94 +650,23 @@ def generate_all(config: dict, adapter_filter: str | None = None,
         else config["adapters"]
     )
 
-    commands = config["commands"]
-
-    for adapter_name, adapter_cfg in adapters_to_gen.items():
-        default_adapter_dir = ADAPTERS_DIR / adapter_name
-        group_dirs = adapter_cfg.get("group_dirs", {})
-
+    for adapter_name in adapters_to_gen:
         print(f"\n{'='*60}")
         print(f"Adapter: {adapter_name}")
         print(f"{'='*60}")
 
-        for cmd_name in commands:
-            cmd_cfg = commands[cmd_name]
+        for cmd_name in config["commands"]:
+            ctx = {"path": ""}
             try:
-                rel_path, content = generate_adapter_file(adapter_name, cmd_name, config)
-            except GenerationError as e:
-                print(f"  {e}", file=sys.stderr)
-                stats["errors"] += 1
-                continue
-            except (ValueError, TypeError, AttributeError, KeyError) as e:
-                # Last resort for the invariant "never a traceback": a bug or
-                # an input shape no check anticipated is still a named,
-                # counted error that fails the run.
-                print(f"  error: unexpected {type(e).__name__} generating "
-                      f"{adapter_name}/{cmd_name}: {e}", file=sys.stderr)
-                stats["errors"] += 1
-                continue
-
-            if not content:
-                stats["skipped"] += 1
-                continue
-
-            # Determine output directory (may differ for grouped commands)
-            cmd_group = cmd_cfg.get("group")
-            if cmd_group and cmd_group in group_dirs:
-                adapter_dir = ADAPTERS_DIR / group_dirs[cmd_group]
-            else:
-                adapter_dir = default_adapter_dir
-
-            out_path = adapter_dir / rel_path
-
-            # Path traversal check
-            if not validate_output_path(out_path, adapter_dir):
-                print(f"  ERROR: Path traversal detected: {display_path(out_path)}", file=sys.stderr)
-                stats["errors"] += 1
-                continue
-
-            if dry_run:
-                print(f"  [DRY RUN] Would write: {out_path}")
-                stats["generated"] += 1
-                continue
-
-            # Check if content changed
-            try:
-                existing = read_utf8(out_path, optional=True)
-            except GenerationError as e:
-                # Never overwrite an output the generator could not read:
-                # named error, counted, continue (the write path below is
-                # unreachable for this file because we `continue` here).
-                print(f"  {e}", file=sys.stderr)
-                stats["errors"] += 1
-                continue
-            if existing is None:
-                if show_diff:
-                    print(f"  [NEW] {out_path}")
-            else:
-                if existing == content:
-                    stats["unchanged"] += 1
-                    continue
-                if show_diff:
-                    print(f"  [CHANGED] {out_path}")
-
-            # Ensure parent directory exists (for codex prp-{name}/ dirs)
-            try:
-                out_path.parent.mkdir(parents=True, exist_ok=True)
-            except OSError as e:
-                print(f"  error: cannot create directory "
-                      f"{display_path(out_path.parent)}: {e}", file=sys.stderr)
-                stats["errors"] += 1
-                continue
-
-            try:
-                # encode BEFORE the file is opened: an unencodable value
-                # (lone surrogate) must not truncate the existing output
-                out_path.write_bytes(content.encode("utf-8"))
-                stats["generated"] += 1
-            except (OSError, UnicodeEncodeError) as e:
-                print(f"  ERROR: Failed to write {display_path(out_path)}: {e}",
-                      file=sys.stderr)
+                stats[generate_unit(adapter_name, cmd_name, config, ctx,
+                                    dry_run, show_diff)] += 1
+            except Exception as e:  # boundary 1 of 2 (see grep invariant test)
+                if isinstance(e, GenerationError):
+                    print(f"  {e}", file=sys.stderr)
+                else:
+                    print(f"  error: {adapter_name}/{cmd_name} "
+                          f"({ctx['path']}): {type(e).__name__}: {e}",
+                          file=sys.stderr)
                 stats["errors"] += 1
 
     return stats
@@ -717,7 +694,18 @@ def main():
     )
     args = parser.parse_args()
 
+    phase = {"input": display_path(CONFIG_PATH)}
+    try:
+        return run(args, phase)
+    except Exception as e:  # boundary 2 of 2 (see grep invariant test)
+        print(f"Error: {phase['input']}: {type(e).__name__}: {e}",
+              file=sys.stderr)
+        return 1
+
+
+def run(args, phase: dict) -> int:
     config = load_config()
+    phase["input"] = "generation"
 
     if args.adapter and args.adapter not in config["adapters"]:
         print(f"Error: Unknown adapter '{args.adapter}'", file=sys.stderr)
