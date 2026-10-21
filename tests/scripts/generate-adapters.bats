@@ -354,6 +354,36 @@ open(p,'w',encoding='utf-8',errors='surrogatepass').write(yaml.safe_dump(c,sort_
   [ "$(wc -c < "$TREE/adapters/claude-code/prp-qa.md")" -eq "$before" ] || { echo "output truncated" >&2; return 1; }
 }
 
+@test "A1b config shape: adapter/command key that is int, None, date or lone surrogate -> one named load-time error, nothing generated" {
+  local section shape expect fails=""
+  for section in adapters commands; do
+    for shape in int none date surrogate; do
+      case "$shape" in
+        int) expect="123" ;;
+        none) expect="None" ;;
+        date) expect="datetime.date(2024, 1, 1)" ;;
+        surrogate) expect="'bad\\ud800'" ;;
+      esac
+      make_tree "key-$section-$shape"
+      python3 - "$TREE" "$section" "$shape" <<'HOOK'
+import datetime, sys, yaml
+t, section, shape = sys.argv[1:4]
+p = f"{t}/adapters.yml"
+c = yaml.safe_load(open(p))
+key = {"int": 123, "none": None, "date": datetime.date(2024, 1, 1), "surrogate": "bad\ud800"}[shape]
+c[section][key] = dict(next(iter(c[section].values())))
+open(p, "w", encoding="utf-8", errors="surrogatepass").write(yaml.safe_dump(c, sort_keys=False, allow_unicode=True))
+HOOK
+      gen
+      [ "$rc" -eq 1 ] || fails+="[$section/$shape] exit $rc"$'\n'
+      case "$err" in *Traceback*) fails+="[$section/$shape] Traceback"$'\n' ;; esac
+      case "$err" in *"invalid ${section%s} name $expect"*) ;; *) fails+="[$section/$shape] key not named: $err"$'\n' ;; esac
+      [ ! -e "$TREE/adapters" ] || fails+="[$section/$shape] output generated"$'\n'
+    done
+  done
+  [ -z "$fails" ] || { printf '%s' "$fails" >&2; return 1; }
+}
+
 # ── A1 re-plan #2: ONE exception boundary (tests/scripts/fault_inject.py) ──
 
 @test "A1-r4b fault injection: every class x exception -> no Traceback, rc != 0, input named" {
