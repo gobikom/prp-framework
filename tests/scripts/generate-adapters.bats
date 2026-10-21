@@ -348,7 +348,7 @@ PYX
 
 # ── A1 round-1 fixes (#161): lenient but VISIBLE; guarded output-side reads ──
 
-@test "A1-r1 command frontmatter.fields error names the command (section param)" {
+@test "A1-r3 command carrying a frontmatter key (adapter-only) is an unknown command key naming the command" {
   make_tree
   python3 - "$TREE" <<'HOOKF'
 import sys, yaml
@@ -359,31 +359,98 @@ yaml.safe_dump(c, open(f"{t}/adapters.yml", "w"), sort_keys=False)
 HOOKF
   gen
   [ "$rc" -eq 1 ] || { echo "expected exit 1, got $rc" >&2; return 1; }
-  echo "$err" | grep -qF "adapters.yml command 'qa' key 'frontmatter.fields' must be a list of strings" \
+  echo "$err" | grep -qF "Command 'qa' has unknown keys: ['frontmatter']" \
     || { echo "error does not name command+key: $err" >&2; return 1; }
 }
 
-@test "A1-r1 malformed overlay YAML inside a valid --- block: WARNING names the file, no traceback, generation continues" {
-  make_tree
-  printf -- '---\ncommand: [plan\n---\n# objective\nOBJ-R1YAML\n' > "$TREE/prompts/overlays/claude-code/plan.md"
-  gen
-  [ "$rc" -eq 0 ] || { echo "expected exit 0 (lenient), got $rc: $err" >&2; return 1; }
-  echo "$err" | grep -qF "WARNING: prompts/overlays/claude-code/plan.md: invalid overlay frontmatter YAML" \
-    || { echo "WARNING does not name the file: $err" >&2; return 1; }
-  if printf '%s\n' "$err" | grep -q 'Traceback'; then echo "raw traceback leaked: $err" >&2; return 1; fi
-  # generation continued: the objective (metadata-independent) still applies
-  grep -qF "OBJ-R1YAML" "$TREE/adapters/claude-code/prp-plan.md"
+# ── A1 round-3 re-plan: boundary table (one test per row) ───────────────────
+
+# expect_counted_error <file-fragment> — rc 1, named error, no traceback, a
+# 1-error Results line, and the other commands still generated.
+expect_counted_error() {
+  [ "$rc" -eq 1 ] || { echo "expected exit 1, got $rc: $err" >&2; return 1; }
+  echo "$err" | grep -qF "$1" || { echo "error does not name '$1': $err" >&2; return 1; }
+  if printf '%s\n' "$err" | grep -q 'Traceback'; then echo "raw traceback: $err" >&2; return 1; fi
+  echo "$out" | grep -qE ', [1-9][0-9]* errors' || { echo "error not counted: $(echo "$out" | tail -2)" >&2; return 1; }
+  [ -f "$TREE/adapters/claude-code/prp-commit.md" ] || { echo "other commands not generated" >&2; return 1; }
 }
 
-@test "A1-r1 indented --- in an overlay: the named parse error appears as a WARNING, metadata ignored" {
+@test "A1-r3 row: prompt file missing — counted named error, others generated" {
   make_tree
-  printf -- '  ---\ncommand: plan\nadapter: claude-code\n---\n# objective\nOBJ-R1IND\n' > "$TREE/prompts/overlays/claude-code/plan.md"
+  rm "$TREE/prompts/qa.md"
   gen
-  [ "$rc" -eq 0 ] || { echo "expected exit 0 (lenient), got $rc: $err" >&2; return 1; }
-  echo "$err" | grep -qF "WARNING: error: indented frontmatter delimiter in prompts/overlays/claude-code/plan.md at line 1" \
-    || { echo "named parse error not shown as WARNING: $err" >&2; return 1; }
-  # metadata ignored: the skip_before directive in the dropped metadata does not apply
-  if printf '%s\n' "$err" | grep -q 'Traceback'; then echo "raw traceback leaked" >&2; return 1; fi
+  expect_counted_error "prompts/qa.md"
+}
+
+@test "A1-r3 row: prompt unreadable (chmod 000) — counted named error" {
+  [ "$(id -u)" -ne 0 ] || skip "root reads chmod 000 files"
+  make_tree
+  chmod 000 "$TREE/prompts/qa.md"
+  gen
+  chmod 644 "$TREE/prompts/qa.md"
+  expect_counted_error "prompts/qa.md"
+}
+
+@test "A1-r3 row: prompt invalid UTF-8 — counted named error" {
+  make_tree
+  printf '\xff\xfe bad\n' > "$TREE/prompts/qa.md"
+  gen
+  expect_counted_error "prompts/qa.md"
+}
+
+@test "A1-r3 row: prompt empty — WARNING and skipped, not an error" {
+  make_tree
+  : > "$TREE/prompts/qa.md"
+  gen
+  [ "$rc" -eq 0 ] || { echo "expected exit 0, got $rc: $err" >&2; return 1; }
+  echo "$err" | grep -qF "No prompt file for qa" || { echo "no empty-prompt WARNING: $err" >&2; return 1; }
+}
+
+@test "A1-r3 row: overlay malformed frontmatter YAML — counted error, no raw frontmatter in any output" {
+  make_tree
+  printf -- '---\ncommand: [plan\n---\n# objective\nOBJ-R3YAML\n' > "$TREE/prompts/overlays/claude-code/plan.md"
+  gen
+  expect_counted_error "prompts/overlays/claude-code/plan.md"
+  if grep -rqF 'command: [plan' "$TREE/adapters"; then echo "raw frontmatter leaked" >&2; return 1; fi
+}
+
+@test "A1-r3 row: overlay opener with no closing --- — counted error, no raw frontmatter in any output" {
+  make_tree
+  printf -- '---\ncommand: plan\nadapter: claude-code\n# objective\nOBJ-R3OPEN\n' > "$TREE/prompts/overlays/claude-code/plan.md"
+  gen
+  expect_counted_error "unterminated frontmatter"
+  if grep -rqF 'adapter: claude-code' "$TREE/adapters/claude-code/prp-plan.md" 2>/dev/null; then echo "raw frontmatter leaked" >&2; return 1; fi
+}
+
+@test "A1-r3 row: overlay indented opener — counted error" {
+  make_tree
+  printf -- '  ---\ncommand: plan\nadapter: claude-code\n---\n# objective\nOBJ-R3IND\n' > "$TREE/prompts/overlays/claude-code/plan.md"
+  gen
+  expect_counted_error "indented frontmatter delimiter in prompts/overlays/claude-code/plan.md at line 1"
+}
+
+@test "A1-r3 row: overlay invalid UTF-8 — counted named error" {
+  make_tree
+  printf '\xff\xfe\n' > "$TREE/prompts/overlays/claude-code/plan.md"
+  gen
+  expect_counted_error "prompts/overlays/claude-code/plan.md"
+}
+
+@test "A1-r3 row: unknown command key — named load-time error, exit 1" {
+  make_tree
+  sed -i '0,/^    argument-hint:/s//    argumnt-hint:/' "$TREE/adapters.yml"
+  grep -q 'argumnt-hint:' "$TREE/adapters.yml" || { echo "mutation did not take" >&2; return 1; }
+  gen
+  [ "$rc" -eq 1 ] || { echo "expected exit 1, got $rc: $err" >&2; return 1; }
+  echo "$err" | grep -qF "has unknown keys: ['argumnt-hint']" || { echo "error does not name the key: $err" >&2; return 1; }
+  echo "$err" | grep -qF 'valid keys' || { echo "no valid-key list: $err" >&2; return 1; }
+}
+
+@test "A1-r3 row: valid input — exit 0, 0 skipped, 0 errors, repo adapters unchanged" {
+  make_tree
+  gen
+  [ "$rc" -eq 0 ] || { echo "generator failed: $err" >&2; return 1; }
+  echo "$out" | grep -qE ', 0 skipped, 0 errors' || { echo "$(echo "$out" | tail -2)" >&2; return 1; }
 }
 
 @test "A1-r1 existing output with invalid UTF-8: named error, errors=1, others generated, file unchanged" {
@@ -392,10 +459,8 @@ HOOKF
   python3 -c "open('$TREE/adapters/claude-code/prp-qa.md','wb').write(b'---\ndescription: \"old\"\n---\n\xff\xfe\n')"
   gen
   [ "$rc" -eq 1 ] || { echo "expected exit 1, got $rc" >&2; return 1; }
-  echo "$err" | grep -qF "error: cannot read existing output" \
+  echo "$err" | grep -qF "error: Cannot read adapters/claude-code/prp-qa.md: UnicodeDecodeError" \
     || { echo "error does not name the existing output: $err" >&2; return 1; }
-  echo "$err" | grep -qF "adapters/claude-code/prp-qa.md" \
-    || { echo "error does not name the file: $err" >&2; return 1; }
   echo "$out" | grep -qE 'Results: .*1 errors' \
     || { echo "expected errors=1: $(echo "$out" | grep Results)" >&2; return 1; }
   # the other files still generated: 191 of 192 (one skipped due to the unreadable file)
@@ -418,4 +483,31 @@ HOOKF
     || { echo "error does not name the directory: $err" >&2; return 1; }
   echo "$out" | grep -qE 'Results: .*1 errors' \
     || { echo "expected errors=1: $(echo "$out" | grep Results)" >&2; return 1; }
+}
+
+# ── A1 round-3 re-plan: ONE read helper (invariant) ────────────────────────
+# Invariant: every file the generator READS goes through read_utf8(path),
+# which turns OSError/UnicodeDecodeError into a GenerationError naming the
+# file; the per-command loop catches it (print, count, continue). This test
+# fails if read_text( or open( appears anywhere OUTSIDE read_utf8
+# (write_text is excluded — the write path is #157's).
+
+@test "A1-r3 invariant: every read goes through read_utf8 — no read_text(/open( outside it" {
+  local script="$ROOT/scripts/generate-adapters.py"
+  # every read_text( / open( call must live inside read_utf8's definition;
+  # list the offending sites first so a RED run names them.
+  local body_start body_end bad n
+  body_start=$(grep -n 'def read_utf8' "$script" | cut -d: -f1)
+  if [ -n "$body_start" ]; then
+    body_end=$(awk -v s="$body_start" 'NR>s && /^def |^class /{print NR; exit}' "$script")
+    bad=$(awk -v s="$body_start" -v e="$body_end" \
+          'NR>s && NR<e {next} /read_text\(|[^_a-z]open\(/ {print NR": "$0}' "$script")
+  else
+    bad=$(grep -nE 'read_text\(|[^_a-z]open\(' "$script" || true)
+  fi
+  [ -z "$bad" ] || {
+    echo "reads outside read_utf8:" >&2; printf '%s\n' "$bad" >&2; return 1; }
+  # and read_utf8 must exist exactly once
+  [ "$(grep -c 'def read_utf8' "$script")" -eq 1 ] || {
+    echo "read_utf8 is not defined exactly once" >&2; return 1; }
 }

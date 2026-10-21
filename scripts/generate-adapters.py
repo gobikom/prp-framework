@@ -57,6 +57,20 @@ class GenerationError(Exception):
     it, and its per-command boundary catches it)."""
 
 
+def read_utf8(path) -> str:
+    """The ONLY filesystem read in this script (#161 round-3 re-plan).
+
+    Any OSError or UnicodeDecodeError becomes a GenerationError naming the
+    file and the exception type, so no read can end in a traceback or a
+    silent exit 0. Callers count it (generate_all) or exit 1 (load_config).
+    """
+    try:
+        return Path(path).read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as e:
+        raise GenerationError(
+            f"error: Cannot read {display_path(path)}: {type(e).__name__}: {e}")
+
+
 # Required top-level keys in adapters.yml
 REQUIRED_CONFIG_KEYS = {"adapters", "commands"}
 REQUIRED_ADAPTER_KEYS = {"file_pattern", "format", "args_placeholder",
@@ -72,6 +86,11 @@ KNOWN_ADAPTER_KEYS = {"file_pattern", "format", "args_placeholder",
                       "tool_command_template", "artifact_suffix",
                       "frontmatter", "group_dirs", "overlays", "wrapper"}
 REQUIRED_COMMAND_KEYS = {"description"}
+# Every key a command stanza may carry: the six adapters.yml uses today plus
+# alias / alias-of, which generate_adapter_file reads (no command uses them yet).
+KNOWN_COMMAND_KEYS = {"description", "description-overrides", "argument-hint",
+                      "codex-short-description", "opencode-agent", "group",
+                      "alias", "alias-of"}
 
 
 # ---------------------------------------------------------------------------
@@ -85,16 +104,14 @@ def load_config() -> dict:
         sys.exit(1)
 
     try:
-        with open(CONFIG_PATH, encoding="utf-8") as f:
-            config = yaml.safe_load(f)
+        config = yaml.safe_load(read_utf8(CONFIG_PATH))
     except yaml.YAMLError as e:
         print(f"Error: Invalid YAML in {CONFIG_PATH}: {e}", file=sys.stderr)
         sys.exit(1)
-    except (OSError, UnicodeDecodeError) as e:
-        # #157 round 1: a config the generator cannot read or decode is a
-        # named error, never a raw UnicodeDecodeError traceback (it is a
-        # ValueError, so it slipped past the yaml.YAMLError catch above).
-        print(f"Error: Cannot read {CONFIG_PATH}: {e}", file=sys.stderr)
+    except GenerationError as e:
+        # read_utf8 names the file and the exception type; the config is
+        # fatal (exit 1) — nothing else can run without it.
+        print(f"Error: {str(e).removeprefix('error: ')}", file=sys.stderr)
         sys.exit(1)
 
     # Validate top-level structure (a non-mapping adapters.yml — list,
@@ -194,8 +211,13 @@ def load_config() -> dict:
         if missing_keys:
             print(f"Error: Command '{name}' missing keys: {missing_keys}", file=sys.stderr)
             sys.exit(1)
-        # (alias / alias-of are generator-read keys with their own handling;
-        # frontmatter.fields shape is checked for adapters above.)
+        unknown_keys = set(cfg.keys()) - KNOWN_COMMAND_KEYS
+        if unknown_keys:
+            print(f"Error: Command '{name}' has unknown keys: {sorted(unknown_keys)}",
+                  file=sys.stderr)
+            print("Error: Check adapters.yml for typos — valid keys: "
+                  f"{sorted(KNOWN_COMMAND_KEYS)}", file=sys.stderr)
+            sys.exit(1)
         check_value_types("command", name, cfg, COMMAND_VALUE_TYPES)
 
     return config
@@ -275,10 +297,7 @@ def split_frontmatter(text: str, source: str) -> tuple[str | None, str]:
 
 def read_prompt(name: str) -> str:
     """Read a canonical prompt file from prompts/."""
-    path = PROMPTS_DIR / f"{name}.md"
-    if not path.exists():
-        return ""
-    return path.read_text(encoding="utf-8")
+    return read_utf8(PROMPTS_DIR / f"{name}.md")
 
 
 def read_overlay(adapter: str, name: str) -> dict | None:
@@ -305,31 +324,23 @@ def read_overlay(adapter: str, name: str) -> dict | None:
     if not path.exists():
         return None
 
-    text = path.read_text(encoding="utf-8")
+    text = read_utf8(path)
 
-    # Parse YAML frontmatter through the ONE splitter, split_frontmatter
-    # (A1 owns it). A malformed region stays lenient here — the hard-error
-    # policy for overlays is #157's read_overlay; A1 only guarantees the
-    # parse goes through the single delimiter rule and never traces back.
+    # Parse YAML frontmatter through the ONE splitter, split_frontmatter.
+    # A malformed region (parse error or invalid YAML) is a GenerationError
+    # the per-command loop counts: no lenient fallback, so no raw frontmatter
+    # text can reach an output.
     overlay = {}
-    try:
-        fm, body = split_frontmatter(text, display_path(path))
-    except GenerationError as e:
-        # A1 is lenient but VISIBLE: the named parse error is printed, never
-        # silently discarded — the overlay generates without metadata. The
-        # hard-error policy for overlays is #157's; A1 logs and continues.
-        print(f"  WARNING: {e} — overlay metadata ignored", file=sys.stderr)
-        fm, body = None, text
+    fm, body = split_frontmatter(text, display_path(path))
     if fm is not None:
         try:
             meta = yaml.safe_load(fm)
-            if meta:
-                overlay["meta"] = meta
         except yaml.YAMLError as e:
-            # Same lenient-but-visible policy: named WARNING, meta absent,
-            # generation continues (the hard-error policy is #157's).
-            print(f"  WARNING: {display_path(path)}: invalid overlay frontmatter "
-                  f"YAML: {e} — overlay metadata ignored", file=sys.stderr)
+            raise GenerationError(
+                f"error: invalid overlay frontmatter YAML in "
+                f"{display_path(path)}: {e}")
+        if meta:
+            overlay["meta"] = meta
         text = body.strip()
 
     # Parse sections: lines starting with "# section_name"
@@ -417,7 +428,7 @@ def get_description(adapter_name: str, cmd_cfg: dict) -> str:
 
 
 def generate_frontmatter_md(adapter_name: str, cmd_name: str, cmd_cfg: dict,
-                            adapter_cfg: dict) -> str:
+                             adapter_cfg: dict) -> str:
     """Generate YAML frontmatter for Markdown adapters (non-codex)."""
     fields = adapter_cfg.get("frontmatter", {}).get("fields", [])
     if not fields:
@@ -648,7 +659,12 @@ def generate_all(config: dict, adapter_filter: str | None = None,
 
         for cmd_name in commands:
             cmd_cfg = commands[cmd_name]
-            rel_path, content = generate_adapter_file(adapter_name, cmd_name, config)
+            try:
+                rel_path, content = generate_adapter_file(adapter_name, cmd_name, config)
+            except GenerationError as e:
+                print(f"  {e}", file=sys.stderr)
+                stats["errors"] += 1
+                continue
 
             if not content:
                 stats["skipped"] += 1
@@ -677,13 +693,12 @@ def generate_all(config: dict, adapter_filter: str | None = None,
             # Check if content changed
             if out_path.exists():
                 try:
-                    existing = out_path.read_text(encoding="utf-8")
-                except (OSError, UnicodeDecodeError) as e:
+                    existing = read_utf8(out_path)
+                except GenerationError as e:
                     # Never overwrite an output the generator could not read:
                     # named error, counted, continue (the write path below is
                     # unreachable for this file because we `continue` here).
-                    print(f"  error: cannot read existing output "
-                          f"{display_path(out_path)}: {e}", file=sys.stderr)
+                    print(f"  {e}", file=sys.stderr)
                     stats["errors"] += 1
                     continue
                 if existing == content:
