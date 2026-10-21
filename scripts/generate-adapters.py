@@ -611,6 +611,51 @@ def validate_output_path(out_path: Path, adapter_dir: Path) -> bool:
         return False
 
 
+def validate_generated(rel_path: str, content: str) -> None:
+    """Output check: the generator exits 0 only if EVERY file it writes or
+    would write passes. Runs on every adapter and command — aliases included
+    — and in --dry-run/--diff modes too (called before the dry-run fork, so
+    it sees identical content). Raises GenerationError naming the file and
+    the reason:
+      (a) the command body, after frontmatter or TOML header, is non-empty
+          after strip;
+      (b) the description field, where the format has one, is non-empty.
+    """
+    where = f"generated output {rel_path}"
+
+    fmt_md = not rel_path.endswith(".toml")
+
+    if fmt_md:
+        # Markdown: strip YAML frontmatter, then require a non-empty body.
+        # The frontmatter/body boundary comes from split_frontmatter — one
+        # parser, shared with read_overlay() (no inline split here).
+        desc, body = split_frontmatter(content, rel_path)
+        desc = desc or ""
+        if not body.strip():
+            raise GenerationError(
+                f"error: {where} has an empty command body after frontmatter")
+        # (b) a description FIELD exists (frontmatter carries one) but is empty
+        if desc:
+            m = re.search(r"^description:\s*(.*)$", desc, re.MULTILINE)
+            if m and not m.group(1).strip().strip('"').strip():
+                raise GenerationError(
+                    f"error: {where} has an empty description field")
+    else:
+        # TOML (gemini): description = "..." then prompt = """...""" — the
+        # command body is the INTERIOR of the prompt block, not the leftover
+        # TOML scaffolding around it.
+        m = re.search(r'^description\s*=\s*"(.*)"', content, re.MULTILINE)
+        desc = m.group(1) if m else ""
+        if not desc.strip():
+            raise GenerationError(
+                f"error: {where} has an empty description field")
+        m = re.search(r'prompt\s*=\s*"""(.*?)"""', content, re.DOTALL)
+        body = m.group(1) if m else ""
+        if not body.strip():
+            raise GenerationError(
+                f"error: {where} has an empty command body after TOML header")
+
+
 # ---------------------------------------------------------------------------
 # Core generation
 # ---------------------------------------------------------------------------
@@ -628,12 +673,19 @@ def generate_adapter_file(adapter_name: str, cmd_name: str, config: dict) -> tup
 
     # Read base prompt (or generate alias content)
     if is_alias:
+        alias_of = cmd_cfg.get("alias-of", "")
+        if alias_of not in config["commands"]:
+            raise GenerationError(
+                f"error: command '{cmd_name}' is an alias of '{alias_of}', "
+                f"which is not a configured command")
         body = generate_alias_content(cmd_name, cmd_cfg, adapter_name)
     else:
         body = read_prompt(cmd_name)
-        if not body:
-            print(f"  WARNING: No prompt file for {cmd_name}", file=sys.stderr)
-            return rel_path, ""
+        if not body.strip():
+            raise GenerationError(
+                f"error: prompt for command '{cmd_name}' is empty or "
+                f"whitespace-only: "
+                f"{display_path(PROMPTS_DIR / f'{cmd_name}.md')}")
 
     # Apply placeholder substitutions
     body = substitute_placeholders(body, adapter_cfg, cmd_name)
@@ -695,6 +747,10 @@ def generate_unit(adapter_name: str, cmd_name: str, config: dict, ctx: dict,
 
     out_path = adapter_dir / rel_path
     ctx["path"] = display_path(out_path)
+
+    # Output check (runs before the dry-run fork: write, --dry-run and --diff
+    # paths all validate the identical would-be-written content).
+    validate_generated(ctx["path"], content)
 
     # Path traversal check
     if not validate_output_path(out_path, adapter_dir):

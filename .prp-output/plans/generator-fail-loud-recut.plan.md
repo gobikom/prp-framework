@@ -108,7 +108,7 @@ if not validate_output_path(out_path, adapter_dir):
 
 ## Integration Points
 
-1. `generate_unit` calls `validate_generated(rel_path, content)` AFTER the `if not content: return "skipped"` branch (:685-686) and BEFORE the dry-run fork (:704) — one call site covers write, dry-run and diff paths (identical content at that point). It becomes the third `split_frontmatter(` call site (def :261 + read_overlay + validate_generated = 3 — pinned by ported structural test).
+1. `generate_unit` calls `validate_generated(ctx["path"], content)` — after the `out_path`/`ctx["path"]` computation (:697) and BEFORE the dry-run fork (:704) — one call site covers write, dry-run and diff paths (identical content at that point). IMPLEMENTATION NOTE (post-plan refinement, evidence: first test run): `rel_path` alone is just the file name (`prp-qa.md`) — ambiguous when 6 adapters report the same file; the call passes `display_path(out_path)` (`adapters/claude-code/prp-qa.md`) so the error names the full repo-relative path, consistent with main's wording style. It becomes the third `split_frontmatter(` call site (def :261 + read_overlay + validate_generated = 3 — pinned by ported structural test).
 2. Empty-prompt raise replaces the WARNING branch :634-636 → unit no longer returns `"skipped"`; `ctx["path"]` is already set (:683) so the boundary names the prompt.
 3. Dangling-alias raise goes before `generate_alias_content` (:630-631) in `generate_adapter_file`, which has `config` in scope — `generate_alias_content` (no config param) is untouched.
 4. `generate_all` boundary :746 needs NO change (GenerationError already printed + counted). **No new try/except anywhere** — grep invariant :494-496 (`except Exception` == 2) must stay green.
