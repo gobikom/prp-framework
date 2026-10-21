@@ -251,12 +251,11 @@ expect_counted_error() {
   expect_counted_error "prompts/qa.md"
 }
 
-@test "A1-r3 row: prompt empty — WARNING and skipped, not an error" {
+@test "A1c row: prompt empty — counted named error, not a WARNING skip (re-cut of #157)" {
   make_tree
   : > "$TREE/prompts/qa.md"
   gen
-  [ "$rc" -eq 0 ] || { echo "expected exit 0, got $rc: $err" >&2; return 1; }
-  echo "$err" | grep -qF "No prompt file for qa" || { echo "no empty-prompt WARNING: $err" >&2; return 1; }
+  expect_counted_error "error: prompt for command 'qa' is empty or whitespace-only: prompts/qa.md"
 }
 
 @test "A1-r3 row: overlay malformed frontmatter YAML — counted error, no raw frontmatter in any output" {
@@ -447,6 +446,177 @@ HOOK
     [ ! -e "$TREE/adapters" ] || fails+="[$spec] output generated"$'\n'
   done
   [ -z "$fails" ] || { printf '%s' "$fails" >&2; return 1; }
+}
+
+# ── A1c: fail-loud re-cut of #157 (empty prompt, dangling alias-of, output checks) ──
+
+@test "A1c row: prompt whitespace-only — counted named error (re-cut of #157)" {
+  make_tree
+  printf ' \n\t\n  \n' > "$TREE/prompts/qa.md"
+  gen
+  expect_counted_error "error: prompt for command 'qa' is empty or whitespace-only: prompts/qa.md"
+}
+
+@test "A1c row: alias-of naming a missing command — counted error naming both, no ghost output" {
+  make_tree
+  python3 - "$TREE" <<'HOOK'
+import sys, yaml
+t = sys.argv[1]
+p = f"{t}/adapters.yml"
+c = yaml.safe_load(open(p))
+c["commands"]["ghost-alias"] = {"alias": True, "alias-of": "no-such-cmd",
+                                "description": {"default": "x"}}
+yaml.safe_dump(c, open(p, "w"), sort_keys=False, allow_unicode=True)
+HOOK
+  gen
+  expect_counted_error "error: command 'ghost-alias' is an alias of 'no-such-cmd', which is not a configured command"
+  [ ! -e "$TREE/adapters/claude-code/prp-ghost-alias.md" ] || { echo "ghost output written" >&2; return 1; }
+}
+
+@test "A1c row: empty description — validate_generated output check (b), counted error" {
+  make_tree
+  python3 - "$TREE" <<'HOOK'
+import sys, yaml
+t = sys.argv[1]
+p = f"{t}/adapters.yml"
+c = yaml.safe_load(open(p))
+c["commands"]["qa"]["description"] = {"default": ""}
+yaml.safe_dump(c, open(p, "w"), sort_keys=False, allow_unicode=True)
+HOOK
+  gen
+  expect_counted_error "generated output adapters/claude-code/prp-qa.md has an empty description field"
+  # the failing unit must leave no stub behind (validation precedes the write)
+  [ ! -e "$TREE/adapters/claude-code/prp-qa.md" ] || { echo "empty-description stub lingered for the failing unit" >&2; return 1; }
+}
+
+@test "A1c row: the output check runs in --dry-run too — fails before writing anything" {
+  make_tree
+  python3 - "$TREE" <<'HOOK'
+import sys, yaml
+t = sys.argv[1]
+p = f"{t}/adapters.yml"
+c = yaml.safe_load(open(p))
+c["commands"]["qa"]["description"] = {"default": ""}
+yaml.safe_dump(c, open(p, "w"), sort_keys=False, allow_unicode=True)
+HOOK
+  rc2=0
+  (cd "$TREE" && python3 scripts/generate-adapters.py --dry-run >"$BATS_TEST_TMPDIR/o" 2>"$BATS_TEST_TMPDIR/e") || rc2=$?
+  [ "$rc2" -eq 1 ] || { echo "expected exit 1 in --dry-run, got $rc2" >&2; return 1; }
+  grep -qF 'generated output adapters/claude-code/prp-qa.md has an empty description field' "$BATS_TEST_TMPDIR/e" \
+    || { echo "not validate_generated's error: $(cat "$BATS_TEST_TMPDIR/e")" >&2; return 1; }
+  [ ! -e "$TREE/adapters/claude-code/prp-qa.md" ] || { echo "dry-run wrote output" >&2; return 1; }
+}
+
+@test "A1c validate_generated direct: each bad output shape raises naming the file" {
+  make_tree
+  python3 - "$TREE/scripts/generate-adapters.py" <<'PYEOF'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("ga", sys.argv[1])
+ga = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(ga)
+
+def expect_fail(name, rel_path, content, want):
+    try:
+        ga.validate_generated(rel_path, content)
+    except ga.GenerationError as e:
+        assert want in str(e), f"{name}: error lacks {want!r}: {e}"
+        assert rel_path in str(e), f"{name}: error lacks the file name: {e}"
+        return
+    raise AssertionError(f"{name}: validate_generated did not raise")
+
+expect_fail("md-empty-body", "claude-code/prp-x.md",
+            "---\ndescription: \"d\"\n---\n\n  \n", "empty command body")
+expect_fail("md-ws-body", "opencode/prp-x.md", " \n\t\n", "empty command body")
+expect_fail("md-empty-desc", "claude-code/prp-x.md",
+            "---\ndescription: \"\"\n---\n\nreal body\n", "empty description field")
+expect_fail("toml-empty-desc", "gemini/prp-x.toml",
+            'description = ""\nprompt = """\nbody\n"""\n', "empty description field")
+expect_fail("toml-empty-body", "gemini/prp-x.toml",
+            'description = "d"\nprompt = """\n\n"""\n', "empty command body")
+# a description containing "---" must not mis-split frontmatter from body
+expect_fail("dash-desc-ws-body", "claude-code/prp-x.md",
+            "---\ndescription: \"pre---post\"\n---\n\n   \n", "empty command body")
+ga.validate_generated("claude-code/prp-x.md",
+                      "---\ndescription: \"pre---post\"\n---\nreal body\n")
+ga.validate_generated("claude-code/prp-x.md", "---\ndescription: \"d\"\n---\nbody\n")
+ga.validate_generated("gemini/prp-x.toml", 'description = "d"\nprompt = """\nbody\n"""\n')
+ga.validate_generated("opencode/prp-x.md", "# just a body\n")
+print("validate_generated shapes OK")
+PYEOF
+}
+
+@test "A1c round-8 dash in value: validate_generated errors on the ws-only body (direct)" {
+  make_tree
+  python3 - "$TREE/scripts/generate-adapters.py" <<'PYEOF'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("ga", sys.argv[1])
+ga = importlib.util.module_from_spec(spec); spec.loader.exec_module(ga)
+try:
+    ga.validate_generated("claude-code/prp-x.md",
+                          '---\ndescription: "pre---post"\n---\n   \n')
+    raise SystemExit("BUG: dash-in-value ws body passed")
+except ga.GenerationError as e:
+    assert "empty command body" in str(e)
+ga.validate_generated("claude-code/prp-x.md",
+                      '---\ndescription: "pre---post"\n---\nreal body\n')
+print("dash-in-value OK")
+PYEOF
+}
+
+@test "A1c round-8 trailing-space delimiter: parsed as a delimiter (direct + validate)" {
+  make_tree
+  python3 - "$TREE/scripts/generate-adapters.py" <<'PYEOF'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("ga", sys.argv[1])
+ga = importlib.util.module_from_spec(spec); spec.loader.exec_module(ga)
+fm, body = ga.split_frontmatter("---\nk: v\n--- \nbody\n", "x.md")
+assert (fm, body) == ("k: v", "body\n"), (fm, body)
+try:
+    ga.validate_generated("claude-code/prp-x.md", "---\ndescription: d\n--- \n   \n")
+    raise SystemExit("BUG: trailing-space closer + ws body passed")
+except ga.GenerationError as e:
+    assert "empty command body" in str(e)
+print("trailing-space OK")
+PYEOF
+}
+
+@test "A1c round-8 CRLF + empty body: validate errors (direct)" {
+  make_tree
+  python3 - "$TREE/scripts/generate-adapters.py" <<'PYEOF'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("ga", sys.argv[1])
+ga = importlib.util.module_from_spec(spec); spec.loader.exec_module(ga)
+try:
+    ga.validate_generated("claude-code/prp-x.md", "---\r\ndescription: d\r\n---\r\n\r\n")
+    raise SystemExit("BUG: CRLF ws body passed")
+except ga.GenerationError as e:
+    assert "empty command body" in str(e)
+print("CRLF-empty OK")
+PYEOF
+}
+
+@test "A1c round-8 no frontmatter: body as is, validate OK if non-empty (direct)" {
+  make_tree
+  python3 - "$TREE/scripts/generate-adapters.py" <<'PYEOF'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("ga", sys.argv[1])
+ga = importlib.util.module_from_spec(spec); spec.loader.exec_module(ga)
+fm, body = ga.split_frontmatter("body only\n", "x.md")
+assert fm is None and body == "body only\n"
+ga.validate_generated("opencode/prp-x.md", "# just a body\n")
+print("no-frontmatter OK")
+PYEOF
+}
+
+@test "A1c grep: split_frontmatter is the only splitter — def + read_overlay + validate_generated" {
+  local script="$ROOT/scripts/generate-adapters.py"
+  local p1 p2 rc1 rc2
+  rc1=0; p1=$(grep -nF 'split("---"' "$script") || rc1=$?
+  [ "$rc1" -eq 1 ] || { echo 'stray split("---" found:' >&2; printf '%s\n' "$p1" >&2; return 1; }
+  rc2=0; p2=$(grep -nE 're\.split\(.*---' "$script") || rc2=$?
+  [ "$rc2" -eq 1 ] || { echo 'stray re.split on --- found:' >&2; printf '%s\n' "$p2" >&2; return 1; }
+  [ "$(grep -c 'def split_frontmatter' "$script")" -eq 1 ]
+  [ "$(grep -c 'split_frontmatter(' "$script")" -eq 3 ]  # def + read_overlay + validate_generated
 }
 
 # ── A1 re-plan #2: ONE exception boundary (tests/scripts/fault_inject.py) ──
