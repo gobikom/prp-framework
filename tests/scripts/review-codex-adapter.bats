@@ -15,7 +15,7 @@ setup() {
     chmod +x "$T/fw/scripts/review/sandbox.sh"
     echo '{}' > "$T/home/.codex/auth.json"
     printf '{"head":"%s"}\n' "$(printf 'a%.0s' $(seq 40))" > "$T/bundle/metadata.json"
-    printf '#!/usr/bin/env bash\ncat "$CODEX_STDOUT"; [ -n "${CODEX_STDERR:-}" ] && cat "$CODEX_STDERR" >&2; exit "${CODEX_RC:-0}"\n' > "$T/bin/codex"
+    printf '#!/usr/bin/env bash\n[ -e "${CODEX_SCHEMA_DIR:-/nonexistent}/.output-schema.json" ] && touch "$CODEX_SCHEMA_DIR/../saw-schema"\ncat "$CODEX_STDOUT"; [ -n "${CODEX_STDERR:-}" ] && cat "$CODEX_STDERR" >&2; exit "${CODEX_RC:-0}"\n' > "$T/bin/codex"
     chmod +x "$T/bin/codex"
     SCHEMA="$FRAMEWORK_DIR/schemas/review-findings.schema.json"
 }
@@ -49,8 +49,10 @@ msg() { printf '{"type":"item.completed","item":{"type":"agent_message","text":%
 }
 
 @test "codex adapter removes the adapted schema from the bundle on exit" {
-    msg '{"findings":[]}' > "$T/stdout"; export CODEX_STDOUT="$T/stdout"
+    msg '{"findings":[]}' > "$T/stdout"; export CODEX_STDOUT="$T/stdout" CODEX_SCHEMA_DIR="$T/bundle"
     run_adapter
+    [ "$status" -eq 0 ]
+    [ -e "$T/saw-schema" ]
     [ ! -e "$T/bundle/.output-schema.json" ]
 }
 
@@ -100,4 +102,59 @@ msg() { printf '{"type":"item.completed","item":{"type":"agent_message","text":%
     printf 'sk-abcdefghijklmnopqrstuv\n' > "$T/b"; run _scan_cred "$T/b"; [ "$status" -eq 1 ]
     printf 'task-management-system-overview-doc\n' > "$T/c"; run _scan_cred "$T/c"; [ "$status" -eq 0 ]
     run _scan_cred "$T/nonexistent"; [ "$status" -eq 1 ]
+}
+
+# A credential the model printed arrives JSON-serialised in raw-output.jsonl / pass.json:
+# quotes are \" and newlines the two characters \n. Build the fixtures with json.dumps.
+jenc() { python3 -I -c 'import json,sys; print(json.dumps(sys.argv[1])[1:-1])' "$1"; }
+
+@test "cred-patterns: JSON-escaped refresh_token and a key after an escaped newline are caught" {
+    source "$FRAMEWORK_DIR/scripts/review/cred-patterns.sh"
+    printf '{"aggregated_output":"%s"}\n' "$(jenc '{"refresh_token": "rt-abcdefghijklmnop"}')" > "$T/f1"
+    ! _scan_cred "$T/f1"
+    printf '{"aggregated_output":"%s"}\n' "$(jenc $'line\nsk-proj-abcdefghijklmnopqrstuvwx')" > "$T/f2"
+    ! _scan_cred "$T/f2"
+}
+
+@test "codex adapter: a bare auth-file value in the stream (no recognisable shape) is refused" {
+    python3 -I -c 'import json,sys; json.dump({"tokens":{"access_token":"Zq9xK2mLpV7wRt4YbN8cD3fH","id":"short"}}, open(sys.argv[1],"w"))' "$T/home/.codex/auth.json"
+    { printf '{"type":"item.completed","item":{"type":"command_execution","aggregated_output":"%s"}}\n' "$(jenc $'x\nZq9xK2mLpV7wRt4YbN8cD3fH\n')"; msg '{"findings":[]}'; } > "$T/stdout"
+    export CODEX_STDOUT="$T/stdout"
+    run_adapter
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"credential value from auth file"* ]]
+    [[ "$output" != *Zq9xK2m* ]]
+    [ ! -e "$T/out/pass.json" ] && [ ! -e "$T/out/raw-output.jsonl" ]
+}
+
+@test "codex adapter: an auth-file value inside the findings (pass.json) is refused" {
+    python3 -I -c 'import json,sys; json.dump({"k":"Zq9xK2mLpV7wRt4YbN8cD3fH"}, open(sys.argv[1],"w"))' "$T/home/.codex/auth.json"
+    msg '{"findings":[{"note":"leaked Zq9xK2mLpV7wRt4YbN8cD3fH here"}]}' > "$T/stdout"
+    export CODEX_STDOUT="$T/stdout"
+    run_adapter
+    [ "$status" -eq 1 ]
+    [ ! -e "$T/out/pass.json" ]
+}
+
+@test "codex adapter: an unreadable auth file fails the value scan closed" {
+    echo 'not json' > "$T/home/.codex/auth.json"
+    msg '{"findings":[]}' > "$T/stdout"; export CODEX_STDOUT="$T/stdout"
+    run_adapter
+    [ "$status" -eq 1 ]
+    [ ! -e "$T/out/pass.json" ]
+}
+
+@test "codex adapter: a turn.failed event is fatal even after a valid findings message" {
+    { msg '{"findings":[]}'; echo '{"type":"turn.failed","error":{"message":"boom"}}'; } > "$T/stdout"
+    export CODEX_STDOUT="$T/stdout"
+    run_adapter
+    [ "$status" -eq 1 ]
+    [ ! -e "$T/out/pass.json" ]
+}
+
+@test "codex adapter: findings that is not a list is rejected" {
+    msg '{"findings":"none"}' > "$T/stdout"; export CODEX_STDOUT="$T/stdout"
+    run_adapter
+    [ "$status" -eq 1 ]
+    [ ! -e "$T/out/pass.json" ]
 }

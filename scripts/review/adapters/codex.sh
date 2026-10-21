@@ -90,7 +90,7 @@ exit_code=0
 "$SCRIPT_DIR/sandbox.sh" --harness codex --bundle "$BUNDLE" --auth-file "$AUTH_FILE" \
   --timeout "$TIMEOUT" --nice "$NICE" "${EXTRA_SANDBOX_ARGS[@]}" -- \
   codex exec --sandbox read-only --skip-git-repo-check --output-schema /bundle/.output-schema.json --json "$PROMPT" \
-  > "$OUT_DIR/raw-output.jsonl" 2>"$OUT_DIR/stderr.log" || exit_code=$?
+  < /dev/null > "$OUT_DIR/raw-output.jsonl" 2>"$OUT_DIR/stderr.log" || exit_code=$?
 
 _cleanup_on_leak() {
   rm -f "$OUT_DIR/pass.json" "$OUT_DIR/raw-output.jsonl" "$OUT_DIR/stderr.log"
@@ -101,9 +101,15 @@ _cleanup_on_leak() {
 if [[ -s "$OUT_DIR/stderr.log" ]] && ! _scan_cred "$OUT_DIR/stderr.log"; then
   echo "error: stderr withheld: credential pattern" >&2; _cleanup_on_leak; exit 1
 fi
+if [[ -s "$OUT_DIR/stderr.log" ]] && ! _scan_auth_values "$AUTH_FILE" "$OUT_DIR/stderr.log"; then
+  echo "error: stderr withheld: auth value" >&2; _cleanup_on_leak; exit 1
+fi
 
 # I3: scan the raw event stream (codex tool-call output lands here) before keeping or copying it
 if [[ -s "$OUT_DIR/raw-output.jsonl" ]] && ! _scan_cred "$OUT_DIR/raw-output.jsonl"; then
+  _cleanup_on_leak; exit 1
+fi
+if [[ -s "$OUT_DIR/raw-output.jsonl" ]] && ! _scan_auth_values "$AUTH_FILE" "$OUT_DIR/raw-output.jsonl"; then
   _cleanup_on_leak; exit 1
 fi
 if [[ -n "$EVENTS_OUT" ]]; then cp "$OUT_DIR/raw-output.jsonl" "$EVENTS_OUT"; fi
@@ -143,14 +149,18 @@ for line in open(sys.argv[1]):
                 parsed = json.loads(item.get('text', ''))
             except (json.JSONDecodeError, ValueError, TypeError):
                 parsed = None
-            result = parsed if isinstance(parsed, dict) and 'findings' in parsed else None
+            result = parsed if isinstance(parsed, dict) and isinstance(parsed.get('findings'), list) else None
 if bad:
     print('warning: skipped %d non-JSON event line(s)' % bad, file=sys.stderr)
+if errors:
+    print('error: codex reported %s event(s); refusing a partial result' % ','.join(errors), file=sys.stderr)
+    sys.exit(1)
 if result:
-    json.dump(result, open(sys.argv[2], 'w'), indent=2)
+    with open(sys.argv[2], 'w') as fh:
+        json.dump(result, fh, indent=2)
 else:
     print('error: no structured output in codex response (agent_messages=%d, error events=%s)' % (seen, ','.join(errors) or 'none'), file=sys.stderr)
     sys.exit(1)
 " "$OUT_DIR/raw-output.jsonl" "$OUT_DIR/pass.json" || { echo "error: failed to extract codex output" >&2; exit 1; }
 
-if ! _scan_cred "$OUT_DIR/pass.json"; then _cleanup_on_leak; exit 1; fi
+if ! _scan_cred "$OUT_DIR/pass.json" || ! _scan_auth_values "$AUTH_FILE" "$OUT_DIR/pass.json"; then _cleanup_on_leak; exit 1; fi
