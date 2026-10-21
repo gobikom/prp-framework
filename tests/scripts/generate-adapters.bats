@@ -75,7 +75,8 @@ gen() {
   local dispatches params
   dispatches=$(grep -c '^Agent($' "$d")
   params=$(grep -c '^  run_in_background=false,$' "$d")
-  [ "$dispatches" -eq 10 ] && [ "$params" -eq 10 ]
+  [ "$dispatches" -eq 10 ] || { echo "claude-code dispatches: $dispatches (want 10)" >&2; return 1; }
+  [ "$params" -eq 10 ] || { echo "claude-code run_in_background params: $params (want 10)" >&2; return 1; }
   grep -qF 'therefore passes' "$d"  # the scoped claim
   # the other five: zero params, neutral sentence present, no claim
   local f
