@@ -19,12 +19,17 @@ setup() {
   WORK="$(mktemp -d)"
   cd "$WORK"
   git init -q prp && git -C prp commit -q --allow-empty -m init && git -C prp tag v9.9.9
+  mkdir -p prp/scripts && cp -r "$ROOT/scripts/review" prp/scripts/   # what Phase 2.0 and Step C run from the installed framework
   ln -s "$WORK/prp" .prp
   mkdir -p .prp-output/reviews bin
   # gh stub: `pr view` prints $FAKE_HEAD (or fails with GH_FAIL=1); `pr comment` logs the body file, prints a URL
   cat > bin/gh <<'EOF'
 #!/usr/bin/env bash
 if [ "$1 $2" = "pr view" ]; then [ -n "${GH_FAIL:-}" ] && exit 1; printf '%s\n' "$FAKE_HEAD"; exit 0; fi
+if [ "$1" = "api" ]; then   # the round-cap read (Phase 2.0): last lines of the PR comments
+  [ -n "${API_FAIL:-}" ] && exit 1
+  [ -n "${FAKE_COMMENTS:-}" ] && cat "$FAKE_COMMENTS"; exit 0
+fi
 if [ "$1 $2" = "pr comment" ]; then
   f=""; while [ $# -gt 0 ]; do [ "$1" = "--body-file" ] && f="$2"; shift; done
   [ -n "${FAIL_POST:-}" ] && grep -q "Passes run: $FAIL_POST" "$f" && exit 1
@@ -256,6 +261,49 @@ repo_here() { git init -q . && git commit -q --allow-empty -m pr; FAKE_HEAD=$(gi
   [ "$(cat .prp-output/reviews/pr-7-reviewed-head)" = "$FAKE_HEAD" ]
 }
 
+# footers of <n> distinct review runs, three comments each (the last line of each comment)
+runs() { local i p; for ((i = 1; i <= $1; i++)); do for p in code-reviewer security-reviewer silent-failure-hunter; do
+  printf 'Generated-by: prp-review-agents v9.9.9 run=20261021T%06dZ-%08x pass=%s\n' "$i" "$i" "$p"; done; done; }
+
+@test "Phase 2.0 allows round 10 (nine runs on the PR) and saves the head" {
+  phase20 > p20.sh; repo_here; runs 9 > c.txt
+  FAKE_COMMENTS="$PWD/c.txt" run env -u REVIEWED_HEAD_SHA bash p20.sh
+  [ "$status" -eq 0 ]
+  [ "$(cat .prp-output/reviews/pr-7-reviewed-head)" = "$FAKE_HEAD" ]
+}
+
+@test "Phase 2.0 refuses round 11 (ten runs) before any head file or agent" {
+  phase20 > p20.sh; repo_here; runs 10 > c.txt
+  FAKE_COMMENTS="$PWD/c.txt" run env -u REVIEWED_HEAD_SHA bash p20.sh
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"ROUND-CAP: refused"* ]]
+  [[ "$output" == *"round cap — no agents started"* ]]
+  [ ! -e .prp-output/reviews/pr-7-reviewed-head ]
+}
+
+@test "Phase 2.0 refuses when the PR comments cannot be read" {
+  phase20 > p20.sh; repo_here
+  API_FAIL=1 run env -u REVIEWED_HEAD_SHA bash p20.sh
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"cannot read the PR comments"* ]]
+  [ ! -e .prp-output/reviews/pr-7-reviewed-head ]
+}
+
+@test "Phase 2.0 refuses on a review footer it cannot parse" {
+  phase20 > p20.sh; repo_here
+  printf 'Generated-by: prp-review-agents v1 run=oops pass=x\n' > c.txt
+  FAKE_COMMENTS="$PWD/c.txt" run env -u REVIEWED_HEAD_SHA bash p20.sh
+  [ "$status" -ne 0 ]
+  [ ! -e .prp-output/reviews/pr-7-reviewed-head ]
+}
+
+@test "Phase 2.0 refuses when .prp is not a symlink to the framework" {
+  phase20 > p20.sh; repo_here; rm .prp; mkdir .prp
+  run env -u REVIEWED_HEAD_SHA bash p20.sh
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"round cap not checkable"* ]]
+}
+
 @test "Phase 2.0 fails before any agent when the head cannot be captured" {
   phase20 > p20.sh; repo_here
   GH_FAIL=1 run env -u REVIEWED_HEAD_SHA bash p20.sh
@@ -391,4 +439,35 @@ trivial_run() { printf 'trivial\n' > .prp-output/reviews/pr-7-tier; export FAKE_
   sed -i 's/^TIER=standard$/TIER=lite/' .prp-output/reviews/pr-7-l2-run.env
   post
   [ "$status" -ne 0 ]; [[ "$output" == *"not a valid run file"* ]]
+}
+
+# --- pass timebox (prp-framework#151 AC2): Step C refuses a timeboxed body without a follow-up link ---
+
+timeboxed() { # timeboxed <pass> [link]: rewrite one body so its Could not verify says the pass was timeboxed
+  local f=".prp-output/reviews/pr-7-l2-$1.md" link="${2:-}"
+  { sed -n '1,/^### Could not verify$/p' "$f"; printf 'Pass timeboxed: 1 probe(s) not completed: bats\n'; [ -n "$link" ] && printf 'Follow-up: %s\n' "$link"
+    printf '\n'; tail -n1 "$f"; } > t.md && mv t.md "$f"
+}
+
+@test "a timeboxed body without a follow-up link posts nothing" {
+  start; write_all; timeboxed security-reviewer
+  post
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"timeboxed without a Follow-up issue link"* ]]
+  [ ! -s "$WORK_LOG" ]
+}
+
+@test "a timeboxed body with a follow-up issue link is posted with the other passes" {
+  start; write_all; timeboxed security-reviewer https://github.com/o/r/issues/12
+  post
+  [ "$status" -eq 0 ]
+  [ "$(wc -l < "$WORK_LOG")" -eq 3 ]
+}
+
+@test "Step C posts nothing when the installed framework scripts cannot be found" {
+  start; write_all; rm -rf prp/scripts
+  post
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"cannot find the installed prp-framework scripts"* ]]
+  [ ! -s "$WORK_LOG" ]
 }

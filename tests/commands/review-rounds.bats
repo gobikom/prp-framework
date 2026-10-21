@@ -1,10 +1,10 @@
 #!/usr/bin/env bats
-# Structure tests for prp-review-agents round discipline (prp-framework#151,
-# Parts 1 + 2.4 only — One Wake Per Round and no idle status pings).
-# Part 2.1 (pass timebox), Part 2.2 (round cap) and the completion-proof
-# mechanism were scope-cut to gobikom/prp-framework#154 after review rounds
-# 4–6; these tests pin that nothing of them remains and that the One Wake
-# section survives regeneration in every adapter.
+# Structure tests for prp-review-agents round discipline (prp-framework#151).
+# Parts 1 + 2.4 (One Wake Per Round, no idle status pings) were pinned here first. Parts 2.1
+# (pass timebox) and 2.2 (round cap) came back as STATELESS scripts (scripts/review/
+# pass-budget.sh, round-guard.sh; plan 151-timebox-round-cap): the ledger / run-state / completion-
+# proof machinery of the scope-cut attempt (#152 -> #154) must still not exist in any file, and the
+# script references must be present in the prompt and all six adapters.
 #
 # Invariant (round-8 re-plan): every test here FAILS whenever the property it
 # names does not hold — including when an input file is missing, unreadable,
@@ -280,7 +280,7 @@ all_pos() { # <ERE>
   pos "$ADAPTER" "force verdict to NEEDS FIXES minimum"
 }
 
-@test "no Part 2.1 timebox machinery remains (scope-cut to 154)" {
+@test "no ledger-era timebox machinery remains (scope-cut to 154)" {
   all_neg "PRP_REVIEW_PASS_BUDGET_MIN"
   all_neg "PASS_BUDGET_MIN"
   all_neg "DEADLINE_EPOCH"
@@ -303,7 +303,7 @@ all_pos() { # <ERE>
   all_neg "PASS_TIMEBOX_ENFORCED"
 }
 
-@test "no Part 2.2 round-cap machinery remains (scope-cut to 154)" {
+@test "no ledger-era round-cap machinery remains (scope-cut to 154)" {
   all_neg "Step Cb"
   all_neg "curr-run\.env"
   all_neg "record-pending"
@@ -352,4 +352,28 @@ all_pos() { # <ERE>
   # and exactly 6 / 5 entries
   [ "$(printf '%s\n' $ADAPTER_FILES | wc -l)" -eq 6 ]
   [ "$(printf '%s\n' $OTHER_ADAPTERS | wc -l)" -eq 5 ]
+}
+
+@test "the round-cap and pass-budget scripts are referenced in the prompt and all 6 adapters" {
+  all_pos "scripts/review/round-guard\\.sh"
+  all_pos "scripts/review/pass-budget\\.sh"
+  all_pos "ROUND_CAP_ENFORCED"
+  all_pos "PASS_TIMEBOXED_PARTIAL"
+}
+
+@test "every agent prompt in the claude-code adapter carries the pass budget line" {
+  n=$(grep -c 'Read the PR context file at:' "$ADAPTER")
+  b=$(grep -c 'Pass budget: PASS_DEADLINE=' "$ADAPTER")
+  [ "$n" -ge 10 ] && [ "$n" -eq "$b" ]
+}
+
+@test "the round-cap guard runs in Phase 2.0 before the reviewed head is saved" {
+  g=$(grep -n 'round-guard.sh" --cap 10' "$ADAPTER" | head -1 | cut -d: -f1)
+  h=$(grep -n "> \"\$D/pr-{NUMBER}-reviewed-head\"" "$ADAPTER" | head -1 | cut -d: -f1)
+  [ -n "$g" ] && [ -n "$h" ] && [ "$g" -lt "$h" ]
+}
+
+@test "the helper scripts are executable" {
+  [ -x "$ROOT/scripts/review/round-guard.sh" ]
+  [ -x "$ROOT/scripts/review/pass-budget.sh" ]
 }
