@@ -56,7 +56,7 @@ log_err() { log "  ${RED}✗${NC} $1"; }
 detect_stack() {
     local stack=()
     # Common exclude dirs for recursive grep (avoid scanning vendored/generated code)
-    local EXCL="--exclude-dir=node_modules --exclude-dir=.venv --exclude-dir=venv --exclude-dir=dist --exclude-dir=build --exclude-dir=__pycache__ --exclude-dir=.sandbox-home --exclude-dir=.sandbox-tmp --exclude-dir=.sandbox-root"
+    local EXCL="--exclude-dir=node_modules --exclude-dir=.venv --exclude-dir=venv --exclude-dir=dist --exclude-dir=build --exclude-dir=__pycache__ --exclude-dir=.sandbox-*"
 
     [ -f "package.json" ] && stack+=("Node.js $(jq -r '.engines.node // ""' package.json 2>/dev/null | head -1)")
     if [ -f "requirements.txt" ] || [ -f "pyproject.toml" ] || [ -f "setup.py" ] || ls requirements*.txt 1>/dev/null 2>&1; then
@@ -247,7 +247,7 @@ generate_context_map() {
 # ─────────────────────────────────────────────────
 detect_exports() {
     local found=false
-    local EXCL="--exclude-dir=node_modules --exclude-dir=.venv --exclude-dir=venv --exclude-dir=dist --exclude-dir=build --exclude-dir=__pycache__ --exclude-dir=.sandbox-home --exclude-dir=.sandbox-tmp --exclude-dir=.sandbox-root"
+    local EXCL="--exclude-dir=node_modules --exclude-dir=.venv --exclude-dir=venv --exclude-dir=dist --exclude-dir=build --exclude-dir=__pycache__ --exclude-dir=.sandbox-*"
 
     # FastAPI routes
     local fastapi_routes
