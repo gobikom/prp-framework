@@ -13,6 +13,7 @@ Usage:
 """
 
 import argparse
+import os
 import re
 import sys
 from pathlib import Path
@@ -31,11 +32,69 @@ OVERLAYS_DIR = PROMPTS_DIR / "overlays"
 ADAPTERS_DIR = ROOT_DIR / "adapters"
 CONFIG_PATH = ROOT_DIR / "adapters.yml"
 
+
+def display_path(p) -> str:
+    """Round-3 re-plan: one helper for every user-facing path in a message.
+
+    relative_to(ROOT_DIR) as a str when the path is inside the tree, str(p)
+    otherwise (an absolute outside path raised ValueError from messages
+    before — the round-3 Critical). Never raises for a bad path.
+    """
+    try:
+        return str(p.relative_to(ROOT_DIR))
+    except ValueError:
+        return str(p)
+
+
+class GenerationError(Exception):
+    """An input the generator failed to read or parse (split_frontmatter
+    raises it; #157's read_prompt / read_overlay / validate_generated adopt
+    it, and its per-command boundary catches it)."""
+
+
+def read_utf8(path, optional: bool = False):
+    """The ONLY filesystem access in this script (#161 round-3 re-plan).
+
+    Any OSError or UnicodeDecodeError becomes a GenerationError naming the
+    file and the exception type, so no read can end in a traceback or a
+    silent exit 0. Callers count it (generate_all) or exit 1 (load_config).
+    optional=True returns None for a file that is absent, or whose parent is
+    not a directory (no stat() beside
+    the read: Path.exists() raises PermissionError); a dangling symlink is
+    an error, not an absent file.
+    """
+    try:
+        return Path(path).read_text(encoding="utf-8")
+    except (FileNotFoundError, NotADirectoryError) as e:
+        if optional and not os.path.islink(path):
+            return None
+        raise GenerationError(
+            f"error: Cannot read {display_path(path)}: {type(e).__name__}: {e}")
+    except (OSError, UnicodeDecodeError) as e:
+        raise GenerationError(
+            f"error: Cannot read {display_path(path)}: {type(e).__name__}: {e}")
+
+
 # Required top-level keys in adapters.yml
 REQUIRED_CONFIG_KEYS = {"adapters", "commands"}
 REQUIRED_ADAPTER_KEYS = {"file_pattern", "format", "args_placeholder",
                          "tool_command_template", "artifact_suffix"}
+# Known-key validation (re-routed from prp-framework#156 as PR A, generator
+# correctness): a typo'd adapters.yml adapter key previously passed silently
+# and its value was dropped at substitution time — generating output from a
+# config the generator did not fully understand while exiting 0. Unknown keys
+# now fail generation with a clear error naming the key and listing the valid
+# ones. (The agent_blocking_* keys join this set in the stacked PR B; listing
+# them here would validate keys no stanza on main carries.)
+KNOWN_ADAPTER_KEYS = {"file_pattern", "format", "args_placeholder",
+                      "tool_command_template", "artifact_suffix",
+                      "frontmatter", "group_dirs", "overlays", "wrapper"}
 REQUIRED_COMMAND_KEYS = {"description"}
+# Every key a command stanza may carry: the six adapters.yml uses today plus
+# alias / alias-of, which generate_adapter_file reads (no command uses them yet).
+KNOWN_COMMAND_KEYS = {"description", "description-overrides", "argument-hint",
+                      "codex-short-description", "opencode-agent", "group",
+                      "alias", "alias-of"}
 
 
 # ---------------------------------------------------------------------------
@@ -44,22 +103,42 @@ REQUIRED_COMMAND_KEYS = {"description"}
 
 def load_config() -> dict:
     """Load and validate adapters.yml config."""
-    if not CONFIG_PATH.exists():
-        print(f"Error: Config file not found: {CONFIG_PATH}", file=sys.stderr)
-        sys.exit(1)
-
     try:
-        with open(CONFIG_PATH) as f:
-            config = yaml.safe_load(f)
-    except yaml.YAMLError as e:
+        text = read_utf8(CONFIG_PATH, optional=True)
+        if text is None:
+            print(f"Error: Config file not found: {CONFIG_PATH}", file=sys.stderr)
+            sys.exit(1)
+        config = yaml.safe_load(text)
+    except (yaml.YAMLError, ValueError) as e:
         print(f"Error: Invalid YAML in {CONFIG_PATH}: {e}", file=sys.stderr)
         sys.exit(1)
+    except GenerationError as e:
+        # read_utf8 names the file and the exception type; the config is
+        # fatal (exit 1) — nothing else can run without it.
+        print(f"Error: {str(e).removeprefix('error: ')}", file=sys.stderr)
+        sys.exit(1)
 
-    # Validate top-level structure
+    # Validate top-level structure (a non-mapping adapters.yml — list,
+    # scalar, null — previously died as an AttributeError traceback; round-6
+    # input table: every input read gets a named error)
+    if not isinstance(config, dict):
+        print(f"Error: adapters.yml must be a mapping, got "
+              f"{type(config).__name__}", file=sys.stderr)
+        sys.exit(1)
     missing = REQUIRED_CONFIG_KEYS - set(config.keys())
     if missing:
         print(f"Error: Missing top-level keys in adapters.yml: {missing}", file=sys.stderr)
         sys.exit(1)
+    for section in ("adapters", "commands"):
+        if not isinstance(config[section], dict):
+            print(f"Error: adapters.yml '{section}' must be a mapping, got "
+                  f"{type(config[section]).__name__}", file=sys.stderr)
+            sys.exit(1)
+        for name, cfg in config[section].items():
+            if not isinstance(cfg, dict):
+                print(f"Error: adapters.yml {section}['{name}'] must be a "
+                      f"mapping, got {type(cfg).__name__}", file=sys.stderr)
+                sys.exit(1)
 
     # Validate adapter entries
     for name, cfg in config["adapters"].items():
@@ -67,12 +146,26 @@ def load_config() -> dict:
         if missing_keys:
             print(f"Error: Adapter '{name}' missing keys: {missing_keys}", file=sys.stderr)
             sys.exit(1)
+        unknown_keys = set(cfg.keys()) - KNOWN_ADAPTER_KEYS
+        if unknown_keys:
+            print(f"Error: Adapter '{name}' has unknown keys: {sorted(unknown_keys)}",
+                  file=sys.stderr)
+            print("Error: Check adapters.yml for typos — valid keys: "
+                  f"{sorted(KNOWN_ADAPTER_KEYS)}", file=sys.stderr)
+            sys.exit(1)
 
     # Validate command entries
     for name, cfg in config["commands"].items():
         missing_keys = REQUIRED_COMMAND_KEYS - set(cfg.keys())
         if missing_keys:
             print(f"Error: Command '{name}' missing keys: {missing_keys}", file=sys.stderr)
+            sys.exit(1)
+        unknown_keys = set(cfg.keys()) - KNOWN_COMMAND_KEYS
+        if unknown_keys:
+            print(f"Error: Command '{name}' has unknown keys: {sorted(unknown_keys)}",
+                  file=sys.stderr)
+            print("Error: Check adapters.yml for typos — valid keys: "
+                  f"{sorted(KNOWN_COMMAND_KEYS)}", file=sys.stderr)
             sys.exit(1)
 
     return config
@@ -82,12 +175,77 @@ def load_config() -> dict:
 # Prompt reading
 # ---------------------------------------------------------------------------
 
+def split_frontmatter(text: str, source: str) -> tuple[str | None, str]:
+    """The ONLY frontmatter splitter, used by read_overlay() and
+    validate_generated() (#156 round-8 re-plan, re-routed as PR A; the two
+    inline splits are deleted).
+
+    1. normalizes line endings first (\\r\\n and lone \\r become \\n);
+    2. a delimiter is a line whose content, after stripping trailing spaces
+       and tabs, is exactly `---`;
+    3. returns (None, whole_text) only if the first line is not a delimiter;
+    4. if the first line IS a delimiter and no closing delimiter follows,
+       raises GenerationError naming `source` ("unterminated frontmatter");
+    5. NEVER falls back to treating the whole text as the body — the
+       round-7/8 bugs both lived in that fallback (a mis-split left a
+       non-empty "body" that passed validation);
+    6. a line that becomes `---` only after stripping LEADING whitespace too
+       is a near-miss delimiter (the round-9 fix, from the #156 re-route):
+       wherever it appears in the frontmatter region — as the opening line
+       or as a would-be closing line before a valid closer — it raises
+       GenerationError ("indented frontmatter delimiter") naming the file
+       and the line. An indented opening `---` previously parsed as "no
+       frontmatter", so the overlay metadata was dropped and generation
+       exited 0. After a VALID closing delimiter the body is body: an
+       indented `---` (e.g. inside a fenced block) is never inspected.
+
+    Returns (frontmatter_text_or_None, body_after_closing_delimiter).
+    """
+    normalized = text.replace("\r\n", "\n").replace("\r", "\n")
+    lines = normalized.split("\n")
+
+    def is_delimiter(line: str) -> bool:
+        return line.rstrip(" \t") == "---"
+
+    def is_indented_delimiter(line: str) -> bool:
+        # `  ---` / `\t---` (with optional trailing spaces/tabs): the line is
+        # `---` once ALL surrounding whitespace is stripped, but it carries
+        # leading whitespace, so it is NOT a delimiter — it is a near miss.
+        return line[:1].isspace() and line.strip(" \t") == "---"
+
+    def indented_error(source: str, lineno: int) -> GenerationError:
+        return GenerationError(
+            f"error: indented frontmatter delimiter in {source} at line "
+            f"{lineno} — a `---` with leading whitespace is not a delimiter; "
+            f"delimiters must start at column 1")
+
+    if not lines:
+        return None, normalized
+    if is_indented_delimiter(lines[0]):
+        # An indented opening `---` was previously read as "no frontmatter"
+        # and the whole overlay metadata silently dropped (round 9).
+        raise indented_error(source, 1)
+    if not is_delimiter(lines[0]):
+        return None, normalized
+
+    for i in range(1, len(lines)):
+        if is_delimiter(lines[i]):
+            fm = "\n".join(lines[1:i])
+            body = "\n".join(lines[i + 1:])
+            return fm, body
+        if is_indented_delimiter(lines[i]):
+            # A would-be closing delimiter that is indented is a near miss,
+            # not body text: raise naming the file and the line (round 9).
+            raise indented_error(source, i + 1)
+
+    raise GenerationError(
+        f"error: unterminated frontmatter in {source} — opening `---` "
+        f"without a closing `---` line")
+
+
 def read_prompt(name: str) -> str:
     """Read a canonical prompt file from prompts/."""
-    path = PROMPTS_DIR / f"{name}.md"
-    if not path.exists():
-        return ""
-    return path.read_text()
+    return read_utf8(PROMPTS_DIR / f"{name}.md")
 
 
 def read_overlay(adapter: str, name: str) -> dict | None:
@@ -111,23 +269,34 @@ def read_overlay(adapter: str, name: str) -> dict | None:
     ...content appended after main body...
     """
     path = OVERLAYS_DIR / adapter / f"{name}.md"
-    if not path.exists():
+    text = read_utf8(path, optional=True)
+    if text is None:
         return None
 
-    text = path.read_text()
-
-    # Parse YAML frontmatter
+    # Parse YAML frontmatter through the ONE splitter, split_frontmatter.
+    # A malformed region (parse error or invalid YAML) is a GenerationError
+    # the per-command loop counts: no lenient fallback, so no raw frontmatter
+    # text can reach an output.
     overlay = {}
-    if text.startswith("---"):
-        parts = text.split("---", 2)
-        if len(parts) >= 3:
-            try:
-                meta = yaml.safe_load(parts[1])
-                if meta:
-                    overlay["meta"] = meta
-            except yaml.YAMLError:
-                pass
-            text = parts[2].strip()
+    fm, body = split_frontmatter(text, display_path(path))
+    if fm is not None:
+        try:
+            meta = yaml.safe_load(fm)
+        except (yaml.YAMLError, ValueError) as e:
+            raise GenerationError(
+                f"error: invalid overlay frontmatter YAML in "
+                f"{display_path(path)}: {e}")
+        if meta is not None and not isinstance(meta, dict):
+            raise GenerationError(
+                f"error: overlay frontmatter in {display_path(path)} must be "
+                f"a mapping, got {type(meta).__name__}")
+        if meta and not isinstance(meta.get("skip_before", ""), str):
+            raise GenerationError(
+                f"error: overlay frontmatter 'skip_before' in "
+                f"{display_path(path)} must be a string")
+        if meta:
+            overlay["meta"] = meta
+        text = body.strip()
 
     # Parse sections: lines starting with "# section_name"
     sections = {}
@@ -422,9 +591,57 @@ def generate_adapter_file(adapter_name: str, cmd_name: str, config: dict) -> tup
     return rel_path, content
 
 
+def generate_unit(adapter_name: str, cmd_name: str, config: dict, ctx: dict,
+                  dry_run: bool, show_diff: bool) -> str:
+    """One (adapter, command) unit; returns the stats key. Raises on failure
+    (generate_all counts it); ctx["path"] is the last file touched."""
+    adapter_cfg = config["adapters"][adapter_name]
+    cmd_cfg = config["commands"][cmd_name]
+    ctx["path"] = display_path(PROMPTS_DIR / f"{cmd_name}.md")
+    rel_path, content = generate_adapter_file(adapter_name, cmd_name, config)
+    if not content:
+        return "skipped"
+
+    # Determine output directory (may differ for grouped commands)
+    cmd_group = cmd_cfg.get("group")
+    group_dirs = adapter_cfg.get("group_dirs", {})
+    if cmd_group and cmd_group in group_dirs:
+        adapter_dir = ADAPTERS_DIR / group_dirs[cmd_group]
+    else:
+        adapter_dir = ADAPTERS_DIR / adapter_name
+
+    out_path = adapter_dir / rel_path
+    ctx["path"] = display_path(out_path)
+
+    # Path traversal check
+    if not validate_output_path(out_path, adapter_dir):
+        raise GenerationError(
+            f"error: Path traversal detected: {display_path(out_path)}")
+
+    if dry_run:
+        print(f"  [DRY RUN] Would write: {out_path}")
+        return "generated"
+
+    existing = read_utf8(out_path, optional=True)
+    if existing is None:
+        if show_diff:
+            print(f"  [NEW] {out_path}")
+    else:
+        if existing == content:
+            return "unchanged"
+        if show_diff:
+            print(f"  [CHANGED] {out_path}")
+
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    # encode BEFORE opening: a lone surrogate must not truncate the output
+    out_path.write_bytes(content.encode("utf-8"))
+    return "generated"
+
+
 def generate_all(config: dict, adapter_filter: str | None = None,
                  dry_run: bool = False, show_diff: bool = False) -> dict[str, int]:
-    """Generate all adapter files. Returns stats."""
+    """Generate all adapter files. Returns stats. The per-unit boundary:
+    no exception leaves as a traceback; each is ONE counted error."""
     stats = {"generated": 0, "skipped": 0, "errors": 0, "unchanged": 0}
 
     adapters_to_gen = (
@@ -433,65 +650,23 @@ def generate_all(config: dict, adapter_filter: str | None = None,
         else config["adapters"]
     )
 
-    commands = config["commands"]
-
-    for adapter_name, adapter_cfg in adapters_to_gen.items():
-        default_adapter_dir = ADAPTERS_DIR / adapter_name
-        group_dirs = adapter_cfg.get("group_dirs", {})
-
+    for adapter_name in adapters_to_gen:
         print(f"\n{'='*60}")
         print(f"Adapter: {adapter_name}")
         print(f"{'='*60}")
 
-        for cmd_name in commands:
-            cmd_cfg = commands[cmd_name]
-            rel_path, content = generate_adapter_file(adapter_name, cmd_name, config)
-
-            if not content:
-                stats["skipped"] += 1
-                continue
-
-            # Determine output directory (may differ for grouped commands)
-            cmd_group = cmd_cfg.get("group")
-            if cmd_group and cmd_group in group_dirs:
-                adapter_dir = ADAPTERS_DIR / group_dirs[cmd_group]
-            else:
-                adapter_dir = default_adapter_dir
-
-            out_path = adapter_dir / rel_path
-
-            # Path traversal check
-            if not validate_output_path(out_path, adapter_dir):
-                print(f"  ERROR: Path traversal detected: {out_path}", file=sys.stderr)
-                stats["errors"] += 1
-                continue
-
-            if dry_run:
-                print(f"  [DRY RUN] Would write: {out_path}")
-                stats["generated"] += 1
-                continue
-
-            # Check if content changed
-            if out_path.exists():
-                existing = out_path.read_text()
-                if existing == content:
-                    stats["unchanged"] += 1
-                    continue
-
-                if show_diff:
-                    print(f"  [CHANGED] {out_path}")
-            else:
-                if show_diff:
-                    print(f"  [NEW] {out_path}")
-
-            # Ensure parent directory exists (for codex prp-{name}/ dirs)
-            out_path.parent.mkdir(parents=True, exist_ok=True)
-
+        for cmd_name in config["commands"]:
+            ctx = {"path": ""}
             try:
-                out_path.write_text(content)
-                stats["generated"] += 1
-            except OSError as e:
-                print(f"  ERROR: Failed to write {out_path}: {e}", file=sys.stderr)
+                stats[generate_unit(adapter_name, cmd_name, config, ctx,
+                                    dry_run, show_diff)] += 1
+            except Exception as e:  # boundary 1 of 2 (see grep invariant test)
+                if isinstance(e, GenerationError):
+                    print(f"  {e}", file=sys.stderr)
+                else:
+                    print(f"  error: {adapter_name}/{cmd_name} "
+                          f"({ctx['path']}): {type(e).__name__}: {e}",
+                          file=sys.stderr)
                 stats["errors"] += 1
 
     return stats
@@ -519,7 +694,18 @@ def main():
     )
     args = parser.parse_args()
 
+    phase = {"input": display_path(CONFIG_PATH)}
+    try:
+        return run(args, phase)
+    except Exception as e:  # boundary 2 of 2 (see grep invariant test)
+        print(f"Error: {phase['input']}: {type(e).__name__}: {e}",
+              file=sys.stderr)
+        return 1
+
+
+def run(args, phase: dict) -> int:
     config = load_config()
+    phase["input"] = "generation"
 
     if args.adapter and args.adapter not in config["adapters"]:
         print(f"Error: Unknown adapter '{args.adapter}'", file=sys.stderr)
