@@ -486,7 +486,17 @@ timeboxed() { # timeboxed <pass> [link]: rewrite one body so its Could not verif
   start; write_all; timeboxed security-reviewer
   post
   [ "$status" -ne 0 ]
-  [[ "$output" == *"timeboxed without a Follow-up issue link"* ]]
+  [[ "$output" == *"timebox without a Follow-up issue link"* ]]
+  [[ "$output" == *"pass mentions a timebox"* ]]
+  [ ! -s "$WORK_LOG" ]
+}
+
+@test "a timebox mention in any markup posts nothing without a link" {
+  start; write_all
+  f=".prp-output/reviews/pr-7-l2-security-reviewer.md"
+  { sed -n '1,/^### Could not verify$/p' "$f"; printf '## **Pass** time-boxed\n\n'; tail -n1 "$f"; } > t.md && mv t.md "$f"
+  post
+  [ "$status" -ne 0 ]
   [ ! -s "$WORK_LOG" ]
 }
 

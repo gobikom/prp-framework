@@ -135,21 +135,39 @@ body() { printf 'Reviewed head: x\n\n### Could not verify\n%b\n\nGenerated-by: y
   done
 }
 
-@test "check-body catches marker variants written with markup" {
-  for m in '- Pass timeboxed: 1 probe' '**Pass timeboxed**: 1 probe' 'pass timeboxed: 1 probe' '  Pass timeboxed: 1 probe' 'PASS-TIMEBOXED: 1 probe' '* _Pass timeboxed_ 1 probe' '> Pass timeboxed: 1 probe'; do
+# Invariant: a body that mentions a timebox in any form needs a Follow-up link (no line-shape matching).
+@test "check-body refuses every timebox mention without a link" {
+  for m in '## Pass timeboxed' '### **Pass timeboxed**' '1. Pass timeboxed' '**Pass** timeboxed' 'Pass: timeboxed' \
+           'Pass\xc2\xa0timeboxed' 'time\xc2\xa0boxed' 'Pass time\xe2\x80\x8bboxed' 'Pass time\xef\xbb\xbfboxed' \
+           'time-boxed' 'time boxed' 'the review was TIMEBOXED here' 'PASS-TIMEBOXED: 1 probe' 'Pass timeboxed\r' \
+           '`Pass timeboxed`' '- [ ] Pass timeboxed' 'time\xe2\x80\x91boxed' 'time\xe1\x9a\x80boxed' '\xef\xbd\x94\xef\xbd\x89\xef\xbd\x8d\xef\xbd\x85\xef\xbd\x82\xef\xbd\x8f\xef\xbd\x98\xef\xbd\x85\xef\xbd\x84'; do
     body "$m"
     run bash "$P" check-body b.md
-    [ "$status" -eq 1 ]
+    [ "$status" -eq 1 ] || { echo "passed without a link: $m"; false; }
     body "$m\nFollow-up: https://github.com/o/r/issues/5"
     run bash "$P" check-body b.md
-    [ "$status" -eq 0 ]
+    [ "$status" -eq 0 ] || { echo "refused with a link: $m"; false; }
   done
 }
 
-@test "check-body ignores the marker mid line" {
-  body 'The pass was not Pass timeboxed at all'
+@test "check-body accepts a link line that ends in CRLF" {
+  body 'Pass timeboxed\nFollow-up: https://github.com/o/r/issues/5\r'
   run bash "$P" check-body b.md
   [ "$status" -eq 0 ]
+}
+
+@test "check-body passes a body with no timebox mention" {
+  body 'Nothing.\nThe probe was time-limited by the sandbox.'
+  run bash "$P" check-body b.md
+  [ "$status" -eq 0 ]
+}
+
+@test "check-body fails closed when it cannot normalise" {
+  mkdir bin
+  for t in bash grep tr; do ln -s "$(command -v $t)" "bin/$t"; done
+  body 'Nothing.'
+  run env PATH="$PWD/bin" "$PWD/bin/bash" "$P" check-body b.md
+  [ "$status" -eq 2 ]
 }
 
 @test "check-body refuses a missing file or a symlink" {

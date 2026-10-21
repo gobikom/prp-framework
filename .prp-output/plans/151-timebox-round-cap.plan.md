@@ -315,3 +315,15 @@ Level 6 demo:     PRP_PASS_BUDGET_SECS=1 bash -c 'E=$(bash scripts/review/pass-b
 - [ ] Step C posts nothing for a `Pass timeboxed` body without a `Follow-up:` issue link; posts normally otherwise; body format otherwise unchanged.
 - [ ] 7 files in sync (prompt + 6 adapters regenerated); no ledger strings; `bats -r tests` green; ≈800 lines.
 - [ ] PR body carries the plan path, Invariant, AC4 text, NOT-building list, forced-budget transcript.
+
+## Re-plan R2: check-body trigger (psak brief 20261022-0538-b200, after FIX-BLOCKED re-plan-needed)
+
+Why: the line-shape matcher (prefix denylist) came back as the same finding family in rounds 1 and 2.
+
+**Invariant: a pass body that mentions a timebox in any form cannot pass `check-body` without a `Follow-up:` line linking an issue.**
+
+- Matching: normalise the body (NFKC, drop `\r`, every Unicode space and `\p{Zs}` to ASCII space, remove zero-width characters, lowercase), then match `time[\s-]*box` anywhere. Line shape, headings, list markers and emphasis are never inspected. Over-matching fails closed (a passing mention needs a link too).
+- Normaliser failure (no perl, perl error) exits 2, never 0.
+- Threat model: the body is written by our own reviewer pass, not an adversary, so the defect class is accidental omission. Homoglyph evasion is out of scope (follow-up issue).
+- Step C stops discarding `check-body` stderr.
+- Boundary tests (each must exit 1 without a Follow-up): `## Pass timeboxed`, `### **Pass timeboxed**`, `1. Pass timeboxed`, `**Pass** timeboxed`, `Pass: timeboxed`, NBSP variant, zero-width variant, `time-boxed`, `TIMEBOXED` mid-sentence. Plus: valid link passes, no mention passes. Mutation check: break the normaliser and the tests go red.

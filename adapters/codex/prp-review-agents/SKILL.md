@@ -1386,7 +1386,7 @@ cat "$D/pr-{NUMBER}-l2-run.env"
 
 **Step B — write the bodies** to `.prp-output/reviews/pr-{NUMBER}-l2-<pass>.md`, using the values Step A printed, in the format above: three at `TIER=standard`, only `code-reviewer` (footer ending ` tier=trivial`) at `TIER=trivial` (with `--since-last-review`, the previous reviewed head for the incremental note is the `Reviewed head:` of the last review round on the PR).
 
-A pass that reported `Pass timeboxed` (2.2.0) carries `Follow-up: https://github.com/<owner>/<repo>/issues/<n>` on its own line in `### Could not verify`; Step C refuses the round without it.
+A pass whose body mentions a timebox in any form (2.2.0: `Pass timeboxed`, `time-boxed`, ...) carries `Follow-up: https://github.com/<owner>/<repo>/issues/<n>` on its own line in `### Could not verify`; Step C refuses the round without it.
 
 **Step C — check all three, then post all three** (nothing is posted unless every body passes; the run file is consumed before the first post, so a replay cannot post a run twice):
 
@@ -1426,7 +1426,7 @@ for PASS in $PASSES; do
   [ "$(grep -ciE '^[[:space:]]*#+[[:space:]]*(critical|important)[[:space:]]+issues' "$F")" = 2 ] || why="$why extra severity heading"
   ! grep -qi 'safe-merge-review' "$F" || why="$why safe-merge-review text"
   [ "$(tail -n1 "$F")" = "Generated-by: prp-review-agents v$PRP_VERSION run=$RUN_ID pass=$PASS$SUFFIX" ] || why="$why footer"
-  bash "$PRP_DIR/scripts/review/pass-budget.sh" check-body "$F" 2>/dev/null || why="$why timeboxed without a Follow-up issue link"
+  CB=$(bash "$PRP_DIR/scripts/review/pass-budget.sh" check-body "$F" 2>&1) || why="$why timebox without a Follow-up issue link ($CB)"
   [ -z "$why" ] || { echo "FATAL: $F is not in the L2 format ($why) — nothing posted" >&2; exit 1; }
 done
 mv "$ENV_F" "$ENV_F.used" || { echo "FATAL: cannot consume the run file — nothing posted" >&2; exit 1; }

@@ -2,7 +2,7 @@
 # Pass timebox for prp-review-agents (prp-framework#151 AC2).
 #
 # Invariant: a probe started through `run` never outlives its deadline (it is killed at the
-# deadline, and not started at all after it), and a pass body that says `Pass timeboxed` is
+# deadline, and not started at all after it), and a pass body that mentions a timebox in any form is
 # only postable with a `Follow-up:` issue link (`check-body`). The deadline is an absolute epoch
 # minted once per round by `deadline`; there is no state file, and agents cannot widen it.
 # Unknown inputs refuse (exit 2): nothing here ever runs a command it could not bound.
@@ -10,7 +10,7 @@
 # usage: pass-budget.sh deadline                 print epoch = now + ${PRP_PASS_BUDGET_SECS:-1200}
 #        pass-budget.sh remaining <epoch>        print seconds left; exit 1 when expired
 #        pass-budget.sh run <epoch> -- cmd...    bounded run; exit 124 = cut/not started (PASS-TIMEBOXED)
-#        pass-budget.sh check-body <file>        exit 1 if the body claims `Pass timeboxed` without
+#        pass-budget.sh check-body <file>        exit 1 if the body mentions a timebox without
 #                                                a `Follow-up: https://github.com/<o>/<r>/issues/<n>` line
 # exit 2 = usage error / bad value / no `timeout` command.
 # Note: exit 124 from `run` also covers a command that itself exits 124.
@@ -73,11 +73,20 @@ case "$SUB" in
   check-body)
     f="${1:-}"
     [[ -n "$f" && -r "$f" && ! -L "$f" ]] || die "check-body needs a readable regular file"
-    # tolerant of agent markup (bullet, bold, indent, case, hyphen): over-matching only demands a link
-    if grep -qiE '^[[:space:]>]*([-*+][[:space:]]+)?[*_]*pass[[:space:]-]+timeboxed' "$f"; then
-      grep -qxE 'Follow-up: https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/issues/[0-9]+' "$f" \
-        || { echo "pass says 'Pass timeboxed' but has no 'Follow-up: https://github.com/<owner>/<repo>/issues/<n>' line" >&2; exit 1; }
-    fi
+    # Invariant: any mention of a timebox needs the Follow-up link. Normalise (NFKC, no CR, Unicode spaces
+    # to ASCII space, zero-width removed, lowercase) and look for the word anywhere: never at line shape.
+    command -v perl >/dev/null 2>&1 || die "check-body needs perl to normalise the body"
+    verdict=$(perl -CSD -MUnicode::Normalize -0777 -ne '
+      $_ = NFKC($_); s/\r//g; s/[\x{200B}-\x{200D}\x{2060}\x{FEFF}\x{00AD}]//g; s/\p{Zs}/ /g; s/[\p{Pd}\x{2212}]/-/g; $_ = lc($_);
+      print((/time[ \t\n-]*box/) ? "MENTIONS" : "CLEAN");' "$f") \
+      || die "check-body could not normalise $f"
+    case "$verdict" in
+      CLEAN) ;;
+      MENTIONS)
+        tr -d '\r' < "$f" | grep -qxE 'Follow-up: https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/issues/[0-9]+' \
+          || { echo "pass mentions a timebox but has no 'Follow-up: https://github.com/<owner>/<repo>/issues/<n>' line" >&2; exit 1; } ;;
+      *) die "check-body got an unexpected verdict '$verdict'" ;;
+    esac
     ;;
   *) die "unknown subcommand '$SUB'" ;;
 esac
