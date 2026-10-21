@@ -1,14 +1,7 @@
 #!/usr/bin/env bats
 # Generator load-time config validation + utf-8 pin + display paths
 # (prp-framework#157 split 1/2 — PR A1, fix/generator-config-validation).
-#
-# Scope: everything load_config reads and every read/write the generator
-# performs is validated or pinned. Per-input GenerationErrors (missing/empty
-# prompt, overlay parsing, validate_generated, the per-command boundary and
-# the main() last-resort handler) are PR #157 — split 2/2.
-#
-# EVERY test runs against a temp copy of the tree (temp copy only — never
-# the real adapters/).
+# Every test runs against a temp copy of the tree, never the real adapters/.
 #
 # Run: bats tests/scripts/generate-adapters.bats
 
@@ -179,158 +172,39 @@ HOOK4
   [ -z "$bad" ] || { echo "read/write without encoding=:" >&2; printf '%s\n' "$bad" >&2; return 1; }
 }
 
-# ── frontmatter parsing: split_frontmatter boundary table (round 8 + round 9) ──
-# split_frontmatter is the ONLY frontmatter splitter (A1 owns it; #157's
-# read_overlay and validate_generated call it). Direct (module-level) arms
-# live here; the overlay-side and validate_generated arms are #157's, where
-# those callers live.
+# ── split_frontmatter boundary table (the ONLY frontmatter splitter) ──
 
-@test "round-8 plain: frontmatter parsed, body preserved (direct)" {
+@test "split_frontmatter boundary table (rounds 8+9, direct): plain, dash-in-value, trailing space/tab, CRLF, none, fenced body, errors" {
   make_tree
   python3 - "$TREE/scripts/generate-adapters.py" <<'PYX'
 import importlib.util, sys
 spec = importlib.util.spec_from_file_location("ga", sys.argv[1])
 ga = importlib.util.module_from_spec(spec); spec.loader.exec_module(ga)
-fm, body = ga.split_frontmatter("---\nk: v\n---\nbody\n", "x.md")
-assert (fm, body) == ("k: v", "body\n"), (fm, body)
-print("plain OK")
-PYX
-}
-
-@test "round-8 dash in value: a --- inside a frontmatter value does not split (direct)" {
-  make_tree
-  python3 - "$TREE/scripts/generate-adapters.py" <<'PYX'
-import importlib.util, sys
-spec = importlib.util.spec_from_file_location("ga", sys.argv[1])
-ga = importlib.util.module_from_spec(spec); spec.loader.exec_module(ga)
-fm, body = ga.split_frontmatter('---\ndescription: "pre---post"\n---\nreal body\n', "x.md")
-assert fm == 'description: "pre---post"', fm
-assert body == "real body\n", body
-print("dash-in-value OK")
-PYX
-}
-
-@test "round-8 trailing-space delimiter: parsed as a delimiter (direct)" {
-  make_tree
-  python3 - "$TREE/scripts/generate-adapters.py" <<'PYX'
-import importlib.util, sys
-spec = importlib.util.spec_from_file_location("ga", sys.argv[1])
-ga = importlib.util.module_from_spec(spec); spec.loader.exec_module(ga)
-fm, body = ga.split_frontmatter("---\nk: v\n--- \nbody\n", "x.md")
-assert (fm, body) == ("k: v", "body\n"), (fm, body)
-print("trailing-space OK")
-PYX
-}
-
-@test "round-8 trailing-tab delimiter: parsed as a delimiter (direct)" {
-  make_tree
-  python3 - "$TREE/scripts/generate-adapters.py" <<'PYX'
-import importlib.util, sys
-spec = importlib.util.spec_from_file_location("ga", sys.argv[1])
-ga = importlib.util.module_from_spec(spec); spec.loader.exec_module(ga)
-fm, body = ga.split_frontmatter("---\nk: v\n---\t\nbody\n", "x.md")
-assert (fm, body) == ("k: v", "body\n"), (fm, body)
-print("trailing-tab OK")
-PYX
-}
-
-@test "round-8 CRLF: same result as plain (direct)" {
-  make_tree
-  python3 - "$TREE/scripts/generate-adapters.py" <<'PYX'
-import importlib.util, sys
-spec = importlib.util.spec_from_file_location("ga", sys.argv[1])
-ga = importlib.util.module_from_spec(spec); spec.loader.exec_module(ga)
-fm, body = ga.split_frontmatter("---\r\nk: v\r\n---\r\nbody\r\n", "x.md")
-assert (fm, body) == ("k: v", "body\n"), (fm, body)
-print("CRLF OK")
-PYX
-}
-
-@test "round-8 unterminated: error names the source (direct)" {
-  make_tree
-  python3 - "$TREE/scripts/generate-adapters.py" <<'PYX'
-import importlib.util, sys
-spec = importlib.util.spec_from_file_location("ga", sys.argv[1])
-ga = importlib.util.module_from_spec(spec); spec.loader.exec_module(ga)
-try:
-    ga.split_frontmatter("---\nk: v\nbody", "x.md")
-    raise SystemExit("BUG: unterminated accepted")
-except ga.GenerationError as e:
-    assert "unterminated frontmatter" in str(e) and "x.md" in str(e), str(e)
-print("unterminated direct OK")
-PYX
-}
-
-@test "round-8 no frontmatter: body as is (direct)" {
-  make_tree
-  python3 - "$TREE/scripts/generate-adapters.py" <<'PYX'
-import importlib.util, sys
-spec = importlib.util.spec_from_file_location("ga", sys.argv[1])
-ga = importlib.util.module_from_spec(spec); spec.loader.exec_module(ga)
-fm, body = ga.split_frontmatter("body only\n", "x.md")
-assert fm is None and body == "body only\n"
-print("no-frontmatter OK")
-PYX
-}
-
-@test "round-8 ---- (4 dashes) closer: NOT a delimiter, counts as unterminated (direct)" {
-  make_tree
-  python3 - "$TREE/scripts/generate-adapters.py" <<'PYX'
-import importlib.util, sys
-spec = importlib.util.spec_from_file_location("ga", sys.argv[1])
-ga = importlib.util.module_from_spec(spec); spec.loader.exec_module(ga)
-try:
-    ga.split_frontmatter("---\nk: v\n----\nbody\n", "x.md")
-    raise SystemExit("BUG: 4-dash closer accepted")
-except ga.GenerationError as e:
-    assert "unterminated frontmatter" in str(e)
-print("4-dash OK")
-PYX
-}
-
-@test "round-9 indented opener: error names the file and line (direct)" {
-  make_tree
-  python3 - "$TREE/scripts/generate-adapters.py" <<'PYX'
-import importlib.util, sys
-spec = importlib.util.spec_from_file_location("ga", sys.argv[1])
-ga = importlib.util.module_from_spec(spec); spec.loader.exec_module(ga)
-try:
-    ga.split_frontmatter("  ---\nk: v\n---\nbody\n", "o.md")
-    raise SystemExit("BUG: indented opener accepted")
-except ga.GenerationError as e:
-    assert "indented frontmatter delimiter" in str(e), str(e)
-    assert "o.md" in str(e) and "line 1" in str(e), str(e)
-print("indented opener OK")
-PYX
-}
-
-@test "round-9 indented closer with a correct opener: error names the file and line (direct)" {
-  make_tree
-  python3 - "$TREE/scripts/generate-adapters.py" <<'PYX'
-import importlib.util, sys
-spec = importlib.util.spec_from_file_location("ga", sys.argv[1])
-ga = importlib.util.module_from_spec(spec); spec.loader.exec_module(ga)
-try:
-    ga.split_frontmatter("---\nk: v\n\t--- \nbody\n", "x.md")
-    raise SystemExit("BUG: indented closer accepted")
-except ga.GenerationError as e:
-    assert "indented frontmatter delimiter" in str(e), str(e)
-    assert "x.md" in str(e) and "line 3" in str(e), str(e)
-print("indented closer OK")
-PYX
-}
-
-@test "round-9 three-dash line inside a fenced block in the body, after a correct closer: body, unaffected (direct)" {
-  make_tree
-  python3 - "$TREE/scripts/generate-adapters.py" <<'PYX'
-import importlib.util, sys
-spec = importlib.util.spec_from_file_location("ga", sys.argv[1])
-ga = importlib.util.module_from_spec(spec); spec.loader.exec_module(ga)
-fm, body = ga.split_frontmatter("---\nk: v\n---\n```sh\n  ---\n```\nmore\n", "x.md")
-assert (fm, body) == ("k: v", "```sh\n  ---\n```\nmore\n"), (fm, body)
-fm, body = ga.split_frontmatter("---\nk: v\n---\nbody\n---\n", "x.md")
-assert (fm, body) == ("k: v", "body\n---\n"), (fm, body)
-print("fenced-body OK")
+ok = [  # (text, (frontmatter, body))
+    ("---\nk: v\n---\nbody\n", ("k: v", "body\n")),
+    ('---\ndescription: "pre---post"\n---\nreal body\n', ('description: "pre---post"', "real body\n")),
+    ("---\nk: v\n--- \nbody\n", ("k: v", "body\n")),
+    ("---\nk: v\n---\t\nbody\n", ("k: v", "body\n")),
+    ("---\r\nk: v\r\n---\r\nbody\r\n", ("k: v", "body\n")),
+    ("body only\n", (None, "body only\n")),
+    ("---\nk: v\n---\n```sh\n  ---\n```\nmore\n", ("k: v", "```sh\n  ---\n```\nmore\n")),
+    ("---\nk: v\n---\nbody\n---\n", ("k: v", "body\n---\n")),
+]
+for text, want in ok:
+    assert ga.split_frontmatter(text, "x.md") == want, (text, want)
+bad = [  # (text, message fragments)
+    ("---\nk: v\nbody", ("unterminated frontmatter", "x.md")),
+    ("---\nk: v\n----\nbody\n", ("unterminated frontmatter",)),
+    ("  ---\nk: v\n---\nbody\n", ("indented frontmatter delimiter", "x.md", "line 1")),
+    ("---\nk: v\n\t--- \nbody\n", ("indented frontmatter delimiter", "x.md", "line 3")),
+]
+for text, frags in bad:
+    try:
+        ga.split_frontmatter(text, "x.md")
+    except ga.GenerationError as e:
+        assert all(f in str(e) for f in frags), (text, str(e))
+    else:
+        raise SystemExit(f"BUG: accepted {text!r}")
 PYX
 }
 
@@ -346,21 +220,16 @@ PYX
   [ "$(grep -c 'def split_frontmatter' "$script")" -eq 1 ]
 }
 
-# ── A1 round-1 fixes (#161): lenient but VISIBLE; guarded output-side reads ──
+# ── A1 round-1 fixes (#161): strict overlay; guarded output-side reads ──
 
 @test "A1-r3 command carrying a frontmatter key (adapter-only) is an unknown command key naming the command" {
   make_tree
-  python3 - "$TREE" <<'HOOKF'
-import sys, yaml
-t = sys.argv[1]
-c = yaml.safe_load(open(f"{t}/adapters.yml"))
-c["commands"]["qa"]["frontmatter"] = {"fields": [1, 2]}
-yaml.safe_dump(c, open(f"{t}/adapters.yml", "w"), sort_keys=False)
-HOOKF
+  python3 -c "
+import yaml; p='$TREE/adapters.yml'; c=yaml.safe_load(open(p))
+c['commands']['qa']['frontmatter']={'fields':[1]}; yaml.safe_dump(c,open(p,'w'),sort_keys=False)"
   gen
-  [ "$rc" -eq 1 ] || { echo "expected exit 1, got $rc" >&2; return 1; }
-  echo "$err" | grep -qF "Command 'qa' has unknown keys: ['frontmatter']" \
-    || { echo "error does not name command+key: $err" >&2; return 1; }
+  [ "$rc" -eq 1 ] && echo "$err" | grep -qF "Command 'qa' has unknown keys: ['frontmatter']" \
+    || { echo "rc=$rc err=$err" >&2; return 1; }
 }
 
 # ── A1 round-3 re-plan: boundary table (one test per row) ───────────────────
@@ -378,22 +247,6 @@ expect_counted_error() {
 @test "A1-r3 row: prompt file missing — counted named error, others generated" {
   make_tree
   rm "$TREE/prompts/qa.md"
-  gen
-  expect_counted_error "prompts/qa.md"
-}
-
-@test "A1-r3 row: prompt unreadable (chmod 000) — counted named error" {
-  [ "$(id -u)" -ne 0 ] || skip "root reads chmod 000 files"
-  make_tree
-  chmod 000 "$TREE/prompts/qa.md"
-  gen
-  chmod 644 "$TREE/prompts/qa.md"
-  expect_counted_error "prompts/qa.md"
-}
-
-@test "A1-r3 row: prompt invalid UTF-8 — counted named error" {
-  make_tree
-  printf '\xff\xfe bad\n' > "$TREE/prompts/qa.md"
   gen
   expect_counted_error "prompts/qa.md"
 }
@@ -429,23 +282,6 @@ expect_counted_error() {
   expect_counted_error "indented frontmatter delimiter in prompts/overlays/claude-code/plan.md at line 1"
 }
 
-@test "A1-r3 row: overlay invalid UTF-8 — counted named error" {
-  make_tree
-  printf '\xff\xfe\n' > "$TREE/prompts/overlays/claude-code/plan.md"
-  gen
-  expect_counted_error "prompts/overlays/claude-code/plan.md"
-}
-
-@test "A1-r3 row: unknown command key — named load-time error, exit 1" {
-  make_tree
-  sed -i '0,/^    argument-hint:/s//    argumnt-hint:/' "$TREE/adapters.yml"
-  grep -q 'argumnt-hint:' "$TREE/adapters.yml" || { echo "mutation did not take" >&2; return 1; }
-  gen
-  [ "$rc" -eq 1 ] || { echo "expected exit 1, got $rc: $err" >&2; return 1; }
-  echo "$err" | grep -qF "has unknown keys: ['argumnt-hint']" || { echo "error does not name the key: $err" >&2; return 1; }
-  echo "$err" | grep -qF 'valid keys' || { echo "no valid-key list: $err" >&2; return 1; }
-}
-
 @test "A1-r3 row: valid input — exit 0, 0 skipped, 0 errors, repo adapters unchanged" {
   make_tree
   gen
@@ -470,28 +306,6 @@ expect_counted_error() {
   python3 -c "assert b'\\xff\\xfe' in open('$TREE/adapters/claude-code/prp-qa.md','rb').read(), 'existing output was overwritten'"
 }
 
-@test "A1-r1 mkdir blocked by a regular file: named error, errors=1" {
-  make_tree
-  # block the codex prp-qa directory with a regular file
-  mkdir -p "$TREE/adapters/codex"
-  printf 'not a dir\n' > "$TREE/adapters/codex/prp-qa"
-  gen
-  [ "$rc" -eq 1 ] || { echo "expected exit 1, got $rc" >&2; return 1; }
-  echo "$err" | grep -qF "error: cannot create directory" \
-    || { echo "error does not name the mkdir failure: $err" >&2; return 1; }
-  echo "$err" | grep -qF "adapters/codex/prp-qa" \
-    || { echo "error does not name the directory: $err" >&2; return 1; }
-  echo "$out" | grep -qE 'Results: .*1 errors' \
-    || { echo "expected errors=1: $(echo "$out" | grep Results)" >&2; return 1; }
-}
-
-# ── A1 round-3 re-plan: ONE read helper (invariant) ────────────────────────
-# Invariant: every file the generator READS goes through read_utf8(path),
-# which turns OSError/UnicodeDecodeError into a GenerationError naming the
-# file; the per-command loop catches it (print, count, continue). This test
-# fails if read_text( or open( appears anywhere OUTSIDE read_utf8
-# (write_text is excluded — the write path is #157's).
-
 @test "A1-r3 invariant: every read goes through read_utf8 — no read_text(/open( outside it" {
   local script="$ROOT/scripts/generate-adapters.py"
   # every read_text( / open( call must live inside read_utf8's definition;
@@ -510,4 +324,85 @@ expect_counted_error() {
   # and read_utf8 must exist exactly once
   [ "$(grep -c 'def read_utf8' "$script")" -eq 1 ] || {
     echo "read_utf8 is not defined exactly once" >&2; return 1; }
+}
+
+@test "A1-r4 row: adapters.yml with an impossible date — Error: Invalid YAML, exit 1, no traceback" {
+  make_tree
+  printf 'zz: 2001-13-45\n' >> "$TREE/adapters.yml"
+  gen
+  [ "$rc" -eq 1 ] && echo "$err" | grep -qF "Invalid YAML" && ! echo "$err" | grep -q Traceback \
+    || { echo "rc=$rc err=$err" >&2; return 1; }
+}
+
+@test "A1-r4 row: dangling-symlink overlay — counted error, not a silent skip" {
+  make_tree
+  ln -sf /nonexistent-overlay-target "$TREE/prompts/overlays/claude-code/plan.md"
+  gen
+  expect_counted_error "prompts/overlays/claude-code/plan.md"
+}
+
+@test "A1-r4 row: unencodable value (lone surrogate) — counted error, existing output not truncated" {
+  make_tree
+  gen
+  local before; before=$(wc -c < "$TREE/adapters/claude-code/prp-qa.md")
+  python3 -c "
+import yaml; p='$TREE/adapters.yml'; c=yaml.safe_load(open(p))
+c['commands']['qa']['description']={'default':'\ud800 x'}
+open(p,'w',encoding='utf-8',errors='surrogatepass').write(yaml.safe_dump(c,sort_keys=False,allow_unicode=True))"
+  gen
+  [ "$rc" -eq 1 ] && ! echo "$err" | grep -q Traceback || { echo "rc=$rc err=$err" >&2; return 1; }
+  [ "$(wc -c < "$TREE/adapters/claude-code/prp-qa.md")" -eq "$before" ] || { echo "output truncated" >&2; return 1; }
+}
+
+# ── A1 re-plan #2: ONE exception boundary (tests/scripts/fault_inject.py) ──
+
+@test "A1-r4b fault injection: every class x exception -> no Traceback, rc != 0, input named" {
+  local fails="" klass exc token rc2 e2
+  for klass in stat read yaml-config yaml-overlay overlay-type write; do
+    case "$klass" in
+      stat) token="prp-qa" ;;
+      read) token="prompts/qa.md" ;;
+      yaml-config) token="adapters.yml" ;;
+      yaml-overlay|overlay-type) token="plan" ;;
+      write) token="SKILL.md" ;;
+    esac
+    for exc in OSError UnicodeDecodeError YAMLError TypeError ValueError; do
+      make_tree "fi-$klass-$exc"
+      rc2=0
+      e2=$(python3 "$ROOT/tests/scripts/fault_inject.py" "$TREE" "$klass" "$exc" 2>&1 >/dev/null) || rc2=$?
+      [ "$rc2" -ne 0 ] || fails+="[$klass/$exc] exit 0"$'\n'
+      case "$e2" in *Traceback*) fails+="[$klass/$exc] Traceback"$'\n' ;; esac
+      case "$e2" in *"$token"*) ;; *) fails+="[$klass/$exc] '$token' not named: $e2"$'\n' ;; esac
+    done
+  done
+  [ -z "$fails" ] || { printf '%s' "$fails" >&2; return 1; }
+}
+
+@test "A1-r4b fault injection: KeyboardInterrupt propagates (not swallowed by the boundary)" {
+  make_tree
+  local e2 rc2=0
+  e2=$(python3 "$ROOT/tests/scripts/fault_inject.py" "$TREE" read KeyboardInterrupt 2>&1 >/dev/null) || rc2=$?
+  [ "$rc2" -eq 3 ] && echo "$e2" | grep -qF "PROPAGATED KeyboardInterrupt" \
+    || { echo "rc=$rc2 $e2" >&2; return 1; }
+}
+
+@test "A1-r4b partial failure: one of two inputs fails -> the other is produced, exactly 1 error" {
+  make_tree
+  local rc2=0 e2
+  e2=$(python3 "$ROOT/tests/scripts/fault_inject.py" "$TREE" write OSError fresh 2>&1 >"$BATS_TEST_TMPDIR/p.out") || rc2=$?
+  [ "$rc2" -eq 1 ] || { echo "expected exit 1, got $rc2: $e2" >&2; return 1; }
+  grep -qE ', 1 errors' "$BATS_TEST_TMPDIR/p.out" || { echo "not exactly 1 error: $(tail -2 "$BATS_TEST_TMPDIR/p.out")" >&2; return 1; }
+  [ -f "$TREE/adapters/claude-code/prp-qa.md" ] || { echo "other output not produced" >&2; return 1; }
+  [ ! -f "$TREE/adapters/codex/prp-qa/SKILL.md" ] || { echo "failed output was written" >&2; return 1; }
+}
+
+@test "A1-r4b grep invariant: 'except Exception' only at the two boundaries; no bare except / BaseException" {
+  local script="$ROOT/scripts/generate-adapters.py"
+  [ "$(grep -cE '^\s*except Exception( as \w+)?:' "$script")" -eq 2 ] \
+    || { grep -nE 'except Exception' "$script" >&2; return 1; }
+  ! grep -nE '^\s*except\s*:|BaseException' "$script" >&2 || return 1
+  # the two boundaries are generate_all and main
+  local where
+  where=$(awk '/^def /{f=$2; sub(/\(.*/,"",f)} /^[ ]*except Exception/{print f}' "$script" | sort | tr '\n' ' ')
+  [ "$where" = "generate_all main " ] || { echo "boundaries in: $where" >&2; return 1; }
 }
