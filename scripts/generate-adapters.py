@@ -651,10 +651,8 @@ def generate_all(config: dict, adapter_filter: str | None = None,
     )
 
     for adapter_name in adapters_to_gen:
-        # strict stdout must not raise on a lone-surrogate name (invalid-UTF-8 key)
-        shown = adapter_name.encode("utf-8", "backslashreplace").decode()
         print(f"\n{'='*60}")
-        print(f"Adapter: {shown}")
+        print(f"Adapter: {adapter_name}")
         print(f"{'='*60}")
 
         for cmd_name in config["commands"]:
