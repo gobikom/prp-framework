@@ -157,6 +157,19 @@ all_pos() { # <ERE>
     echo "every Agent dispatch must pass run_in_background=false — dispatches: $dispatches, parameters: $params" >&2
     return 1
   }
+  # R3 fix: equal totals do not prove pairing — one block could lose the
+  # parameter while another gains a duplicate. Require the parameter on the
+  # line directly after EVERY `Agent(` line, block by block.
+  local unpaired
+  unpaired=$(awk '
+    prev == "Agent(" && $0 != "  run_in_background=false," { bad++ }
+    { prev = $0 }
+    END { print bad + 0 }
+  ' "$ADAPTER") || return 1
+  [ "$unpaired" -eq 0 ] || {
+    echo "$unpaired Agent dispatch block(s) lack run_in_background=false directly after 'Agent('" >&2
+    return 1
+  }
 }
 
 @test "no other-runtime adapter carries the Claude-Code-only blocking kwarg (#151 AC1)" {
