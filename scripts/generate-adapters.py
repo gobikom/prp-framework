@@ -153,7 +153,7 @@ def load_config() -> dict:
     # inside an f-string and crashed the run with a raw traceback).
     for section in ("adapters", "commands"):
         for name in config[section]:
-            if not isinstance(name, str) or not NAME_RE.match(name):
+            if not isinstance(name, str) or not NAME_RE.fullmatch(name):
                 print(f"Error: invalid {section[:-1]} name {name!r} in adapters.yml — "
                       f"must match ^[a-z0-9][a-z0-9-]*$ "
                       f"(lowercase alphanumerics and hyphens, no slashes)", file=sys.stderr)
@@ -189,6 +189,15 @@ def load_config() -> dict:
             if not isinstance(value, want):
                 print(f"Error: adapters.yml {section} '{name}' key '{key}' must be "
                       f"{want.__name__}, got {type(value).__name__}", file=sys.stderr)
+                sys.exit(1)
+        # group_dirs: a group name and its directory build output paths, so
+        # both must be plain names (an absolute or ../ value wrote outside adapters/)
+        for gk, gv in (cfg.get("group_dirs") or {}).items():
+            if not (isinstance(gk, str) and isinstance(gv, str)
+                    and NAME_RE.fullmatch(gk) and NAME_RE.fullmatch(gv)):
+                print(f"Error: adapters.yml {section} '{name}' key 'group_dirs' entry "
+                      f"{gk!r}: {gv!r} must map a name to a plain directory name "
+                      f"matching ^[a-z0-9][a-z0-9-]*$", file=sys.stderr)
                 sys.exit(1)
         # nested shape: frontmatter.fields is a list of str
         if isinstance(cfg.get("frontmatter"), dict):

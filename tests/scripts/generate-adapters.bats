@@ -357,12 +357,13 @@ open(p,'w',encoding='utf-8',errors='surrogatepass').write(yaml.safe_dump(c,sort_
 @test "A1b config shape: adapter/command key that is int, None, date or lone surrogate -> one named load-time error, nothing generated" {
   local section shape expect fails=""
   for section in adapters commands; do
-    for shape in int none date surrogate; do
+    for shape in int none date surrogate newline; do
       case "$shape" in
         int) expect="123" ;;
         none) expect="None" ;;
         date) expect="datetime.date(2024, 1, 1)" ;;
         surrogate) expect="'bad\\ud800'" ;;
+        newline) expect="'qa\\n'" ;;
       esac
       make_tree "key-$section-$shape"
       python3 - "$TREE" "$section" "$shape" <<'HOOK'
@@ -370,7 +371,7 @@ import datetime, sys, yaml
 t, section, shape = sys.argv[1:4]
 p = f"{t}/adapters.yml"
 c = yaml.safe_load(open(p))
-key = {"int": 123, "none": None, "date": datetime.date(2024, 1, 1), "surrogate": "bad\ud800"}[shape]
+key = {"int": 123, "none": None, "date": datetime.date(2024, 1, 1), "surrogate": "bad\ud800", "newline": "qa\n"}[shape]
 c[section][key] = dict(next(iter(c[section].values())))
 open(p, "w", encoding="utf-8", errors="surrogatepass").write(yaml.safe_dump(c, sort_keys=False, allow_unicode=True))
 HOOK
@@ -382,6 +383,26 @@ HOOK
     done
   done
   [ -z "$fails" ] || { printf '%s' "$fails" >&2; return 1; }
+}
+
+@test "A1b group_dirs: absolute or ../ directory value -> named load-time error, nothing written outside the tree" {
+  local val
+  for val in "/tmp/a1b-escape-$$" "../../a1b-escape-$$" "x/y" ""; do
+    make_tree "gd"
+    python3 - "$TREE" "$val" <<'HOOK'
+import sys, yaml
+t, val = sys.argv[1:3]
+p = f"{t}/adapters.yml"
+c = yaml.safe_load(open(p))
+c["adapters"]["claude-code"]["group_dirs"]["marketing"] = val
+yaml.safe_dump(c, open(p, "w"), sort_keys=False)
+HOOK
+    gen
+    [ "$rc" -eq 1 ] || { echo "[$val] expected exit 1, got $rc" >&2; return 1; }
+    echo "$err" | grep -qF "group_dirs" || { echo "[$val] group_dirs not named: $err" >&2; return 1; }
+    ! echo "$err" | grep -q Traceback || { echo "[$val] Traceback" >&2; return 1; }
+    [ ! -e "$TREE/adapters" ] && [ ! -e "/tmp/a1b-escape-$$" ] && [ ! -e "$TREE/../../a1b-escape-$$" ] || { echo "[$val] output written" >&2; return 1; }
+  done
 }
 
 # ── A1 re-plan #2: ONE exception boundary (tests/scripts/fault_inject.py) ──
