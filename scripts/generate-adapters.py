@@ -617,9 +617,9 @@ def validate_generated(rel_path: str, content: str) -> None:
     — and in --dry-run/--diff modes too (called before the dry-run fork, so
     it sees identical content). Raises GenerationError naming the file and
     the reason:
-      (a) the command body, after frontmatter or TOML header, is non-empty
+      (a) the command body, after frontmatter or TOML header, is empty
           after strip;
-      (b) the description field, where the format has one, is non-empty.
+      (b) the description field, where the format has one, is empty.
     """
     where = f"generated output {rel_path}"
 

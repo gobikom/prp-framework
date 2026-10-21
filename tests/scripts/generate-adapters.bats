@@ -485,6 +485,8 @@ yaml.safe_dump(c, open(p, "w"), sort_keys=False, allow_unicode=True)
 HOOK
   gen
   expect_counted_error "generated output adapters/claude-code/prp-qa.md has an empty description field"
+  # the failing unit must leave no stub behind (validation precedes the write)
+  [ ! -e "$TREE/adapters/claude-code/prp-qa.md" ] || { echo "empty-description stub lingered for the failing unit" >&2; return 1; }
 }
 
 @test "A1c row: the output check runs in --dry-run too — fails before writing anything" {
