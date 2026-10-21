@@ -13,5 +13,11 @@ _scan_cred() {
   grep -qE 'ghp_|gho_|github_pat_' "$f"; rc=$?
   if [ "$rc" -eq 0 ]; then echo "error: credential pattern: github-token" >&2; return 1; fi
   if [ "$rc" -gt 1 ]; then echo "error: credential scan failed (rc=$rc): $f" >&2; return 1; fi
+  grep -qE '(^|[^A-Za-z0-9])sk-(proj-)?[A-Za-z0-9_-]{20,}' "$f"; rc=$?
+  if [ "$rc" -eq 0 ]; then echo "error: credential pattern: openai-key" >&2; return 1; fi
+  if [ "$rc" -gt 1 ]; then echo "error: credential scan failed (rc=$rc): $f" >&2; return 1; fi
+  grep -qE '"refresh_token"[[:space:]]*:[[:space:]]*"[^"]{10,}' "$f"; rc=$?
+  if [ "$rc" -eq 0 ]; then echo "error: credential pattern: refresh-token" >&2; return 1; fi
+  if [ "$rc" -gt 1 ]; then echo "error: credential scan failed (rc=$rc): $f" >&2; return 1; fi
   return 0
 }
