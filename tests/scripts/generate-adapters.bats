@@ -78,6 +78,71 @@ gen() {
   fi
 }
 
+@test "round-3 command key /etc/passwd: load-time name error, exit 1, no Traceback" {
+  make_tree
+  python3 - "$TREE" <<'HOOK1'
+import sys, yaml
+t = sys.argv[1]
+c = yaml.safe_load(open(f"{t}/adapters.yml"))
+c["commands"]["/etc/passwd"] = dict(c["commands"]["qa"])
+yaml.safe_dump(c, open(f"{t}/adapters.yml", "w"), sort_keys=False)
+HOOK1
+  gen
+  [ "$rc" -eq 1 ] || { echo "expected exit 1, got $rc" >&2; return 1; }
+  echo "$err" | grep -qF "invalid command name '/etc/passwd'" \
+    || { echo "error does not name the key: $err" >&2; return 1; }
+  if printf '%s\n' "$err" | grep -q 'Traceback'; then echo "raw traceback leaked: $err" >&2; return 1; fi
+}
+
+@test "round-3 command key ../x: load-time name error, exit 1, no Traceback" {
+  make_tree
+  python3 - "$TREE" <<'HOOK2'
+import sys, yaml
+t = sys.argv[1]
+c = yaml.safe_load(open(f"{t}/adapters.yml"))
+c["commands"]["../x"] = dict(c["commands"]["qa"])
+yaml.safe_dump(c, open(f"{t}/adapters.yml", "w"), sort_keys=False)
+HOOK2
+  gen
+  [ "$rc" -eq 1 ] || { echo "expected exit 1, got $rc" >&2; return 1; }
+  echo "$err" | grep -qF "invalid command name '../x'" \
+    || { echo "error does not name the key: $err" >&2; return 1; }
+  if printf '%s\n' "$err" | grep -q 'Traceback'; then echo "raw traceback leaked: $err" >&2; return 1; fi
+}
+
+@test "round-3 args_placeholder null: load-time type error naming the key, exit 1, no Traceback" {
+  make_tree
+  python3 - "$TREE" <<'HOOK3'
+import sys, yaml
+t = sys.argv[1]
+c = yaml.safe_load(open(f"{t}/adapters.yml"))
+c["adapters"]["claude-code"]["args_placeholder"] = None
+yaml.safe_dump(c, open(f"{t}/adapters.yml", "w"), sort_keys=False)
+HOOK3
+  gen
+  [ "$rc" -eq 1 ] || { echo "expected exit 1, got $rc" >&2; return 1; }
+  echo "$err" | grep -qF "adapter 'claude-code' key 'args_placeholder' must be str, got NoneType" \
+    || { echo "error does not name adapter+key+types: $err" >&2; return 1; }
+  if printf '%s\n' "$err" | grep -q 'Traceback'; then echo "raw traceback leaked: $err" >&2; return 1; fi
+}
+
+@test "round-3 description 123: load-time type error naming the key, exit 1, no Traceback" {
+  make_tree
+  python3 - "$TREE" <<'HOOK4'
+import sys, yaml
+t = sys.argv[1]
+c = yaml.safe_load(open(f"{t}/adapters.yml"))
+c["commands"]["qa"]["description"] = 123
+yaml.safe_dump(c, open(f"{t}/adapters.yml", "w"), sort_keys=False)
+HOOK4
+  gen
+  [ "$rc" -eq 1 ] || { echo "expected exit 1, got $rc" >&2; return 1; }
+  echo "$err" | grep -qF "command 'qa' key 'description' must be dict, got int" \
+    || { echo "error does not name command+key+types: $err" >&2; return 1; }
+  if printf '%s\n' "$err" | grep -q 'Traceback'; then echo "raw traceback leaked: $err" >&2; return 1; fi
+}
+
+
 @test "round-3 bad-bytes adapters.yml under LC_ALL=C: same named error, no Traceback, locale-independent" {
   make_tree
   python3 -c "open('$TREE/adapters.yml','wb').write(b'adapters: \xff\xfe\n')"
@@ -287,6 +352,101 @@ open(p,'w',encoding='utf-8',errors='surrogatepass').write(yaml.safe_dump(c,sort_
   gen
   [ "$rc" -eq 1 ] && ! echo "$err" | grep -q Traceback || { echo "rc=$rc err=$err" >&2; return 1; }
   [ "$(wc -c < "$TREE/adapters/claude-code/prp-qa.md")" -eq "$before" ] || { echo "output truncated" >&2; return 1; }
+}
+
+@test "A1b config shape: adapter/command key that is int, None, date or lone surrogate -> one named load-time error, nothing generated" {
+  local section shape expect fails=""
+  for section in adapters commands; do
+    for shape in int none date surrogate newline; do
+      case "$shape" in
+        int) expect="123" ;;
+        none) expect="None" ;;
+        date) expect="datetime.date(2024, 1, 1)" ;;
+        surrogate) expect="'bad\\ud800'" ;;
+        newline) expect="'qa\\n'" ;;
+      esac
+      make_tree "key-$section-$shape"
+      python3 - "$TREE" "$section" "$shape" <<'HOOK'
+import datetime, sys, yaml
+t, section, shape = sys.argv[1:4]
+p = f"{t}/adapters.yml"
+c = yaml.safe_load(open(p))
+key = {"int": 123, "none": None, "date": datetime.date(2024, 1, 1), "surrogate": "bad\ud800", "newline": "qa\n"}[shape]
+c[section][key] = dict(next(iter(c[section].values())))
+open(p, "w", encoding="utf-8", errors="surrogatepass").write(yaml.safe_dump(c, sort_keys=False, allow_unicode=True))
+HOOK
+      gen
+      [ "$rc" -eq 1 ] || fails+="[$section/$shape] exit $rc"$'\n'
+      case "$err" in *Traceback*) fails+="[$section/$shape] Traceback"$'\n' ;; esac
+      case "$err" in *"invalid ${section%s} name $expect"*) ;; *) fails+="[$section/$shape] key not named: $err"$'\n' ;; esac
+      [ ! -e "$TREE/adapters" ] || fails+="[$section/$shape] output generated"$'\n'
+    done
+  done
+  [ -z "$fails" ] || { printf '%s' "$fails" >&2; return 1; }
+}
+
+@test "A1b group_dirs: absolute or ../ directory value -> named load-time error, nothing written outside the tree" {
+  local val
+  for val in "/tmp/a1b-escape-$$" "../../a1b-escape-$$" "x/y" ""; do
+    make_tree "gd"
+    python3 - "$TREE" "$val" <<'HOOK'
+import sys, yaml
+t, val = sys.argv[1:3]
+p = f"{t}/adapters.yml"
+c = yaml.safe_load(open(p))
+c["adapters"]["claude-code"]["group_dirs"]["marketing"] = val
+yaml.safe_dump(c, open(p, "w"), sort_keys=False)
+HOOK
+    gen
+    [ "$rc" -eq 1 ] || { echo "[$val] expected exit 1, got $rc" >&2; return 1; }
+    echo "$err" | grep -qF "group_dirs" || { echo "[$val] group_dirs not named: $err" >&2; return 1; }
+    ! echo "$err" | grep -q Traceback || { echo "[$val] Traceback" >&2; return 1; }
+    [ ! -e "$TREE/adapters" ] && [ ! -e "/tmp/a1b-escape-$$" ] && [ ! -e "$TREE/../../a1b-escape-$$" ] || { echo "[$val] output written" >&2; return 1; }
+  done
+}
+
+@test "A1b command value types: alias / alias-of wrong type -> named load-time error, nothing generated" {
+  local key pyval want spec fails=""
+  for spec in "alias:'false':bool, got str" "alias:['plan']:bool, got list" "alias-of:['plan']:str, got list" "alias-of:None:str, got NoneType"; do
+    IFS=: read -r key pyval want <<<"$spec"
+    make_tree "cvt-$(echo "$key$pyval" | tr -cd 'a-z0-9')"
+    python3 - "$TREE" "$key" "$pyval" <<'HOOK'
+import ast, sys, yaml
+t, key, pyval = sys.argv[1:4]
+p = f"{t}/adapters.yml"
+c = yaml.safe_load(open(p))
+c["commands"]["qa"][key] = ast.literal_eval(pyval)
+yaml.safe_dump(c, open(p, "w"), sort_keys=False)
+HOOK
+    gen
+    [ "$rc" -eq 1 ] || fails+="[$spec] exit $rc"$'\n'
+    case "$err" in *Traceback*) fails+="[$spec] Traceback"$'\n' ;; esac
+    case "$err" in *"command 'qa' key '$key' must be $want"*) ;; *) fails+="[$spec] key not named: $err"$'\n' ;; esac
+    [ ! -e "$TREE/adapters" ] || fails+="[$spec] output generated"$'\n'
+  done
+  [ -z "$fails" ] || { printf '%s' "$fails" >&2; return 1; }
+}
+
+@test "A1b description values: non-str entry in description / description-overrides -> named load-time error, nothing generated" {
+  local dkey entry pyval spec fails=""
+  for spec in "description:default:123" "description:default:None" "description-overrides:gemini:['x']" "description-overrides:codex:3.14"; do
+    IFS=: read -r dkey entry pyval <<<"$spec"
+    make_tree "dv-$(echo "$dkey$entry" | tr -cd 'a-z0-9')"
+    python3 - "$TREE" "$dkey" "$entry" "$pyval" <<'HOOK'
+import ast, sys, yaml
+t, dkey, entry, pyval = sys.argv[1:5]
+p = f"{t}/adapters.yml"
+c = yaml.safe_load(open(p))
+c["commands"]["qa"].setdefault(dkey, {})[entry] = ast.literal_eval(pyval)
+yaml.safe_dump(c, open(p, "w"), sort_keys=False)
+HOOK
+    gen
+    [ "$rc" -eq 1 ] || fails+="[$spec] exit $rc"$'\n'
+    case "$err" in *Traceback*) fails+="[$spec] Traceback"$'\n' ;; esac
+    case "$err" in *"key '$dkey' entry"*"must be a string"*) ;; *) fails+="[$spec] values not named: $err"$'\n' ;; esac
+    [ ! -e "$TREE/adapters" ] || fails+="[$spec] output generated"$'\n'
+  done
+  [ -z "$fails" ] || { printf '%s' "$fails" >&2; return 1; }
 }
 
 # ── A1 re-plan #2: ONE exception boundary (tests/scripts/fault_inject.py) ──

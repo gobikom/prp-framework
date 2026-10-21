@@ -32,6 +32,12 @@ OVERLAYS_DIR = PROMPTS_DIR / "overlays"
 ADAPTERS_DIR = ROOT_DIR / "adapters"
 CONFIG_PATH = ROOT_DIR / "adapters.yml"
 
+# Round-3 re-plan: adapter and command names are used to build filesystem
+# paths (file_pattern .replace("{name}", ...)), so they are validated up
+# front. This rejects absolute keys (/etc/passwd), traversal (../x), empty,
+# uppercase and spaced names with a named load-time error.
+NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
+
 
 def display_path(p) -> str:
     """Round-3 re-plan: one helper for every user-facing path in a message.
@@ -140,6 +146,81 @@ def load_config() -> dict:
                       f"mapping, got {type(cfg).__name__}", file=sys.stderr)
                 sys.exit(1)
 
+    # Round-3 re-plan: names are validated before any work — they build
+    # filesystem paths, so /etc/passwd, ../x, empty, uppercase and spaced
+    # names are load-time errors (this was the round-3 Critical: an absolute
+    # command key later raised ValueError from the path-shrinking helper
+    # inside an f-string and crashed the run with a raw traceback).
+    for section in ("adapters", "commands"):
+        for name in config[section]:
+            if not isinstance(name, str) or not NAME_RE.fullmatch(name):
+                print(f"Error: invalid {section[:-1]} name {name!r} in adapters.yml — "
+                      f"must match ^[a-z0-9][a-z0-9-]*$ "
+                      f"(lowercase alphanumerics and hyphens, no slashes)", file=sys.stderr)
+                sys.exit(1)
+
+    # Round-3 re-plan: type-check the value of every required and known key
+    # (the types adapters.yml documents). A wrong-typed value (null, int,
+    # list where str/mapping/bool is documented) previously surfaced as a
+    # TypeError far from the config, or crashed mid-run (round-3 Important:
+    # args_placeholder: null → TypeError in substitute_placeholders).
+    # Config-level errors stay fatal: named, exit 1, before any work.
+    ADAPTER_VALUE_TYPES = {
+        "file_pattern": str, "format": str, "args_placeholder": str,
+        "tool_command_template": str, "artifact_suffix": str,
+        "frontmatter": dict, "group_dirs": dict, "overlays": bool,
+        "wrapper": str,
+    }
+    COMMAND_VALUE_TYPES = {
+        "description": dict, "description-overrides": dict,
+        "argument-hint": str, "codex-short-description": str,
+        "group": str, "opencode-agent": str,
+        "alias": bool, "alias-of": str,
+    }
+
+    def check_value_types(section: str, name: str, cfg: dict, types: dict) -> None:
+        # Checks every key whose documented type is known, including
+        # alias / alias-of (generate_adapter_file reads both; a truthy
+        # alias: "false" string silently stubbed the prompt body).
+        # bool is a subclass of int but of no other checked type,
+        # so a plain isinstance test already rejects true/false for str.
+        for key, value in cfg.items():
+            want = types.get(key)
+            if want is None:
+                continue
+            if not isinstance(value, want):
+                print(f"Error: adapters.yml {section} '{name}' key '{key}' must be "
+                      f"{want.__name__}, got {type(value).__name__}", file=sys.stderr)
+                sys.exit(1)
+        # description / description-overrides map adapter names to the text
+        # written into each adapter's frontmatter; a non-str value (int,
+        # null) previously died mid-generation in yaml_quote with half the
+        # output tree already written, or silently wrote description: ""
+        for dkey in ("description", "description-overrides"):
+            for dk, dv in (cfg.get(dkey) or {}).items():
+                if not isinstance(dv, str):
+                    print(f"Error: adapters.yml {section} '{name}' key '{dkey}' entry "
+                          f"{dk!r}: {dv!r} must be a string", file=sys.stderr)
+                    sys.exit(1)
+        # group_dirs: a group name and its directory build output paths, so
+        # both must be plain names (an absolute or ../ value wrote outside adapters/)
+        for gk, gv in (cfg.get("group_dirs") or {}).items():
+            if not (isinstance(gk, str) and isinstance(gv, str)
+                    and NAME_RE.fullmatch(gk) and NAME_RE.fullmatch(gv)):
+                print(f"Error: adapters.yml {section} '{name}' key 'group_dirs' entry "
+                      f"{gk!r}: {gv!r} must map a name to a plain directory name "
+                      f"matching ^[a-z0-9][a-z0-9-]*$", file=sys.stderr)
+                sys.exit(1)
+        # nested shape: frontmatter.fields is a list of str
+        if isinstance(cfg.get("frontmatter"), dict):
+            fields = cfg["frontmatter"].get("fields")
+            if fields is not None and (
+                    not isinstance(fields, list)
+                    or not all(isinstance(x, str) for x in fields)):
+                print(f"Error: adapters.yml {section} '{name}' key 'frontmatter.fields' "
+                      f"must be a list of strings", file=sys.stderr)
+                sys.exit(1)
+
     # Validate adapter entries
     for name, cfg in config["adapters"].items():
         missing_keys = REQUIRED_ADAPTER_KEYS - set(cfg.keys())
@@ -153,6 +234,7 @@ def load_config() -> dict:
             print("Error: Check adapters.yml for typos — valid keys: "
                   f"{sorted(KNOWN_ADAPTER_KEYS)}", file=sys.stderr)
             sys.exit(1)
+        check_value_types("adapter", name, cfg, ADAPTER_VALUE_TYPES)
 
     # Validate command entries
     for name, cfg in config["commands"].items():
@@ -167,6 +249,7 @@ def load_config() -> dict:
             print("Error: Check adapters.yml for typos — valid keys: "
                   f"{sorted(KNOWN_COMMAND_KEYS)}", file=sys.stderr)
             sys.exit(1)
+        check_value_types("command", name, cfg, COMMAND_VALUE_TYPES)
 
     return config
 
