@@ -332,7 +332,7 @@ all_pos() { # <ERE>
   pos "$stepA" 'RUN_ID="\$\(date -u \+%Y%m%dT%H%M%SZ\)-\$RAND"'
 }
 
-@test "the pass-deadline-mint FATAL guard actually aborts closed: script failure and a broken .prp symlink (round-6 Important)" {
+@test "the pass-deadline-mint FATAL guard actually aborts closed in the claude-code adapter: script failure and a broken .prp symlink (round-6 Important)" {
   guard="$BATS_TEST_TMPDIR/guard.sh"
   awk -v want="### 2.2.0 Pass Budget" 'index($0, want) == 1 {f=1} f && /^```bash$/ {b=1; next} b && /^```$/ {exit} b' "$ADAPTER" > "$guard"
   [ -s "$guard" ]
@@ -365,6 +365,18 @@ all_pos() { # <ERE>
   real_root="$(readlink -f "$ROOT")"
   [[ "$output" == *"PASS_DEADLINE="*"PRP_DIR=$real_root"* ]]
   [[ "$output" =~ PASS_DEADLINE=[0-9]+ ]]
+}
+
+@test "the FATAL guard and its pass-deadline echo line are pinned in the prompt and all 6 adapters, not just claude-code (round-7 Important)" {
+  # The executable test above only extracts and runs the guard from the
+  # claude-code adapter — it proves the fix works, but gives the other 6
+  # files (which carry the byte-identical block per generate-adapters.py)
+  # no regression net at all: any of them could silently lose the FATAL
+  # guard or the echo line and CI would stay green. all_pos runs over the
+  # FULL EXPECTED_FILES set (prompt + all 6 adapters), so a future edit
+  # that drops either line from ANY one of the 7 files fails this test.
+  all_pos 'FATAL: cannot mint the pass deadline'
+  all_pos 'echo "PASS_DEADLINE=\$PASS_DEADLINE PRP_DIR=\$PRP_DIR"'
 }
 
 @test "the adapter lists match EXPECTED_FILES exactly (set equality; round-6 Important B)" {
