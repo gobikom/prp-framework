@@ -23,7 +23,11 @@ CHECK_BODY_MAX_BYTES=65536  # 64 KiB; plenty for a pass body — refuse anything
 die() { echo "error: $*" >&2; exit 2; }
 
 num() { # num <value> <pattern> <what>
-  printf '%s' "$1" | grep -qxE "$2" || die "$3 must match $2"
+  # Anchor against the WHOLE string via bash's own =~ (no per-line match): piping through
+  # `grep -qxE` matched if ANY one line of a multi-line value was all-digits, letting a
+  # payload like $'9999999999\n+DEFAULT_SECS[$(cmd)]' pass this gate and then run as a
+  # command inside the caller's `$((10#$1 ...))` arithmetic (prp#151 round-5 security finding).
+  [[ "$1" =~ ^($2)$ ]] || die "$3 must match $2"
 }
 
 epoch_arg() { num "${1:-}" '[0-9]{10}' "epoch"; }
@@ -63,8 +67,20 @@ case "$SUB" in
       echo "PASS-TIMEBOXED: deadline passed, probe not started: $1" >&2
       exit 124
     fi
+    # Give the probe private, file-backed stdout/stderr instead of letting it inherit ours.
+    # `timeout` only reaps its own direct child; a probe that detaches a grandchild (setsid)
+    # survives past the deadline, and if that grandchild held our REAL stdout, a caller doing
+    # `out=$(pass-budget.sh run ...)` would block on that orphan's exit — the deadline we just
+    # enforced would not bound the caller's own wait (reproduced: 2s deadline, 9s actual return,
+    # prp#151 round-5 security finding). A file is never held open for a reader, so `timeout`
+    # returning is enough to let us `cat` it back and exit immediately; the orphan may still run
+    # in the background (tracked as a residual limitation, not a hang, in the follow-up issue).
+    out=$(mktemp) err=$(mktemp)
+    trap 'rm -f "$out" "$err"' EXIT
     rc=0
-    "$T" --kill-after=5 "$left" "$@" || rc=$?
+    "$T" --kill-after=5 "$left" "$@" >"$out" 2>"$err" || rc=$?
+    cat "$out"
+    cat "$err" >&2
     if (( rc == 124 || rc == 137 )); then
       echo "PASS-TIMEBOXED: probe cut at the deadline: $1" >&2
       exit 124
@@ -73,7 +89,7 @@ case "$SUB" in
     ;;
   check-body)
     f="${1:-}"
-    [[ -n "$f" && -r "$f" && ! -L "$f" ]] || die "check-body needs a readable regular file"
+    [[ -n "$f" && -r "$f" && -f "$f" && ! -L "$f" ]] || die "check-body needs a readable regular file"
     # Fail closed before normalising: a body over the cap, or not valid UTF-8, never reaches
     # NFKC/regex — that is what let a 20 MB malformed-UTF-8 body hang perl for ~58 min (prp#151 incident).
     size=$(wc -c < "$f") || die "check-body could not stat $f"

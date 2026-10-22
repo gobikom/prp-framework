@@ -88,6 +88,40 @@ teardown() { cd /; rm -rf -- "$TEST_TMPDIR" 2>/dev/null || true; }
   [ ! -e PWNED ]
 }
 
+@test "a multi-line value with one all-digit line does not reach arithmetic" {
+  # `grep -qxE` checks line-by-line: a payload where any ONE line is all-digits passed the
+  # old gate, and the whole multi-line value then went into bash arithmetic, which expands
+  # array subscripts — `$((10#$1 + DEFAULT_SECS[$(touch PWNED)]))` ran the command (prp#151
+  # round-5 security finding). `=~ ^(...)$ ` anchors to the WHOLE string, so this must now
+  # refuse (exit 2) and never create PWNED.
+  payload=$'9999999999\n+DEFAULT_SECS[$(touch PWNED)]'
+  run bash "$P" remaining "$payload"
+  [ "$status" -eq 2 ]
+  run bash "$P" run "$payload" -- echo ran
+  [ "$status" -eq 2 ]
+  run env PRP_PASS_BUDGET_SECS="$payload" bash "$P" deadline
+  [ "$status" -eq 2 ]
+  [ ! -e PWNED ]
+}
+
+@test "run never blocks a caller past the deadline even if a probe detaches a child" {
+  # `timeout` only reaps its own direct child; a probe that `setsid`s a grandchild survives
+  # the kill, and if that grandchild inherited OUR real stdout, a caller doing
+  # out=$(pass-budget.sh run ...) would block on the orphan's exit instead of the deadline
+  # (reproduced: 2s deadline, ~9s actual return, prp#151 round-5 security finding). Give the
+  # probe file-backed stdout/stderr instead, and bound the whole test so a regression fails
+  # fast rather than hanging the suite.
+  command -v setsid >/dev/null 2>&1 || skip "no setsid on this host"
+  E=$(PRP_PASS_BUDGET_SECS=2 bash "$P" deadline)
+  start=$SECONDS
+  run timeout 8 bash "$P" run "$E" -- bash -c 'setsid sleep 6 >/dev/null 2>&1 < /dev/null & sleep 30'
+  elapsed=$((SECONDS - start))
+  [ "$status" -eq 124 ]
+  [ "$elapsed" -lt 8 ]
+  [[ "$output" == *"PASS-TIMEBOXED: probe cut at the deadline"* ]]
+  pkill -f 'setsid sleep 6' 2>/dev/null || true
+}
+
 @test "without a timeout command the probe is refused not run unbounded" {
   mkdir bin
   for t in bash date grep; do ln -s "$(command -v $t)" "bin/$t"; done
@@ -177,6 +211,20 @@ body() { printf 'Reviewed head: x\n\n### Could not verify\n%b\n\nGenerated-by: y
   ln -s b.md l.md
   run bash "$P" check-body l.md
   [ "$status" -eq 2 ]
+}
+
+@test "check-body refuses a FIFO or char device instead of blocking on it" {
+  # Before -f was added to the gate, `wc -c < fifo` blocked forever with no writer, and
+  # `wc -c < /dev/urandom` spun forever — the exact unbounded-hang class this round's size
+  # cap exists to close (prp#151 round-4/5 finding). Both must refuse immediately (exit 2),
+  # never hang; bound the check itself with `timeout` so a regression fails fast, not hangs CI.
+  mkfifo afifo
+  run timeout 5 bash "$P" check-body afifo
+  [ "$status" -eq 2 ]
+  if [ -r /dev/urandom ]; then
+    run timeout 5 bash "$P" check-body /dev/urandom
+    [ "$status" -eq 2 ]
+  fi
 }
 
 # Size cap and malformed-UTF-8 fail closed (prp#151 incident: a 20 MB malformed-UTF-8 body
