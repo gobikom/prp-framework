@@ -332,6 +332,41 @@ all_pos() { # <ERE>
   pos "$stepA" 'RUN_ID="\$\(date -u \+%Y%m%dT%H%M%SZ\)-\$RAND"'
 }
 
+@test "the pass-deadline-mint FATAL guard actually aborts closed: script failure and a broken .prp symlink (round-6 Important)" {
+  guard="$BATS_TEST_TMPDIR/guard.sh"
+  awk -v want="### 2.2.0 Pass Budget" 'index($0, want) == 1 {f=1} f && /^```bash$/ {b=1; next} b && /^```$/ {exit} b' "$ADAPTER" > "$guard"
+  [ -s "$guard" ]
+  pos "$guard" 'FATAL: cannot mint the pass deadline'
+  pos "$guard" 'echo "PASS_DEADLINE=\$PASS_DEADLINE PRP_DIR=\$PRP_DIR"'
+
+  work="$BATS_TEST_TMPDIR/work"
+  mkdir -p "$work"
+
+  # Failure mode 1: pass-budget.sh itself exits non-zero (forced bad budget).
+  ln -s "$ROOT" "$work/.prp"
+  run bash -c "cd \"$work\" && PRP_PASS_BUDGET_SECS=abc bash \"$guard\""
+  rm -f "$work/.prp"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"FATAL: cannot mint the pass deadline — no agents started"* ]]
+
+  # Failure mode 2: .prp is a broken symlink (script path under it doesn't exist).
+  ln -s "$BATS_TEST_TMPDIR/does-not-exist" "$work/.prp"
+  run bash -c "cd \"$work\" && bash \"$guard\""
+  rm -f "$work/.prp"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"FATAL: cannot mint the pass deadline — no agents started"* ]]
+
+  # Success path: still mints the deadline AND now prints it (the regression
+  # this test closes — a prior fix silently dropped the echo).
+  ln -s "$ROOT" "$work/.prp"
+  run bash -c "cd \"$work\" && bash \"$guard\""
+  rm -f "$work/.prp"
+  [ "$status" -eq 0 ]
+  real_root="$(readlink -f "$ROOT")"
+  [[ "$output" == *"PASS_DEADLINE="*"PRP_DIR=$real_root"* ]]
+  [[ "$output" =~ PASS_DEADLINE=[0-9]+ ]]
+}
+
 @test "the adapter lists match EXPECTED_FILES exactly (set equality; round-6 Important B)" {
   # ADAPTER_FILES must be EXPECTED_FILES minus the prompt; OTHER_ADAPTERS must
   # be ADAPTER_FILES minus claude-code. Set equality: a 7th adapter (or a

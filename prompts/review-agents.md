@@ -557,11 +557,12 @@ Invariant: no pass can run a probe past its budget without returning a partial r
 ```bash
 PRP_DIR=$(readlink -f .prp) && PASS_DEADLINE=$(bash "$PRP_DIR/scripts/review/pass-budget.sh" deadline) \
   || { echo "FATAL: cannot mint the pass deadline — no agents started" >&2; exit 1; }
+echo "PASS_DEADLINE=$PASS_DEADLINE PRP_DIR=$PRP_DIR"
 ```
 
-If this block prints FATAL, STOP: spawn no agent and post nothing.
+If this block prints FATAL, STOP: spawn no agent and post nothing. Otherwise the `echo` is the only place the minted values reach the transcript — shell state does not persist between tool calls, so read `{PASS_DEADLINE}` and `{PRP_DIR}` below from that printed line, never by re-running `deadline` or inventing a value.
 
-`$PASS_DEADLINE` is `{PASS_DEADLINE}` and `$PRP_DIR` is `{PRP_DIR}` in the prompts below (the default budget is 20 minutes; `PRP_PASS_BUDGET_SECS` overrides it for tests). A command run through `pass-budget.sh run` is killed at the deadline and not started after it; nothing else extends a pass. When a pass reports `Pass timeboxed`, file ONE follow-up issue for the round listing the unfinished probes (`gh issue create`) and add `Follow-up: <issue url>` as the next line of that pass's `### Could not verify` in Step B; Step C posts nothing for a `Pass timeboxed` body without it. The inconclusive probes stay fail-closed: they are Could not verify, never a clean pass.
+`$PASS_DEADLINE` is `{PASS_DEADLINE}` and `$PRP_DIR` is `{PRP_DIR}` in the prompts below, as printed by the `echo` above (the default budget is 20 minutes; `PRP_PASS_BUDGET_SECS` overrides it for tests). A command run through `pass-budget.sh run` is killed at the deadline and not started after it; nothing else extends a pass. When a pass reports `Pass timeboxed`, file ONE follow-up issue for the round listing the unfinished probes (`gh issue create`) and add `Follow-up: <issue url>` as the next line of that pass's `### Could not verify` in Step B; Step C posts nothing for a `Pass timeboxed` body without it. The inconclusive probes stay fail-closed: they are Could not verify, never a clean pass.
 
 ### 2.2 Core Agents (Always — Spawn ALL in Parallel)
 
