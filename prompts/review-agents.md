@@ -555,10 +555,13 @@ is written by Phase 1 and is the only file agents need from there).
 Invariant: no pass can run a probe past its budget without returning a partial report plus a follow-up link. Mint ONE deadline for the round, before the agents are dispatched, and use the same value in every agent prompt below (core and conditional; all passes run in parallel under it):
 
 ```bash
-PRP_DIR=$(readlink -f .prp) && bash "$PRP_DIR/scripts/review/pass-budget.sh" deadline
+PRP_DIR=$(readlink -f .prp) && PASS_DEADLINE=$(bash "$PRP_DIR/scripts/review/pass-budget.sh" deadline) \
+  || { echo "FATAL: cannot mint the pass deadline — no agents started" >&2; exit 1; }
 ```
 
-The printed epoch is `{PASS_DEADLINE}` and `$PRP_DIR` is `{PRP_DIR}` in the prompts below (the default budget is 20 minutes; `PRP_PASS_BUDGET_SECS` overrides it for tests). A command run through `pass-budget.sh run` is killed at the deadline and not started after it; nothing else extends a pass. When a pass reports `Pass timeboxed`, file ONE follow-up issue for the round listing the unfinished probes (`gh issue create`) and add `Follow-up: <issue url>` as the next line of that pass's `### Could not verify` in Step B; Step C posts nothing for a `Pass timeboxed` body without it. The inconclusive probes stay fail-closed: they are Could not verify, never a clean pass.
+If this block prints FATAL, STOP: spawn no agent and post nothing.
+
+`$PASS_DEADLINE` is `{PASS_DEADLINE}` and `$PRP_DIR` is `{PRP_DIR}` in the prompts below (the default budget is 20 minutes; `PRP_PASS_BUDGET_SECS` overrides it for tests). A command run through `pass-budget.sh run` is killed at the deadline and not started after it; nothing else extends a pass. When a pass reports `Pass timeboxed`, file ONE follow-up issue for the round listing the unfinished probes (`gh issue create`) and add `Follow-up: <issue url>` as the next line of that pass's `### Could not verify` in Step B; Step C posts nothing for a `Pass timeboxed` body without it. The inconclusive probes stay fail-closed: they are Could not verify, never a clean pass.
 
 ### 2.2 Core Agents (Always — Spawn ALL in Parallel)
 
