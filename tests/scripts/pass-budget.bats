@@ -132,6 +132,20 @@ teardown() { cd /; rm -rf -- "$TEST_TMPDIR" 2>/dev/null || true; }
   [ ! -e STARTED ]
 }
 
+@test "a failing first mktemp dies loudly instead of silently continuing with an empty path" {
+  # Two command substitutions on one assignment-only line (`out=$(mktemp) err=$(mktemp)`) only
+  # exposes the LAST one's exit status to `set -e` — a failing mktemp for $out would silently
+  # leave it empty and continue (round-6 silent-failure-hunter finding). Force mktemp to be
+  # missing so the first substitution fails, and assert a clear die(), not a downstream
+  # cat/redirect error with an empty path.
+  mkdir bin
+  for t in bash date grep timeout; do ln -s "$(command -v $t)" "bin/$t"; done
+  E=$(bash "$P" deadline)
+  run env PATH="$PWD/bin" "$PWD/bin/bash" "$P" run "$E" -- echo hi
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"could not create temp file for probe stdout"* ]]
+}
+
 @test "unknown or missing subcommands are refused" {
   run bash "$P"
   [ "$status" -eq 2 ]

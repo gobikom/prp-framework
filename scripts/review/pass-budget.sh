@@ -75,8 +75,14 @@ case "$SUB" in
     # prp#151 round-5 security finding). A file is never held open for a reader, so `timeout`
     # returning is enough to let us `cat` it back and exit immediately; the orphan may still run
     # in the background (tracked as a residual limitation, not a hang, in the follow-up issue).
-    out=$(mktemp) err=$(mktemp)
-    trap 'rm -f "$out" "$err"' EXIT
+    # Two assignments on one line would hide a failure of the FIRST substitution: bash's `set -e`
+    # only inspects the exit status of the LAST command substitution on an assignment-only line,
+    # so `out=$(mktemp) err=$(mktemp)` with a failing first mktemp would leave $out empty and
+    # silently continue (round-6 silent-failure-hunter finding). Separate lines + explicit `die`
+    # make a tmpdir failure a clear diagnosis instead of a confusing downstream `cat`/redirect error.
+    out=$(mktemp) || die "run: could not create temp file for probe stdout"
+    trap 'rm -f "$out" "${err:-}"' EXIT
+    err=$(mktemp) || die "run: could not create temp file for probe stderr"
     rc=0
     "$T" --kill-after=5 "$left" "$@" >"$out" 2>"$err" || rc=$?
     cat "$out"
