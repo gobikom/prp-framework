@@ -313,8 +313,9 @@ all_pos() { # <ERE>
   # a run-record dir name — match it only as a path-ish usage, not bare prose
   # (the tests dir is not in EXPECTED_FILES, so all_neg is safe here):
   all_neg "\.prp-output/review-rounds"
-  # exactly TWO 'If this block prints FATAL' notes for 2.0/2.1.1
-  [ "$(grep -c 'If this block prints FATAL' "$ADAPTER")" -eq 2 ]
+  # exactly THREE 'If this block prints FATAL' notes: 2.0 (round-cap), 2.1.1
+  # (review clone), and 2.2.0 (pass-deadline mint, prp-framework#151 round-6)
+  [ "$(grep -c 'If this block prints FATAL' "$ADAPTER")" -eq 3 ]
 }
 
 @test "the failed-pass handling of origin/main is pinned, not just diff-claimed" {
