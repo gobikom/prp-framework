@@ -409,10 +409,21 @@ all_pos() { # <ERE>
   all_pos "PASS_TIMEBOXED_PARTIAL"
 }
 
-@test "every agent prompt in the claude-code adapter carries the pass budget line" {
-  n=$(grep -c 'Read the PR context file at:' "$ADAPTER")
-  b=$(grep -c 'Pass budget: PASS_DEADLINE=' "$ADAPTER")
-  [ "$n" -ge 10 ] && [ "$n" -eq "$b" ]
+@test "every agent prompt carries the pass budget line, in the prompt and all 6 adapters (round-9 Important)" {
+  # The prior version of this test hardcoded $ADAPTER (claude-code only), the
+  # same single-adapter coverage gap round 7 found and fixed for the
+  # FATAL-guard/echo-line checks via all_pos. This test checking a DIFFERENT
+  # line (the per-agent pass-budget line) reintroduced that exact gap in new
+  # code: a future edit dropping the line from any of the other 6 files would
+  # ship green. Looping EXPECTED_FILES via count() closes it the same way.
+  for f in $EXPECTED_FILES; do
+    n=$(count "$ROOT/$f" 'Read the PR context file at:') || return 1
+    b=$(count "$ROOT/$f" 'Pass budget: PASS_DEADLINE=') || return 1
+    if ! { [ "$n" -ge 10 ] && [ "$n" -eq "$b" ]; }; then
+      echo "mismatch in $f: n=$n b=$b" >&2
+      return 1
+    fi
+  done
 }
 
 @test "the round-cap guard runs in Phase 2.0 before the reviewed head is saved" {
