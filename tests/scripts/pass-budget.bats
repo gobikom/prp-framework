@@ -109,17 +109,30 @@ teardown() { cd /; rm -rf -- "$TEST_TMPDIR" 2>/dev/null || true; }
   # the kill, and if that grandchild inherited OUR real stdout, a caller doing
   # out=$(pass-budget.sh run ...) would block on the orphan's exit instead of the deadline
   # (reproduced: 2s deadline, ~9s actual return, prp#151 round-5 security finding). Give the
-  # probe file-backed stdout/stderr instead, and bound the whole test so a regression fails
-  # fast rather than hanging the suite.
+  # probe file-backed stdout/stderr instead, and bound the orphan's own sleep so a regression
+  # fails fast rather than hanging the suite.
+  #
+  # Two things this test must get right to actually exercise the bug (prp#151 round-7
+  # code-reviewer finding — the first version of this test got both wrong and passed
+  # unchanged on pre-fix code):
+  # 1. The grandchild must inherit run's real stdout/stderr (the fd this fix protects) —
+  #    bats' own `run` captures via `output=$(...)`, a pipe, so the grandchild inherits that
+  #    pipe's write end unless explicitly redirected away from it. Redirecting it to
+  #    /dev/null here would let it detach without ever holding that fd open.
+  # 2. The assertion must be tight enough to tell "bounded by the ~2s deadline" (fixed) apart
+  #    from "bounded by the orphan's own sleep" (broken) — an orphan sleep of 6s against a
+  #    `lt 8` bound passes either way. Use a longer orphan sleep (10s) and a tight bound (5s)
+  #    so the broken behaviour (blocks until the orphan's own sleep ends, ~10s, confirmed by
+  #    manual repro against 83aa7aa: elapsed=6s for a 6s orphan) clearly fails the assertion.
   command -v setsid >/dev/null 2>&1 || skip "no setsid on this host"
   E=$(PRP_PASS_BUDGET_SECS=2 bash "$P" deadline)
   start=$SECONDS
-  run timeout 8 bash "$P" run "$E" -- bash -c 'setsid sleep 6 >/dev/null 2>&1 < /dev/null & sleep 30'
+  run timeout 20 bash "$P" run "$E" -- bash -c 'setsid sleep 10 < /dev/null & sleep 30'
   elapsed=$((SECONDS - start))
   [ "$status" -eq 124 ]
-  [ "$elapsed" -lt 8 ]
+  [ "$elapsed" -lt 5 ]
   [[ "$output" == *"PASS-TIMEBOXED: probe cut at the deadline"* ]]
-  pkill -f 'setsid sleep 6' 2>/dev/null || true
+  pkill -f 'setsid sleep 10' 2>/dev/null || true
 }
 
 @test "without a timeout command the probe is refused not run unbounded" {
