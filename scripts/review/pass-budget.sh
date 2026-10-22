@@ -12,12 +12,13 @@
 #        pass-budget.sh run <epoch> -- cmd...    bounded run; exit 124 = cut/not started (PASS-TIMEBOXED)
 #        pass-budget.sh check-body <file>        exit 1 if the body mentions a timebox without
 #                                                a `Follow-up: https://github.com/<o>/<r>/issues/<n>` line
-# exit 2 = usage error / bad value / no `timeout` command.
+# exit 2 = usage error / bad value / no `timeout` command / body over the size cap / not valid UTF-8.
 # Note: exit 124 from `run` also covers a command that itself exits 124.
 set -euo pipefail
 
 DEFAULT_SECS=1200
 MAX_SECS=14400
+CHECK_BODY_MAX_BYTES=65536  # 64 KiB; plenty for a pass body — refuse anything bigger before normalising
 
 die() { echo "error: $*" >&2; exit 2; }
 
@@ -73,15 +74,29 @@ case "$SUB" in
   check-body)
     f="${1:-}"
     [[ -n "$f" && -r "$f" && ! -L "$f" ]] || die "check-body needs a readable regular file"
+    # Fail closed before normalising: a body over the cap, or not valid UTF-8, never reaches
+    # NFKC/regex — that is what let a 20 MB malformed-UTF-8 body hang perl for ~58 min (prp#151 incident).
+    size=$(wc -c < "$f") || die "check-body could not stat $f"
+    (( size <= CHECK_BODY_MAX_BYTES )) \
+      || die "check-body body is $size bytes, over the $CHECK_BODY_MAX_BYTES-byte cap — refusing to normalise"
     # Invariant: any mention of a timebox needs the Follow-up link. Normalise (NFKC, no CR, Unicode spaces
     # to ASCII space, zero-width removed, lowercase) and look for the word anywhere: never at line shape.
     command -v perl >/dev/null 2>&1 || die "check-body needs perl to normalise the body"
-    verdict=$(perl -CSD -MUnicode::Normalize -0777 -ne '
-      $_ = NFKC($_); s/\r//g; s/[\x{200B}-\x{200D}\x{2060}\x{FEFF}\x{00AD}]//g; s/\p{Zs}/ /g; s/[\p{Pd}\x{2212}]/-/g; $_ = lc($_);
-      print((/time[ \t\n-]*box/) ? "MENTIONS" : "CLEAN");' "$f") \
+    verdict=$(perl -MEncode -MUnicode::Normalize -e '
+      local $/;
+      open(my $fh, "<:raw", $ARGV[0]) or die "open: $!";
+      my $bytes = <$fh>;
+      close $fh;
+      my $text = eval { decode("UTF-8", $bytes, Encode::FB_CROAK) };
+      if (!defined $text) { print "BADUTF8"; exit 0 }
+      $text = NFKC($text);
+      $text =~ s/\r//g; $text =~ s/[\x{200B}-\x{200D}\x{2060}\x{FEFF}\x{00AD}]//g;
+      $text =~ s/\p{Zs}/ /g; $text =~ s/[\p{Pd}\x{2212}]/-/g; $text = lc($text);
+      print(($text =~ /time[ \t\n-]*box/) ? "MENTIONS" : "CLEAN");' "$f") \
       || die "check-body could not normalise $f"
     case "$verdict" in
       CLEAN) ;;
+      BADUTF8) die "check-body body is not valid UTF-8 — refusing to normalise" ;;
       MENTIONS)
         tr -d '\r' < "$f" | grep -qxE 'Follow-up: https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/issues/[0-9]+' \
           || { echo "pass mentions a timebox but has no 'Follow-up: https://github.com/<owner>/<repo>/issues/<n>' line" >&2; exit 1; } ;;

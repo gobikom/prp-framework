@@ -178,3 +178,26 @@ body() { printf 'Reviewed head: x\n\n### Could not verify\n%b\n\nGenerated-by: y
   run bash "$P" check-body l.md
   [ "$status" -eq 2 ]
 }
+
+# Size cap and malformed-UTF-8 fail closed (prp#151 incident: a 20 MB malformed-UTF-8 body
+# hung perl's NFKC/regex pass for ~58 min). Keep these inputs small — never megabytes.
+
+@test "check-body refuses a body over the cap, fast" {
+  head -c 65537 /dev/zero | tr '\0' 'a' > big.md
+  run timeout 10 bash "$P" check-body big.md
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"over the 65536-byte cap"* ]]
+}
+
+@test "check-body processes a body at the cap" {
+  head -c 65536 /dev/zero | tr '\0' 'a' > atcap.md
+  run timeout 10 bash "$P" check-body atcap.md
+  [ "$status" -eq 0 ]
+}
+
+@test "check-body fails closed on malformed UTF-8, fast" {
+  printf 'Reviewed head: x\n\xff\xfe\x80not valid utf8\n' > bad.md
+  run timeout 10 bash "$P" check-body bad.md
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"not valid UTF-8"* ]]
+}
