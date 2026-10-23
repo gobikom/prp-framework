@@ -581,6 +581,10 @@ CLEANUP_FILE="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)/adapters/cla
 }
 
 @test "run-all.md never mentions the design-alternatives flags" {
-    ! grep -q -- "--alternatives" "$PROMPTS_DIR/run-all.md"
-    ! grep -q -- "--no-alternatives" "$PROMPTS_DIR/run-all.md"
+    # `! cmd` is errexit-exempt in bats except as the last command, so each
+    # assertion is enforced explicitly via `run` + status
+    run grep -q -- "--alternatives" "$PROMPTS_DIR/run-all.md"
+    [ "$status" -ne 0 ]
+    run grep -q -- "--no-alternatives" "$PROMPTS_DIR/run-all.md"
+    [ "$status" -ne 0 ]
 }
