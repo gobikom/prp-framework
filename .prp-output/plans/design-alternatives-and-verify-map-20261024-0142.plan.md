@@ -193,7 +193,7 @@ if [[ "$LOCAL_EVIDENCE" != "1" || ! -f "$VERIFY_ARTIFACT" ]]; then
 | C | REGEN | `adapters/**` | generated | |
 | C | UPDATE | `README.md`, `CHANGELOG.md` | +25 | docs |
 
-Estimates (generated adapters excluded): PR-A ≈ 120, PR-B ≈ 700 (the script and its tests ship first and are inert until C calls them), PR-C ≈ 230. All are under 800. Generated diff is measured at implement time with `git diff --stat origin/main -- adapters/` and reported in each PR body. Non-generated lines are measured with `git diff --shortstat origin/main -- . ':!adapters'`, and over 800 means split again before opening.
+Estimates (generated adapters excluded): PR-A ≈ 120, PR-B ≈ 700 (the script and its tests ship first and are inert until C calls them), PR-C ≈ 230. All are under 800. Generated diff is measured at implement time with `git diff --stat origin/main -- adapters/` and reported in each PR body. Non-generated lines are measured per PR against **its stack parent** (A vs `origin/main`, B vs A's tip, C vs B's tip: `git diff --shortstat <parent>...HEAD -- . ':!adapters'`); over 800 for that PR means split again before opening. The cumulative diff is reported for information only.
 
 ## Deviation from issue #202 (recorded, resolved here)
 
