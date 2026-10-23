@@ -565,11 +565,6 @@ CLEANUP_FILE="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)/adapters/cla
     grep -q "the SAME invariant" "$PROMPTS_DIR/plan.md"
 }
 
-@test "run-all.md forwards the alternatives flags to plan" {
-    grep -q -- "--alternatives {N}" "$PROMPTS_DIR/run-all.md"
-    grep -q -- '--no-alternatives "{reason}"' "$PROMPTS_DIR/run-all.md"
-}
-
 @test "run-all.md escalates blocked-design via body-file" {
     grep -q -- "--body-file" "$PROMPTS_DIR/run-all.md"
     grep -q "STOPPED: blocked-design" "$PROMPTS_DIR/run-all.md"
@@ -581,8 +576,11 @@ CLEANUP_FILE="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)/adapters/cla
     grep -q "do not change the status" "$PROMPTS_DIR/implement.md"
 }
 
-@test "run-all.md blocked-design escalation has a failure branch and alternatives override" {
+@test "run-all.md blocked-design escalation has a failure branch" {
     grep -q "blocked-design-{RUN_TIMESTAMP}" "$PROMPTS_DIR/run-all.md"
-    grep -q "overrides Step 0.8 smart detection" "$PROMPTS_DIR/run-all.md"
-    grep -q "none of the skip conditions apply" "$PROMPTS_DIR/run-all.md"
+}
+
+@test "run-all.md never mentions the design-alternatives flags" {
+    ! grep -q -- "--alternatives" "$PROMPTS_DIR/run-all.md"
+    ! grep -q -- "--no-alternatives" "$PROMPTS_DIR/run-all.md"
 }

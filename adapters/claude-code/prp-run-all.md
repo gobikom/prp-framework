@@ -43,8 +43,6 @@ Execute the complete PRP workflow end-to-end autonomously. Each step delegates t
 | `--resume` | Resume from last failed step using saved state |
 | `--no-interact` | Never ask user questions — use best judgment, pick defaults |
 | `--package <name>` | Scope to a specific monorepo package. Passed through to plan and implement steps. |
-| `--alternatives N` | Force Design Alternatives in the plan (Phase 4.1) with N designs (2 ≤ N ≤ 3). Forwarded to `/prp-core:prp-plan`. N outside 2–3, non-numeric, or missing → STOP: `--alternatives must be 2..3`. `--alternatives` requires the plan step: it overrides Step 0.8 smart detection (SKIP_PLAN stays false); combined with `--skip-plan` or `--prp-path` → STOP. |
-| `--no-alternatives "<reason>"` | Skip Phase 4.1 on Design-first input. Forwarded to `/prp-core:prp-plan`. |
 | `--issue <N>` | Fetch GitHub issue #N context. Set ISSUE_NUMBER = N. Extracts title + body as FEATURE. |
 | `--merge` | Auto squash-merge PR after review passes (0 issues). Set AUTO_MERGE = true. |
 | `--max-review-rounds <N>` | Override max review-fix cycles (default: 5). |
@@ -321,7 +319,6 @@ Artifacts (`.prp-output/`) are symlinked to the original repo — they persist a
 - `--skip-plan` flag
 - SKIP_PLAN = true (from smart plan detection in Step 0.8 — small issue)
 
-If `--alternatives N` was passed, none of the skip conditions apply — SKIP_PLAN stays false (Phase 4.1 must be able to draft designs); `--skip-plan` or `--prp-path` combined with `--alternatives` → STOP.
 
 If skipping and no PLAN_PATH: create a minimal stub plan file:
 
@@ -345,7 +342,7 @@ Run project's standard validation (type-check, lint, test, build).
 Save to `.prp-output/plans/issue-{ISSUE_NUMBER}-stub-{RUN_TIMESTAMP}.plan.md` (or `stub-{RUN_TIMESTAMP}.plan.md` if no issue).
 Set PLAN_PATH to the saved file path.
 
-If NOT skipping: Use `/prp-core:prp-plan` with FEATURE (append `--fast` if FAST_PLAN, `--no-interact` if NO_INTERACT, `--package {MONOREPO_PACKAGE}` if set, `--alternatives {N}` if `--alternatives` was passed, `--no-alternatives "{reason}"` if `--no-alternatives` was passed).
+If NOT skipping: Use `/prp-core:prp-plan` with FEATURE (append `--fast` if FAST_PLAN, `--no-interact` if NO_INTERACT, `--package {MONOREPO_PACKAGE}` if set).
 
 This will: analyze codebase (lighter if --fast), generate plan with validation commands, integration points, confidence score. Save to `.prp-output/plans/`.
 
