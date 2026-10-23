@@ -41,7 +41,7 @@ So that wrong designs are rejected before code and "PASS" means the behaviour wa
 3. An AC that `prp-verify` marked PASS before must, after the change, be PASS (behaviour observed), FAIL, or UNVERIFIED. It is never dropped and never silently skipped.
 4. `run-all` never auto-merges with `criteria_unverified > 0`.
 5. The safe-merge verify gate keeps working: same artifact path `.prp-output/reviews/pr-{N}-verify.md` (`~/ops/bin/safe-merge:1354`), same frontmatter keys, and the `verdict` enum stays `PASS | FAIL | PARTIAL`. Only additive keys are allowed.
-6. **A feature map makes verify mandatory.** Today Step 7.5 runs only with `--verify` (`prompts/run-all.md:44,79,631`). If `.prp-verify/feature-map.yaml` exists on the PR head, run-all forces `VERIFY = true`, and no flag can turn that off. This is recomputed from the file at Step 0 and again at `--resume`, never read from saved state alone. Step 8 additionally requires a verify artifact whose new `verified_sha` equals the PR head; otherwise it runs Step 7.5 first.
+6. **A feature map makes verify mandatory.** Today Step 7.5 runs only with `--verify` (`prompts/run-all.md:44,79,631`). If `.prp-verify/feature-map.yaml` exists on the PR head, run-all forces `VERIFY = true`, and no flag can turn that off. Detection reads the commit (`git cat-file -e <ref>:.prp-verify/feature-map.yaml`) at the end of Step 1, at `--resume` (which then rewinds to 7.5) and at Step 8 against the PR head. It is never read from the cwd or from saved state alone. Step 8 additionally requires a same-head verify artifact (`verified_sha`) with `verdict` PASS/PARTIAL, `criteria_failed == 0` and `criteria_unverified == 0`; otherwise it returns to Step 7.5.
 7. **A mapped AC is never judged by diff evidence.** Once an AC matches a live entry or a `removed:` tombstone, its verdict comes only from running the exercise, or else it is UNVERIFIED and escalated. That covers an invalid map, a tombstone, a failed sync, or an unavailable env. Diff evidence remains only for ACs that never matched any entry, live or removed.
 8. **No vacuous entry.** An entry is written or kept only if it passes on HEAD **and** its negative proof fails: the exercise rerun in a scratch worktree with the entry's product `paths` deleted must not meet `expect`. A static denylist also rejects trivial exercises (`true`, `:`, `exit 0`, `echo …` alone, an empty command).
 
@@ -71,7 +71,8 @@ All of them run in CI (`.github/workflows/ci.yml`, "Run the bats suites", where 
 | B6 | All of an entry's `paths:` deleted | `sync` moves it to `removed:` with an auto `removed_reason` (`paths deleted at <sha>`) and `removed_sha`. An AC that matches the tombstone is **UNVERIFIED + escalate**, with the tombstone cited, never diff evidence | verify-map.bats `sync` removed-case; `validate` rejects a tombstone without a reason |
 | B7 | `run-all` sees `criteria_unverified > 0` | STOP auto-merge, comment on the issue/PR, add label `status:escalated`, report; no question | structure.bats (run-all.md text) |
 | B8 | Map schema invalid (missing `expect`, unknown `env`, duplicate id) | `prp-verify-map.sh validate` exits 1 and lists every error. Verify then marks **every AC UNVERIFIED** (`criteria_unverified = criteria_total`, heading `VERIFY INCOMPLETE (invalid feature map)`) and escalates. It never falls back to diff evidence while a map file exists | verify-map.bats + structure.bats |
-| B11 | Map present, run-all invoked without `--verify` (fresh, or `--resume` from a state saved with `VERIFY=false`) | `VERIFY` forced to true and logged as `feature map present → verify enforced`; Step 8 refuses unless the artifact's `verified_sha` equals the PR head | structure.bats (run-all.md Step 0 + resume + Step 8 text) |
+| B11 | Map on the PR head, run-all invoked without `--verify` (fresh; started from a cwd without the map; or `--resume` from a state saved with `VERIFY=false`) | detection via `git cat-file -e <ref>:.prp-verify/feature-map.yaml` at end of Step 1, at resume (in the worktree) and at Step 8 (PR head ref); `VERIFY` forced; resume past 7.5 rewinds to 7.5 | structure.bats: the enforcement line occurs after the `### Step 1` heading and before `### Step 2`, in the resume section, and in Step 8; it uses `cat-file -e`, not `[ -f` |
+| B14 | Resume with a same-head artifact whose verdict is FAIL, or PARTIAL with `criteria_unverified > 0` or `criteria_failed > 0` | Step 8 refuses and returns to 7.5; never merges | structure.bats: Step 8 text lists all four conditions (`verified_sha`, `verdict`, `criteria_failed == 0`, `criteria_unverified == 0`) |
 | B12 | `--init`/`sync` gets a vacuous exercise (`true`, or a test that passes with the product paths deleted) | entry refused (`sync` exit 1: `vacuous: negative proof met expect`); `--init` lists it as not written | verify-map.bats `prove-negative` |
 | B13 | Negative proof itself errors (worktree add fails, git missing) | exit 3 → entry not accepted; never treated as "negative proven" | verify-map.bats |
 | B9 | Exercise hangs | `timeout` (default 120s per entry) → FAIL with `timeout`, never PASS | verify-map.bats |
@@ -185,7 +186,7 @@ if [[ "$LOCAL_EVIDENCE" != "1" || ! -f "$VERIFY_ARTIFACT" ]]; then
 | B | CREATE | `tests/scripts/verify-map.bats` | ~300 | temp git repos |
 | B | CREATE | `tests/scripts/fixtures/verify-map/*.yaml` | ~70 | good + each invalid shape |
 | C | UPDATE | `prompts/verify.md` | +130 | new `### 0.4 Load Feature Map`; Phase 2 branch: mapped/tombstoned → run or UNVERIFIED, never-mapped → existing diff evidence; verdict table + `🔍 UNVERIFIED`; frontmatter adds `criteria_unverified`, `map_entries_run`, `map_synced`, `verified_sha`; any UNVERIFIED → `PARTIAL` + heading `VERIFY INCOMPLETE (…)`; new `## Init Mode (--init)` and `## Sync Mode (--sync)` |
-| C | UPDATE | `prompts/run-all.md` | +20 | Step 0 + `--resume`: map present → `VERIFY = true` (B11); Step 7.5 heading/skip-condition updated; table row `criteria_unverified > 0` → STOP + escalate (B7) placed **before** the PARTIAL row; Step 8 prerequisite `verified_sha == head` when map present |
+| C | UPDATE | `prompts/run-all.md` | +30 | end of Step 1 + `--resume` + Step 8: `MAP_AT` detection forces `VERIFY = true` (B11); resume rewinds to 7.5; Step 7.5 skip condition updated; table row `criteria_unverified > 0` → STOP + escalate (B7) placed **before** the PARTIAL row; Step 8 enforces `verified_sha`, `verdict`, `criteria_failed`, `criteria_unverified` (B14) |
 | C | UPDATE | `prompts/qa.md` | +12 | `0.2` reads mapped entries as exercise hints; `env:` informs the environment check |
 | C | UPDATE | `adapters.yml:273-280` | 2 | verify argument-hint `[--init] [--sync [id]]` |
 | C | UPDATE | `tests/commands/structure.bats` | +40 | verify + run-all pins |
@@ -340,11 +341,20 @@ The `run` exit contract: 0 = expectation met; 1 = not met (FAIL); 3 = tool or in
 - **Edge Cases:** add B1, B4, B5, B6, B8, B12 and B13.
 - VALIDATE: `bats tests/commands/structure.bats`
 
-**Task B5a. UPDATE `prompts/run-all.md` Step 0 + `--resume` + Step 8 (B11).**
-- After flag parsing, and again in the resume path after loading state: `if [ -f .prp-verify/feature-map.yaml ]; then VERIFY=true; echo "feature map present → verify enforced"; fi`. This is recomputed from the file, never only from state.
-- Step 7.5 skip condition becomes `skip if not AUTO_MERGE or (VERIFY != true) or REVIEW_VERDICT != "0_issues"`, where VERIFY is already forced when a map exists.
-- Step 8 prerequisites add: map present ⇒ `.prp-output/reviews/pr-{N}-verify.md` exists **and** its `verified_sha` equals `gh pr view N --json headRefOid`; otherwise go back to Step 7.5.
-- The `--verify` flag row text adds "(automatic when .prp-verify/feature-map.yaml exists)".
+**Task B5a. UPDATE `prompts/run-all.md`: forced verify (B11, B14).**
+- **Detection reads the commit, not the cwd.** Define one helper block, `MAP_AT <ref>` = `git -C "$WORK_DIR" cat-file -e "<ref>:.prp-verify/feature-map.yaml" 2>/dev/null`. It is evaluated at three points:
+  1. **End of Step 1** (after the branch/worktree exists and `WORK_DIR` is set), with `ref=HEAD`. If true: `VERIFY=true`, persist `verify_forced: true` to state, and log `feature map present → verify enforced`. Not at Step 0, because the PR worktree does not exist yet (`prompts/run-all.md:276`).
+  2. **`--resume`**, after state is restored and the shell is in the saved worktree, with `ref=HEAD`; the same action. Additionally, if `RESUME_FROM > 7.5` and the map is present, set `RESUME_FROM = 7.5`: verify always re-runs on resume, never trusting an earlier artifact.
+  3. **Step 8 prerequisite**, after `git -C "$WORK_DIR" fetch origin "pull/{N}/head"`, with `ref=$(gh pr view N --json headRefOid -q .headRefOid)`. This catches a map that landed on the PR head after Step 1.
+- **Step 8 enforces the verdict, not just the artifact.** When point 3 is true, read `.prp-output/reviews/pr-{N}-verify.md` frontmatter and require **all** of:
+  - `verified_sha` == PR head;
+  - `verdict` ∈ {`PASS`, `PARTIAL`};
+  - `criteria_failed == 0`;
+  - `criteria_unverified == 0`.
+
+  If the artifact is missing, unparsable, or fails any of these, go back to Step 7.5. If 7.5 then yields the same failing result, STOP + escalate per the 7.5 table. Never merge.
+- Step 7.5 skip condition becomes `skip if not AUTO_MERGE or VERIFY != true or REVIEW_VERDICT != "0_issues"`, with VERIFY already forced when a map exists.
+- The `--verify` flag row text adds "(automatic when the PR head has .prp-verify/feature-map.yaml)".
 
 **Task B5. UPDATE `prompts/run-all.md` Step 7.5.** Add `VERIFY_UNVERIFIED = criteria_unverified`. In the result table, the new first row reads `criteria_unverified > 0 → STOP: do not merge; gh issue comment with the UNVERIFIED ACs + env needed; add label status:escalated`. It is placed above the PARTIAL row. The PARTIAL row itself is unchanged for diff-evidence gaps.
 - VALIDATE: `grep -n "criteria_unverified" prompts/run-all.md`
@@ -357,7 +367,8 @@ The `run` exit contract: 0 = expectation met; 1 = not met (FAIL); 3 = tool or in
 - verify.md contains `UNVERIFIED`, `criteria_unverified`, `--init`, `--sync`, `feature-map.yaml`, and the sentence "never PASS on env-unavailable";
 - the artifact path line is unchanged;
 - run-all.md has the `criteria_unverified > 0` STOP row before the PARTIAL row (an order test using `grep -n`);
-- run-all.md contains `feature map present → verify enforced` in Step 0 **and** in the resume section (2 hits);
+- run-all.md contains `feature map present → verify enforced` exactly 3 times: between the `### Step 1` and `### Step 2` headings, in the resume section, and in Step 8 (an order test via `grep -n`); every hit uses `cat-file -e`;
+- the Step 8 text contains `criteria_failed == 0` and `criteria_unverified == 0`, and resume contains `RESUME_FROM = 7.5`;
 - the Step 8 prerequisites contain `verified_sha`;
 - verify.md contains "No diff fallback" in 0.4 and the `removed:` → UNVERIFIED rule.
 
@@ -419,7 +430,7 @@ Coverage target: every subcommand branch and exit code in `prp-verify-map.sh` is
 - [ ] AC-B5: run-all never auto-merges with `criteria_unverified > 0`.
 - [ ] AC-B6: all 6 adapters are regenerated and the parity suites pass.
 - [ ] AC-B7: ≥90% of `prp-verify-map.sh` branches are covered by bats.
-- [ ] AC-B8: a feature map present forces verify in run-all (fresh and `--resume`); Step 8 refuses without an artifact whose `verified_sha` equals the head.
+- [ ] AC-B8: a feature map on the PR head forces verify in run-all (fresh from any cwd and on `--resume`, which rewinds to 7.5). Step 8 refuses unless a same-head artifact has `verdict` PASS/PARTIAL with `criteria_failed == 0` and `criteria_unverified == 0`.
 - [ ] AC-B9: a mapped or tombstoned AC is never judged by diff evidence; an invalid map gives all ACs UNVERIFIED.
 - [ ] AC-B10: no entry is accepted without a passing run **and** a negative proof; trivial exercises are refused.
 
@@ -433,7 +444,7 @@ Coverage target: every subcommand branch and exit code in `prp-verify-map.sh` is
 |---|---|---|---|
 | Design-first trigger too broad, so plan cost rises on ordinary tasks | M | M | narrow keyword and path list, `--no-alternatives <reason>` escape, A1 pin. Measure: in the first 2 weeks, count plans with the section vs. Design-first PRs (follow-up) |
 | Agent writes 2 "straw-man" designs to tick the box | M | M | each design needs its own test per arm and size estimate; reviewers see the REJECTED reasons. Accepted residual risk |
-| `--init` writes weak exercises (e.g. `true`) | M | H | an entry must pass `run` before it is written, and the review sees the map diff. Follow-up idea (Suggestion, not built): a mutation check per entry, like soul-skills#267's vacuous-check gate |
+| `--init` writes weak exercises (e.g. `true`) | M | H | built in PR-B: an entry is accepted only via `sync` exit 0 = positive `run` + `prove-negative` (exercise fails with the product paths deleted) + trivial-command denylist (B12); the review also sees the map diff |
 | UNVERIFIED blocks many auto-merges on repos with UAT-only features | M | M | intended (it was silently PASS-by-grep before). Escalation is a label + comment, not a human question; set `PRP_VERIFY_UAT_URL` on hosts that can reach UAT |
 | Some consumer parses the verify heading text | L | M | grep found none beyond run-all (updated) and done.md/safe-merge (existence only); the frontmatter enum is unchanged |
 | Adapter drift | L | M | regen + parity suites in CI |
