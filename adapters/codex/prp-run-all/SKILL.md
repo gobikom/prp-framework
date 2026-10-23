@@ -349,6 +349,8 @@ This will: analyze codebase (lighter if --fast), generate plan with validation c
 **Variable update**: `PLAN_PATH = {generated plan path}` (always a real file — stub plan if skipping)
 **Failure** → STOP.
 
+**Blocked design (Phase 4.1):** after Step 2, read the plan frontmatter. If `status: blocked-design`, STOP the whole run — do NOT implement, do NOT ask anything. Extract the uncovered boundary cases from the plan's Design Alternatives section and comment them on the tracking issue (`gh issue comment <N> --body "<uncovered cases + plan path>"`), add label `status:escalated`, and report `STOPPED: blocked-design — no design covers all boundary cases (see <issue>)`. Escalation is a comment + label, never a question.
+
 **DO NOT**: Read plan skill and execute logic yourself, analyze codebase directly.
 **CHECKPOINT**: If not skipping, did you invoke `$prp-plan`? If not → STOP → invoke it.
 

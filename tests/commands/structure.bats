@@ -28,6 +28,46 @@ PROMPTS_DIR="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)/prompts"
     grep -qi "Acceptance Criteria\|acceptance.criteria" "$PROMPTS_DIR/plan.md"
 }
 
+@test "plan.md contains Phase 4.1 Design Alternatives" {
+    grep -q "Phase 4.1: DESIGN ALTERNATIVES" "$PROMPTS_DIR/plan.md"
+}
+
+@test "plan.md lists the Design-first trigger keywords" {
+    grep -q "gate, security, policy, parser, validator or scanner" "$PROMPTS_DIR/plan.md"
+    grep -q "scripts/\*\*gate\*" "$PROMPTS_DIR/plan.md"
+    grep -q '\*validat\*' "$PROMPTS_DIR/plan.md"
+}
+
+@test "plan.md states the mechanical tie-break order" {
+    grep -q "covers ALL boundary cases" "$PROMPTS_DIR/plan.md"
+    grep -q "Smaller estimated changed lines wins" "$PROMPTS_DIR/plan.md"
+    grep -q "Fewer files touched wins" "$PROMPTS_DIR/plan.md"
+    grep -q "Lowest index wins" "$PROMPTS_DIR/plan.md"
+}
+
+@test "plan.md forbids asking the user to pick a design" {
+    grep -q "Selection is mechanical — never ask the user to pick a design, in any mode." "$PROMPTS_DIR/plan.md"
+}
+
+@test "plan.md defines blocked-design outcome" {
+    grep -q "blocked-design" "$PROMPTS_DIR/plan.md"
+}
+
+@test "plan.md requires Invariant and Verified by" {
+    grep -q "Invariant: <property>" "$PROMPTS_DIR/plan.md"
+    grep -q "Verified by: <check>" "$PROMPTS_DIR/plan.md"
+}
+
+@test "plan.md documents --no-alternatives skip-with-reason" {
+    grep -q -- "--no-alternatives" "$PROMPTS_DIR/plan.md"
+    grep -q "Design alternatives: skipped — <reason>" "$PROMPTS_DIR/plan.md"
+}
+
+@test "run-all.md handles blocked-design status" {
+    grep -q "blocked-design" "$PROMPTS_DIR/run-all.md"
+    grep -q "status:escalated" "$PROMPTS_DIR/run-all.md"
+}
+
 # ─────────────────────────────────────────────
 # 2. implement.md structure
 # ─────────────────────────────────────────────
