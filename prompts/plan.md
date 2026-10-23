@@ -425,7 +425,7 @@ NOT_BUILDING (explicit scope limits):
 **Skip:** none of the above and no `--alternatives` → keep the single-design `APPROACH_CHOSEN` block above. Do NOT emit a `## Design Alternatives` section (structure and cost unchanged).
 **Skip-with-reason:** `--no-alternatives "<reason>"` on Design-first input is allowed, but the plan MUST record `Design alternatives: skipped — <reason>`. A blank or whitespace-only reason → STOP: `--no-alternatives requires a reason`. Passing both `--alternatives` and `--no-alternatives` → STOP: mutually exclusive.
 
-When triggered, draft 2–3 competing designs before writing the plan. Each design gets its own block:
+When triggered, FIRST enumerate the task's boundary cases as a table at the top of the plan's `## Design Alternatives` section (derived from the Invariant). Rule 1, each design's `Covers all boundary cases` field, the blocked-design trigger, and the PHASE_4_CHECKPOINT item all evaluate coverage against THIS table — not against the cases an individual design block lists. Then draft 2–3 competing designs. Each design gets its own block:
 
 ```
 ### D{n}: {name}
@@ -443,7 +443,7 @@ Every design must satisfy the task's Invariant. "Covers ALL boundary cases" mean
 3. Fewer files touched wins.
 4. Lowest index wins (D1 = closest to the existing pattern).
 
-Rules 2–4 never override rule 1: a design that fails its own `Verified by:` check for the Invariant does not count as covering all boundary cases, whatever its estimated size. Rule 4's tie-break favors the existing pattern — for security-adjacent Design-first work, first verify the existing pattern is not itself the vulnerability before relying on the tie-break.
+Rules 2–4 never override rule 1: a design that fails the task's `Verified by:` checks (section 4) for the Invariant does not count as covering all boundary cases, whatever its estimated size. Rule 4's tie-break favors the existing pattern — for security-adjacent Design-first work, first verify the existing pattern is not itself the vulnerability before relying on the tie-break.
 
 Selection is mechanical — never ask the user to pick a design, in any mode.
 
@@ -554,7 +554,7 @@ The plan file MUST include lifecycle frontmatter (`status: pending` — or `bloc
 2. **User Story** — who, what, why
 3. **Problem/Solution Statements** — specific and testable
 4. **Invariant** (required for Design-first tasks) — `Invariant: <property>` + `Verified by: <check>` (the checks/tests that prove the invariant holds)
-5. **Design Alternatives** (Design-first only) — the D1..Dn blocks, boundary tables, one test per arm, and the SELECTED/REJECTED record; or `Design alternatives: skipped — <reason>`
+5. **Design Alternatives** (Design-first only) — the task boundary-case table, the D1..Dn blocks, one test per boundary case, and the SELECTED/REJECTED record; or `Design alternatives: skipped — <reason>`
 6. **Metadata** — type, complexity, systems, dependencies, task count, **Runner + Type Check + Lint + Test + Build commands** (+ Monorepo/Package/Filter if applicable)
 7. **UX Design** — before/after ASCII diagrams + interaction changes table
 8. **Mandatory Reading** — P0/P1/P2 priority files the implementer MUST read first, external docs with version

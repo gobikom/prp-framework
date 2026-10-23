@@ -580,3 +580,9 @@ CLEANUP_FILE="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)/adapters/cla
     grep -q "STOPPED: blocked-design" "$PROMPTS_DIR/implement.md"
     grep -q "do not change the status" "$PROMPTS_DIR/implement.md"
 }
+
+@test "run-all.md blocked-design escalation has a failure branch and alternatives override" {
+    grep -q "blocked-design-{RUN_TIMESTAMP}" "$PROMPTS_DIR/run-all.md"
+    grep -q "overrides Step 0.8 smart detection" "$PROMPTS_DIR/run-all.md"
+    grep -q "none of the skip conditions apply" "$PROMPTS_DIR/run-all.md"
+}
