@@ -43,6 +43,8 @@ Execute the complete PRP workflow end-to-end autonomously. Each step delegates t
 | `--resume` | Resume from last failed step using saved state |
 | `--no-interact` | Never ask user questions — use best judgment, pick defaults |
 | `--package <name>` | Scope to a specific monorepo package. Passed through to plan and implement steps. |
+| `--alternatives N` | Force Design Alternatives in the plan (Phase 4.1) with N designs (2 ≤ N ≤ 3). Forwarded to `/prp-core:prp-plan`. |
+| `--no-alternatives "<reason>"` | Skip Phase 4.1 on Design-first input. Forwarded to `/prp-core:prp-plan`. |
 | `--issue <N>` | Fetch GitHub issue #N context. Set ISSUE_NUMBER = N. Extracts title + body as FEATURE. |
 | `--merge` | Auto squash-merge PR after review passes (0 issues). Set AUTO_MERGE = true. |
 | `--max-review-rounds <N>` | Override max review-fix cycles (default: 5). |
@@ -341,14 +343,14 @@ Run project's standard validation (type-check, lint, test, build).
 Save to `.prp-output/plans/issue-{ISSUE_NUMBER}-stub-{RUN_TIMESTAMP}.plan.md` (or `stub-{RUN_TIMESTAMP}.plan.md` if no issue).
 Set PLAN_PATH to the saved file path.
 
-If NOT skipping: Use `/prp-core:prp-plan` with FEATURE (append `--fast` if FAST_PLAN, `--no-interact` if NO_INTERACT, `--package {MONOREPO_PACKAGE}` if set).
+If NOT skipping: Use `/prp-core:prp-plan` with FEATURE (append `--fast` if FAST_PLAN, `--no-interact` if NO_INTERACT, `--package {MONOREPO_PACKAGE}` if set, `--alternatives {N}` if `--alternatives` was passed, `--no-alternatives "{reason}"` if `--no-alternatives` was passed).
 
 This will: analyze codebase (lighter if --fast), generate plan with validation commands, integration points, confidence score. Save to `.prp-output/plans/`.
 
 **Variable update**: `PLAN_PATH = {generated plan path}` (always a real file — stub plan if skipping)
 **Failure** → STOP.
 
-**Blocked design (Phase 4.1):** after Step 2, read the plan frontmatter. If `status: blocked-design`, STOP the whole run — do NOT implement, do NOT ask anything. Extract the uncovered boundary cases from the plan's Design Alternatives section and comment them on the tracking issue (`gh issue comment <N> --body "<uncovered cases + plan path>"`), add label `status:escalated`, and report `STOPPED: blocked-design — no design covers all boundary cases (see <issue>)`. Escalation is a comment + label, never a question.
+**Blocked design (Phase 4.1):** after Step 2, read the plan frontmatter. If `status: blocked-design`, STOP the whole run — do NOT implement, do NOT ask anything. Extract the uncovered boundary cases from the plan's Design Alternatives section and write them + the plan path to a temp file with a quoted-delimiter heredoc (`<<'EOF'`) — never inline-interpolate plan text into a shell argument. If ISSUE_NUMBER is set: `gh issue comment <N> --body-file <file>`. If ISSUE_NUMBER is empty: `gh issue create` titled `blocked-design: <feature>` with `--body-file <file>` and use that issue as the escalation target. Add label `status:escalated` (create the label if missing) on the target issue, and report `STOPPED: blocked-design — no design covers all boundary cases (see <issue>)`. Escalation is a comment + label, never a question.
 
 **DO NOT**: Read plan skill and execute logic yourself, analyze codebase directly.
 **CHECKPOINT**: If not skipping, did you invoke `/prp-core:prp-plan`? If not → STOP → invoke it.

@@ -553,3 +553,30 @@ CLEANUP_FILE="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)/adapters/cla
 @test "prp-cleanup.md has Success Criteria" {
     grep -qi "Success Criteria" "$CLEANUP_FILE"
 }
+
+@test "plan.md validates --alternatives and --no-alternatives flags" {
+    grep -q -- "--alternatives must be 2..3" "$PROMPTS_DIR/plan.md"
+    grep -q -- "--no-alternatives requires a reason" "$PROMPTS_DIR/plan.md"
+    grep -q -- "--alternatives N" "$PROMPTS_DIR/plan.md"
+}
+
+@test "plan.md requires shared invariant across designs" {
+    grep -q "restated verbatim" "$PROMPTS_DIR/plan.md"
+    grep -q "the SAME invariant" "$PROMPTS_DIR/plan.md"
+}
+
+@test "run-all.md forwards the alternatives flags to plan" {
+    grep -q -- "--alternatives {N}" "$PROMPTS_DIR/run-all.md"
+    grep -q -- '--no-alternatives "{reason}"' "$PROMPTS_DIR/run-all.md"
+}
+
+@test "run-all.md escalates blocked-design via body-file" {
+    grep -q -- "--body-file" "$PROMPTS_DIR/run-all.md"
+    grep -q "STOPPED: blocked-design" "$PROMPTS_DIR/run-all.md"
+    grep -q "If ISSUE_NUMBER is empty" "$PROMPTS_DIR/run-all.md"
+}
+
+@test "implement.md refuses to implement a blocked-design plan" {
+    grep -q "STOPPED: blocked-design" "$PROMPTS_DIR/implement.md"
+    grep -q "do not change the status" "$PROMPTS_DIR/implement.md"
+}

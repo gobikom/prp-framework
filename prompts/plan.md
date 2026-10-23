@@ -59,8 +59,8 @@ ls -la */ 2>/dev/null | head -50
 | `--fast` | Fast-track mode (lighter analysis) |
 | `--no-interact` | Never ask questions — use best judgment |
 | `--package <name>` | Scope to a specific monorepo package (e.g., `--package api`). Sets `MONOREPO_PACKAGE`. |
-| `--alternatives N` | Force Design Alternatives (Phase 4.1) with N designs (2 ≤ N ≤ 3), even if the task is not Design-first. |
-| `--no-alternatives "<reason>"` | Skip Phase 4.1 on Design-first input. The plan must record `Design alternatives: skipped — <reason>`; a blank reason is invalid. |
+| `--alternatives N` | Force Design Alternatives (Phase 4.1) with N designs (2 ≤ N ≤ 3), even if the task is not Design-first. N outside 2–3, non-numeric, or missing → STOP: `--alternatives must be 2..3`. |
+| `--no-alternatives "<reason>"` | Skip Phase 4.1 on Design-first input. The plan must record `Design alternatives: skipped — <reason>`; a blank or whitespace-only reason → STOP: `--no-alternatives requires a reason`. Passing both `--alternatives` and `--no-alternatives` → STOP: mutually exclusive. |
 
 | Input Pattern | Type | Action |
 |---------------|------|--------|
@@ -273,6 +273,7 @@ When `--fast` flag provided:
 - **Compact plan**: Summary, Metadata (with runner), Files to Change (with Insert At), Integration Points, Tasks (max 5), Validation Commands (pre-filled), Confidence Score
 - **No**: UX diagrams, Mandatory Reading, Patterns to Mirror, expanded Testing Strategy, Risks table
 - Add plan metadata: `Mode: fast-track`
+- **Phase 4.1 interaction**: a Design-first task (or `--alternatives N`) still runs Phase 4.1 under `--fast` — never silently skipped. The compact plan additionally includes the Invariant (with `Verified by:`), the D1..Dn blocks, and the SELECTED/REJECTED record (or the skipped-reason line); `Tasks (max 5)` may exceed 5 by the per-boundary-case tests.
 
 **Warning** (complexity mismatch): If complexity > LOW detected:
 ```
@@ -419,26 +420,30 @@ NOT_BUILDING (explicit scope limits):
 **Trigger — Design-first if ANY of:**
 - the task adds or changes gate, security, policy, parser, validator or scanner behaviour;
 - the expected change paths match `.github/**`, `scripts/**gate*`, `*validat*`, `*pars*`, `*scan*`, `auth`, `policy`, or `security`;
-- `--alternatives N` was passed (2 ≤ N ≤ 3; N = number of designs to draft).
+- `--alternatives N` was passed (N = number of designs to draft; N outside 2–3, non-numeric, or missing → STOP: `--alternatives must be 2..3`).
 
 **Skip:** none of the above and no `--alternatives` → keep the single-design `APPROACH_CHOSEN` block above. Do NOT emit a `## Design Alternatives` section (structure and cost unchanged).
-**Skip-with-reason:** `--no-alternatives "<reason>"` on Design-first input is allowed, but the plan MUST record `Design alternatives: skipped — <reason>`. A blank reason is invalid.
+**Skip-with-reason:** `--no-alternatives "<reason>"` on Design-first input is allowed, but the plan MUST record `Design alternatives: skipped — <reason>`. A blank or whitespace-only reason → STOP: `--no-alternatives requires a reason`. Passing both `--alternatives` and `--no-alternatives` → STOP: mutually exclusive.
 
 When triggered, draft 2–3 competing designs before writing the plan. Each design gets its own block:
 
 ```
 ### D{n}: {name}
-Invariant: {the property this design must hold}
-| Boundary case | Handled how | Test (one per arm) |
+Invariant: {the task's Invariant (section 4), restated verbatim — every design must satisfy the SAME invariant}
+| Boundary case | Handled how | Test (one per boundary case) |
 Est. changed lines: {N} · Files: {list}
 Covers all boundary cases: yes|no (missing: …)
 ```
+
+Every design must satisfy the task's Invariant. "Covers ALL boundary cases" means coverage of the task's boundary-case table — not just the cases the design's own block lists.
 
 **Selection rule — applied in order until one design remains:**
 1. A design that covers ALL boundary cases beats one that does not.
 2. Smaller estimated changed lines wins.
 3. Fewer files touched wins.
 4. Lowest index wins (D1 = closest to the existing pattern).
+
+Rules 2–4 never override rule 1: a design that fails its own `Verified by:` check for the Invariant does not count as covering all boundary cases, whatever its estimated size. Rule 4's tie-break favors the existing pattern — for security-adjacent Design-first work, first verify the existing pattern is not itself the vulnerability before relying on the tie-break.
 
 Selection is mechanical — never ask the user to pick a design, in any mode.
 
@@ -494,6 +499,7 @@ If found: incorporate API contracts, DB schema, NFRs. Design doc takes precedenc
 - [ ] Edge cases identified with mitigations
 - [ ] Scope boundaries explicit and justified
 - [ ] Technical Design sections included (if applicable)
+- [ ] If Design-first: selection record present (`SELECTED`/`REJECTED`, or `Design alternatives: skipped — <reason>`), Invariant stated with `Verified by:`, every boundary case has a test
 
 ---
 

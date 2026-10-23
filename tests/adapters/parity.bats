@@ -807,3 +807,39 @@ with open('$f', 'rb') as fh:
         }
     done
 }
+
+@test "all plan files carry Phase 4.1 and all run-all files handle blocked-design" {
+    for f in \
+        "$FRAMEWORK_DIR/prompts/plan.md" \
+        "$FRAMEWORK_DIR/adapters/antigravity/prp-plan.md" \
+        "$FRAMEWORK_DIR/adapters/claude-code/prp-plan.md" \
+        "$FRAMEWORK_DIR/adapters/codex/prp-plan/SKILL.md" \
+        "$FRAMEWORK_DIR/adapters/gemini/plan.toml" \
+        "$FRAMEWORK_DIR/adapters/opencode/plan.md" \
+        "$FRAMEWORK_DIR/adapters/thclaws/prp-plan/SKILL.md"; do
+        grep -q "Phase 4.1: DESIGN ALTERNATIVES" "$f"
+        grep -q "blocked-design" "$f"
+    done
+    for f in \
+        "$FRAMEWORK_DIR/prompts/run-all.md" \
+        "$FRAMEWORK_DIR/adapters/antigravity/prp-run-all.md" \
+        "$FRAMEWORK_DIR/adapters/claude-code/prp-run-all.md" \
+        "$FRAMEWORK_DIR/adapters/codex/prp-run-all/SKILL.md" \
+        "$FRAMEWORK_DIR/adapters/gemini/run-all.toml" \
+        "$FRAMEWORK_DIR/adapters/opencode/run-all.md" \
+        "$FRAMEWORK_DIR/adapters/thclaws/prp-run-all/SKILL.md"; do
+        grep -q "STOPPED: blocked-design" "$f"
+        grep -q "status:escalated" "$f"
+    done
+}
+
+@test "all implement adapters refuse blocked-design plans" {
+    count=$(grep -rl "STOPPED: blocked-design" \
+        "$FRAMEWORK_DIR/adapters/antigravity/prp-implement.md" \
+        "$FRAMEWORK_DIR/adapters/claude-code/prp-implement.md" \
+        "$FRAMEWORK_DIR/adapters/codex/prp-implement/SKILL.md" \
+        "$FRAMEWORK_DIR/adapters/gemini/implement.toml" \
+        "$FRAMEWORK_DIR/adapters/opencode/implement.md" \
+        "$FRAMEWORK_DIR/adapters/thclaws/prp-implement/SKILL.md" 2>/dev/null | wc -l)
+    [ "$count" -eq 6 ]
+}
