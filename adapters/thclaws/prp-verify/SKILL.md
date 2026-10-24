@@ -60,14 +60,26 @@ Convert raw criteria into structured checklist:
 
 ### 0.4 Load Feature Map
 
-Check for a committed feature map on the PR head:
+Resolve the PR head first — detection reads the commit, never the cwd, and the head object must exist locally before `cat-file -e` can answer:
 
 ```bash
-git cat-file -e "{PR_HEAD_SHA}:.prp-verify/feature-map.yaml" 2>/dev/null && echo MAP_PRESENT || echo NO_MAP
+PR_HEAD_SHA="$(gh pr view {NUMBER} --json headRefOid -q .headRefOid)"
+printf '%s' "$PR_HEAD_SHA" | grep -qE '^[0-9a-f]{40}$' || { echo "STOP: could not read PR head SHA — every AC is UNVERIFIED (no diff fallback)"; exit 1; }
+git fetch -q origin "pull/{NUMBER}/head" || { echo "STOP: cannot fetch PR head — every AC is UNVERIFIED (no diff fallback)"; exit 1; }
 ```
 
-- **NO_MAP**: no map — run `/prp-verify --init` after this verify to create one. Behaviour is unchanged from the past: every AC is judged by diff evidence.
-- **MAP_PRESENT**: run the mechanics script first — `scripts/prp-verify-map.sh validate .prp-verify/feature-map.yaml` (exit 0 = valid; exit 1 lists every error; exit 3 = tool error).
+Then detect a committed feature map on that head with exit-code discrimination — never `&&/||`: a git error must never read as "no map":
+
+```bash
+map_err="$(git cat-file -e "${PR_HEAD_SHA}:.prp-verify/feature-map.yaml" 2>&1 >/dev/null)"; map_rc=$?
+```
+
+- `map_rc = 0` → **MAP_PRESENT**.
+- `map_rc = 128` and `map_err` mentions `does not exist` or `invalid object name` → **NO_MAP**.
+- Anything else (any other git error) → **every AC is UNVERIFIED**, heading `VERIFY INCOMPLETE (feature map detection error)`, escalate. **No diff fallback**.
+
+- **NO_MAP**: no map on the PR head — run `/prp-verify --init` after this verify to create one. Behaviour is unchanged from the past: every AC is judged by diff evidence.
+- **MAP_PRESENT**: first confirm the checkout matches the head you just checked — `git rev-parse HEAD` must equal `${PR_HEAD_SHA}` (if it does not, run the map mechanics inside a detached worktree at `${PR_HEAD_SHA}`; a stale checkout judges the wrong tree, and `sync --write` would stamp `synced_sha` to the wrong HEAD). On mismatch: mapped ACs are UNVERIFIED + escalate — never run exercises against a tree that is not the PR head. Then run the mechanics script first — `scripts/prp-verify-map.sh validate .prp-verify/feature-map.yaml` (exit 0 = valid; exit 1 lists every error; exit 3 = tool error).
   - **Invalid map (exit 1): every AC is UNVERIFIED** — stop judging, write the artifact with `criteria_unverified: {N}`, heading `VERIFY INCOMPLETE (invalid feature map)`, and escalate. **No diff fallback** while a map file exists on the head.
   - **Tool error (exit 3): same as invalid** — every AC UNVERIFIED, heading `VERIFY INCOMPLETE (feature map tool error)`, escalate.
 
@@ -104,8 +116,8 @@ For each criterion in the checklist:
 Run the mechanics script per AC — `scripts/prp-verify-map.sh match .prp-verify/feature-map.yaml "<criterion text>"` — which prints `live:<id>` and/or `removed:<id>` lines (whole-word keyword hits, case-insensitive).
 
 - **`live:<id>` matched**: check staleness — `scripts/prp-verify-map.sh stale .prp-verify/feature-map.yaml` lists ids whose `paths:` changed since the entry's `synced_sha`.
-  - If `<id>` is stale, the entry must be re-proven before it may judge anything: run `scripts/prp-verify-map.sh sync .prp-verify/feature-map.yaml <id> --write`. You may first rewrite that entry's `exercise`/`expect` in the map (keeping `id`, `match`, `paths`), then re-run `sync`. Exit codes: `0` = entry re-proven and written; `1` = FAIL (run or negative proof did not pass — the AC is FAIL with the output); `3` = FAIL with a tool-error note; `4` = UNVERIFIED (environment unavailable). A stale entry is **never skipped**.
-  - Then run the exercise: `scripts/prp-verify-map.sh run .prp-verify/feature-map.yaml <id>`. Exit mapping: `0` = ✅ PASS with evidence `map:<id> exit=0 matched=<expect>`; `1` = ❌ FAIL (behaviour — the observed result contradicts the expectation, output quoted); `3` = ❌ FAIL with a tool-error note (never PASS); `4` = 🔍 UNVERIFIED — **never PASS on env-unavailable**.
+  - If `<id>` is stale, the entry must be re-proven before it may judge anything: run `scripts/prp-verify-map.sh sync .prp-verify/feature-map.yaml <id> --write`. You may first rewrite that entry's `exercise`/`expect` in the map (keeping `id`, `match`, `paths`), then re-run `sync`. Exit codes: `0` = entry re-proven and written — **unless the output says `all paths deleted at HEAD -> tombstone`** (every entry path is gone at HEAD): then the entry was removed from the map, and the AC is treated exactly like a tombstone — 🔍 UNVERIFIED + escalate citing the new `removed_reason`; never run it, never diff evidence. `1` = FAIL (run or negative proof did not pass — the AC is FAIL with the output); `3` = FAIL with a tool-error note; `4` = UNVERIFIED (environment unavailable); **any other exit (including `2`, usage / unknown id) = 🔍 UNVERIFIED + escalate** — never PASS, never diff evidence. A stale entry is **never skipped**.
+  - Then run the exercise: `scripts/prp-verify-map.sh run .prp-verify/feature-map.yaml <id>`. Exit mapping: `0` = ✅ PASS with evidence `map:<id> exit=0 matched=<expect>`; `1` = ❌ FAIL (behaviour — the observed result contradicts the expectation, output quoted); `2` = entry id not found in the map (e.g. tombstoned by the sync above) — 🔍 UNVERIFIED + escalate, never diff evidence; `3` = ❌ FAIL with a tool-error note (never PASS); `4` = 🔍 UNVERIFIED — **never PASS on env-unavailable**; **any other exit = 🔍 UNVERIFIED + escalate** — never PASS, never diff evidence.
   - A mapped AC is **never judged by diff evidence** — its verdict comes only from running the exercise, or else it is UNVERIFIED and escalated.
 - **`removed:<id>` only** (tombstone, no live entry): 🔍 UNVERIFIED + escalate, citing the tombstone's `removed_reason`. Never diff evidence.
 - **No match at all**: use the existing diff-evidence path below, unchanged, and tag the evidence `diff-evidence`.

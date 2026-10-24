@@ -780,3 +780,34 @@ CLEANUP_FILE="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)/adapters/cla
     grep -qF 'skip if not AUTO_MERGE or VERIFY != true or REVIEW_VERDICT != "0_issues"' "$PROMPTS_DIR/run-all.md"
     grep -qF '(automatic when the PR head has .prp-verify/feature-map.yaml' "$PROMPTS_DIR/run-all.md"
 }
+
+@test "verify.md 0.4 resolves the PR head and discriminates exit codes (r1 fix)" {
+    local sect
+    sect=$(awk '/^### 0\.4 Load Feature Map/{f=1} /^## Phase 1/{f=0} f' "$PROMPTS_DIR/verify.md")
+    printf '%s\n' "$sect" | grep -qF 'headRefOid'
+    printf '%s\n' "$sect" | grep -qF 'pull/{NUMBER}/head'
+    printf '%s\n' "$sect" | grep -qF 'invalid object name'
+    printf '%s\n' "$sect" | grep -qF '2>&1 >/dev/null'
+    # the fail-open one-liner must be gone from verify.md entirely
+    run grep -qF '&& echo MAP_PRESENT' "$PROMPTS_DIR/verify.md"
+    [ "$status" -ne 0 ]
+}
+
+@test "verify.md maps the sync tombstone outcome and exit-2 catch-all (r1 fix)" {
+    grep -qF 'all paths deleted at HEAD -> tombstone' "$PROMPTS_DIR/verify.md"
+    grep -qF 'removed_reason' "$PROMPTS_DIR/verify.md"
+    grep -qF '`2` = entry id not found' "$PROMPTS_DIR/verify.md"
+    grep -qF 'any other exit' "$PROMPTS_DIR/verify.md"
+}
+
+@test "verify.md requires the checkout at the PR head before map mechanics (r1 fix)" {
+    grep -qF 'git rev-parse HEAD' "$PROMPTS_DIR/verify.md"
+    grep -qF 'synced_sha' "$PROMPTS_DIR/verify.md"
+}
+
+@test "run-all.md Step 8 classifies MAP_AT stderr and requires map_entries_run (r1 fix)" {
+    grep -qF 'MAP_AT_ERR' "$PROMPTS_DIR/run-all.md"
+    grep -qF '2>&1 >/dev/null' "$PROMPTS_DIR/run-all.md"
+    grep -qF 'invalid object name' "$PROMPTS_DIR/run-all.md"
+    grep -qF 'map_entries_run > 0' "$PROMPTS_DIR/run-all.md"
+}

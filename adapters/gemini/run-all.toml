@@ -248,8 +248,9 @@ Execute these steps in sequence. **Stop immediately on any failure.**
 **MAP_AT helper (feature-map-on-commit detection).** One helper, evaluated at three points (end of Step 1, on `--resume`, in Step 8). Detection reads the commit — never the cwd, never saved state alone:
 
 ```bash
-# MAP_AT <ref> — exit 0 = the commit <ref> contains .prp-verify/feature-map.yaml
-MAP_AT() { git -C "${WORKTREE_PATH:-.}" cat-file -e "$1:.prp-verify/feature-map.yaml" 2>/dev/null; }
+# MAP_AT <ref> — exit 0 = the commit <ref> contains .prp-verify/feature-map.yaml;
+# on failure MAP_AT_ERR holds cat-file's stderr for the fail-closed classification below
+MAP_AT() { MAP_AT_ERR="$(git -C "${WORKTREE_PATH:-.}" cat-file -e "$1:.prp-verify/feature-map.yaml" 2>&1 >/dev/null)"; return $?; }
 ```
 
 ### Step 0.8: FETCH ISSUE CONTEXT (skip if no --issue)
@@ -724,14 +725,15 @@ git -C "${WORKTREE_PATH:-.}" cat-file -e "${PR_HEAD_SHA}^{commit}" 2>/dev/null |
 MAP_AT "$PR_HEAD_SHA"; MAP_RC=$?
 ```
 
-**Fail-closed rules**: if the fetch fails, the head SHA cannot be read, or `cat-file -e` exits with anything other than `0` (map present) or `128` with `does not exist` / `Not a valid object name <ref>:path` in its output (map absent, ref already proven to be a commit above) → STOP + escalate. A git error is never read as "map absent".
+**Fail-closed rules**: if the fetch fails, the head SHA cannot be read, or `cat-file -e` exits with anything other than `0` (map present) or `128` with `does not exist` / `invalid object name` in `MAP_AT_ERR` (map absent, ref already proven to be a commit above) → STOP + escalate. A git error is never read as "map absent" — `MAP_AT` captures cat-file's stderr in `MAP_AT_ERR` precisely so this classification can be made; if `MAP_AT_ERR` does not clearly match one of the two absent-messages above, STOP + escalate.
 
 If `MAP_RC = 0` (map present at the PR head): set `VERIFY = true` and log `feature map present → verify enforced`, then read `.prp-output/reviews/pr-{PR_NUMBER}-verify.md` frontmatter and require **all** of:
 
 - `verified_sha` == `{PR_HEAD_SHA}` (same-head verify artifact);
 - `verdict` ∈ {`PASS`, `PARTIAL`};
 - `criteria_failed == 0`;
-- `criteria_unverified == 0`.
+- `criteria_unverified == 0`;
+- `map_entries_run > 0` (the verify artifact actually ran at least one map exercise — a mapped PR where every entry was skipped or tombstoned cannot merge).
 
 If the artifact is missing, unparsable, or fails any of these → go back to Step 7.5. If Step 7.5 then yields the same failing result → STOP + escalate per the 7.5 table. Never merge.
 
