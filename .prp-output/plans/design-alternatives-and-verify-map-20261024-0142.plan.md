@@ -452,3 +452,76 @@ Coverage target: every subcommand branch and exit code in `prp-verify-map.sh` is
 ## Confidence Score
 
 **8/10** (Patterns 2, Gotchas 2, Integration 2, Validation 1, Testing 1). The prompt behaviour (designs drafted, map derived) is only checked by text pins and manual L6 runs. There is no automated end-to-end LLM run, which is inherent to prompt changes.
+
+## Amendment R2 — PR-A blocked-design gate wiring (2026-10-24, after review R2 run=20261024T004349Z-fa15b431)
+
+Reason: rounds R1 and R2 both raised Important findings in one family: "the blocked-design gate is wired into run-all/ralph per path". Per the review stop rule, patching stops and the wiring is re-planned against one invariant, with a boundary pin per arm.
+
+**Invariant:** for every entry path, (i) no plan whose frontmatter `status` is `blocked-design` reaches implementation or archive and is reported as success, AND (ii) a plan that already passed the gate is never re-gated in a way that can stop a valid run (no read of a moved/archived plan).
+**Verified by:** one bats pin per arm below, each section- or order-scoped, plus a mutation check: the pin must FAIL when the guarded sentence is removed or inverted with its keywords kept.
+
+| Arm | Entry path | Required behaviour | Pin |
+|---|---|---|---|
+| A1 | `--prp-path`, `--skip-plan`/stub, smart detection, `--resume` 1-3 | Step 2.5 runs and STOPs on blocked-design (already done) | existing Step 2.5 pin, plus `status: blocked-design`, `PLAN_PATH`, `--body-file` and `status:escalated` inside the 2.5 section |
+| A2 | `--resume` with RESUME_FROM > 3 | Step 2.5 is SKIPPED: heading `### Step 2.5: PLAN GATE (skip if RESUME_FROM > 3)`. The gate already ran before Step 3 on that run. | the 2.5 heading contains `skip if RESUME_FROM > 3`, and the body does not claim "--resume resuming past Step 2" unconditionally |
+| A3 | implement or ralph returns `STOPPED:` | The Hard STOP line comes BEFORE `**TRANSITION**`, and TRANSITION reads "Implement succeeded (no `STOPPED:` line) → …". The run writes `status: stopped` and the reason to the state file. No 3.1, no 3.2 fallback. | an order pin (Hard STOP line < TRANSITION line), a phrase pin `do NOT run the Step 3.2`, and a phrase pin for the state-file write |
+| A4 | standalone `/prp-ralph x.plan.md` | §1.4 STOPs and escalates. `ISSUE_NUMBER` and `RUN_TIMESTAMP` are defined in-section (`ISSUE_NUMBER` empty when standalone; `RUN_TIMESTAMP=$(date -u +%Y%m%dT%H%M%SZ)`). | the existing ralph pins, plus a pin that `RUN_TIMESTAMP=` is defined in Phase 1 |
+| A5 | standalone `/prp-ralph x.prd.md` | the §1.4 gate re-runs on the plan ralph generates, before any implementation iteration | a pin that ralph's PRD path names the §1.4 gate on the generated plan |
+| A6 | standalone `/prp-implement` | unchanged (`implement.md:90` STOP) | existing pin |
+
+Out of scope, to follow-up #205: heredoc→Write tool for the escalation body (security Medium), title sanitising, `--no-alternatives` injection via FEATURE, status unquote/lowercase, implement-side escalation. None is in the invariant above.
+
+### R2.1 (2026-10-24, after review R3 run=20261024T011824Z-43b282b0)
+
+R3 found that arm A5 cannot be carried out as written. The gate runs "before Phase 2" on a plan that, in PRD mode, does not exist until an iteration creates it. R3 also found a leftover fragment that contradicts A2. Neither is a new arm. Both are corrections to what A5 and A2 already require.
+
+- **A5′ (replaces A5): gate at the point of use.** Add `### 3.0 Plan Gate (every iteration)` to ralph, placed after the Phase 3 heading and before `### 3.1`. It requires the following:
+  - At the start of every iteration, before any implementation work, read the frontmatter of the plan **this iteration executes**. That is the input `.plan.md`, or the phase plan generated from the PRD; if the phase plan is not yet written, write it first and then gate it.
+  - If the status is `blocked-design`: escalate exactly as §1.4, then **delete `.prp-output/state/ralph.state.md`** so the stop hook releases the loop. Then STOP and do NOT output `<promise>COMPLETE</promise>`.
+  - §1.5 step 6 becomes a pointer: "the generated plan is gated by §3.0 before it is implemented". The words "BEFORE Phase 2" are removed.
+  - The PHASE_1_CHECKPOINT item for §1.4 stays (it covers `.plan.md` input).
+
+  Pins for A5′:
+  - an order pin: the `### 3.0 Plan Gate` line comes before `### 3.1` and before `### 3.3 Implement`;
+  - in the 3.0 section, phrase pins (`grep -F`) for `status: blocked-design`, `ralph.state.md` and `do NOT output`;
+  - a negative pin: §1.5 does not contain `BEFORE Phase 2`.
+  - Mutation proof: delete the state-file sentence, or move the 3.0 section below 3.3, and the pin must FAIL.
+- **A2 leftover:** delete "— this gate always executes before any implementation." from `run-all.md:353` and from the adapter copies. Negative pin: the 2.5 section contains neither `always executes` nor `ALWAYS run`.
+
+R3 Medium/Low findings go to #205 and are not part of this fix:
+- `status: stopped` is never read on resume, and `step` is not held at 3;
+- a missing or unreadable `PLAN_PATH` has no handling;
+- a STOP at 2.5 writes no state;
+- the `Escalation failed` message has no `STOPPED:` prefix;
+- sentence-level pins are still needed for A1 to A4;
+- `ISSUE_NUMBER` is not passed to ralph from run-all;
+- the escalation comment is duplicated on resume.
+
+### R2.2 (2026-10-24, after review R4 run=20261024T013231Z-cf2097d9): cut scope, ralph PRD mode → #206
+
+R4 again raised Important findings in the gate-wiring family (R1–R4), both on arm A5′:
+- the gate cannot fire, because a phase plan ralph writes freehand never carries a design status;
+- on `gh` failure, §1.4's STOP leaves `ralph.state.md` in place.
+
+Under the review stop rule, patching stops and the scope is cut.
+
+**Scope boundary.** The invariant covers plans the plan command produces, since only those carry a `status` set by mechanical selection:
+- every run-all path (Step 2.5);
+- `/prp-ralph x.plan.md` (§1.4, which runs in Phase 1 BEFORE the state file exists, so its `gh`-failure STOP releases cleanly);
+- `/prp-implement` (`implement.md` STOP).
+
+Standalone `/prp-ralph x.prd.md` generates its phase plan without selection. That is the same as on `main`, so no gate is weakened. The mode is out of this PR and moves to gobikom/prp-framework#206, together with R4's three findings.
+
+**Changes:**
+- **A5′ removed.** Delete `### 3.0 Plan Gate (every iteration)` from `prompts/ralph.md`, and its adapters.
+- **§1.5 step 6 becomes exactly:** `6. Note: this phase plan is not produced by the plan command's Design Alternatives selection, so the §1.4 Blocked-Design Gate does not apply to it (tracked: gobikom/prp-framework#206)`
+- **Pins:**
+  - remove the A5′ test;
+  - add a negative pin that `### 3.0 Plan Gate` is absent from ralph.md;
+  - add a `grep -F` pin in the §1.5 section for `does not apply to it` and `prp-framework#206`;
+  - keep the existing "ralph.md blocked-design gate runs before Phase 2" pin for §1.4.
+- **Mutation proofs (on copies):**
+  - (a) re-adding a `### 3.0 Plan Gate` heading → FAIL;
+  - (b) deleting the #206 pointer from §1.5 → FAIL;
+  - (c) moving §1.4 below `## Phase 2: SETUP` → FAIL.
+- **Out of scope, to #205** (R4 Medium/Low): the relative-path `rm`, and the hook prompt not naming a gate. Both are moot once 3.0 is removed. #206 carries them if it re-adds a loop-time gate.
