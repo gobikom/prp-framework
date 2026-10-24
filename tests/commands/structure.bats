@@ -748,12 +748,14 @@ CLEANUP_FILE="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)/adapters/cla
     local step1
     step1=$(awk '/^### Step 1: CREATE BRANCH/{f=1} /^### Step 2: CREATE PLAN/{f=0} f' "$f")
     printf '%s\n' "$step1" | grep -qF 'feature map present → verify enforced'
-    printf '%s\n' "$step1" | grep -qF 'cat-file -e "HEAD:.prp-verify/feature-map.yaml"'
+    printf '%s\n' "$step1" | grep -qF 'MAP_AT "HEAD"'
+    printf '%s\n' "$step1" | grep -qF 'invalid object name'
     # hit 2 lives in the resume section
     local resume
     resume=$(awk '/^## Step 0\.5: INITIALIZE STATE/{f=1} /^## Workflow/{f=0} f' "$f")
     printf '%s\n' "$resume" | grep -qF 'feature map present → verify enforced'
-    printf '%s\n' "$resume" | grep -qF 'cat-file -e "HEAD:.prp-verify/feature-map.yaml"'
+    printf '%s\n' "$resume" | grep -qF 'MAP_AT "HEAD"'
+    printf '%s\n' "$resume" | grep -qF 'invalid object name'
     printf '%s\n' "$resume" | grep -qF 'RESUME_FROM = 7.5'
     # hit 3 lives in Step 8, which also enforces the same-head verdict
     local step8
@@ -810,4 +812,32 @@ CLEANUP_FILE="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)/adapters/cla
     grep -qF '2>&1 >/dev/null' "$PROMPTS_DIR/run-all.md"
     grep -qF 'invalid object name' "$PROMPTS_DIR/run-all.md"
     grep -qF 'map_entries_run > 0' "$PROMPTS_DIR/run-all.md"
+}
+
+@test "run-all.md Step 1 and resume detection classify git errors via MAP_AT (r2 fix)" {
+    local f="$PROMPTS_DIR/run-all.md"
+    local step1 resume
+    step1=$(awk '/^### Step 1: CREATE BRANCH/{f=1} /^### Step 2: CREATE PLAN/{f=0} f' "$f")
+    resume=$(awk '/^## Step 0\.5: INITIALIZE STATE/{f=1} /^## Workflow/{f=0} f' "$f")
+    printf '%s\n' "$step1" | grep -qF 'MAP_AT "HEAD"'
+    printf '%s\n' "$step1" | grep -qF 'MAP_AT_ERR'
+    printf '%s\n' "$step1" | grep -qF 'escalate'
+    printf '%s\n' "$resume" | grep -qF 'MAP_AT "HEAD"'
+    printf '%s\n' "$resume" | grep -qF 'MAP_AT_ERR'
+    printf '%s\n' "$resume" | grep -qF 'escalate'
+    # the fail-open one-liner is gone from run-all.md entirely
+    run grep -qF '&& echo MAP_PRESENT' "$f"
+    [ "$status" -ne 0 ]
+}
+
+@test "run-all.md 7.5 has an escape row for the zero-map-exercise artifact (r2 fix)" {
+    grep -qF 'map_entries_run == 0' "$PROMPTS_DIR/run-all.md"
+    grep -qF 'status:escalated' "$PROMPTS_DIR/run-all.md"
+}
+
+@test "verify.md 0.4 proves the fetched head is a commit before detection (r2 fix)" {
+    local sect
+    sect=$(awk '/^### 0\.4 Load Feature Map/{f=1} /^## Phase 1/{f=0} f' "$PROMPTS_DIR/verify.md")
+    printf '%s\n' "$sect" | grep -qF '${PR_HEAD_SHA}^{commit}'
+    printf '%s\n' "$sect" | grep -qF 'PR head not present after fetch'
 }

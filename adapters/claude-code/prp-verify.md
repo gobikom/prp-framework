@@ -65,6 +65,7 @@ Resolve the PR head first — detection reads the commit, never the cwd, and the
 PR_HEAD_SHA="$(gh pr view {NUMBER} --json headRefOid -q .headRefOid)"
 printf '%s' "$PR_HEAD_SHA" | grep -qE '^[0-9a-f]{40}$' || { echo "STOP: could not read PR head SHA — every AC is UNVERIFIED (no diff fallback)"; exit 1; }
 git fetch -q origin "pull/{NUMBER}/head" || { echo "STOP: cannot fetch PR head — every AC is UNVERIFIED (no diff fallback)"; exit 1; }
+git cat-file -e "${PR_HEAD_SHA}^{commit}" 2>/dev/null || { echo "STOP: PR head not present after fetch — every AC is UNVERIFIED (no diff fallback)"; exit 1; }
 ```
 
 Then detect a committed feature map on that head with exit-code discrimination — never `&&/||`: a git error must never read as "no map":

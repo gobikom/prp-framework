@@ -209,11 +209,12 @@ Write `.prp-output/state/run-all.state.md` using Bash heredoc with YAML frontmat
 On `--resume`: restore ALL variables from state file. Set `RESUME_FROM = step` from frontmatter.
 If `worktree_path` is non-empty: validate it starts with `/tmp/prp-worktree/` and the directory exists, then `cd` to it before resuming. Reject paths that don't match the prefix.
 
-**Feature-map detection on `--resume` (forced verify).** After state is restored and the shell is in the saved worktree, evaluate:
+**Feature-map detection on `--resume` (forced verify).** After state is restored and the shell is in the saved worktree, evaluate with `MAP_AT` (defined in the Workflow section below; same fail-closed classification as Step 8 — a git error is never read as "map absent"):
 
 ```bash
-git -C "${WORKTREE_PATH:-.}" cat-file -e "HEAD:.prp-verify/feature-map.yaml" 2>/dev/null \
-  && echo MAP_PRESENT || echo NO_MAP
+MAP_AT "HEAD"; MAP_RC=$?
+# MAP_RC = 0 → MAP_PRESENT; MAP_RC = 128 with `does not exist` / `invalid object name`
+# in MAP_AT_ERR → NO_MAP; anything else → STOP: "feature-map detection error" + escalate.
 ```
 
 If `MAP_PRESENT`: set `VERIFY = true`, persist `verify_forced: true` to the state file, and log `feature map present → verify enforced`. Additionally, if `RESUME_FROM > 7.5`, set `RESUME_FROM = 7.5` — verify always re-runs on resume; a verify artifact from before the resume is never trusted.
@@ -322,11 +323,12 @@ Artifacts (`.prp-output/`) are symlinked to the original repo — they persist a
 **Variable update**: `BRANCH = feature/{slug}`, `WORKTREE_PATH = /tmp/prp-worktree/...`
 **Failure**: worktree creation fails → falls back to `git checkout -b` (WORKTREE_PATH = empty). All guards STOP on unrecoverable errors.
 
-**Feature-map detection (end of Step 1 — forced verify).** After the branch/worktree exists (`WORKTREE_PATH` is set), evaluate:
+**Feature-map detection (end of Step 1 — forced verify).** After the branch/worktree exists (`WORKTREE_PATH` is set), evaluate with `MAP_AT` (same fail-closed classification as Step 8 — a git error is never read as "map absent"):
 
 ```bash
-git -C "${WORKTREE_PATH:-.}" cat-file -e "HEAD:.prp-verify/feature-map.yaml" 2>/dev/null \
-  && echo MAP_PRESENT || echo NO_MAP
+MAP_AT "HEAD"; MAP_RC=$?
+# MAP_RC = 0 → MAP_PRESENT; MAP_RC = 128 with `does not exist` / `invalid object name`
+# in MAP_AT_ERR → NO_MAP; anything else → STOP: "feature-map detection error" + escalate.
 ```
 
 If `MAP_PRESENT`: set `VERIFY = true`, persist `verify_forced: true` to the state file, and log `feature map present → verify enforced`. From here no flag can turn verify off for this run. (Detection is here, not at Step 0, because the PR worktree does not exist yet at Step 0.)
@@ -681,6 +683,7 @@ This will: fetch the PR diff, gather acceptance criteria from the linked issue o
 | Result | Action |
 |--------|--------|
 | `VERIFY_UNVERIFIED > 0` (`criteria_unverified > 0`) | STOP: do not merge. `gh issue comment` with the UNVERIFIED criteria + the env each one needs; add label `status:escalated`. Checked first — an incomplete verify never proceeds, even when `verdict: PARTIAL` would otherwise pass the next row. |
+| map present on the PR head ∧ `criteria_unverified == 0` ∧ `map_entries_run == 0` | STOP: do not merge — the verify artifact never ran a map exercise despite a mapped PR (no criterion matched any map entry). `gh issue comment` with the mismatch; add label `status:escalated`. |
 | VERIFY PASSED | Proceed to Step 8 |
 | VERIFY PASSED (with gaps) | WARN: "Verify has partial coverage — proceeding to merge." Proceed to Step 8. |
 | VERIFY FAILED | STOP — "Requirements verification failed. Fix issues then re-run with --verify." Do NOT merge. |
