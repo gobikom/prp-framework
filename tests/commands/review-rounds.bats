@@ -1,10 +1,10 @@
 #!/usr/bin/env bats
-# Structure tests for prp-review-agents round discipline (prp-framework#151,
-# Parts 1 + 2.4 only — One Wake Per Round and no idle status pings).
-# Part 2.1 (pass timebox), Part 2.2 (round cap) and the completion-proof
-# mechanism were scope-cut to gobikom/prp-framework#154 after review rounds
-# 4–6; these tests pin that nothing of them remains and that the One Wake
-# section survives regeneration in every adapter.
+# Structure tests for prp-review-agents round discipline (prp-framework#151).
+# Parts 1 + 2.4 (One Wake Per Round, no idle status pings) were pinned here first. Parts 2.1
+# (pass timebox) and 2.2 (round cap) came back as STATELESS scripts (scripts/review/
+# pass-budget.sh, round-guard.sh; plan 151-timebox-round-cap): the ledger / run-state / completion-
+# proof machinery of the scope-cut attempt (#152 -> #154) must still not exist in any file, and the
+# script references must be present in the prompt and all six adapters.
 #
 # Invariant (round-8 re-plan): every test here FAILS whenever the property it
 # names does not hold — including when an input file is missing, unreadable,
@@ -280,7 +280,7 @@ all_pos() { # <ERE>
   pos "$ADAPTER" "force verdict to NEEDS FIXES minimum"
 }
 
-@test "no Part 2.1 timebox machinery remains (scope-cut to 154)" {
+@test "no ledger-era timebox machinery remains (scope-cut to 154)" {
   all_neg "PRP_REVIEW_PASS_BUDGET_MIN"
   all_neg "PASS_BUDGET_MIN"
   all_neg "DEADLINE_EPOCH"
@@ -303,7 +303,7 @@ all_pos() { # <ERE>
   all_neg "PASS_TIMEBOX_ENFORCED"
 }
 
-@test "no Part 2.2 round-cap machinery remains (scope-cut to 154)" {
+@test "no ledger-era round-cap machinery remains (scope-cut to 154)" {
   all_neg "Step Cb"
   all_neg "curr-run\.env"
   all_neg "record-pending"
@@ -313,8 +313,9 @@ all_pos() { # <ERE>
   # a run-record dir name — match it only as a path-ish usage, not bare prose
   # (the tests dir is not in EXPECTED_FILES, so all_neg is safe here):
   all_neg "\.prp-output/review-rounds"
-  # exactly TWO 'If this block prints FATAL' notes for 2.0/2.1.1
-  [ "$(grep -c 'If this block prints FATAL' "$ADAPTER")" -eq 2 ]
+  # exactly THREE 'If this block prints FATAL' notes: 2.0 (round-cap), 2.1.1
+  # (review clone), and 2.2.0 (pass-deadline mint, prp-framework#151 round-6)
+  [ "$(grep -c 'If this block prints FATAL' "$ADAPTER")" -eq 3 ]
 }
 
 @test "the failed-pass handling of origin/main is pinned, not just diff-claimed" {
@@ -329,6 +330,18 @@ all_pos() { # <ERE>
   [ -s "$stepA" ]
   neg "$stepA" 'curr-run\.env'
   pos "$stepA" 'RUN_ID="\$\(date -u \+%Y%m%dT%H%M%SZ\)-\$RAND"'
+}
+
+@test "the FATAL guard and its pass-deadline echo line are pinned in the prompt and all 6 adapters, not just claude-code (round-7 Important)" {
+  # The executable test above only extracts and runs the guard from the
+  # claude-code adapter — it proves the fix works, but gives the other 6
+  # files (which carry the byte-identical block per generate-adapters.py)
+  # no regression net at all: any of them could silently lose the FATAL
+  # guard or the echo line and CI would stay green. all_pos runs over the
+  # FULL EXPECTED_FILES set (prompt + all 6 adapters), so a future edit
+  # that drops either line from ANY one of the 7 files fails this test.
+  all_pos 'FATAL: cannot mint the pass deadline'
+  all_pos 'echo "PASS_DEADLINE=\$PASS_DEADLINE PRP_DIR=\$PRP_DIR"'
 }
 
 @test "the adapter lists match EXPECTED_FILES exactly (set equality; round-6 Important B)" {
@@ -352,4 +365,33 @@ all_pos() { # <ERE>
   # and exactly 6 / 5 entries
   [ "$(printf '%s\n' $ADAPTER_FILES | wc -l)" -eq 6 ]
   [ "$(printf '%s\n' $OTHER_ADAPTERS | wc -l)" -eq 5 ]
+}
+
+@test "the round-cap and pass-budget scripts are referenced in the prompt and all 6 adapters" {
+  all_pos "scripts/review/round-guard\\.sh"
+  all_pos "scripts/review/pass-budget\\.sh"
+  all_pos "ROUND_CAP_ENFORCED"
+  all_pos "PASS_TIMEBOXED_PARTIAL"
+}
+
+@test "every agent prompt carries the pass budget line, in the prompt and all 6 adapters (round-9 Important)" {
+  # The prior version of this test hardcoded $ADAPTER (claude-code only), the
+  # same single-adapter coverage gap round 7 found and fixed for the
+  # FATAL-guard/echo-line checks via all_pos. This test checking a DIFFERENT
+  # line (the per-agent pass-budget line) reintroduced that exact gap in new
+  # code: a future edit dropping the line from any of the other 6 files would
+  # ship green. Looping EXPECTED_FILES via count() closes it the same way.
+  for f in $EXPECTED_FILES; do
+    n=$(count "$ROOT/$f" 'Read the PR context file at:') || return 1
+    b=$(count "$ROOT/$f" 'Pass budget: PASS_DEADLINE=') || return 1
+    if ! { [ "$n" -ge 10 ] && [ "$n" -eq "$b" ]; }; then
+      echo "mismatch in $f: n=$n b=$b" >&2
+      return 1
+    fi
+  done
+}
+
+@test "the helper scripts are executable" {
+  [ -x "$ROOT/scripts/review/round-guard.sh" ]
+  [ -x "$ROOT/scripts/review/pass-budget.sh" ]
 }
