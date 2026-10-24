@@ -685,3 +685,159 @@ CLEANUP_FILE="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)/adapters/cla
     printf '%s\n' "$p1" | grep -q "STOPPED: blocked-design"
     printf '%s\n' "$p1" | grep -q "before any iteration or archive"
 }
+
+# ─────────────────────────────────────────────
+# verify-map wiring (#202 PR-C)
+# ─────────────────────────────────────────────
+
+@test "verify.md contains the feature-map wiring markers (B4)" {
+    grep -q "UNVERIFIED" "$PROMPTS_DIR/verify.md"
+    grep -q "criteria_unverified" "$PROMPTS_DIR/verify.md"
+    grep -q "map_entries_run" "$PROMPTS_DIR/verify.md"
+    grep -q "map_synced" "$PROMPTS_DIR/verify.md"
+    grep -q "verified_sha" "$PROMPTS_DIR/verify.md"
+    grep -q -- "--init" "$PROMPTS_DIR/verify.md"
+    grep -q -- "--sync" "$PROMPTS_DIR/verify.md"
+    grep -q "feature-map.yaml" "$PROMPTS_DIR/verify.md"
+    grep -qF "never PASS on env-unavailable" "$PROMPTS_DIR/verify.md"
+}
+
+@test "verify.md artifact path is unchanged (Invariant 5)" {
+    grep -qF '.prp-output/reviews/pr-{NUMBER}-verify.md' "$PROMPTS_DIR/verify.md"
+    # verdict enum untouched: no new verdict value invented
+    grep -qF 'PASS | FAIL | PARTIAL' "$PROMPTS_DIR/verify.md"
+}
+
+@test "verify.md 0.4 refuses diff fallback on an invalid map (B8)" {
+    local sect
+    sect=$(awk '/^### 0\.4 Load Feature Map/{f=1} /^## Phase 1/{f=0} f' "$PROMPTS_DIR/verify.md")
+    [ -n "$sect" ]
+    printf '%s\n' "$sect" | grep -q "No diff fallback"
+    printf '%s\n' "$sect" | grep -q "every AC is UNVERIFIED"
+    printf '%s\n' "$sect" | grep -q "cat-file -e"
+}
+
+@test "verify.md maps removed: tombstones to UNVERIFIED + escalate (B6)" {
+    grep -q "removed:" "$PROMPTS_DIR/verify.md"
+    grep -q "removed_reason" "$PROMPTS_DIR/verify.md"
+    grep -q "UNVERIFIED + escalate" "$PROMPTS_DIR/verify.md"
+}
+
+@test "verify.md keeps diff evidence for unmapped ACs only (Invariant 7)" {
+    grep -q "diff-evidence" "$PROMPTS_DIR/verify.md"
+    grep -q "never judged by diff evidence" "$PROMPTS_DIR/verify.md"
+}
+
+@test "run-all.md STOP row for criteria_unverified precedes the PARTIAL row (B5)" {
+    local f="$PROMPTS_DIR/run-all.md"
+    local stop_at passed_at partial_at
+    stop_at=$(grep -n 'criteria_unverified > 0' "$f" | head -1 | cut -d: -f1)
+    passed_at=$(grep -n '^| VERIFY PASSED | Proceed to Step 8 |' "$f" | head -1 | cut -d: -f1)
+    partial_at=$(grep -n 'VERIFY PASSED (with gaps)' "$f" | head -1 | cut -d: -f1)
+    [ -n "$stop_at" ] && [ -n "$passed_at" ] && [ -n "$partial_at" ]
+    # the STOP row is the FIRST result row — above both the PASS row and the PARTIAL row
+    [ "$stop_at" -lt "$passed_at" ]
+    [ "$stop_at" -lt "$partial_at" ]
+    grep -q "status:escalated" "$f"
+}
+
+@test "run-all.md forces verify from the commit at exactly 3 points (B5a/B11)" {
+    local f="$PROMPTS_DIR/run-all.md"
+    [ "$(grep -cF 'feature map present → verify enforced' "$f")" -eq 3 ]
+    # hit 1 lives between the Step 1 and Step 2 headings
+    local step1
+    step1=$(awk '/^### Step 1: CREATE BRANCH/{f=1} /^### Step 2: CREATE PLAN/{f=0} f' "$f")
+    printf '%s\n' "$step1" | grep -qF 'feature map present → verify enforced'
+    printf '%s\n' "$step1" | grep -qF 'MAP_AT "HEAD"'
+    printf '%s\n' "$step1" | grep -qF 'invalid object name'
+    # hit 2 lives in the resume section
+    local resume
+    resume=$(awk '/^## Step 0\.5: INITIALIZE STATE/{f=1} /^## Workflow/{f=0} f' "$f")
+    printf '%s\n' "$resume" | grep -qF 'feature map present → verify enforced'
+    printf '%s\n' "$resume" | grep -qF 'MAP_AT "HEAD"'
+    printf '%s\n' "$resume" | grep -qF 'invalid object name'
+    printf '%s\n' "$resume" | grep -qF 'RESUME_FROM = 7.5'
+    # hit 3 lives in Step 8, which also enforces the same-head verdict
+    local step8
+    step8=$(awk '/^### Step 8: MERGE/{f=1} /^### Step 8\.5/{f=0} f' "$f")
+    printf '%s\n' "$step8" | grep -qF 'feature map present → verify enforced'
+    printf '%s\n' "$step8" | grep -q "cat-file -e"
+    printf '%s\n' "$step8" | grep -qF 'verified_sha'
+    printf '%s\n' "$step8" | grep -qF 'criteria_failed == 0'
+    printf '%s\n' "$step8" | grep -qF 'criteria_unverified == 0'
+    printf '%s\n' "$step8" | grep -qF 'Never merge'
+}
+
+@test "run-all.md detects the map with git, never the filesystem (B11)" {
+    local f="$PROMPTS_DIR/run-all.md"
+    run grep -qF '[ -f .prp-verify/feature-map.yaml' "$f"
+    [ "$status" -ne 0 ]
+    run grep -qF 'test -f .prp-verify/feature-map.yaml' "$f"
+    [ "$status" -ne 0 ]
+    # the fail-closed clause is present: a git error is never "map absent"
+    grep -qF 'A git error is never read as' "$f"
+}
+
+@test "run-all.md 7.5 skip condition is unchanged (B5a)" {
+    grep -qF 'skip if not AUTO_MERGE or VERIFY != true or REVIEW_VERDICT != "0_issues"' "$PROMPTS_DIR/run-all.md"
+    grep -qF '(automatic when the PR head has .prp-verify/feature-map.yaml' "$PROMPTS_DIR/run-all.md"
+}
+
+@test "verify.md 0.4 resolves the PR head and discriminates exit codes (r1 fix)" {
+    local sect
+    sect=$(awk '/^### 0\.4 Load Feature Map/{f=1} /^## Phase 1/{f=0} f' "$PROMPTS_DIR/verify.md")
+    printf '%s\n' "$sect" | grep -qF 'headRefOid'
+    printf '%s\n' "$sect" | grep -qF 'pull/{NUMBER}/head'
+    printf '%s\n' "$sect" | grep -qF 'invalid object name'
+    printf '%s\n' "$sect" | grep -qF '2>&1 >/dev/null'
+    # the fail-open one-liner must be gone from verify.md entirely
+    run grep -qF '&& echo MAP_PRESENT' "$PROMPTS_DIR/verify.md"
+    [ "$status" -ne 0 ]
+}
+
+@test "verify.md maps the sync tombstone outcome and exit-2 catch-all (r1 fix)" {
+    grep -qF 'all paths deleted at HEAD -> tombstone' "$PROMPTS_DIR/verify.md"
+    grep -qF 'removed_reason' "$PROMPTS_DIR/verify.md"
+    grep -qF '`2` = entry id not found' "$PROMPTS_DIR/verify.md"
+    grep -qF 'any other exit' "$PROMPTS_DIR/verify.md"
+}
+
+@test "verify.md requires the checkout at the PR head before map mechanics (r1 fix)" {
+    grep -qF 'git rev-parse HEAD' "$PROMPTS_DIR/verify.md"
+    grep -qF 'synced_sha' "$PROMPTS_DIR/verify.md"
+}
+
+@test "run-all.md Step 8 classifies MAP_AT stderr and requires map_entries_run (r1 fix)" {
+    grep -qF 'MAP_AT_ERR' "$PROMPTS_DIR/run-all.md"
+    grep -qF '2>&1 >/dev/null' "$PROMPTS_DIR/run-all.md"
+    grep -qF 'invalid object name' "$PROMPTS_DIR/run-all.md"
+    grep -qF 'map_entries_run > 0' "$PROMPTS_DIR/run-all.md"
+}
+
+@test "run-all.md Step 1 and resume detection classify git errors via MAP_AT (r2 fix)" {
+    local f="$PROMPTS_DIR/run-all.md"
+    local step1 resume
+    step1=$(awk '/^### Step 1: CREATE BRANCH/{f=1} /^### Step 2: CREATE PLAN/{f=0} f' "$f")
+    resume=$(awk '/^## Step 0\.5: INITIALIZE STATE/{f=1} /^## Workflow/{f=0} f' "$f")
+    printf '%s\n' "$step1" | grep -qF 'MAP_AT "HEAD"'
+    printf '%s\n' "$step1" | grep -qF 'MAP_AT_ERR'
+    printf '%s\n' "$step1" | grep -qF 'escalate'
+    printf '%s\n' "$resume" | grep -qF 'MAP_AT "HEAD"'
+    printf '%s\n' "$resume" | grep -qF 'MAP_AT_ERR'
+    printf '%s\n' "$resume" | grep -qF 'escalate'
+    # the fail-open one-liner is gone from run-all.md entirely
+    run grep -qF '&& echo MAP_PRESENT' "$f"
+    [ "$status" -ne 0 ]
+}
+
+@test "run-all.md 7.5 has an escape row for the zero-map-exercise artifact (r2 fix)" {
+    grep -qF 'map_entries_run == 0' "$PROMPTS_DIR/run-all.md"
+    grep -qF 'status:escalated' "$PROMPTS_DIR/run-all.md"
+}
+
+@test "verify.md 0.4 proves the fetched head is a commit before detection (r2 fix)" {
+    local sect
+    sect=$(awk '/^### 0\.4 Load Feature Map/{f=1} /^## Phase 1/{f=0} f' "$PROMPTS_DIR/verify.md")
+    printf '%s\n' "$sect" | grep -qF '${PR_HEAD_SHA}^{commit}'
+    printf '%s\n' "$sect" | grep -qF 'PR head not present after fetch'
+}
