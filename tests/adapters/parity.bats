@@ -843,3 +843,17 @@ with open('$f', 'rb') as fh:
         "$FRAMEWORK_DIR/adapters/thclaws/prp-implement/SKILL.md" 2>/dev/null | wc -l)
     [ "$count" -eq 6 ]
 }
+
+@test "all ralph files carry the blocked-design gate" {
+    for f in \
+        "$FRAMEWORK_DIR/prompts/ralph.md" \
+        "$FRAMEWORK_DIR/adapters/antigravity/prp-ralph.md" \
+        "$FRAMEWORK_DIR/adapters/claude-code/prp-ralph.md" \
+        "$FRAMEWORK_DIR/adapters/codex/prp-ralph/SKILL.md" \
+        "$FRAMEWORK_DIR/adapters/gemini/ralph.toml" \
+        "$FRAMEWORK_DIR/adapters/opencode/ralph.md" \
+        "$FRAMEWORK_DIR/adapters/thclaws/prp-ralph/SKILL.md"; do
+        grep -q "status: blocked-design" "$f"
+        grep -q "STOPPED: blocked-design" "$f"
+    done
+}

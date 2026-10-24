@@ -59,7 +59,11 @@ test -f "{file_path}" && echo "EXISTS" || echo "NOT_FOUND"
 
 **If NOT_FOUND**: Stop with error message.
 
-### 1.4 If PRD File - Select Next Phase
+### 1.4 Blocked-Design Gate (before any iteration or archive)
+
+Before creating the state file, starting an iteration, or archiving anything: read the input plan's frontmatter. If `status: blocked-design`, STOP immediately — the ralph loop must not start. Escalate exactly like run-all's blocked-design path: extract the uncovered boundary cases from the plan's Design Alternatives section and write them + the plan path to a temp file with a quoted-delimiter heredoc (`<<'EOF'`) — never inline-interpolate plan text into a shell argument. If ISSUE_NUMBER is set: `gh issue comment <N> --body-file <file>`. If ISSUE_NUMBER is empty: `gh issue create` titled `blocked-design: <feature>` with `--body-file <file>`. If the `gh` command fails (non-zero exit): copy the body file to `.prp-output/escalations/blocked-design-{RUN_TIMESTAMP}.md` and STOP with `Escalation failed — blocked-design artifact saved locally, file manually: <path>` (do NOT report an issue URL). If `gh` succeeds: add label `status:escalated` (label failure is non-fatal — WARN and continue) and report `STOPPED: blocked-design — no design covers all boundary cases (see <issue>)`. Escalation is a comment + label, never a question.
+
+### 1.5 If PRD File - Select Next Phase
 
 If input is a `.prd.md` file:
 1. Read the PRD
@@ -71,6 +75,7 @@ If input is a `.prd.md` file:
 **PHASE_1_CHECKPOINT:**
 - [ ] Input parsed (file path + max iterations)
 - [ ] File exists and is valid type
+- [ ] Plan frontmatter checked for `status: blocked-design` (§1.4 gate)
 - [ ] If PRD: next phase identified
 
 ---

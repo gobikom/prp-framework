@@ -320,7 +320,6 @@ Artifacts (`.prp-output/`) are symlinked to the original repo — they persist a
 - `--skip-plan` flag
 - SKIP_PLAN = true (from smart plan detection in Step 0.8 — small issue)
 
-
 If skipping and no PLAN_PATH: create a minimal stub plan file:
 
 ```markdown
@@ -350,10 +349,18 @@ This will: analyze codebase (lighter if --fast), generate plan with validation c
 **Variable update**: `PLAN_PATH = {generated plan path}` (always a real file — stub plan if skipping)
 **Failure** → STOP.
 
-**Blocked design (Phase 4.1):** after Step 2, read the plan frontmatter. If `status: blocked-design`, STOP the whole run — do NOT implement, do NOT ask anything. Extract the uncovered boundary cases from the plan's Design Alternatives section and write them + the plan path to a temp file with a quoted-delimiter heredoc (`<<'EOF'`) — never inline-interpolate plan text into a shell argument. If ISSUE_NUMBER is set: `gh issue comment <N> --body-file <file>`. If ISSUE_NUMBER is empty: `gh issue create` titled `blocked-design: <feature>` with `--body-file <file>` and use that issue as the escalation target. If the `gh` command fails (non-zero exit): copy the body file to `.prp-output/escalations/blocked-design-{RUN_TIMESTAMP}.md` and STOP with `Escalation failed — blocked-design artifact saved locally, file manually: <path>` (do NOT report an issue URL). If `gh` succeeds: add label `status:escalated` (create the label if missing; a label failure is non-fatal — WARN and continue) on the target issue, and report `STOPPED: blocked-design — no design covers all boundary cases (see <issue>)`. Escalation is a comment + label, never a question.
-
 **DO NOT**: Read plan skill and execute logic yourself, analyze codebase directly.
 **CHECKPOINT**: If not skipping, did you invoke `$prp-plan`? If not → STOP → invoke it.
+
+---
+
+### Step 2.5: PLAN GATE (always run — no skip condition)
+
+Runs on EVERY path that sets PLAN_PATH: `--prp-path` (explicit plan), `--skip-plan`/stub, smart plan detection, and `--resume` resuming past Step 2. Step 2 running or being skipped makes no difference — this gate always executes before any implementation.
+
+**Blocked design (Phase 4.1):** read the plan at `PLAN_PATH` frontmatter. If `status: blocked-design`, STOP the whole run — do NOT implement, do NOT ask anything. Extract the uncovered boundary cases from the plan's Design Alternatives section and write them + the plan path to a temp file with a quoted-delimiter heredoc (`<<'EOF'`) — never inline-interpolate plan text into a shell argument. If ISSUE_NUMBER is set: `gh issue comment <N> --body-file <file>`. If ISSUE_NUMBER is empty: `gh issue create` titled `blocked-design: <feature>` with `--body-file <file>` and use that issue as the escalation target. If the `gh` command fails (non-zero exit): copy the body file to `.prp-output/escalations/blocked-design-{RUN_TIMESTAMP}.md` and STOP with `Escalation failed — blocked-design artifact saved locally, file manually: <path>` (do NOT report an issue URL). If `gh` succeeds: add label `status:escalated` (create the label if missing; a label failure is non-fatal — WARN and continue) on the target issue, and report `STOPPED: blocked-design — no design covers all boundary cases (see <issue>)`. Escalation is a comment + label, never a question.
+
+**CHECKPOINT**: Did you read the plan frontmatter at `PLAN_PATH` before implementing? If not → STOP → do it.
 
 ---
 
@@ -380,6 +387,7 @@ This will: loop iteratively until ALL validations pass, self-fix failures, write
 **DO NOT**: Read implement/ralph skill and execute logic yourself, write code directly.
 **CHECKPOINT**: Did you invoke `$prp-implement` or `$prp-ralph`? If not → STOP → invoke it.
 **TRANSITION**: Implement succeeded → **immediately proceed to Step 3.1**.
+**Hard STOP — `STOPPED:` output**: if implement (3A) or ralph (3B) reports `STOPPED:` (e.g. `STOPPED: blocked-design`), that is a terminal outcome for the whole run: do NOT proceed to Step 3.1, do NOT run the Step 3.2 "Create Missing Artifacts" fallback, do NOT fabricate a report or review context. Report the `STOPPED:` line verbatim and stop.
 
 #### 3.1 Verify Artifacts
 

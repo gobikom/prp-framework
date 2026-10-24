@@ -588,3 +588,41 @@ CLEANUP_FILE="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)/adapters/cla
     run grep -q -- "--no-alternatives" "$PROMPTS_DIR/run-all.md"
     [ "$status" -ne 0 ]
 }
+
+@test "run-all.md Step 2.5 PLAN GATE is always-run and sits between Step 2 and Step 3" {
+    local gate step2
+    gate=$(awk '/^### Step 2\.5: PLAN GATE/{f=1} /^### Step 3: IMPLEMENT/{f=0} f' "$PROMPTS_DIR/run-all.md")
+    [ -n "$gate" ]
+    printf '%s\n' "$gate" | grep -q "always run"
+    printf '%s\n' "$gate" | grep -q -- "--prp-path"
+    printf '%s\n' "$gate" | grep -q -- "--skip-plan"
+    printf '%s\n' "$gate" | grep -q -- "--resume"
+    printf '%s\n' "$gate" | grep -q "Blocked design (Phase 4.1)"
+    printf '%s\n' "$gate" | grep -q "STOPPED: blocked-design"
+    # the gate moved out of Step 2: the skip-window must no longer carry it
+    step2=$(awk '/^### Step 2: CREATE PLAN/{f=1} /^### Step 2\.5: PLAN GATE/{f=0} f' "$PROMPTS_DIR/run-all.md")
+    run grep -q "Blocked design (Phase 4.1)" <<< "$step2"
+    [ "$status" -ne 0 ]
+}
+
+@test "run-all.md Step 3 hard-stops on STOPPED before the 3.2 fallback" {
+    # order-scoped: the terminal STOPPED rule must precede the 3.2 heading
+    local step3 stopped_at fallback_at
+    step3=$(awk '/^### Step 3: IMPLEMENT/{f=1} /^### Step 4: COMMIT/{f=0} f' "$PROMPTS_DIR/run-all.md")
+    printf '%s\n' "$step3" | grep -q "Hard STOP"
+    printf '%s\n' "$step3" | grep -q "STOPPED:"
+    stopped_at=$(printf '%s\n' "$step3" | grep -n "Hard STOP" | head -1 | cut -d: -f1)
+    fallback_at=$(printf '%s\n' "$step3" | grep -n '^#### 3\.2' | head -1 | cut -d: -f1)
+    [ -n "$stopped_at" ] && [ -n "$fallback_at" ]
+    [ "$stopped_at" -lt "$fallback_at" ]
+}
+
+@test "ralph.md blocked-design gate runs before Phase 2" {
+    # section-scoped: the gate lives in Phase 1 input validation, before SETUP
+    local p1
+    p1=$(awk '/^### 1\.3 Verify File Exists/{f=1} /^## Phase 2: SETUP/{f=0} f' "$PROMPTS_DIR/ralph.md")
+    printf '%s\n' "$p1" | grep -q "Blocked-Design Gate"
+    printf '%s\n' "$p1" | grep -q "status: blocked-design"
+    printf '%s\n' "$p1" | grep -q "STOPPED: blocked-design"
+    printf '%s\n' "$p1" | grep -q "before any iteration or archive"
+}
