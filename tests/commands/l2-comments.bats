@@ -337,9 +337,17 @@ runs() { local i p; for ((i = 1; i <= $1; i++)); do for p in code-reviewer secur
   [ ! -e .prp-output/reviews/pr-7-reviewed-head ]
 }
 
-@test "Phase 2.0 refuses on a review footer it cannot parse" {
+@test "Phase 2.0 counts a review footer with no well-formed run id as zero (round-guard v6: content never refuses)" {
   phase20 > p20.sh; repo_here
   printf 'Generated-by: prp-review-agents v1 run=oops pass=x\n' > c.txt
+  FAKE_COMMENTS="$PWD/c.txt" run env -u REVIEWED_HEAD_SHA bash p20.sh
+  [ "$status" -eq 0 ]
+  [ "$(cat .prp-output/reviews/pr-7-reviewed-head)" = "$FAKE_HEAD" ]
+}
+
+@test "Phase 2.0 still refuses round 11 when a malformed footer sits among ten runs (it cannot lower R)" {
+  phase20 > p20.sh; repo_here
+  { runs 10; printf 'Generated-by: prp-review-agents v1 run=oops pass=x\n'; } > c.txt
   FAKE_COMMENTS="$PWD/c.txt" run env -u REVIEWED_HEAD_SHA bash p20.sh
   [ "$status" -ne 0 ]
   [ ! -e .prp-output/reviews/pr-7-reviewed-head ]
