@@ -53,3 +53,16 @@ Mutation check: revert the second new test's `{ runs 10; …}` to `runs 9` and i
 ## Not building
 
 No change to round-guard.sh, the prompt or the adapters.
+
+## Amendment R1 (psak, 2026-10-25, run 20261024T204539Z-11eb2c4a at 80f6c9ee, 0C/1I)
+
+silent-failure-hunter (comment 6389337661): the round-11 test checks only `status -ne 0`. It cannot tell a cap refusal from a content refusal coming back. Fix: in that test, add these two lines right after `[ "$status" -ne 0 ]`. They mirror the sibling test "Phase 2.0 refuses round 11 (ten runs) before any head file or agent":
+
+```bash
+  [[ "$output" == *"ROUND-CAP: refused"* ]]
+  [[ "$output" == *"round cap — no agents started"* ]]
+```
+
+psak prototyped this at 80f6c9ee: l2-comments.bats rc=0 (58 ok), l2-adapters-matrix.bats rc=0.
+
+Mutation check: in a scratch copy of scripts/round-guard.sh, make a `Generated-by:` line with no well-formed id exit 2 before counting. Both new tests must FAIL. Restore it.

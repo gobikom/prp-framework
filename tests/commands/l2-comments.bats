@@ -350,6 +350,8 @@ runs() { local i p; for ((i = 1; i <= $1; i++)); do for p in code-reviewer secur
   { runs 10; printf 'Generated-by: prp-review-agents v1 run=oops pass=x\n'; } > c.txt
   FAKE_COMMENTS="$PWD/c.txt" run env -u REVIEWED_HEAD_SHA bash p20.sh
   [ "$status" -ne 0 ]
+  [[ "$output" == *"ROUND-CAP: refused"* ]]
+  [[ "$output" == *"round cap — no agents started"* ]]
   [ ! -e .prp-output/reviews/pr-7-reviewed-head ]
 }
 
