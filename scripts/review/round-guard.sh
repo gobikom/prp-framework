@@ -10,8 +10,9 @@
 # Boundaries, stated:
 # - A 9-hex id counts as its 8-hex prefix. Two ids differing only in the 9th hex digit count once.
 # - Never refuses on content. An edited comment whose id was removed or garbled is not counted —
-#   out of scope, prp-framework#213 (durable ledger). Any text can only raise R; caller-side author
-#   filtering is in #212.
+#   out of scope, prp-framework#213 (durable ledger). Any text can only raise R: a forged id can push
+#   R to the cap early (refuses another round, never undercounts). Every agent comments as one user,
+#   so an author filter cannot help; ledger-only counting (#213) closes it.
 #
 # usage: round-guard.sh [--cap N] < footer-lines
 #   stdin: one line per PR comment = that comment's LAST line (the caller extracts it).
