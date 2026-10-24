@@ -610,6 +610,11 @@ CLEANUP_FILE="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)/adapters/cla
     # semantic, not keyword-only: the STOP directive itself must survive
     printf '%s\n' "$gate" | grep -q "STOP the whole run"
     printf '%s\n' "$gate" | grep -q "do NOT implement"
+    # A2 leftover: no unconditional-execution claim in the gated section
+    run grep -qi 'always executes' <<< "$gate"
+    [ "$status" -ne 0 ]
+    run grep -q 'ALWAYS run' <<< "$gate"
+    [ "$status" -ne 0 ]
     # the gate moved out of Step 2: the skip-window must no longer carry it
     step2=$(awk '/^### Step 2: CREATE PLAN/{f=1} /^### Step 2\.5: PLAN GATE/{f=0} f' "$PROMPTS_DIR/run-all.md")
     run grep -q "Blocked design (Phase 4.1)" <<< "$step2"
@@ -642,12 +647,27 @@ CLEANUP_FILE="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)/adapters/cla
     printf '%s\n' "$gate" | grep -qF 'RUN_TIMESTAMP=$(date -u +%Y%m%dT%H%M%SZ)'
 }
 
-@test "ralph.md PRD path re-gates the generated plan (A5)" {
-    local prd
-    prd=$(awk '/^### 1\.5 If PRD File/{f=1} /^\*\*PHASE_1_CHECKPOINT/{f=0} f' "$PROMPTS_DIR/ralph.md")
-    [ -n "$prd" ]
-    printf '%s\n' "$prd" | grep -q "1.4 Blocked-Design Gate"
-    printf '%s\n' "$prd" | grep -q "generated plan"
+@test "ralph.md 3.0 Plan Gate runs every iteration, before 3.1 and 3.3 Implement (A5')" {
+    local p3 g30 g31 g33 gate p15
+    p3=$(awk '/^## Phase 3: EXECUTE/{f=1} /^## Phase 4: COMPLETION/{f=0} f' "$PROMPTS_DIR/ralph.md")
+    [ -n "$p3" ]
+    # order: the gate precedes 3.1 and the implementation subsection
+    g30=$(printf '%s\n' "$p3" | grep -n '^### 3\.0 Plan Gate' | head -1 | cut -d: -f1)
+    g31=$(printf '%s\n' "$p3" | grep -n '^### 3\.1' | head -1 | cut -d: -f1)
+    g33=$(printf '%s\n' "$p3" | grep -n '^### 3\.3 Implement' | head -1 | cut -d: -f1)
+    [ -n "$g30" ] && [ -n "$g31" ] && [ -n "$g33" ]
+    [ "$g30" -lt "$g31" ]
+    [ "$g30" -lt "$g33" ]
+    # phrase pins inside the 3.0 section
+    gate=$(awk '/^### 3\.0 Plan Gate/{f=1} /^### 3\.1/{f=0} f' "$PROMPTS_DIR/ralph.md")
+    [ -n "$gate" ]
+    printf '%s\n' "$gate" | grep -qF 'status: blocked-design'
+    printf '%s\n' "$gate" | grep -qF 'ralph.state.md'
+    printf '%s\n' "$gate" | grep -qF 'do NOT output'
+    # §1.5 is a pointer only: no BEFORE Phase 2
+    p15=$(awk '/^### 1\.5 If PRD File/{f=1} /^\*\*PHASE_1_CHECKPOINT/{f=0} f' "$PROMPTS_DIR/ralph.md")
+    run grep -qF 'BEFORE Phase 2' <<< "$p15"
+    [ "$status" -ne 0 ]
 }
 
 @test "ralph.md blocked-design gate runs before Phase 2" {
