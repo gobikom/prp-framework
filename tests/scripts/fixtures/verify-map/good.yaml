@@ -1,0 +1,46 @@
+# Fixture: a valid map (schema-clean). Tests sed __SHA__ to the temp repo's HEAD.
+version: 1
+features:
+  - id: alpha-smoke
+    summary: alpha module content check
+    match: [alpha]
+    paths: ["src/lib/**"]
+    surface: cli
+    env: local
+    exercise: grep -q alpha src/lib/alpha.py
+    expect:
+      exit: 0
+    timeout: 10
+    synced_sha: __SHA__
+    negative_proof:
+      sha: __SHA__
+      exit: 1
+  - id: docs-neg
+    summary: docs listing survives path deletion
+    match: [docs]
+    paths: ["docs/**"]
+    surface: cli
+    env: local
+    exercise: ls docs | grep -q x
+    expect:
+      exit: 0
+    timeout: 10
+    synced_sha: __SHA__
+    negative_proof:
+      sha: __SHA__
+      exit: 1
+  - id: vacuous-one
+    summary: trivially true exercise (prove-negative must refuse)
+    match: [vacuous]
+    paths: ["src/**"]
+    surface: cli
+    env: local
+    exercise: "true"
+    expect:
+      exit: 0
+    timeout: 10
+    synced_sha: __SHA__
+    negative_proof:
+      sha: __SHA__
+      exit: 1
+removed: []
