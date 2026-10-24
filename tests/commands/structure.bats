@@ -589,32 +589,65 @@ CLEANUP_FILE="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)/adapters/cla
     [ "$status" -ne 0 ]
 }
 
-@test "run-all.md Step 2.5 PLAN GATE is always-run and sits between Step 2 and Step 3" {
+@test "run-all.md Step 2.5 PLAN GATE sits between Step 2 and Step 3 with skip guard (A1/A2)" {
     local gate step2
     gate=$(awk '/^### Step 2\.5: PLAN GATE/{f=1} /^### Step 3: IMPLEMENT/{f=0} f' "$PROMPTS_DIR/run-all.md")
     [ -n "$gate" ]
-    printf '%s\n' "$gate" | grep -q "always run"
+    # A2: the gate is skipped on resume past Step 3, not unconditional
+    printf '%s\n' "$gate" | grep -q "skip if RESUME_FROM > 3"
+    run grep -q "resuming past Step 2" <<< "$gate"
+    [ "$status" -ne 0 ]
+    # A1: the gate body names every forward entry path and carries the escalation machinery
     printf '%s\n' "$gate" | grep -q -- "--prp-path"
     printf '%s\n' "$gate" | grep -q -- "--skip-plan"
     printf '%s\n' "$gate" | grep -q -- "--resume"
     printf '%s\n' "$gate" | grep -q "Blocked design (Phase 4.1)"
+    printf '%s\n' "$gate" | grep -q "status: blocked-design"
+    printf '%s\n' "$gate" | grep -q "PLAN_PATH"
+    printf '%s\n' "$gate" | grep -q -- "--body-file"
+    printf '%s\n' "$gate" | grep -q "status:escalated"
     printf '%s\n' "$gate" | grep -q "STOPPED: blocked-design"
+    # semantic, not keyword-only: the STOP directive itself must survive
+    printf '%s\n' "$gate" | grep -q "STOP the whole run"
+    printf '%s\n' "$gate" | grep -q "do NOT implement"
     # the gate moved out of Step 2: the skip-window must no longer carry it
     step2=$(awk '/^### Step 2: CREATE PLAN/{f=1} /^### Step 2\.5: PLAN GATE/{f=0} f' "$PROMPTS_DIR/run-all.md")
     run grep -q "Blocked design (Phase 4.1)" <<< "$step2"
     [ "$status" -ne 0 ]
 }
 
-@test "run-all.md Step 3 hard-stops on STOPPED before the 3.2 fallback" {
-    # order-scoped: the terminal STOPPED rule must precede the 3.2 heading
-    local step3 stopped_at fallback_at
+@test "run-all.md Step 3 hard-stops on STOPPED before the 3.2 fallback (A3)" {
+    # order-scoped: the terminal STOPPED rule must precede the success TRANSITION and the 3.2 heading
+    local step3 stopped_at transition_at fallback_at
     step3=$(awk '/^### Step 3: IMPLEMENT/{f=1} /^### Step 4: COMMIT/{f=0} f' "$PROMPTS_DIR/run-all.md")
     printf '%s\n' "$step3" | grep -q "Hard STOP"
     printf '%s\n' "$step3" | grep -q "STOPPED:"
+    # semantic, not keyword-only: the 3.2 fallback is forbidden, the outcome is recorded
+    printf '%s\n' "$step3" | grep -q "do NOT run the Step 3.2"
+    printf '%s\n' "$step3" | grep -q "status: stopped"
+    printf '%s\n' "$step3" | grep -q 'no `STOPPED:` line'
     stopped_at=$(printf '%s\n' "$step3" | grep -n "Hard STOP" | head -1 | cut -d: -f1)
+    transition_at=$(printf '%s\n' "$step3" | grep -n '^\*\*TRANSITION\*\*' | head -1 | cut -d: -f1)
     fallback_at=$(printf '%s\n' "$step3" | grep -n '^#### 3\.2' | head -1 | cut -d: -f1)
-    [ -n "$stopped_at" ] && [ -n "$fallback_at" ]
+    [ -n "$stopped_at" ] && [ -n "$transition_at" ] && [ -n "$fallback_at" ]
+    [ "$stopped_at" -lt "$transition_at" ]
     [ "$stopped_at" -lt "$fallback_at" ]
+}
+
+@test "ralph.md 1.4 defines ISSUE_NUMBER and RUN_TIMESTAMP (A4)" {
+    local gate
+    gate=$(awk '/^### 1\.4 Blocked-Design Gate/{f=1} /^### 1\.5 If PRD/{f=0} f' "$PROMPTS_DIR/ralph.md")
+    [ -n "$gate" ]
+    printf '%s\n' "$gate" | grep -q "ISSUE_NUMBER"
+    printf '%s\n' "$gate" | grep -qF 'RUN_TIMESTAMP=$(date -u +%Y%m%dT%H%M%SZ)'
+}
+
+@test "ralph.md PRD path re-gates the generated plan (A5)" {
+    local prd
+    prd=$(awk '/^### 1\.5 If PRD File/{f=1} /^\*\*PHASE_1_CHECKPOINT/{f=0} f' "$PROMPTS_DIR/ralph.md")
+    [ -n "$prd" ]
+    printf '%s\n' "$prd" | grep -q "1.4 Blocked-Design Gate"
+    printf '%s\n' "$prd" | grep -q "generated plan"
 }
 
 @test "ralph.md blocked-design gate runs before Phase 2" {

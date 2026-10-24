@@ -58,6 +58,7 @@ test -f "{file_path}" && echo "EXISTS" || echo "NOT_FOUND"
 
 ### 1.4 Blocked-Design Gate (before any iteration or archive)
 
+Variables used below: `ISSUE_NUMBER` is the task issue number when ralph runs inside run-all; standalone ralph has none, so `ISSUE_NUMBER` is empty and the `gh issue create` branch is always taken. `RUN_TIMESTAMP=$(date -u +%Y%m%dT%H%M%SZ)`.
 Before creating the state file, starting an iteration, or archiving anything: read the input plan's frontmatter. If `status: blocked-design`, STOP immediately — the ralph loop must not start. Escalate exactly like run-all's blocked-design path: extract the uncovered boundary cases from the plan's Design Alternatives section and write them + the plan path to a temp file with a quoted-delimiter heredoc (`<<'EOF'`) — never inline-interpolate plan text into a shell argument. If ISSUE_NUMBER is set: `gh issue comment <N> --body-file <file>`. If ISSUE_NUMBER is empty: `gh issue create` titled `blocked-design: <feature>` with `--body-file <file>`. If the `gh` command fails (non-zero exit): copy the body file to `.prp-output/escalations/blocked-design-{RUN_TIMESTAMP}.md` and STOP with `Escalation failed — blocked-design artifact saved locally, file manually: <path>` (do NOT report an issue URL). If `gh` succeeds: add label `status:escalated` (label failure is non-fatal — WARN and continue) and report `STOPPED: blocked-design — no design covers all boundary cases (see <issue>)`. Escalation is a comment + label, never a question.
 
 ### 1.5 If PRD File - Select Next Phase
@@ -68,6 +69,7 @@ If input is a `.prd.md` file:
 3. Find first phase with `Status: pending` where dependencies are `complete`
 4. Report which phase will be executed
 5. Note: The loop will create and execute a plan for this phase
+6. When the plan for the phase is generated, run the §1.4 Blocked-Design Gate on that generated plan's frontmatter BEFORE Phase 2 state-file creation or any iteration — a `status: blocked-design` plan stops the loop exactly like a `.plan.md` input
 
 **PHASE_1_CHECKPOINT:**
 - [ ] Input parsed (file path + max iterations)
