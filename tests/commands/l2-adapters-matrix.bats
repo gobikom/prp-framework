@@ -42,11 +42,10 @@ adapters/thclaws/prp-review-agents/SKILL.md"
 # suite's current test count -- a drift here means a test was added/removed
 # without updating this harness), and no "not ok" line.
 run_matrix() {
-  local file="$1" out status
+  local file="$1" out status=0
   out="$(cd "$ROOT" && env -u BATS_TEST_FILENAME -u BATS_TEST_NAMES \
     -u BATS_SUITE_TEST_NUMBER -u BATS_TEST_NUMBER -u BATS_RUN_TMPDIR \
-    L2_ADAPTER="$file" bats --tap tests/commands/l2-comments.bats 2>&1)"
-  status=$?
+    L2_ADAPTER="$file" bats --tap tests/commands/l2-comments.bats 2>&1)" || status=$?
   if [ "$status" -ne 0 ]; then
     echo "nested bats failed for $file (status=$status):" >&2
     printf '%s\n' "$out" >&2
