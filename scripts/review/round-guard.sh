@@ -1,20 +1,23 @@
 #!/usr/bin/env bash
 # Round cap for prp-review-agents (prp-framework#151 AC3).
 #
-# Invariant: the round count R is the number of distinct run-id tokens ([0-9]{8}T[0-9]{6}Z-<hex>+,
-# compared lower-cased) found anywhere in the input lines. Every exact footer carries its run id, so
-# R >= (distinct ids in exact footers). Changing anything on a line except the id itself (prefix,
-# separators, word order, case, quoting, CR, a missing pass=, a split line) cannot lower R.
-# Boundary (out of scope, stated): a run id whose digits are altered or split is not counted --
-# equivalent to deleting the comment, which this guard cannot see either.
-# Direction of error: a run id cited in prose (an L2 note, a provenance notice) is counted too --
-# this can only raise R, making the guard stricter, never weaker.
+# Invariant: the round count R is the number of distinct run ids ([0-9]{8}T[0-9]{6}Z-[0-9a-f]{8},
+# lower-cased) in the input. A footer's round can go uncounted without a refusal only if its id is
+# altered AND the line loses both of its markers (the run= and the generated-by). At that point the
+# line is no longer a footer, which is the same as deleting the comment.
+# Boundaries, stated:
+# - An id split across two lines refuses: the first half follows run= and is not a readable id.
+# - A 9-hex id counts as its 8-hex prefix. Two ids differing only in the 9th hex digit count once.
+# - run must start a word: workflow_run=, rerun= and prose like "did not run: it" are not markers.
+#   Only run= (optional spaces around =) is a marker; run: is not.
+# - Fail-closed cost: a foreign bot's last line, or a generated-by line with no id, refuses. This
+#   blocks the review rather than undercounting it.
 #
 # usage: round-guard.sh [--cap N] < footer-lines
 #   stdin: one line per PR comment = that comment's LAST line (the caller extracts it).
 #   exit 0 = allowed (prints "rounds so far: R of N; this is round R+1")
 #   exit 3 = refused: cap reached
-#   exit 2 = bad argument, unreadable input, or grep failure (fail closed)
+#   exit 2 = bad argument, unreadable input, an unreadable run id, or grep failure (fail closed)
 set -euo pipefail
 
 CAP=10
@@ -30,8 +33,20 @@ CAP=$((10#$CAP))
 
 # A review round is one distinct run id. Every run id token anywhere in the input counts, whatever the rest
 # of its line looks like, so no footer shape can hide a round. Ids are compared lower-cased.
-ID_RE='[0-9]{8}[Tt][0-9]{6}[Zz]-[0-9A-Fa-f]+'
+ID_RE='[0-9]{8}[Tt][0-9]{6}[Zz]-[0-9A-Fa-f]{8}'
 IN=$(cat) || { echo "error: cannot read input — round count unknown, refusing" >&2; exit 2; }
+# A footer whose id is unreadable must not vanish: refuse when a run= marker is not followed by an id,
+# or when a generated-by line carries no id at all. "run" must start a word (workflow_run=, rerun= are not markers).
+if ! printf '%s\n' "$IN" | LC_ALL=C awk -v id="$ID_RE" '
+  { l = tolower($0); t = l
+    while (match(t, /(^|[^a-z0-9_])run[[:space:]]*=[[:space:]]*/)) {
+      rest = substr(t, RSTART + RLENGTH)
+      if (match(rest, "^" tolower(id)) == 0) { bad = 1 }
+      t = rest }
+    if (l ~ /generated.?by/ && l !~ tolower(id)) { bad = 1 } }
+  END { exit bad }'; then
+  echo "error: a review footer has an unreadable run id — round count unknown, refusing" >&2; exit 2
+fi
 rc=0
 IDS=$(printf '%s\n' "$IN" | LC_ALL=C grep -aoE "$ID_RE") || rc=$?
 (( rc <= 1 )) || { echo "error: grep failed (exit $rc) — round count unknown, refusing" >&2; exit 2; }
