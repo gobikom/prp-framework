@@ -68,7 +68,7 @@ If input is a `.prd.md` file:
 3. Find first phase with `Status: pending` where dependencies are `complete`
 4. Report which phase will be executed
 5. Note: The loop will create and execute a plan for this phase
-6. The generated plan is gated by §3.0 before it is implemented
+6. Note: this phase plan is not produced by the plan command's Design Alternatives selection, so the §1.4 Blocked-Design Gate does not apply to it (tracked: gobikom/prp-framework#206)
 
 **PHASE_1_CHECKPOINT:**
 - [ ] Input parsed (file path + max iterations)
@@ -163,10 +163,6 @@ Starting iteration 1...
 ---
 
 ## Phase 3: EXECUTE - Work on Plan
-
-### 3.0 Plan Gate (every iteration)
-
-At the start of every iteration, before any implementation work, read the frontmatter of the plan **this iteration executes** — the input `.plan.md`, or the phase plan generated from the PRD; if the phase plan is not yet written, write it first and then gate it. If `status: blocked-design`: escalate exactly as in §1.4, then delete `.prp-output/state/ralph.state.md` so the stop hook releases the loop, then STOP and do NOT output `<promise>COMPLETE</promise>`.
 
 ### 3.1 Read Context First
 

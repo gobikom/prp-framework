@@ -647,27 +647,16 @@ CLEANUP_FILE="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)/adapters/cla
     printf '%s\n' "$gate" | grep -qF 'RUN_TIMESTAMP=$(date -u +%Y%m%dT%H%M%SZ)'
 }
 
-@test "ralph.md 3.0 Plan Gate runs every iteration, before 3.1 and 3.3 Implement (A5')" {
-    local p3 g30 g31 g33 gate p15
-    p3=$(awk '/^## Phase 3: EXECUTE/{f=1} /^## Phase 4: COMPLETION/{f=0} f' "$PROMPTS_DIR/ralph.md")
-    [ -n "$p3" ]
-    # order: the gate precedes 3.1 and the implementation subsection
-    g30=$(printf '%s\n' "$p3" | grep -n '^### 3\.0 Plan Gate' | head -1 | cut -d: -f1)
-    g31=$(printf '%s\n' "$p3" | grep -n '^### 3\.1' | head -1 | cut -d: -f1)
-    g33=$(printf '%s\n' "$p3" | grep -n '^### 3\.3 Implement' | head -1 | cut -d: -f1)
-    [ -n "$g30" ] && [ -n "$g31" ] && [ -n "$g33" ]
-    [ "$g30" -lt "$g31" ]
-    [ "$g30" -lt "$g33" ]
-    # phrase pins inside the 3.0 section
-    gate=$(awk '/^### 3\.0 Plan Gate/{f=1} /^### 3\.1/{f=0} f' "$PROMPTS_DIR/ralph.md")
-    [ -n "$gate" ]
-    printf '%s\n' "$gate" | grep -qF 'status: blocked-design'
-    printf '%s\n' "$gate" | grep -qF 'ralph.state.md'
-    printf '%s\n' "$gate" | grep -qF 'do NOT output'
-    # §1.5 is a pointer only: no BEFORE Phase 2
-    p15=$(awk '/^### 1\.5 If PRD File/{f=1} /^\*\*PHASE_1_CHECKPOINT/{f=0} f' "$PROMPTS_DIR/ralph.md")
-    run grep -qF 'BEFORE Phase 2' <<< "$p15"
+@test "ralph.md has no loop-time plan gate; §1.5 points PRD mode to #206 (R2.2)" {
+    # R2.2 scope cut: standalone /prp-ralph x.prd.md phase plans carry no
+    # design status, so the §1.4 gate does not apply there (tracked #206)
+    run grep -qF '### 3.0 Plan Gate' "$PROMPTS_DIR/ralph.md"
     [ "$status" -ne 0 ]
+    local p15
+    p15=$(awk '/^### 1\.5 If PRD File/{f=1} /^\*\*PHASE_1_CHECKPOINT/{f=0} f' "$PROMPTS_DIR/ralph.md")
+    [ -n "$p15" ]
+    printf '%s\n' "$p15" | grep -qF 'does not apply to it'
+    printf '%s\n' "$p15" | grep -qF 'prp-framework#206'
 }
 
 @test "ralph.md blocked-design gate runs before Phase 2" {
