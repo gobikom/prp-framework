@@ -574,6 +574,8 @@ CLEANUP_FILE="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)/adapters/cla
 @test "implement.md refuses to implement a blocked-design plan" {
     grep -q "STOPPED: blocked-design" "$PROMPTS_DIR/implement.md"
     grep -q "do not change the status" "$PROMPTS_DIR/implement.md"
+    # R6: full-sentence pin — inverting `status: pending` -> STOP must go red
+    grep -qF '**If `status: blocked-design` → STOP immediately: report `STOPPED: blocked-design — no design covers all boundary cases`; do not implement' "$PROMPTS_DIR/implement.md"
 }
 
 @test "run-all.md blocked-design escalation has a failure branch" {
@@ -593,6 +595,16 @@ CLEANUP_FILE="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)/adapters/cla
     local gate step2
     gate=$(awk '/^### Step 2\.5: PLAN GATE/{f=1} /^### Step 3: IMPLEMENT/{f=0} f' "$PROMPTS_DIR/run-all.md")
     [ -n "$gate" ]
+    # R6: the position is load-bearing — each heading exactly once, 2 < 2.5 < 3
+    [ "$(grep -c '^### Step 2: CREATE PLAN' "$PROMPTS_DIR/run-all.md")" -eq 1 ]
+    [ "$(grep -c '^### Step 2\.5: PLAN GATE' "$PROMPTS_DIR/run-all.md")" -eq 1 ]
+    [ "$(grep -c '^### Step 3: IMPLEMENT' "$PROMPTS_DIR/run-all.md")" -eq 1 ]
+    local step2_at gate_at step3_at
+    step2_at=$(grep -n '^### Step 2: CREATE PLAN' "$PROMPTS_DIR/run-all.md" | cut -d: -f1)
+    gate_at=$(grep -n '^### Step 2\.5: PLAN GATE' "$PROMPTS_DIR/run-all.md" | cut -d: -f1)
+    step3_at=$(grep -n '^### Step 3: IMPLEMENT' "$PROMPTS_DIR/run-all.md" | cut -d: -f1)
+    [ "$step2_at" -lt "$gate_at" ]
+    [ "$gate_at" -lt "$step3_at" ]
     # A2: the gate is skipped on resume past Step 3, not unconditional
     printf '%s\n' "$gate" | grep -q "skip if RESUME_FROM > 3"
     run grep -q "resuming past Step 2" <<< "$gate"
@@ -610,6 +622,7 @@ CLEANUP_FILE="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)/adapters/cla
     # semantic, not keyword-only: the STOP directive itself must survive
     printf '%s\n' "$gate" | grep -q "STOP the whole run"
     printf '%s\n' "$gate" | grep -q "do NOT implement"
+    printf '%s\n' "$gate" | grep -qF 'If `status: blocked-design`, STOP the whole run — do NOT implement, do NOT ask anything.'
     # A2 leftover: no unconditional-execution claim in the gated section
     run grep -qi 'always executes' <<< "$gate"
     [ "$status" -ne 0 ]
@@ -645,6 +658,10 @@ CLEANUP_FILE="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)/adapters/cla
     [ -n "$gate" ]
     printf '%s\n' "$gate" | grep -q "ISSUE_NUMBER"
     printf '%s\n' "$gate" | grep -qF 'RUN_TIMESTAMP=$(date -u +%Y%m%dT%H%M%SZ)'
+    # R6: full-sentence pins — the inverted or gutted §1.4 must go red
+    printf '%s\n' "$gate" | grep -qF 'If `status: blocked-design`, STOP immediately — the ralph loop must not start.'
+    printf '%s\n' "$gate" | grep -qF 'Escalation failed — blocked-design artifact saved locally, file manually: <path>'
+    printf '%s\n' "$gate" | grep -qF '.prp-output/escalations/blocked-design-{RUN_TIMESTAMP}.md'
 }
 
 @test "ralph.md has no loop-time plan gate; §1.5 points PRD mode to #206 (R2.2)" {
