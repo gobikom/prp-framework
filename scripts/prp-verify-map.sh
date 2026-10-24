@@ -233,6 +233,13 @@ def cmd_validate(path):
             errors.append(f"{where}: removed_reason must be at least 10 chars")
         if not isinstance(e.get("removed_sha"), str) or not SHA_RE.match(e.get("removed_sha", "")):
             errors.append(f"{where}: removed_sha must be a 40-hex sha")
+        unknown_t = set(e) - {"id", "match", "removed_reason", "removed_sha"}
+        if unknown_t:
+            errors.append(f"{where}: unknown keys {sorted(unknown_t)}")
+        tm = e.get("match")
+        if "match" in e and (not isinstance(tm, list) or not tm or not all(
+                isinstance(x, str) and 1 <= len(x) <= 80 for x in tm)):
+            errors.append(f"{where}: match must be a non-empty string list")
     for err in errors:
         print(err)
     return 1 if errors else 0
@@ -612,7 +619,7 @@ case "$CMD" in
         PN_RC=$?
         if [ "$PN_RC" -ne 0 ]; then
             echo "$PN_OUT" >&2
-            if [ "$PN_RC" -eq 3 ]; then exit 3; fi
+            if [ "$PN_RC" -eq 3 ] || [ "$PN_RC" -eq 4 ]; then exit "$PN_RC"; fi
             echo "sync $SID: negative proof failed (exit $PN_RC); map unchanged" >&2
             exit 1
         fi

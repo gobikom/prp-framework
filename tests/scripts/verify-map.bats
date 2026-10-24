@@ -288,3 +288,56 @@ commit_change() {
     run bash "$VM" run "$(cd ../../.. && pwd)/verify-map.yaml" alpha-smoke
     [ "$status" -eq 0 ]
 }
+
+@test "sync propagates exit 4 from the negative-proof stage" {
+    # one-shot server answers the run-stage env probe, then closes: the
+    # negative-proof stage's probe fails -> prove_negative returns 4 -> sync 4
+    python3 - <<'EOF' > port.txt &
+import socketserver, http.server
+class H(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"ok")
+    def log_message(self, *a):
+        pass
+srv = socketserver.TCPServer(("127.0.0.1", 0), H)
+print(srv.server_address[1], flush=True)
+srv.handle_request()
+srv.server_close()
+EOF
+    SERV_PID=$!
+    for _ in 1 2 3 4 5 6 7 8 9 10; do [ -s port.txt ] && break; sleep 0.2; done
+    PORT=$(cat port.txt)
+    python3 -c "
+import yaml
+m = yaml.safe_load(open('verify-map.yaml'))
+for e in m['features']:
+    if e['id'] == 'docs-neg':
+        e['env'] = 'uat'
+yaml.safe_dump(m, open('pnmix.yaml', 'w'), sort_keys=False)
+"
+    cp pnmix.yaml pnmix.bak
+    PRP_VERIFY_UAT_URL="http://127.0.0.1:$PORT/" run bash "$VM" sync pnmix.yaml docs-neg
+    kill "$SERV_PID" 2>/dev/null || true
+    [ "$status" -eq 4 ]
+    cmp pnmix.yaml pnmix.bak
+}
+
+@test "validate rejects a tombstone with unknown keys or a bad match" {
+    python3 - <<'EOF' > badtomb.yaml
+import yaml
+m = yaml.safe_load(open("verify-map.yaml"))
+m["features"] = []
+m["removed"] = [{
+    "id": "gone-bad", "bogus_extra": 1, "match": 42,
+    "removed_reason": "removed for the tombstone check test",
+    "removed_sha": "a" * 40,
+}]
+yaml.safe_dump(m, open("badtomb.yaml", "w"), sort_keys=False)
+EOF
+    run bash "$VM" validate badtomb.yaml
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"unknown keys ['bogus_extra']"* ]]
+    [[ "$output" == *"match must be a non-empty string list"* ]]
+}
