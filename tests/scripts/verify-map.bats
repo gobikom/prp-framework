@@ -232,7 +232,59 @@ commit_change() {
     rm -f side-effect.txt
 }
 
-@test "sync run-failure passes exit 3 through (unknown id inside sync)" {
+@test "sync with an unknown id exits 2" {
     run bash "$VM" sync verify-map.yaml no-such-id
     [ "$status" -eq 2 ]
+}
+
+@test "stale with a stray positional exits 2" {
+    run bash "$VM" stale verify-map.yaml HEAD~1
+    [ "$status" -eq 2 ]
+}
+
+@test "stale --head <ref> is accepted" {
+    run bash "$VM" stale verify-map.yaml --head HEAD
+    [ "$status" -eq 0 ]
+}
+
+@test "run returns 3 when the judge fails on an invalid regex" {
+    sed -e 's/^      exit: 0/      exit: 0\n      stdout_regex: "([a-"/' verify-map.yaml > badre.yaml
+    run bash "$VM" run badre.yaml alpha-smoke
+    [ "$status" -eq 3 ]
+}
+
+@test "prove-negative with an unavailable env exits 4 (no false negative held)" {
+    sed -e 's/env: local/env: uat/' -e '/id: alpha-smoke/s//id: uat-one/' verify-map.yaml > uatpn.yaml
+    run bash "$VM" prove-negative uatpn.yaml uat-one
+    [ "$status" -eq 4 ]
+}
+
+@test "prove-negative returns 3 when the judge fails (never a proven negative)" {
+    # docs-neg: exercise does not word-match its paths, so the judge is reached
+    sed -e 's/^      exit: 0/      exit: 0\n      stdout_regex: "([a-"/' verify-map.yaml > badre2.yaml
+    run bash "$VM" prove-negative badre2.yaml docs-neg
+    [ "$status" -eq 3 ]
+}
+
+@test "sync propagates exit 4 (env unavailable) and leaves the map byte-identical" {
+    sed -e 's/env: local/env: uat/' -e '/id: alpha-smoke/s//id: uat-one/' verify-map.yaml > uatsync.yaml
+    cp uatsync.yaml uatsync.bak
+    run bash "$VM" sync uatsync.yaml uat-one
+    [ "$status" -eq 4 ]
+    cmp uatsync.yaml uatsync.bak
+}
+
+@test "sync propagates exit 3 (judge tool error) and leaves the map byte-identical" {
+    sed -e 's/^      exit: 0/      exit: 0\n      stdout_regex: "([a-"/' verify-map.yaml > badre3.yaml
+    cp badre3.yaml badre3.bak
+    run bash "$VM" sync badre3.yaml alpha-smoke
+    [ "$status" -eq 3 ]
+    cmp badre3.yaml badre3.bak
+}
+
+@test "run is cwd-independent (exercise runs from the repo root)" {
+    mkdir -p src/lib/deeper
+    cd src/lib/deeper
+    run bash "$VM" run "$(cd ../../.. && pwd)/verify-map.yaml" alpha-smoke
+    [ "$status" -eq 0 ]
 }

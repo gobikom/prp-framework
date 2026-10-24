@@ -23,9 +23,9 @@
       "additionalProperties": false,
       "properties": {
         "exit": { "type": "integer" },
-        "stdout_regex": { "type": "string", "maxLength": 256 },
+        "stdout_regex": { "type": "string", "minLength": 1, "maxLength": 256 },
         "http_status": { "type": "integer", "minimum": 100, "maximum": 599 },
-        "json_path": { "type": "string", "maxLength": 256 }
+        "json_path": { "type": "string", "minLength": 1, "maxLength": 256 }
       }
     },
     "negative_proof": {
@@ -40,6 +40,7 @@
         },
         "exit": {
           "type": "integer",
+          "not": { "const": 0 },
           "description": "Exit the exercise produced with the product paths deleted. Must be non-zero: a 0 here means the negative proof met expect and the entry is vacuous."
         }
       }

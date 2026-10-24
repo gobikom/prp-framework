@@ -131,6 +131,9 @@ def cmd_validate(path):
         return 1
     if data.get("version") != 1:
         errors.append("version must be 1")
+    unknown_root = set(data) - {"version", "features", "removed"}
+    if unknown_root:
+        errors.append(f"unknown top-level keys {sorted(unknown_root)}")
     feats = data.get("features")
     if not isinstance(feats, list):
         errors.append("features must be a list")
@@ -184,6 +187,9 @@ def cmd_validate(path):
         if not isinstance(np, dict):
             errors.append(f"{where}: negative_proof must be a mapping")
         else:
+            unknown_np = set(np) - {"sha", "exit"}
+            if unknown_np:
+                errors.append(f"{where}: unknown negative_proof keys {sorted(unknown_np)}")
             if not isinstance(np.get("sha"), str) or not SHA_RE.match(np.get("sha", "")):
                 errors.append(f"{where}: negative_proof.sha must be a 40-hex sha")
             nx = np.get("exit")
@@ -216,11 +222,12 @@ def cmd_validate(path):
         if not isinstance(e, dict):
             errors.append(f"{where}: not a mapping")
             continue
-        if not isinstance(e.get("id"), str) or not ID_RE.match(e.get("id", "")):
+        _rid = e.get("id")
+        if not isinstance(_rid, str) or not ID_RE.match(_rid) or len(_rid) > 64:
             errors.append(f"{where}: bad id")
-        elif e["id"] in seen:
-            errors.append(f"{where}: duplicate id '{e['id']}'")
-        seen.add(e.get("id"))
+        elif _rid in seen:
+            errors.append(f"{where}: duplicate id '{_rid}'")
+        seen.add(_rid)
         reason = e.get("removed_reason")
         if not isinstance(reason, str) or len(reason) < 10:
             errors.append(f"{where}: removed_reason must be at least 10 chars")
@@ -317,6 +324,14 @@ def cmd_denycheck(exercise):
 
 
 def cmd_met(rc, outfile, expect_json):
+    try:
+        return _met_judge(rc, outfile, expect_json)
+    except Exception as e:
+        print(f"judge error: {e!r}", file=sys.stderr)
+        return 3
+
+
+def _met_judge(rc, outfile, expect_json):
     expect = json.loads(expect_json)
     reasons = []
     if "exit" in expect and rc != expect["exit"]:
@@ -456,7 +471,7 @@ run_entry() {
     env_available "$ENVK" || return 4
     BEFORE="$(git -C "$REPO_ROOT" status --porcelain)" || die3 "git status failed"
     OUT="$(mktemp)" || die3 "mktemp failed"
-    timeout "$TIMEOUT" nice -n 10 bash -c "$EXERCISE" >"$OUT" 2>&1
+    ( cd "$REPO_ROOT" && timeout "$TIMEOUT" nice -n 10 bash -c "$EXERCISE" ) >"$OUT" 2>&1
     RC=$?
     if [ "$RC" -eq 124 ] || [ "$RC" -eq 137 ]; then
         echo "FAIL map:$_ID: timeout after ${TIMEOUT}s"
@@ -464,6 +479,10 @@ run_entry() {
     fi
     MET_OUT="$(py met "$RC" "$OUT" "$EXPECT")"
     MET_RC=$?
+    if [ "$MET_RC" -ne 0 ] && [ "$MET_RC" -ne 1 ]; then
+        echo "ERROR: judge failed for map:$_ID (exit $MET_RC)" >&2
+        return 3
+    fi
     if [ "$MET_RC" -ne 0 ]; then
         echo "FAIL map:$_ID: $MET_OUT"
         echo "--- exercise output (first 4KB) ---"
@@ -495,6 +514,7 @@ prove_negative() {
     } < "$_TMP_FIELDS"
     rm -f "$_TMP_FIELDS"
     [ -n "${TIMEOUT:-}" ] || die3 "empty extract"
+    env_available "$ENVK" || return 4
     DENY_OUT="$(py denycheck "$EXERCISE")"
     [ $? -eq 0 ] || { echo "$DENY_OUT"; return 1; }
     OVERLAP_OUT="$(py overlap "$_MAP" "$_ID")"
@@ -527,9 +547,14 @@ prove_negative() {
         return 0
     fi
     MET_OUT="$(py met "$NRC" "$NEG_OUT" "$EXPECT")"
-    if [ $? -eq 0 ]; then
+    MET_RC=$?
+    if [ "$MET_RC" -eq 0 ]; then
         echo "vacuous: negative proof met expect"
         return 1
+    fi
+    if [ "$MET_RC" -ne 1 ]; then
+        echo "ERROR: judge failed during negative proof (exit $MET_RC)" >&2
+        return 3
     fi
     echo "negative held exit=$NRC: $MET_OUT"
     return 0
@@ -542,12 +567,9 @@ case "$CMD" in
         py validate "$1"
         ;;
     stale)
-        [ $# -ge 1 ] && [ $# -le 3 ] || usage
+        { [ $# -eq 1 ] || { [ $# -eq 3 ] && [ "$2" = "--head" ]; } } || usage
         HEAD_REF="HEAD"
-        if [ $# -eq 3 ]; then
-            [ "$2" = "--head" ] || usage
-            HEAD_REF="$3"
-        fi
+        [ $# -eq 3 ] && HEAD_REF="$3"
         py stale "$1" "$HEAD_REF"
         ;;
     match)
@@ -594,8 +616,13 @@ case "$CMD" in
             echo "sync $SID: negative proof failed (exit $PN_RC); map unchanged" >&2
             exit 1
         fi
-        NEG_EXIT="$(printf '%s' "$PN_OUT" | sed -n 's/.*exit=\([0-9]*\).*/\1/p')"
-        [ -n "$NEG_EXIT" ] || NEG_EXIT=1
+        NEG_EXIT="$(printf '%s' "$PN_OUT" | sed -n 's/^negative held exit=\([0-9]*\).*/\1/p' | head -1)"
+        case "$NEG_EXIT" in
+            ''|*[!0-9]*|0)
+                echo "sync $SID: could not determine negative exit; map unchanged" >&2
+                exit 3
+                ;;
+        esac
         py sync_write "$MAPF" "$SID" advance "$HEAD_SHA" "$NEG_EXIT" "$WRITE"
         exit $?
         ;;
