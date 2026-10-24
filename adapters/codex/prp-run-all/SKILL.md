@@ -354,6 +354,16 @@ This will: analyze codebase (lighter if --fast), generate plan with validation c
 
 ---
 
+### Step 2.5: PLAN GATE (skip if RESUME_FROM > 3)
+
+Runs on every path that sets PLAN_PATH and has not yet reached Step 4: `--prp-path` (explicit plan), `--skip-plan`/stub, smart plan detection, and `--resume` resuming into Steps 2-3 (`RESUME_FROM` ≤ 3). SKIP it when `RESUME_FROM > 3` — that run already passed this gate before Step 4, and implement may since have moved the plan to `plans/completed/`, so re-gating would read a moved or missing file.
+
+**Blocked design (Phase 4.1):** read the plan at `PLAN_PATH` frontmatter. If `status: blocked-design`, STOP the whole run — do NOT implement, do NOT ask anything. Extract the uncovered boundary cases from the plan's Design Alternatives section and write them + the plan path to a temp file with a quoted-delimiter heredoc (`<<'EOF'`) — never inline-interpolate plan text into a shell argument. If ISSUE_NUMBER is set: `gh issue comment <N> --body-file <file>`. If ISSUE_NUMBER is empty: `gh issue create` titled `blocked-design: <feature>` with `--body-file <file>` and use that issue as the escalation target. If the `gh` command fails (non-zero exit): copy the body file to `.prp-output/escalations/blocked-design-{RUN_TIMESTAMP}.md` and STOP with `Escalation failed — blocked-design artifact saved locally, file manually: <path>` (do NOT report an issue URL). If `gh` succeeds: add label `status:escalated` (create the label if missing; a label failure is non-fatal — WARN and continue) on the target issue, and report `STOPPED: blocked-design — no design covers all boundary cases (see <issue>)`. Escalation is a comment + label, never a question.
+
+**CHECKPOINT**: Did you read the plan frontmatter at `PLAN_PATH` before implementing? If not → STOP → do it.
+
+---
+
 ### Step 3: IMPLEMENT (skip if RESUME_FROM > 3)
 
 **Choose path based on `USE_RALPH`:**
@@ -376,7 +386,8 @@ This will: loop iteratively until ALL validations pass, self-fix failures, write
 
 **DO NOT**: Read implement/ralph skill and execute logic yourself, write code directly.
 **CHECKPOINT**: Did you invoke `$prp-implement` or `$prp-ralph`? If not → STOP → invoke it.
-**TRANSITION**: Implement succeeded → **immediately proceed to Step 3.1**.
+**Hard STOP — `STOPPED:` output**: if implement (3A) or ralph (3B) reports `STOPPED:` (e.g. `STOPPED: blocked-design`), that is a terminal outcome for the whole run: do NOT proceed to Step 3.1, do NOT run the Step 3.2 "Create Missing Artifacts" fallback, do NOT fabricate a report or review context. Write `status: stopped` and the `STOPPED:` reason to the state file (keep the worktree and lock so `--resume` can pick up), report the `STOPPED:` line verbatim, and stop.
+**TRANSITION**: Implement succeeded (no `STOPPED:` line) → **immediately proceed to Step 3.1**.
 
 #### 3.1 Verify Artifacts
 

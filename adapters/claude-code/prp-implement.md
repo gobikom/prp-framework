@@ -92,7 +92,7 @@ cat $ARGUMENTS
 
 Locate and understand:
 
-- **Plan Metadata** (frontmatter) — Runner, commands, mode, status. **Update status from `pending` to `in-progress`.**
+- **Plan Metadata** (frontmatter) — Runner, commands, mode, status. **If `status: blocked-design` → STOP immediately: report `STOPPED: blocked-design — no design covers all boundary cases`; do not implement, do not change the status.** Otherwise **update status from `pending` to `in-progress`** (never rewrite any other existing status).
 - **Metadata table** — Runner and pre-filled validation commands (Type Check, Lint, Test, Build). **If present, use these instead of auto-detecting in Phase 0.**
 - **Summary** — What we're building
 - **Patterns to Mirror** — Code to copy from
