@@ -20,6 +20,17 @@ runs_footers() {
   done
 }
 
+# boundary_footers -> 9 distinct exact footers (one run id each), used by the
+# line-33 fail-closed fallback boundary tests below (R1 Important, brief
+# 20261024-1955-a211): each test appends one more, differently-shaped, 10th
+# line and asserts how it must be counted.
+boundary_footers() {
+  local i
+  for ((i = 1; i <= 9; i++)); do
+    printf 'Generated-by: prp-review-agents v1 run=20261024T000000Z-%08x pass=code-reviewer\n' "$i"
+  done
+}
+
 @test "empty input is round 1" {
   run bash "$G" </dev/null
   [ "$status" -eq 0 ]
@@ -113,4 +124,47 @@ runs_footers() {
   [ "$status" -eq 2 ]
   run bash "$G" --cap </dev/null
   [ "$status" -eq 2 ]
+}
+
+@test "an exact 10th footer with a new run id hits the cap" {
+  { boundary_footers; printf 'Generated-by: prp-review-agents v1 run=20261024T000000Z-0000000a pass=code-reviewer\n'; } > in.txt
+  run bash "$G" < in.txt
+  [ "$status" -eq 3 ]
+}
+
+@test "a 10th footer with a leading space fails closed" {
+  { boundary_footers; printf ' Generated-by: prp-review-agents v1 run=20261024T000000Z-0000000a pass=code-reviewer\n'; } > in.txt
+  run bash "$G" < in.txt
+  [ "$status" -eq 2 ]
+}
+
+@test "a 10th footer with a leading tab fails closed" {
+  { boundary_footers; printf '\tGenerated-by: prp-review-agents v1 run=20261024T000000Z-0000000a pass=code-reviewer\n'; } > in.txt
+  run bash "$G" < in.txt
+  [ "$status" -eq 2 ]
+}
+
+@test "a 10th footer with a trailing CR fails closed" {
+  { boundary_footers; printf 'Generated-by: prp-review-agents v1 run=20261024T000000Z-0000000a pass=code-reviewer\r\n'; } > in.txt
+  run bash "$G" < in.txt
+  [ "$status" -eq 2 ]
+}
+
+@test "a 10th footer in lower case fails closed" {
+  { boundary_footers; printf 'generated-by: prp-review-agents v1 run=20261024T000000Z-0000000a pass=code-reviewer\n'; } > in.txt
+  run bash "$G" < in.txt
+  [ "$status" -eq 2 ]
+}
+
+@test "a 10th footer quoted mid-line fails closed" {
+  { boundary_footers; printf 'see "Generated-by: prp-review-agents v1 run=20261024T000000Z-0000000a pass=code-reviewer"\n'; } > in.txt
+  run bash "$G" < in.txt
+  [ "$status" -eq 2 ]
+}
+
+@test "a 10th line that is genuinely unrelated is ignored" {
+  { boundary_footers; printf 'LGTM\n'; } > in.txt
+  run bash "$G" < in.txt
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"rounds so far: 9 of 10"* ]]
 }

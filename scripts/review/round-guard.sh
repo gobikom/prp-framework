@@ -30,7 +30,8 @@ IDS=""
 while IFS= read -r line || [[ -n "$line" ]]; do
   if [[ "$line" =~ $RUN_RE ]]; then
     IDS+="${BASH_REMATCH[1]}"$'\n'
-  elif [[ "$line" == "Generated-by: prp-review-agents"* ]]; then
+  # A footer-shaped line that isn't an exact match refuses (exit 2), so a malformed footer can never lower the count.
+  elif [[ "${line,,}" == *"generated-by:"*"prp-review-agents"* ]]; then
     echo "error: cannot parse a review footer — round count unknown, refusing" >&2
     exit 2
   fi
