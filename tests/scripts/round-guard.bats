@@ -1,0 +1,116 @@
+#!/usr/bin/env bats
+# Helper-level tests for scripts/review/round-guard.sh (prp-framework#151 AC3).
+# The Phase 2.0 wiring arms are in tests/commands/l2-comments.bats.
+#
+# Run: bats tests/scripts/round-guard.bats
+
+REPO_ROOT="$(cd "$BATS_TEST_DIRNAME/../.." && pwd)"
+G="$REPO_ROOT/scripts/review/round-guard.sh"
+
+setup() { TEST_TMPDIR="$(mktemp -d)"; cd "$TEST_TMPDIR"; }
+teardown() { cd /; rm -rf -- "$TEST_TMPDIR" 2>/dev/null || true; }
+
+# runs_footers <n> [suffix] -> three footer lines per run id (run i = 2026010<i>…)
+runs_footers() {
+  local i p
+  for ((i = 1; i <= $1; i++)); do
+    for p in code-reviewer security-reviewer silent-failure-hunter; do
+      printf 'Generated-by: prp-review-agents v2.12.0 run=20261021T%06dZ-%08x pass=%s%s\n' "$i" "$i" "$p" "${2:-}"
+    done
+  done
+}
+
+@test "empty input is round 1" {
+  run bash "$G" </dev/null
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"this is round 1"* ]]
+}
+
+@test "nine runs allow round 10" {
+  run bash -c "$(declare -f runs_footers); runs_footers 9 | bash '$G'"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"rounds so far: 9 of 10; this is round 10"* ]]
+}
+
+@test "ten runs refuse round 11 with a clear message" {
+  run bash -c "$(declare -f runs_footers); runs_footers 10 | bash '$G'"
+  [ "$status" -eq 3 ]
+  [[ "$output" == *"ROUND-CAP: refused"* ]]
+  [[ "$output" == *"10 review runs (cap 10)"* ]]
+  [[ "$output" == *"stop rule"* ]]
+}
+
+@test "eleven runs are refused" {
+  run bash -c "$(declare -f runs_footers); runs_footers 11 | bash '$G'"
+  [ "$status" -eq 3 ]
+}
+
+@test "three comments of one run count once and a trivial run counts once" {
+  {
+    runs_footers 1
+    printf 'Generated-by: prp-review-agents v2.12.0 run=20261022T000000Z-aaaaaaaa pass=code-reviewer tier=trivial\n'
+  } > in.txt
+  run bash "$G" < in.txt
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"rounds so far: 2 of 10"* ]]
+}
+
+@test "the same ten run ids repeated still count ten" {
+  { runs_footers 10; runs_footers 10; } > in.txt
+  run bash "$G" < in.txt
+  [ "$status" -eq 3 ]
+}
+
+@test "a malformed review footer fails closed" {
+  printf 'Generated-by: prp-review-agents v2 run=BAD pass=x\n' > in.txt
+  run bash "$G" < in.txt
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"cannot parse a review footer"* ]]
+}
+
+@test "a footer without a pass fails closed" {
+  printf 'Generated-by: prp-review-agents v2.12.0 run=20261021T000001Z-00000001\n' > in.txt
+  run bash "$G" < in.txt
+  [ "$status" -eq 2 ]
+}
+
+@test "ordinary last lines, null and blanks are ignored" {
+  printf 'LGTM\nnull\n\n   \nGenerated-by: someone-else v1 run=x\n' > in.txt
+  run bash "$G" < in.txt
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"this is round 1"* ]]
+}
+
+@test "an unterminated final footer line is still read" {
+  printf 'Generated-by: prp-review-agents v2.12.0 run=20261021T000001Z-00000001 pass=code-reviewer' > in.txt
+  run bash "$G" < in.txt
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"rounds so far: 1 of 10"* ]]
+}
+
+@test "a lower cap is honoured" {
+  run bash -c "$(declare -f runs_footers); runs_footers 2 | bash '$G' --cap 2"
+  [ "$status" -eq 3 ]
+}
+
+@test "bad cap values exit 2 and run nothing" {
+  for bad in 0 abc 99999 -1 "" "1 2" '$(touch PWNED)' '`touch PWNED`' 'a[$(touch PWNED)]' 08x; do
+    run bash "$G" --cap "$bad" </dev/null
+    [ "$status" -eq 2 ]
+  done
+  [ ! -e PWNED ]
+}
+
+@test "a leading zero cap is a decimal number not octal" {
+  run bash -c "$(declare -f runs_footers); runs_footers 7 | bash '$G' --cap 08"
+  [ "$status" -eq 0 ]
+  run bash -c "$(declare -f runs_footers); runs_footers 8 | bash '$G' --cap 08"
+  [ "$status" -eq 3 ]
+}
+
+@test "unknown arguments exit 2" {
+  run bash "$G" --nope </dev/null
+  [ "$status" -eq 2 ]
+  run bash "$G" --cap </dev/null
+  [ "$status" -eq 2 ]
+}
