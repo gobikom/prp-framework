@@ -8,23 +8,40 @@
 # Run: bats tests/commands/l2-comments.bats
 
 ROOT="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)"
-ADAPTER="$ROOT/adapters/claude-code/prp-review-agents.md"
+source "$ROOT/tests/helpers/fence.bash"
+# L2_ADAPTER (prp-framework#151): which of the 7 EXPECTED_FILES this run exercises.
+# tests/commands/l2-adapters-matrix.bats sets it to each of the 6 non-claude-code
+# files in turn, via a nested bats run, so the whole suite below — not just the
+# claude-code-specific checks review-rounds.bats used to carry — runs against
+# every adapter. Defaults to claude-code for a plain, unparametrised run.
+ADAPTER="$ROOT/${L2_ADAPTER:-adapters/claude-code/prp-review-agents.md}"
 HEAD_SHA="0123456789abcdef0123456789abcdef01234567"
 
 step() { # step <A|C> -> the bash fence after "**Step <X>", {NUMBER} filled in
-  awk -v want="**Step $1" 'index($0, want) == 1 {f=1} f && /^```bash$/ {b=1; next} b && /^```$/ {exit} b' "$ADAPTER" | sed 's/{NUMBER}/7/g'
+  fence "$ADAPTER" "**Step $1"
 }
 
 setup() {
   WORK="$(mktemp -d)"
   cd "$WORK"
   git init -q prp && git -C prp commit -q --allow-empty -m init && git -C prp tag v9.9.9
+  mkdir -p prp/scripts && cp -r "$ROOT/scripts/review" prp/scripts/   # what Phase 2.0 and Step C run from the installed framework
   ln -s "$WORK/prp" .prp
   mkdir -p .prp-output/reviews bin
   # gh stub: `pr view` prints $FAKE_HEAD (or fails with GH_FAIL=1); `pr comment` logs the body file, prints a URL
   cat > bin/gh <<'EOF'
 #!/usr/bin/env bash
 if [ "$1 $2" = "pr view" ]; then [ -n "${GH_FAIL:-}" ] && exit 1; printf '%s\n' "$FAKE_HEAD"; exit 0; fi
+if [ "$1" = "api" ]; then   # the round-cap read (Phase 2.0): last lines of the PR comments
+  [ -n "${API_FAIL:-}" ] && exit 1
+  # apply the REAL --jq filter from the prompt to comment JSON, as `gh api --paginate --jq` does per page
+  filter=""; while [ $# -gt 0 ]; do [ "$1" = "--jq" ] && filter="$2"; shift; done
+  [ -n "$filter" ] || exit 1
+  if [ -n "${FAKE_COMMENTS_JSON:-}" ]; then jq -r "$filter" "$FAKE_COMMENTS_JSON" || exit 1; exit 0; fi
+  # FAKE_COMMENTS = one footer line per comment; wrap each as a multi-line body with a trailing newline
+  [ -n "${FAKE_COMMENTS:-}" ] && jq -R -s 'split("\n")[:-1] | map({body: ("Reviewed head: x\n\n### Could not verify\nNothing.\n\n" + . + "\n")})' "$FAKE_COMMENTS" | jq -r "$filter"
+  exit 0
+fi
 if [ "$1 $2" = "pr comment" ]; then
   f=""; while [ $# -gt 0 ]; do [ "$1" = "--body-file" ] && f="$2"; shift; done
   [ -n "${FAIL_POST:-}" ] && grep -q "Passes run: $FAIL_POST" "$f" && exit 1
@@ -64,6 +81,15 @@ body() {
 start() { run env -u REVIEWED_HEAD_SHA -u L2_COMMENTS bash stepA.sh; }   # a fresh shell: nothing inherited
 write_all() { for p in code-reviewer security-reviewer silent-failure-hunter; do body "$p"; done; }
 post() { run bash stepC.sh; }
+
+@test "every fence this file extracts is non-empty for \$ADAPTER (guard against a vacuous pass on a wrong or empty path)" {
+  # setup() already requires stepA.sh/stepC.sh non-empty; this covers the other
+  # three extractors (phase20, phase20b, clone211) so a bad $L2_ADAPTER path or
+  # a heading typo fails loudly here instead of passing every later test vacuously.
+  [ -n "$(phase20)" ]
+  [ -n "$(phase20b)" ]
+  [ -n "$(clone211)" ]
+}
 
 @test "the adapter documents --l2-comments and both steps extract" {
   grep -q -- '--l2-comments' "$ADAPTER"
@@ -216,7 +242,7 @@ post() { run bash stepC.sh; }
   [ ! -e .prp-output/reviews/pr-7-l2-code-reviewer.md ]
 }
 
-phase20() { awk 'index($0, "### 2.0 Capture the Reviewed Head") == 1 {f=1} f && /^```bash$/ {b=1; next} b && /^```$/ {exit} b' "$ADAPTER" | sed 's/{NUMBER}/7/g'; }
+phase20() { fence "$ADAPTER" "### 2.0 Capture the Reviewed Head"; }
 
 @test "Phase 2.0 comes before the agents start (2.1.1)" {
   a=$(grep -n '^### 2.0 Capture the Reviewed Head' "$ADAPTER" | cut -d: -f1)
@@ -256,6 +282,86 @@ repo_here() { git init -q . && git commit -q --allow-empty -m pr; FAKE_HEAD=$(gi
   [ "$(cat .prp-output/reviews/pr-7-reviewed-head)" = "$FAKE_HEAD" ]
 }
 
+# footers of <n> distinct review runs, three comments each (the last line of each comment)
+runs() { local i p; for ((i = 1; i <= $1; i++)); do for p in code-reviewer security-reviewer silent-failure-hunter; do
+  printf 'Generated-by: prp-review-agents v9.9.9 run=20261021T%06dZ-%08x pass=%s\n' "$i" "$i" "$p"; done; done; }
+
+@test "Phase 2.0 allows round 10 (nine runs on the PR) and saves the head" {
+  phase20 > p20.sh; repo_here; runs 9 > c.txt
+  FAKE_COMMENTS="$PWD/c.txt" run env -u REVIEWED_HEAD_SHA bash p20.sh
+  [ "$status" -eq 0 ]
+  [ "$(cat .prp-output/reviews/pr-7-reviewed-head)" = "$FAKE_HEAD" ]
+}
+
+@test "Phase 2.0 refuses round 11 (ten runs) before any head file or agent" {
+  phase20 > p20.sh; repo_here; runs 10 > c.txt
+  FAKE_COMMENTS="$PWD/c.txt" run env -u REVIEWED_HEAD_SHA bash p20.sh
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"ROUND-CAP: refused"* ]]
+  [[ "$output" == *"round cap — no agents started"* ]]
+  [ ! -e .prp-output/reviews/pr-7-reviewed-head ]
+}
+
+@test "Phase 2.0 runs the real jq filter over paginated comment JSON" {
+  phase20 > p20.sh; repo_here
+  # two pages (gh --paginate applies --jq per page): a multi-line body, a plain comment and a CRLF-free footer
+  { runs 5 | jq -R -s 'split("\n")[:-1] | map({body: ("review text\nmore\n" + . + "\n")})'
+    runs 10 | tail -n +16 | jq -R -s 'split("\n")[:-1] | map({body: ("other\n" + . + "\n")}) + [{body: "LGTM"}]'; } > c.json
+  FAKE_COMMENTS_JSON="$PWD/c.json" run env -u REVIEWED_HEAD_SHA bash p20.sh
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"ROUND-CAP: refused"* ]]
+}
+
+@test "Phase 2.0 allows round 10 over paginated comment JSON with ordinary comments" {
+  phase20 > p20.sh; repo_here
+  { runs 4 | jq -R -s 'split("\n")[:-1] | map({body: ("text\n" + . + "\n")}) + [{body: "LGTM"}, {body: "a\nb\nc"}]'
+    runs 9 | tail -n +13 | jq -R -s 'split("\n")[:-1] | map({body: ("text\n" + . + "\n")})'; } > c.json
+  FAKE_COMMENTS_JSON="$PWD/c.json" run env -u REVIEWED_HEAD_SHA bash p20.sh
+  [ "$status" -eq 0 ]
+  [ "$(cat .prp-output/reviews/pr-7-reviewed-head)" = "$FAKE_HEAD" ]
+}
+
+@test "Phase 2.0 refuses on a comment with a null body" {
+  phase20 > p20.sh; repo_here
+  printf '[{"body": null}]\n' > c.json
+  FAKE_COMMENTS_JSON="$PWD/c.json" run env -u REVIEWED_HEAD_SHA bash p20.sh
+  [ "$status" -ne 0 ]
+  [ ! -e .prp-output/reviews/pr-7-reviewed-head ]
+}
+
+@test "Phase 2.0 refuses when the PR comments cannot be read" {
+  phase20 > p20.sh; repo_here
+  API_FAIL=1 run env -u REVIEWED_HEAD_SHA bash p20.sh
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"cannot read the PR comments"* ]]
+  [ ! -e .prp-output/reviews/pr-7-reviewed-head ]
+}
+
+@test "Phase 2.0 counts a review footer with no well-formed run id as zero (round-guard v6: content never refuses)" {
+  phase20 > p20.sh; repo_here
+  printf 'Generated-by: prp-review-agents v1 run=oops pass=x\n' > c.txt
+  FAKE_COMMENTS="$PWD/c.txt" run env -u REVIEWED_HEAD_SHA bash p20.sh
+  [ "$status" -eq 0 ]
+  [ "$(cat .prp-output/reviews/pr-7-reviewed-head)" = "$FAKE_HEAD" ]
+}
+
+@test "Phase 2.0 still refuses round 11 when a malformed footer sits among ten runs (it cannot lower R)" {
+  phase20 > p20.sh; repo_here
+  { runs 10; printf 'Generated-by: prp-review-agents v1 run=oops pass=x\n'; } > c.txt
+  FAKE_COMMENTS="$PWD/c.txt" run env -u REVIEWED_HEAD_SHA bash p20.sh
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"ROUND-CAP: refused"* ]]
+  [[ "$output" == *"round cap — no agents started"* ]]
+  [ ! -e .prp-output/reviews/pr-7-reviewed-head ]
+}
+
+@test "Phase 2.0 refuses when .prp is not a symlink to the framework" {
+  phase20 > p20.sh; repo_here; rm .prp; mkdir .prp
+  run env -u REVIEWED_HEAD_SHA bash p20.sh
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"round cap not checkable"* ]]
+}
+
 @test "Phase 2.0 fails before any agent when the head cannot be captured" {
   phase20 > p20.sh; repo_here
   GH_FAIL=1 run env -u REVIEWED_HEAD_SHA bash p20.sh
@@ -282,7 +388,7 @@ clonedir() { ls -d "$PWD"/s/prp-review-clone-*-pr-7 | head -n1; }
   [ "$(ls -d s/prp-review-clone-*-pr-7 | wc -l)" -eq 2 ]
 }
 
-clone211() { awk 'index($0, "### 2.1.1 ") == 1 {f=1} f && /^```bash$/ {b=1; next} b && /^```$/ {exit} b' "$ADAPTER" | sed 's/{NUMBER}/7/g'; }
+clone211() { fence "$ADAPTER" "### 2.1.1 "; }
 
 @test "2.1.1 clones the agents' tree at the saved head even when HEAD moved after Phase 2.0" {
   phase20 > p20.sh; clone211 > c211.sh; repo_here
@@ -320,7 +426,7 @@ clone211() { awk 'index($0, "### 2.1.1 ") == 1 {f=1} f && /^```bash$/ {b=1; next
 }
 
 # ---- risk tier (agent-devops#1259) ---------------------------------------------------------------
-phase20b() { awk 'index($0, "### 2.0b Risk Tier") == 1 {f=1} f && /^```bash$/ {b=1; next} b && /^```$/ {exit} b' "$ADAPTER" | sed 's/{NUMBER}/7/g'; }
+phase20b() { fence "$ADAPTER" "### 2.0b Risk Tier"; }
 trivial_run() { printf 'trivial\n' > .prp-output/reviews/pr-7-tier; export FAKE_TIER=trivial; start; }
 
 @test "2.0b saves trivial only when pr-risk-tier prints trivial at the reviewed head" {
@@ -391,4 +497,100 @@ trivial_run() { printf 'trivial\n' > .prp-output/reviews/pr-7-tier; export FAKE_
   sed -i 's/^TIER=standard$/TIER=lite/' .prp-output/reviews/pr-7-l2-run.env
   post
   [ "$status" -ne 0 ]; [[ "$output" == *"not a valid run file"* ]]
+}
+
+# --- pass timebox (prp-framework#151 AC2): Step C refuses a timeboxed body without a follow-up link ---
+
+timeboxed() { # timeboxed <pass> [link]: rewrite one body so its Could not verify says the pass was timeboxed
+  local f=".prp-output/reviews/pr-7-l2-$1.md" link="${2:-}"
+  { sed -n '1,/^### Could not verify$/p' "$f"; printf 'Pass timeboxed: 1 probe(s) not completed: bats\n'; [ -n "$link" ] && printf 'Follow-up: %s\n' "$link"
+    printf '\n'; tail -n1 "$f"; } > t.md && mv t.md "$f"
+}
+
+@test "a timeboxed body without a follow-up link posts nothing" {
+  start; write_all; timeboxed security-reviewer
+  post
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"timebox without a Follow-up issue link"* ]]
+  [[ "$output" == *"pass mentions a timebox"* ]]
+  [ ! -s "$WORK_LOG" ]
+}
+
+@test "a timebox mention in any markup posts nothing without a link" {
+  start; write_all
+  f=".prp-output/reviews/pr-7-l2-security-reviewer.md"
+  { sed -n '1,/^### Could not verify$/p' "$f"; printf '## **Pass** time-boxed\n\n'; tail -n1 "$f"; } > t.md && mv t.md "$f"
+  post
+  [ "$status" -ne 0 ]
+  [ ! -s "$WORK_LOG" ]
+}
+
+@test "a timeboxed body with a follow-up issue link is posted with the other passes" {
+  start; write_all; timeboxed security-reviewer https://github.com/o/r/issues/12
+  post
+  [ "$status" -eq 0 ]
+  [ "$(wc -l < "$WORK_LOG")" -eq 3 ]
+}
+
+@test "Step C posts nothing when the installed framework scripts cannot be found" {
+  start; write_all; rm -rf prp/scripts
+  post
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"cannot find the installed prp-framework scripts"* ]]
+  [ ! -s "$WORK_LOG" ]
+}
+
+# The next two tests moved here from tests/commands/review-rounds.bats
+# (prp-framework#151): both used to hardcode $ADAPTER to claude-code, so the
+# behaviour they pin — the pass-deadline-mint FATAL guard actually aborting,
+# and the round-cap guard running before the reviewed head is saved — was
+# never exercised against the other 6 files. Moving them here, under the
+# parametrised $ADAPTER, closes that gap the same way the rest of this file
+# does: tests/commands/l2-adapters-matrix.bats runs this whole suite once per
+# EXPECTED_FILES entry.
+
+@test "the pass-deadline-mint FATAL guard actually aborts closed: script failure and a broken .prp symlink (round-6 Important)" {
+  guard="$BATS_TEST_TMPDIR/guard.sh"
+  fence "$ADAPTER" "### 2.2.0 Pass Budget" > "$guard"
+  [ -s "$guard" ]
+  grep -qE -- 'FATAL: cannot mint the pass deadline' "$guard"
+  grep -qE -- 'echo "PASS_DEADLINE=\$PASS_DEADLINE PRP_DIR=\$PRP_DIR"' "$guard"
+
+  work="$BATS_TEST_TMPDIR/work"
+  mkdir -p "$work"
+
+  # Failure mode 1: pass-budget.sh itself exits non-zero (forced bad budget).
+  ln -s "$ROOT" "$work/.prp"
+  run bash -c "cd \"$work\" && PRP_PASS_BUDGET_SECS=abc bash \"$guard\""
+  rm -f "$work/.prp"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"FATAL: cannot mint the pass deadline — no agents started"* ]]
+
+  # Failure mode 2: .prp is a broken symlink (script path under it doesn't exist).
+  ln -s "$BATS_TEST_TMPDIR/does-not-exist" "$work/.prp"
+  run bash -c "cd \"$work\" && bash \"$guard\""
+  rm -f "$work/.prp"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"FATAL: cannot mint the pass deadline — no agents started"* ]]
+
+  # Success path: still mints the deadline AND now prints it (the regression
+  # this test closes — a prior fix silently dropped the echo).
+  ln -s "$ROOT" "$work/.prp"
+  run bash -c "cd \"$work\" && bash \"$guard\""
+  rm -f "$work/.prp"
+  [ "$status" -eq 0 ]
+  real_root="$(readlink -f "$ROOT")"
+  [[ "$output" == *"PASS_DEADLINE="*"PRP_DIR=$real_root"* ]]
+  [[ "$output" =~ PASS_DEADLINE=[0-9]+ ]]
+}
+
+@test "the round-cap guard runs in Phase 2.0 before the reviewed head is saved" {
+  # Plain line numbers, not a fence extraction — verified this does not need
+  # fence()/tomllib decoding: unlike a multi-line bash fence, a single-line
+  # grep match on gemini's raw .toml is byte-identical to the decoded prompt
+  # text for both patterns below (the TOML escaping only affects embedded
+  # backslash-newline continuations, not the matched substrings themselves).
+  g=$(grep -n 'round-guard.sh" --cap 10' "$ADAPTER" | head -1 | cut -d: -f1)
+  h=$(grep -n "> \"\$D/pr-{NUMBER}-reviewed-head\"" "$ADAPTER" | head -1 | cut -d: -f1)
+  [ -n "$g" ] && [ -n "$h" ] && [ "$g" -lt "$h" ]
 }
