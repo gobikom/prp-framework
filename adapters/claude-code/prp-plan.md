@@ -129,7 +129,10 @@ Type Check: {runner} run {script-name}
 Lint: {runner} run {script-name}
 Test: {runner} {test-command}
 Build: {runner} run {script-name}
+Tier: gate|normal — {reason}
 ```
+
+`Tier:` is a forecast: the machine tier (`pr-risk-tier --rounds` at the head) decides; it can only raise this.
 
 ### 0.5.4 Detect Monorepo
 
@@ -415,24 +418,26 @@ Invariant: {the task's Invariant (section 4), restated verbatim — every design
 | Boundary case | Handled how | Test (one per boundary case) |
 Est. changed lines: {N} · Files: {list}
 Covers all boundary cases: yes|no (missing: …)
+Channels trusted: {every input channel this design must trust — e.g. PR body, env var, file on disk, API response, CLI arg; `none` if it trusts none}
 ```
 
 Every design must satisfy the task's Invariant. "Covers ALL boundary cases" means coverage of the task's boundary-case table — not just the cases the design's own block lists.
 
 **Selection rule — applied in order until one design remains:**
 1. A design that covers ALL boundary cases beats one that does not.
-2. Smaller estimated changed lines wins.
-3. Fewer files touched wins.
-4. Lowest index wins (D1 = closest to the existing pattern).
+2. Fewer input channels the design must trust wins (count the `Channels trusted:` line).
+3. Smaller estimated changed lines wins.
+4. Fewer files touched wins.
+5. Lowest index wins (D1 = closest to the existing pattern).
 
-Rules 2–4 never override rule 1: a design that fails the task's `Verified by:` checks (section 4) for the Invariant does not count as covering all boundary cases, whatever its estimated size. Rule 4's tie-break favors the existing pattern — for security-adjacent Design-first work, first verify the existing pattern is not itself the vulnerability before relying on the tie-break.
+Rules 2–5 never override rule 1: a design that fails the task's `Verified by:` checks (section 4) for the Invariant does not count as covering all boundary cases, whatever its estimated size. Rule 5's tie-break favors the existing pattern — for security-adjacent Design-first work, first verify the existing pattern is not itself the vulnerability before relying on the tie-break.
 
 Selection is mechanical — never ask the user to pick a design, in any mode.
 
 Record the outcome in the plan:
 
 ```
-SELECTED: D{n} — rule step {1-4} decided
+SELECTED: D{n} — rule step {1-5} decided
 REJECTED: D{m} — {failed step + detail}
 ```
 
@@ -530,6 +535,10 @@ Create directory: `mkdir -p .prp-output/plans`
 
 ### Plan Structure
 
+**Header line (required, directly under the title):**
+
+> Plans are written by the orchestrator (psak) and peer-reviewed before implementation; implementers run `/prp-core:prp-implement <plan>`, not `prp-run-all`.
+
 The plan file MUST include lifecycle frontmatter (`status: pending` — or `blocked-design` when Phase 4.1 blocks, `runner`, `mode`) and ALL these sections:
 
 1. **Summary** — what we're building
@@ -563,6 +572,9 @@ The plan file MUST include lifecycle frontmatter (`status: pending` — or `bloc
 20. **Completion Checklist** — all 6 validation levels
 21. **Risks and Mitigations** — likelihood, impact, strategy
 22. **Technical Design** (conditional, HIGH or API/DB) — API contracts, DB schema, sequence diagrams, NFRs, migration & rollback
+23. **Threat model / Out of scope** (required) — a `## Threat model / Out of scope` section: who controls which inputs, and which environments the plan does NOT defend (e.g. "a host where `grep` is missing from PATH"). Rule: A review finding that needs an out-of-scope environment is a Suggestion.
+24. **Baseline** (required) — a `## Baseline` section: the full-suite command and its result (pass/fail counts) before any change, and for every changed symbol or file its callers and test stubs, citing the `grep -rn` or `ck_impact` output.
+25. **PR stack** (required when the estimate is over 800 counted lines, generated adapters included) — a `## PR stack` table: `| PR | Scope | Est. lines | Depends on |`. Each PR stays at or under 800 counted lines; tests stay in the same PR as the code they test.
 
 **IMPORTANT**: The saved plan file MUST NOT contain any unfilled `{...}` placeholders in Validation Commands section. Pre-fill with actual detected commands.
 
