@@ -383,6 +383,10 @@ Agents use different severity systems internally. Map all findings to these unif
 
 **Implementation report check**: Documented deviations are intentional — only flag **undocumented** deviations.
 
+**Invariant tag (every Important, agent-devops#1297 C)**: every Important names the plan Invariant it breaks as `Invariant: <short name>`, copied from the `Invariant:` line of the PR body or the plan it cites (`Invariant: unstated` when the PR states none). The tag is part of the finding text inside `### Important Issues`; it adds no heading or line to the per-pass comment format. When an agent omits it, the session adds it while writing the bodies. Phase 6's re-route check compares these tags across rounds.
+
+**Outside the diff or out-of-scope environment (agent-devops#1297 K)**: a finding outside the PR diff that does not break the PR's Invariant is a Suggestion tagged `[outside-diff]`. A finding that needs an environment the plan lists under `Threat model / Out of scope` is a Suggestion tagged `[out-of-scope-env]`, on the plan template's terms: only when that environment is unreachable (no listed input and no `Channels trusted:` channel reaches it, and the change never runs there; CI and self-hosted runners are always in scope). Neither downgrade applies to a Critical, to a finding inside the diff that breaks the Invariant, or when the reviewer shows the environment is reachable — those keep their severity.
+
 ---
 
 ## Agent Aspect Mapping
@@ -490,6 +494,27 @@ printf '%s\n' "$FOOTERS" | bash "$PRP_DIR/scripts/review/round-guard.sh" --cap 1
   || { echo "FATAL: round cap — no agents started" >&2; exit 1; }
 printf '%s\n' "$REVIEWED_HEAD_SHA" > "$D/pr-{NUMBER}-reviewed-head" || { echo "FATAL: cannot save the reviewed head" >&2; exit 1; }
 echo "REVIEWED_HEAD_SHA=$REVIEWED_HEAD_SHA"
+```
+
+### 2.0a Incremental Hint (agent-devops#1297 L)
+
+Run it right after 2.0 only when `--since-last-review` is NOT in this run's arguments; with the flag, skip it. When the saved head is the head an earlier round already reviewed (the last `Reviewed head:` line on the PR), print a one-line hint recommending `--since-last-review`. The hint is advice only: it never stops the run, it changes nothing the run posts, and the round counts either way. Any failure prints `hint skipped: <reason>` and the run goes on.
+
+```bash
+D=.prp-output/reviews
+H=$(cat "$D/pr-{NUMBER}-reviewed-head" 2>/dev/null) || H=""
+if ! printf '%s' "$H" | grep -qxE '[0-9a-f]{40}'; then
+  echo "hint skipped: no saved reviewed head (run Phase 2.0 first)" >&2
+elif ! HEADS=$(gh api "repos/{owner}/{repo}/issues/{NUMBER}/comments" --paginate --jq '.[].body | select(startswith("Reviewed head: ")) | split("\n")[0] | ltrimstr("Reviewed head: ")'); then
+  echo "hint skipped: cannot read the PR comments (gh failed)" >&2
+else
+  PREV=$(printf '%s\n' "$HEADS" | grep -xE '[0-9a-f]{40}' | tail -n1)
+  if [ -z "$PREV" ]; then
+    echo "hint skipped: no earlier reviewed head on the PR" >&2
+  elif [ "$PREV" = "$H" ]; then
+    echo "HINT: head $H was already reviewed in an earlier round; re-run with --since-last-review to carry its findings over (this round still counts either way)"
+  fi
+fi
 ```
 
 ### 2.0b Risk Tier (`--l2-comments` only, agent-devops#1259)
@@ -604,6 +629,8 @@ A bug is 'recurring' if you observe 2+ instances of the same structural defect.
 List every occurrence — not just the ones you noticed first. This prevents
 whack-a-mole re-review cycles where the same pattern is found piecemeal.
 
+Tag every High finding with the PR's Invariant it breaks, written as the code span `Invariant: <short name>` (from the Invariant: line of the PR body or plan; `Invariant: unstated` if there is none). A finding outside the diff that breaks no Invariant is Medium tagged [outside-diff]; one that needs an environment the plan lists as out of scope is Medium tagged [out-of-scope-env] (see Issue Severity Definitions for the bounds; never for a Critical).
+
 Report findings as structured markdown:
 ## Findings
 | Severity | Issue | File:Line | Suggestion |
@@ -651,6 +678,8 @@ Focus on OWASP Top 10:
 
 Report ONLY vulnerabilities with clear attack vectors — not theoretical issues.
 
+Tag every High finding with the PR's Invariant it breaks, written as the code span `Invariant: <short name>` (from the Invariant: line of the PR body or plan; `Invariant: unstated` if there is none). A finding outside the diff that breaks no Invariant is Medium tagged [outside-diff]; one that needs an environment the plan lists as out of scope is Medium tagged [out-of-scope-env] (see Issue Severity Definitions for the bounds; never for a Critical).
+
 Report findings as structured markdown:
 ## Findings
 | Severity | Issue | File:Line | Attack Vector | Remediation |
@@ -693,6 +722,8 @@ ALL files changed in this PR for ALL instances of that pattern before reporting.
 A pattern is 'recurring' if you observe 2+ instances of the same structural defect.
 List every occurrence — not just the ones you noticed first. This prevents
 whack-a-mole re-review cycles where the same pattern is found piecemeal.
+
+Tag every High finding with the PR's Invariant it breaks, written as the code span `Invariant: <short name>` (from the Invariant: line of the PR body or plan; `Invariant: unstated` if there is none). A finding outside the diff that breaks no Invariant is Medium tagged [outside-diff]; one that needs an environment the plan lists as out of scope is Medium tagged [out-of-scope-env] (see Issue Severity Definitions for the bounds; never for a Critical).
 
 Report findings as structured markdown:
 ## Findings
@@ -1087,6 +1118,67 @@ After deduplication, categorize all findings:
 
 **Note**: If validation fails, verdict is at least NEEDS FIXES regardless of agent findings.
 
+### Round Check (agent-devops#1297 C + H)
+
+Run it in every run, after the verdict and before anything is posted (so the newest per-pass comments on the PR are the previous round's). It reads the PR's per-pass comments and writes two lines into the aggregate summary — the terminal output and the local `.prp-output/reviews/` artifact — and nowhere else: it changes no per-pass comment, no footer and no marker. It is advice, not a gate; merger and safe-merge remain the gates.
+
+Before running it, write the `Invariant:` names of this round's Important findings (deduplicated, one per line, without the `Invariant: ` prefix) to `.prp-output/reviews/pr-{NUMBER}-round-invariants` (an empty file when there are none), and put this round's Critical and Important counts in place of `{ROUND_CRITICAL}` and `{ROUND_IMPORTANT}`.
+
+- **Re-route (C):** when an invariant of this round's Importants is also tagged on an Important in the previous round's per-pass comments (the newest run id on the PR; exact text after trimming), print `RE-ROUTE REQUIRED: <invariant>`: the same finding family in 2 rounds means stop patching and revisit the design (re-plan with the invariant, or cut scope to a new issue). `unstated` never matches; a match is then the orchestrator's manual check. When the comments cannot be read, print `RE-ROUTE CHECK UNAVAILABLE: <why>` and do the check by hand.
+- **Next step (H):** `pr-risk-tier --rounds` (from the installed ops checkout, the same way 2.0b runs the tier) gives the clean rounds the stop rule needs at the reviewed head: `1` for the normal tier, `2` for the gate tier. Any failure, a missing tool or any output other than `1` means 2, and the line says why. A normal-tier round is still a full round (all three core passes, `--l2-comments`); only the NUMBER of clean rounds differs, and it has nothing to do with the one-pass trivial run of 2.0b. Clean round k counts this round plus the consecutive earlier runs on the PR whose per-pass comments all show 0 Critical and 0 Important.
+
+```bash
+D=.prp-output/reviews
+INV_F="$D/pr-{NUMBER}-round-invariants"
+RC={ROUND_CRITICAL}; RI={ROUND_IMPORTANT}
+trim() { sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | grep -v '^$' | grep -vx 'unstated' | sort -u; }
+if ROWS=$(gh api "repos/{owner}/{repo}/issues/{NUMBER}/comments" --paginate --jq '
+    .[].body | rtrimstr("\n") as $b | ($b | split("\n")) as $l
+    | ($l[-1] | capture("^Generated-by: prp-review-agents v[^ ]+ run=(?<run>[0-9]{8}T[0-9]{6}Z-[0-9a-f]{8}) pass=(?<pass>[a-z-]+)")) as $f
+    | ([$l[] | capture("^### Critical Issues \\((?<n>[0-9]+) found\\)") | .n] | first // "x") as $c
+    | ([$l[] | capture("^### Important Issues \\((?<n>[0-9]+) found\\)") | .n] | first // "x") as $i
+    | (["R", $f.run, $f.pass, $c, $i] | @tsv),
+      ([$b | capture("### Important Issues[^\n]*\n(?<s>[\\s\\S]*?)\n### Suggestions") | .s | scan("`Invariant: ([^`\n]+)`") | .[0]] | .[] | ["I", $f.run, .] | @tsv)'); then
+  PREV_RUN=$(printf '%s\n' "$ROWS" | awk -F'\t' '$1=="R"{r=$2} END{print r}')
+  if [ -z "$PREV_RUN" ]; then
+    echo "Re-route: none (no earlier round on the PR)"
+  elif [ ! -f "$INV_F" ]; then
+    echo "RE-ROUTE CHECK UNAVAILABLE: $INV_F was not written — compare this round's Important invariants with run $PREV_RUN by hand"
+  else
+    SHARED=$(comm -12 <(printf '%s\n' "$ROWS" | awk -F'\t' -v r="$PREV_RUN" '$1=="I" && $2==r {print $3}' | trim) <(trim < "$INV_F"))
+    if [ -n "$SHARED" ]; then
+      printf '%s\n' "$SHARED" | sed 's/^/RE-ROUTE REQUIRED: /'
+    else
+      echo "Re-route: none (no Important invariant shared with run $PREV_RUN)"
+    fi
+  fi
+  EARLIER_CLEAN=$(printf '%s\n' "$ROWS" | awk -F'\t' '$1=="R" { if (!($2 in seen)) { order[++n]=$2; seen[$2]=1 } if ($4!="0" || $5!="0") dirty[$2]=1 }
+    END { k=0; for (j=n; j>=1; j--) { if (order[j] in dirty) break; k++ } print k }')
+else
+  echo "RE-ROUTE CHECK UNAVAILABLE: cannot read the PR comments (gh failed) — compare with the previous round by hand"
+  EARLIER_CLEAN=""
+fi
+H=$(cat "$D/pr-{NUMBER}-reviewed-head" 2>/dev/null) || H=""
+N=2; WHY="gate tier"
+if ! command -v pr-risk-tier >/dev/null 2>&1; then
+  WHY="pr-risk-tier not installed, so 2"
+elif ! printf '%s' "$H" | grep -qxE '[0-9a-f]{40}'; then
+  WHY="no saved reviewed head, so 2"
+elif R=$(env -u PR_RISK_TIER_GH pr-risk-tier --rounds --head "$H" {NUMBER} 2>"$D/pr-{NUMBER}-rounds.err"); then
+  if [ "$R" = 1 ]; then N=1; WHY="normal tier"; elif [ "$R" != 2 ]; then WHY="unexpected pr-risk-tier output, so 2"; fi
+else
+  WHY="pr-risk-tier --rounds failed (see $D/pr-{NUMBER}-rounds.err), so 2"
+fi
+if [ "$RC" != 0 ] || [ "$RI" != 0 ]; then
+  echo "Next step: fix the Critical/Important findings, then re-review with --since-last-review; this round is not clean ($N clean round(s) needed, $WHY)"
+elif [ -z "$EARLIER_CLEAN" ]; then
+  echo "Next step: $N clean round(s) needed ($WHY); this round is clean, earlier clean rounds unknown (PR comments unreadable) — count them by hand"
+else
+  K=$((EARLIER_CLEAN + 1))
+  echo "Next step: $N clean round(s) needed ($WHY) — this was clean round $K"
+fi
+```
+
 ### Summary Format
 
 ```markdown
@@ -1134,6 +1226,10 @@ After deduplication, categorize all findings:
 
 ### Verdict
 [READY TO MERGE / NEEDS FIXES / CRITICAL ISSUES]
+
+### Re-route and Next Step
+- {the Round Check's re-route line: "Re-route: none (...)", "RE-ROUTE REQUIRED: <invariant>" or "RE-ROUTE CHECK UNAVAILABLE: <why>"}
+- {the Round Check's "Next step: ..." line}
 
 ### Recommended Actions
 1. Fix critical issues first
