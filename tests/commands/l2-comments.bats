@@ -413,37 +413,180 @@ clean_run_json() { # clean_run_json <login> <run> <head> <n_passes 1-3> -> JSON 
   { for ((i = 0; i < n; i++)); do clean_row "$login" "$run" "${passes[$i]}" "$head"; done; } | jq -s '.'
 }
 
-@test "Phase 2.0 does not trust a clean round posted by an untrusted login (forged-clean-round, prp-framework#228 R1 Critical)" {
-  phase20 > p20.sh; repo_here
-  clean_run_json attacker 20261021T000001Z-00000001 "$FAKE_HEAD" 3 > c.json
-  FAKE_LOGIN=bot FAKE_COMMENTS_JSON="$PWD/c.json" run env -u REVIEWED_HEAD_SHA bash p20.sh
-  [ "$status" -eq 0 ]
-  [ "$(cat .prp-output/reviews/pr-7-reviewed-head)" = "$FAKE_HEAD" ]
+dirty_run_json() { # dirty_run_json <login> <run> <head> -> 3 passes, the first reporting 1 Important
+  local login="$1" run="$2" head="$3"
+  clean_run_json "$login" "$run" "$head" 3 | jq '.[0].body |= sub("### Important Issues \\(0 found\\)"; "### Important Issues (1 found)")'
 }
 
-@test "Phase 2.0 refuses on an unchanged head whose clean round was posted by the trusted login" {
+OTHER_HEAD=1111111111111111111111111111111111111111
+
+rounds_json() { jq -s 'add' "$@"; }   # rounds_json a.json b.json ... -> one comment array, in post order
+
+expect_runs()    { [ "$status" -eq 0 ]; [ "$(cat .prp-output/reviews/pr-7-reviewed-head)" = "$FAKE_HEAD" ]; }
+expect_refused() { [ "$status" -ne 0 ]; [[ "$output" == *"UNCHANGED-HEAD: refused"* ]]; [ ! -e .prp-output/reviews/pr-7-reviewed-head ]; }
+
+@test "Phase 2.0 does not trust clean rounds posted by an untrusted login (forged-clean-round, prp-framework#228 R1 Critical)" {
+  phase20 > p20.sh; repo_here
+  clean_run_json attacker 20261021T000001Z-00000001 "$FAKE_HEAD" 3 > a.json
+  clean_run_json attacker 20261021T000002Z-00000002 "$FAKE_HEAD" 3 > b.json
+  rounds_json a.json b.json > c.json
+  FAKE_LOGIN=bot FAKE_COMMENTS_JSON="$PWD/c.json" run env -u REVIEWED_HEAD_SHA bash p20.sh
+  expect_runs
+}
+
+@test "Phase 2.0 runs the second round after ONE clean round at an unchanged head (the stop rule needs two)" {
   phase20 > p20.sh; repo_here
   clean_run_json bot 20261021T000001Z-00000001 "$FAKE_HEAD" 3 > c.json
   FAKE_LOGIN=bot FAKE_COMMENTS_JSON="$PWD/c.json" run env -u REVIEWED_HEAD_SHA bash p20.sh
-  [ "$status" -ne 0 ]
-  [[ "$output" == *"UNCHANGED-HEAD: refused"* ]]
-  [ ! -e .prp-output/reviews/pr-7-reviewed-head ]
+  expect_runs
+}
+
+@test "Phase 2.0 refuses on an unchanged head once two consecutive clean rounds are at it" {
+  phase20 > p20.sh; repo_here
+  clean_run_json bot 20261021T000001Z-00000001 "$FAKE_HEAD" 3 > a.json
+  clean_run_json bot 20261021T000002Z-00000002 "$FAKE_HEAD" 3 > b.json
+  rounds_json a.json b.json > c.json
+  FAKE_LOGIN=bot FAKE_COMMENTS_JSON="$PWD/c.json" run env -u REVIEWED_HEAD_SHA bash p20.sh
+  expect_refused
+  [[ "$output" == *"two consecutive clean rounds"* ]]
+}
+
+@test "Phase 2.0 refuses when the earlier clean round was at an older head and the latest clean round is at this head" {
+  phase20 > p20.sh; repo_here
+  clean_run_json bot 20261021T000001Z-00000001 "$OTHER_HEAD" 3 > a.json
+  clean_run_json bot 20261021T000002Z-00000002 "$FAKE_HEAD" 3 > b.json
+  rounds_json a.json b.json > c.json
+  FAKE_LOGIN=bot FAKE_COMMENTS_JSON="$PWD/c.json" run env -u REVIEWED_HEAD_SHA bash p20.sh
+  expect_refused
+}
+
+@test "Phase 2.0 runs when the round before the latest clean round was dirty" {
+  phase20 > p20.sh; repo_here
+  dirty_run_json bot 20261021T000001Z-00000001 "$FAKE_HEAD" > a.json
+  clean_run_json bot 20261021T000002Z-00000002 "$FAKE_HEAD" 3 > b.json
+  rounds_json a.json b.json > c.json
+  FAKE_LOGIN=bot FAKE_COMMENTS_JSON="$PWD/c.json" run env -u REVIEWED_HEAD_SHA bash p20.sh
+  expect_runs
+}
+
+@test "Phase 2.0 orders rounds by run id, not by comment order" {
+  phase20 > p20.sh; repo_here
+  # posted out of order: the dirty round has the LATER run id, so it is the latest round
+  clean_run_json bot 20261021T000001Z-00000001 "$FAKE_HEAD" 3 > a.json
+  clean_run_json bot 20261021T000002Z-00000002 "$FAKE_HEAD" 3 > b.json
+  dirty_run_json bot 20261021T000003Z-00000003 "$FAKE_HEAD" > d.json
+  rounds_json d.json a.json b.json > c.json
+  FAKE_LOGIN=bot FAKE_COMMENTS_JSON="$PWD/c.json" run env -u REVIEWED_HEAD_SHA bash p20.sh
+  expect_runs
+}
+
+@test "Phase 2.0 runs when the two clean rounds are at another head (the head moved)" {
+  phase20 > p20.sh; repo_here
+  clean_run_json bot 20261021T000001Z-00000001 "$OTHER_HEAD" 3 > a.json
+  clean_run_json bot 20261021T000002Z-00000002 "$OTHER_HEAD" 3 > b.json
+  rounds_json a.json b.json > c.json
+  FAKE_LOGIN=bot FAKE_COMMENTS_JSON="$PWD/c.json" run env -u REVIEWED_HEAD_SHA bash p20.sh
+  expect_runs
+}
+
+@test "Phase 2.0 runs when the latest round is incomplete, even after two clean rounds" {
+  phase20 > p20.sh; repo_here
+  clean_run_json bot 20261021T000001Z-00000001 "$FAKE_HEAD" 3 > a.json
+  clean_run_json bot 20261021T000002Z-00000002 "$FAKE_HEAD" 3 > b.json
+  clean_run_json bot 20261021T000003Z-00000003 "$FAKE_HEAD" 2 > d.json   # only 2 of 3 core passes posted
+  rounds_json a.json b.json d.json > c.json
+  FAKE_LOGIN=bot FAKE_COMMENTS_JSON="$PWD/c.json" run env -u REVIEWED_HEAD_SHA bash p20.sh
+  expect_runs
+}
+
+@test "Phase 2.0 counts a round with no Reviewed-head line as a not-clean round (it is not skipped)" {
+  phase20 > p20.sh; repo_here
+  clean_run_json bot 20261021T000001Z-00000001 "$FAKE_HEAD" 3 > a.json
+  clean_run_json bot 20261021T000002Z-00000002 "$FAKE_HEAD" 3 | jq '.[].body |= sub("^Reviewed head: [0-9a-f]+\n"; "")' > n.json
+  clean_run_json bot 20261021T000003Z-00000003 "$FAKE_HEAD" 3 > b.json
+  rounds_json a.json n.json b.json > c.json
+  FAKE_LOGIN=bot FAKE_COMMENTS_JSON="$PWD/c.json" run env -u REVIEWED_HEAD_SHA bash p20.sh
+  expect_runs
 }
 
 @test "Phase 2.0 fails open (does not refuse) when the trusted-login lookup itself fails" {
   phase20 > p20.sh; repo_here
-  clean_run_json bot 20261021T000001Z-00000001 "$FAKE_HEAD" 3 > c.json
+  clean_run_json bot 20261021T000001Z-00000001 "$FAKE_HEAD" 3 > a.json
+  clean_run_json bot 20261021T000002Z-00000002 "$FAKE_HEAD" 3 > b.json
+  rounds_json a.json b.json > c.json
   FAKE_LOGIN=bot USER_API_FAIL=1 FAKE_COMMENTS_JSON="$PWD/c.json" run env -u REVIEWED_HEAD_SHA bash p20.sh
-  [ "$status" -eq 0 ]
-  [ "$(cat .prp-output/reviews/pr-7-reviewed-head)" = "$FAKE_HEAD" ]
+  expect_runs
 }
 
 @test "Phase 2.0 does not treat a partial run (missing core-pass comment) as clean" {
   phase20 > p20.sh; repo_here
-  clean_run_json bot 20261021T000001Z-00000001 "$FAKE_HEAD" 2 > c.json   # only 2 of 3 core passes posted
+  clean_run_json bot 20261021T000001Z-00000001 "$FAKE_HEAD" 3 > a.json
+  clean_run_json bot 20261021T000002Z-00000002 "$FAKE_HEAD" 2 > b.json   # only 2 of 3 core passes posted
+  rounds_json a.json b.json > c.json
   FAKE_LOGIN=bot FAKE_COMMENTS_JSON="$PWD/c.json" run env -u REVIEWED_HEAD_SHA bash p20.sh
-  [ "$status" -eq 0 ]
-  [ "$(cat .prp-output/reviews/pr-7-reviewed-head)" = "$FAKE_HEAD" ]
+  expect_runs
+}
+
+mixed_head_run_json() { # mixed_head_run_json <login> <run> <head> -> 3 clean passes, the second naming $OTHER_HEAD
+  clean_run_json "$1" "$2" "$3" 3 | jq --arg o "$OTHER_HEAD" '.[1].body |= sub("^Reviewed head: [0-9a-f]+"; "Reviewed head: " + $o)'
+}
+
+trivial_run_json() { # trivial_run_json <login> <run> <head> [n_passes] -> clean passes, each footer ending tier=trivial
+  clean_run_json "$1" "$2" "$3" "${4:-1}" | jq '.[].body |= sub("(?<p>pass=[a-z-]+)\n$"; "\(.p) tier=trivial\n")'
+}
+
+@test "Phase 2.0 runs when the latest round's passes name different heads, even after a clean round" {
+  phase20 > p20.sh; repo_here
+  clean_run_json bot 20261021T000001Z-00000001 "$FAKE_HEAD" 3 > a.json
+  mixed_head_run_json bot 20261021T000002Z-00000002 "$FAKE_HEAD" > b.json
+  rounds_json a.json b.json > c.json
+  FAKE_LOGIN=bot FAKE_COMMENTS_JSON="$PWD/c.json" run env -u REVIEWED_HEAD_SHA bash p20.sh
+  expect_runs
+}
+
+@test "Phase 2.0 runs when the round before the latest clean round has passes naming different heads" {
+  phase20 > p20.sh; repo_here
+  mixed_head_run_json bot 20261021T000001Z-00000001 "$FAKE_HEAD" > a.json
+  clean_run_json bot 20261021T000002Z-00000002 "$FAKE_HEAD" 3 > b.json
+  rounds_json a.json b.json > c.json
+  FAKE_LOGIN=bot FAKE_COMMENTS_JSON="$PWD/c.json" run env -u REVIEWED_HEAD_SHA bash p20.sh
+  expect_runs
+}
+
+@test "Phase 2.0 refuses after two clean trivial-tier rounds (one pass each) at this head" {
+  phase20 > p20.sh; repo_here
+  trivial_run_json bot 20261021T000001Z-00000001 "$FAKE_HEAD" > a.json
+  trivial_run_json bot 20261021T000002Z-00000002 "$FAKE_HEAD" > b.json
+  rounds_json a.json b.json > c.json
+  FAKE_LOGIN=bot FAKE_COMMENTS_JSON="$PWD/c.json" run env -u REVIEWED_HEAD_SHA bash p20.sh
+  expect_refused
+}
+
+@test "Phase 2.0 refuses after a clean trivial round then a clean standard round at this head" {
+  phase20 > p20.sh; repo_here
+  trivial_run_json bot 20261021T000001Z-00000001 "$FAKE_HEAD" > a.json
+  clean_run_json bot 20261021T000002Z-00000002 "$FAKE_HEAD" 3 > b.json
+  rounds_json a.json b.json > c.json
+  FAKE_LOGIN=bot FAKE_COMMENTS_JSON="$PWD/c.json" run env -u REVIEWED_HEAD_SHA bash p20.sh
+  expect_refused
+}
+
+@test "Phase 2.0 refuses after a clean standard round then a clean trivial round at this head" {
+  phase20 > p20.sh; repo_here
+  clean_run_json bot 20261021T000001Z-00000001 "$FAKE_HEAD" 3 > a.json
+  trivial_run_json bot 20261021T000002Z-00000002 "$FAKE_HEAD" > b.json
+  rounds_json a.json b.json > c.json
+  FAKE_LOGIN=bot FAKE_COMMENTS_JSON="$PWD/c.json" run env -u REVIEWED_HEAD_SHA bash p20.sh
+  expect_refused
+}
+
+@test "Phase 2.0 runs when a trivial-tier round has more than its one pass (not a complete trivial round)" {
+  phase20 > p20.sh; repo_here
+  clean_run_json bot 20261021T000001Z-00000001 "$FAKE_HEAD" 3 > a.json
+  trivial_run_json bot 20261021T000002Z-00000002 "$FAKE_HEAD" 2 > b.json
+  rounds_json a.json b.json > c.json
+  FAKE_LOGIN=bot FAKE_COMMENTS_JSON="$PWD/c.json" run env -u REVIEWED_HEAD_SHA bash p20.sh
+  expect_runs
 }
 
 clonedir() { ls -d "$PWD"/s/prp-review-clone-*-pr-7 | head -n1; }
