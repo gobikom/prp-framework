@@ -11,8 +11,15 @@
 # - A 9-hex id counts as its 8-hex prefix. Two ids differing only in the 9th hex digit count once.
 # - Never refuses on content. An edited comment whose id was removed or garbled is not counted —
 #   out of scope, prp-framework#213 (durable ledger). Any text can only raise R: a forged id can push
-#   R to the cap early (refuses another round, never undercounts). Every agent comments as one user,
-#   so an author filter cannot help; ledger-only counting (#213) closes it.
+#   R to the cap early (refuses another round, never undercounts).
+# - This script itself trusts every line it is given — it has no notion of comment author. The
+#   caller (prompts/review-agents.md Phase 2.0) is responsible for filtering stdin to comments from
+#   the session's own trusted GitHub login (the same TRUSTED_LOGIN filter as the unchanged-head
+#   check, prp-framework#228) BEFORE calling this script, so an outside commenter's forged run-id
+#   string is excluded upstream rather than counted here. An untrusted-comment edited to remove or
+#   garble ITS OWN id (the legitimate every-agent-is-one-account case) stays out of scope pending the
+#   durable ledger (#213) — that is a different gap than an outside account's forgery, which the
+#   caller's filter now closes.
 #
 # usage: round-guard.sh [--cap N] < footer-lines
 #   stdin: one line per PR comment = that comment's LAST line (the caller extracts it).

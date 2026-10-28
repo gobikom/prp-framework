@@ -526,8 +526,17 @@ if [ -n "$LAST_CLEAN_HEAD" ] && [ "$LAST_CLEAN_HEAD" = "$REVIEWED_HEAD_SHA" ]; t
   exit 1
 fi
 # round cap (prp-framework#151): count the review runs already on the PR (the last line of each comment), from the installed framework's copy
-FOOTERS=$(gh api "repos/{owner}/{repo}/issues/{NUMBER}/comments" --paginate --jq '.[].body | rtrimstr("\n") | split("\n") | last') \
-  || { echo "FATAL: cannot read the PR comments (gh failed) — round cap not checkable, no agents started" >&2; exit 1; }
+# Same comment-trust rule as CLEAN_ROWS above (prp-framework#228): an untrusted commenter can post a
+# run-id-shaped line with no footer formatting at all, which would otherwise both exhaust the round
+# cap early and (new in this plan) make 2.3 skip conditional agents on what is really the PR's first
+# round. Fail OPEN to an empty FOOTERS (round 1, cap never tripped) when the login lookup failed —
+# under-counting is the safe direction here, same as the unchanged-head check.
+if [ -n "$TRUSTED_LOGIN" ]; then
+  FOOTERS=$(gh api "repos/{owner}/{repo}/issues/{NUMBER}/comments" --paginate --jq '.[] | select(.user.login == env.TRUSTED_LOGIN) | .body | rtrimstr("\n") | split("\n") | last') \
+    || { echo "FATAL: cannot read the PR comments (gh failed) — round cap not checkable, no agents started" >&2; exit 1; }
+else
+  FOOTERS=""
+fi
 ROUND_GUARD_OUT=$(printf '%s\n' "$FOOTERS" | bash "$PRP_DIR/scripts/review/round-guard.sh" --cap 6) \
   || { echo "FATAL: round cap — no agents started" >&2; exit 1; }
 echo "$ROUND_GUARD_OUT"
@@ -557,16 +566,24 @@ GATE2=1
 if command -v pr-risk-tier >/dev/null 2>&1; then
   RT=$(env -u PR_RISK_TIER_GH pr-risk-tier --rounds {NUMBER} 2>/dev/null) && [ "$RT" != 2 ] && GATE2=0
 fi
-if [ "$GATE2" -eq 0 ] && HEADS=$(gh api "repos/{owner}/{repo}/issues/{NUMBER}/comments" --paginate --jq '.[].body | select(startswith("Reviewed head: ")) | split("\n")[0] | ltrimstr("Reviewed head: ")'); then
-  PREV=$(printf '%s\n' "$HEADS" | grep -xE '[0-9a-f]{40}' | tail -n1)
-  if [ -n "$PREV" ] && [ "$PREV" != "$REVIEWED_HEAD_SHA" ] && git merge-base --is-ancestor "$PREV" "$REVIEWED_HEAD_SHA" 2>/dev/null; then
-    FULLS=$(gh api "repos/{owner}/{repo}/issues/{NUMBER}/comments" --paginate --jq '.[].body | select(startswith("Reviewed head: ")) | select((split("\n")[1]) == "Review-mode: full") | split("\n")[0] | ltrimstr("Reviewed head: ")' 2>/dev/null) || FULLS=""
-    LAST_FULL=$(printf '%s\n' "$FULLS" | grep -xE '[0-9a-f]{40}' | tail -n1)
-    if [ -n "$LAST_FULL" ] && git merge-base --is-ancestor "$LAST_FULL" "$REVIEWED_HEAD_SHA" 2>/dev/null \
-       && TOTAL=$(gh pr view {NUMBER} --json additions,deletions -q '.additions + .deletions' 2>/dev/null) \
-       && [[ "$TOTAL" =~ ^[0-9]+$ ]] && [ "$TOTAL" -gt 0 ]; then
-      CUM=$(git diff --numstat "$LAST_FULL..$REVIEWED_HEAD_SHA" 2>/dev/null | awk '{a+=$1; d+=$2} END{print a+d+0}')
-      [[ "$CUM" =~ ^[0-9]+$ ]] && (( CUM * 100 <= TOTAL * 40 )) && { MODE=delta; BASE_SHA="$PREV"; }
+# Same comment-trust rule as Phase 2.0's CLEAN_ROWS (prp-framework#228): PREV/LAST_FULL drive the
+# posted Review-mode line and must come only from this session's own GitHub identity, never an
+# outside commenter forging a "Reviewed head: <ancestor sha>" line. Fail OPEN to MODE=full (never
+# refuse, never skip the round) when the login lookup itself fails.
+TRUSTED_LOGIN=$(gh api user --jq '.login' 2>/dev/null) || TRUSTED_LOGIN=""
+if [ "$GATE2" -eq 0 ] && [ -n "$TRUSTED_LOGIN" ]; then
+  export TRUSTED_LOGIN
+  if HEADS=$(gh api "repos/{owner}/{repo}/issues/{NUMBER}/comments" --paginate --jq '.[] | select(.user.login == env.TRUSTED_LOGIN) | .body | select(startswith("Reviewed head: ")) | split("\n")[0] | ltrimstr("Reviewed head: ")'); then
+    PREV=$(printf '%s\n' "$HEADS" | grep -xE '[0-9a-f]{40}' | tail -n1)
+    if [ -n "$PREV" ] && [ "$PREV" != "$REVIEWED_HEAD_SHA" ] && git merge-base --is-ancestor "$PREV" "$REVIEWED_HEAD_SHA" 2>/dev/null; then
+      FULLS=$(gh api "repos/{owner}/{repo}/issues/{NUMBER}/comments" --paginate --jq '.[] | select(.user.login == env.TRUSTED_LOGIN) | .body | select(startswith("Reviewed head: ")) | select((split("\n")[1]) == "Review-mode: full") | split("\n")[0] | ltrimstr("Reviewed head: ")' 2>/dev/null) || FULLS=""
+      LAST_FULL=$(printf '%s\n' "$FULLS" | grep -xE '[0-9a-f]{40}' | tail -n1)
+      if [ -n "$LAST_FULL" ] && git merge-base --is-ancestor "$LAST_FULL" "$REVIEWED_HEAD_SHA" 2>/dev/null \
+         && TOTAL=$(gh pr view {NUMBER} --json additions,deletions -q '.additions + .deletions' 2>/dev/null) \
+         && [[ "$TOTAL" =~ ^[0-9]+$ ]] && [ "$TOTAL" -gt 0 ]; then
+        CUM=$(git diff --numstat "$LAST_FULL..$REVIEWED_HEAD_SHA" 2>/dev/null | awk '{a+=$1; d+=$2} END{print a+d+0}')
+        [[ "$CUM" =~ ^[0-9]+$ ]] && (( CUM * 100 <= TOTAL * 40 )) && { MODE=delta; BASE_SHA="$PREV"; }
+      fi
     fi
   fi
 fi

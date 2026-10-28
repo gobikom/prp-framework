@@ -49,7 +49,10 @@ if [ "$1" = "api" ]; then   # the round-cap read (Phase 2.0): last lines of the 
   [ -n "$filter" ] || exit 1
   if [ -n "${FAKE_COMMENTS_JSON:-}" ]; then jq -r "$filter" "$FAKE_COMMENTS_JSON" || exit 1; exit 0; fi
   # FAKE_COMMENTS = one footer line per comment; wrap each as a multi-line body with a trailing newline
-  [ -n "${FAKE_COMMENTS:-}" ] && jq -R -s 'split("\n")[:-1] | map({body: ("Reviewed head: x\n\n### Could not verify\nNothing.\n\n" + . + "\n")})' "$FAKE_COMMENTS" | jq -r "$filter"
+  # user.login matches the "api user" mock's default login ("bot", or $FAKE_LOGIN) so these
+  # fixture comments count as trusted by default (prp-framework#228's round-cap/mode-decision
+  # author filter); a test exercising the untrusted-author path sets FAKE_COMMENTS_JSON instead.
+  [ -n "${FAKE_COMMENTS:-}" ] && jq -R -s --arg login "${FAKE_LOGIN:-bot}" 'split("\n")[:-1] | map({user: {login: $login}, body: ("Reviewed head: x\n\n### Could not verify\nNothing.\n\n" + . + "\n")})' "$FAKE_COMMENTS" | jq -r "$filter"
   exit 0
 fi
 if [ "$1 $2" = "pr comment" ]; then
@@ -672,12 +675,15 @@ phase20a() { fence "$ADAPTER" "### 2.0a Review Mode Decision"; }
 # plain line that is neither full nor delta, so G2 never picks it as LAST_FULL).
 fake_mode_comment() {
   local head="$1" modeline="${2:-full}"
+  # user.login must match the "api user" mock's default login ("bot", or $FAKE_LOGIN when the
+  # caller set it) — 2.0a's own TRUSTED_LOGIN filter (prp-framework#228) now excludes any comment
+  # whose author doesn't match, same as Phase 2.0's CLEAN_ROWS check.
   jq -n --arg b "Reviewed head: $head
 Review-mode: $modeline
 
 ### Could not verify
 Nothing.
-" '[{body: $b}]' > "$WORK/comments.json"
+" --arg login "${FAKE_LOGIN:-bot}" '[{user: {login: $login}, body: $b}]' > "$WORK/comments.json"
   export FAKE_COMMENTS_JSON="$WORK/comments.json"
 }
 
