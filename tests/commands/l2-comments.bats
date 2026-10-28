@@ -321,8 +321,10 @@ runs() { local i p; for ((i = 1; i <= $1; i++)); do for p in code-reviewer secur
   phase20 > p20.sh; repo_here
   # two pages (gh --paginate applies --jq per page): a multi-line body, a plain comment and a CRLF-free footer
   # page1 = runs 1-3 (ids1-3), page2 keeps runs 4-6 (tail skips the 9 lines of ids1-3) -> 6 unique = at cap (default cap is 6)
-  { runs 3 | jq -R -s 'split("\n")[:-1] | map({body: ("review text\nmore\n" + . + "\n")})'
-    runs 6 | tail -n +10 | jq -R -s 'split("\n")[:-1] | map({body: ("other\n" + . + "\n")}) + [{body: "LGTM"}]'; } > c.json
+  # tagged with the default trusted login ("bot") so Phase 2.0's TRUSTED_LOGIN filter
+  # (FOOTERS, same as CLEAN_ROWS) keeps these rows instead of silently dropping them
+  { runs 3 | jq -R -s 'split("\n")[:-1] | map({user: {login: "bot"}, body: ("review text\nmore\n" + . + "\n")})'
+    runs 6 | tail -n +10 | jq -R -s 'split("\n")[:-1] | map({user: {login: "bot"}, body: ("other\n" + . + "\n")}) + [{user: {login: "bot"}, body: "LGTM"}]'; } > c.json
   FAKE_COMMENTS_JSON="$PWD/c.json" run env -u REVIEWED_HEAD_SHA bash p20.sh
   [ "$status" -ne 0 ]
   [[ "$output" == *"ROUND-CAP: refused"* ]]
@@ -331,8 +333,9 @@ runs() { local i p; for ((i = 1; i <= $1; i++)); do for p in code-reviewer secur
 @test "Phase 2.0 allows round 6 over paginated comment JSON with ordinary comments" {
   phase20 > p20.sh; repo_here
   # page1 = runs 1-2 (ids1-2), page2 keeps runs 3-5 (tail skips the 6 lines of ids1-2) -> 5 unique = one under cap (default cap is 6)
-  { runs 2 | jq -R -s 'split("\n")[:-1] | map({body: ("text\n" + . + "\n")}) + [{body: "LGTM"}, {body: "a\nb\nc"}]'
-    runs 5 | tail -n +7 | jq -R -s 'split("\n")[:-1] | map({body: ("text\n" + . + "\n")})'; } > c.json
+  # tagged with the default trusted login ("bot"), same reason as the test above
+  { runs 2 | jq -R -s 'split("\n")[:-1] | map({user: {login: "bot"}, body: ("text\n" + . + "\n")}) + [{user: {login: "bot"}, body: "LGTM"}, {user: {login: "bot"}, body: "a\nb\nc"}]'
+    runs 5 | tail -n +7 | jq -R -s 'split("\n")[:-1] | map({user: {login: "bot"}, body: ("text\n" + . + "\n")})'; } > c.json
   FAKE_COMMENTS_JSON="$PWD/c.json" run env -u REVIEWED_HEAD_SHA bash p20.sh
   [ "$status" -eq 0 ]
   [ "$(cat .prp-output/reviews/pr-7-reviewed-head)" = "$FAKE_HEAD" ]
@@ -340,7 +343,9 @@ runs() { local i p; for ((i = 1; i <= $1; i++)); do for p in code-reviewer secur
 
 @test "Phase 2.0 refuses on a comment with a null body" {
   phase20 > p20.sh; repo_here
-  printf '[{"body": null}]\n' > c.json
+  # tagged with the default trusted login so the TRUSTED_LOGIN filter passes it through
+  # to the null-body handling this test actually exercises, instead of dropping it first
+  printf '[{"user": {"login": "bot"}, "body": null}]\n' > c.json
   FAKE_COMMENTS_JSON="$PWD/c.json" run env -u REVIEWED_HEAD_SHA bash p20.sh
   [ "$status" -ne 0 ]
   [ ! -e .prp-output/reviews/pr-7-reviewed-head ]
