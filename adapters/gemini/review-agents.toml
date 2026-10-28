@@ -487,19 +487,45 @@ printf '%s' "$LOCAL_HEAD" | grep -qxE '[0-9a-f]{40}' || { echo "FATAL: cannot re
 [ -L .prp ] || { echo "FATAL: .prp is not a symlink to the installed prp-framework — round cap not checkable, no agents started" >&2; exit 1; }
 PRP_DIR=$(readlink -f .prp) || { echo "FATAL: cannot resolve .prp — no agents started" >&2; exit 1; }
 # unchanged-head refusal: the last CLEAN round's reviewed head (0 Critical, 0 Important across every one of its per-pass comments) — never the merely-most-recent round, which may still have open findings worth re-reviewing at the same head
-CLEAN_ROWS=$(gh api "repos/{owner}/{repo}/issues/{NUMBER}/comments" --paginate --jq '
-    .[].body | sub("\\\\s+$"; "") as $b
-    | select($b | test("(^|\\n)Generated-by: prp-review-agents ")) | ($b | split("\\n")) as $l
-    | ([$l[-1] | capture("^Generated-by: prp-review-agents v[^ ]+ run=(?<run>[0-9]{8}T[0-9]{6}Z-[0-9a-f]{8}) pass=(?<pass>[a-z-]+)(?<t> tier=trivial)?$")] | first) as $f
-    | select($f != null)
-    | (if ($l[0] | test("^Reviewed head: [0-9a-f]{40}$")) then ($l[0] | capture("^Reviewed head: (?<h>[0-9a-f]{40})$").h) else "" end) as $head
-    | (if ($b | test("### Critical Issues \\\\([0-9]+ found\\\\)")) then ($b | capture("### Critical Issues \\\\((?<c>[0-9]+) found\\\\)").c) else "999" end) as $crit
-    | (if ($b | test("### Important Issues \\\\([0-9]+ found\\\\)")) then ($b | capture("### Important Issues \\\\((?<i>[0-9]+) found\\\\)").i) else "999" end) as $imp
-    | [$f.run, $head, $crit, $imp] | @tsv') \\
-  || { echo "FATAL: cannot read the PR comments (gh failed) — unchanged-head not checkable, no agents started" >&2; exit 1; }
+# Trust only comments from the account this session itself authenticates as (every legitimate agent run posts under one shared GitHub identity, prp-framework#228) — never a forged comment from an outside account on this public repo, which could otherwise fake a clean round and block real review.
+# If we can't learn our own login, fail OPEN: skip the unchanged-head check entirely (no refusal, run the review) rather than refusing to start — a false refusal blocks real review, which is the worse direction here.
+TRUSTED_LOGIN=$(gh api user --jq '.login' 2>/dev/null) || TRUSTED_LOGIN=""
+if [ -n "$TRUSTED_LOGIN" ]; then
+  export TRUSTED_LOGIN   # `gh api --jq` takes one jq expression and nothing else — no --arg passthrough — so the
+                          # login reaches jq via its own env builtin, not bash-side string interpolation into the filter
+  CLEAN_ROWS=$(gh api "repos/{owner}/{repo}/issues/{NUMBER}/comments" --paginate --jq '
+      .[] | select(.user.login == env.TRUSTED_LOGIN) | .body | sub("\\\\s+$"; "") as $b
+      | select($b | test("(^|\\n)Generated-by: prp-review-agents ")) | ($b | split("\\n")) as $l
+      | ([$l[-1] | capture("^Generated-by: prp-review-agents v[^ ]+ run=(?<run>[0-9]{8}T[0-9]{6}Z-[0-9a-f]{8}) pass=(?<pass>[a-z-]+)(?<t> tier=trivial)?$")] | first) as $f
+      | select($f != null)
+      | (if ($l[0] | test("^Reviewed head: [0-9a-f]{40}$")) then ($l[0] | capture("^Reviewed head: (?<h>[0-9a-f]{40})$").h) else "" end) as $head
+      | (if ($b | test("### Critical Issues \\\\([0-9]+ found\\\\)")) then ($b | capture("### Critical Issues \\\\((?<c>[0-9]+) found\\\\)").c) else "999" end) as $crit
+      | (if ($b | test("### Important Issues \\\\([0-9]+ found\\\\)")) then ($b | capture("### Important Issues \\\\((?<i>[0-9]+) found\\\\)").i) else "999" end) as $imp
+      | [$f.run, $head, $crit, $imp, $f.pass, (if $f.t then "trivial" else "" end)] | @tsv') \\
+    || { echo "FATAL: cannot read the PR comments (gh failed) — unchanged-head not checkable, no agents started" >&2; exit 1; }
+else
+  CLEAN_ROWS=""
+fi
+# A round only counts as clean once ALL of its expected per-pass comments are present (3 core passes, or
+# the single trivial-tier pass) — a run with fewer is incomplete (e.g. a mid-post failure lost a dirty
+# pass's comment) and must never be read as clean, whatever the posted subset says.
 LAST_CLEAN_HEAD=$(printf '%s\\n' "$CLEAN_ROWS" | awk -F'\\t' '
-    $2 != "" { run=$1; head[run]=$2; if ($3+0!=0 || $4+0!=0) dirty[run]=1 }
-    END { best=""; besthead=""; for (r in head) if (!(r in dirty) && r > best) { best=r; besthead=head[r] }; print besthead }')
+    $2 != "" {
+      run=$1; head[run]=$2
+      if ($3+0!=0 || $4+0!=0) dirty[run]=1
+      key=run SUBSEP $5
+      if (!(key in seenpass)) { seenpass[key]=1; passcount[run]++ }
+      if ($6 == "trivial") istrivial[run]=1
+    }
+    END {
+      best=""; besthead=""
+      for (r in head) {
+        complete = (r in istrivial) ? (passcount[r] == 1) : (passcount[r] == 3)
+        if (!complete) dirty[r] = 1
+        if (!(r in dirty) && r > best) { best=r; besthead=head[r] }
+      }
+      print besthead
+    }')
 if [ -n "$LAST_CLEAN_HEAD" ] && [ "$LAST_CLEAN_HEAD" = "$REVIEWED_HEAD_SHA" ]; then
   echo "UNCHANGED-HEAD: refused — head $REVIEWED_HEAD_SHA already has a clean round (0 Critical, 0 Important); nothing to review" >&2
   exit 1
@@ -532,11 +558,9 @@ D=.prp-output/reviews
 REVIEWED_HEAD_SHA=$(cat "$D/pr-{NUMBER}-reviewed-head" 2>/dev/null) || REVIEWED_HEAD_SHA=""
 printf '%s' "$REVIEWED_HEAD_SHA" | grep -qxE '[0-9a-f]{40}' || { echo "FATAL: run Phase 2.0 first — no agents started" >&2; exit 1; }
 MODE=full; BASE_SHA=""
-GATE2=0
+GATE2=1
 if command -v pr-risk-tier >/dev/null 2>&1; then
-  RT=$(env -u PR_RISK_TIER_GH pr-risk-tier --rounds {NUMBER} 2>/dev/null) && [ "$RT" = 2 ] && GATE2=1
-else
-  GATE2=1
+  RT=$(env -u PR_RISK_TIER_GH pr-risk-tier --rounds {NUMBER} 2>/dev/null) && [ "$RT" != 2 ] && GATE2=0
 fi
 if [ "$GATE2" -eq 0 ] && HEADS=$(gh api "repos/{owner}/{repo}/issues/{NUMBER}/comments" --paginate --jq '.[].body | select(startswith("Reviewed head: ")) | split("\\n")[0] | ltrimstr("Reviewed head: ")'); then
   PREV=$(printf '%s\\n' "$HEADS" | grep -xE '[0-9a-f]{40}' | tail -n1)
@@ -778,7 +802,7 @@ If no recurring patterns detected, state: 'No recurring patterns detected — sw
 
 ### 2.3 Conditional Agents (Spawn in Parallel — Based on File Analysis)
 
-**Round 1 only.** Read `ROUND` from `.prp-output/reviews/pr-{NUMBER}-round` (saved by 2.0). When `ROUND` is 2 or higher, or 2.0b saved `TIER=trivial`, skip this entire phase — spawn no conditional agent — and go straight to Phase 3 once the core agents (2.2) finish.
+**Round 1 only.** Read `ROUND` from `.prp-output/reviews/pr-{NUMBER}-round` (saved by 2.0, which already validates it as numeric before writing). When `ROUND` is 2 or higher, or 2.0b saved `TIER=trivial`, skip this entire phase — spawn no conditional agent — and go straight to Phase 3 once the core agents (2.2) finish. If `ROUND` is missing, empty, or not a plain number (a stale file from an aborted run, or anything else breaking 2.0's own guarantee), fail closed the same as "round 2 or higher": skip this phase and spawn no conditional agent, rather than defaulting to "round 1" and running agents that round-gating exists to stop after round 1.
 
 In round 1 (and not trivial-tier), after determining which conditional agents are needed (from Aspect Selection Logic above), spawn them in a **SINGLE message** alongside or after the core agents:
 
