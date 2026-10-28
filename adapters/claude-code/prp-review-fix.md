@@ -34,7 +34,7 @@ Format: `<pr-number|review-artifact-path> [--severity critical,high,medium,sugge
 | No `--severity`, no `--single-pass` | **LOOP (default)** | Fix all severities, then auto-invoke `/prp-core:prp-review`, loop until 0 issues or MAX_ROUNDS. Matches `prp-run-all` Step 6 semantics. |
 | `--severity <levels>` explicit | SINGLE-PASS | Fix only the named severities, exit after Phase 6. User knows what they want — no loop. |
 | `--single-pass` explicit | SINGLE-PASS | Explicit opt-out of loop even when no severity given. Equivalent to running the pre-2026-04-17 behavior. |
-| `--max-rounds N` | LOOP with N cap | Override default MAX_ROUNDS=5. Only meaningful in loop mode. |
+| `--max-rounds N` | LOOP with N cap | Override default MAX_ROUNDS=6. Only meaningful in loop mode. |
 
 **Why default is LOOP**: agents and humans consistently forgot to run re-review after a single-pass fix, leaving suggestion-severity issues unresolved in merged PRs. Making LOOP the default satisfies the `~/.claude/CLAUDE.md` Post-Implement Hard Rule ("0 issues all severities before merge") without requiring the caller to remember the orchestration steps.
 
@@ -203,7 +203,7 @@ Run `/prp-core:prp-review {NUMBER}` first to generate the review.
 SEVERITY_EXPLICIT   = true if --severity flag was present in input
 SINGLE_PASS_EXPLICIT = true if --single-pass flag was present in input
 LOOP_MODE           = NOT (SEVERITY_EXPLICIT OR SINGLE_PASS_EXPLICIT)
-MAX_ROUNDS          = {from --max-rounds N, default 5}
+MAX_ROUNDS          = {from --max-rounds N, default 6}
 ROUND               = {from --resume state if present, else 1}
 ```
 
@@ -754,7 +754,7 @@ On trigger:
 - Phase 10 only runs after Phase 6 (commit) succeeds. If commit fails, the loop does not start. (Phases 7–9 — PUSH/REPORT/OUTPUT — run whether or not the loop triggers.)
 - Each loop iteration runs Phases 1 → 6 in full for the new artifact. This is the existing single-pass pipeline, re-entered with a fresh artifact.
 - `ROUND` counts distinct (review, fix) pairs. Round 1 is the initial review-fix invocation; round 2 is the first re-review + fix; etc.
-- `MAX_ROUNDS` defaults to 5 (via `--max-rounds`). The escalation-after-2-all-skipped guard is narrower and catches the "review-fix cannot make progress" case earlier.
+- `MAX_ROUNDS` defaults to 6 (via `--max-rounds`). The escalation-after-2-all-skipped guard is narrower and catches the "review-fix cannot make progress" case earlier.
 
 **Why this design**: matches `run-all` Step 6 behavior exactly (PR gobikom/prp-framework#59), so review-fix used standalone produces the same zero-issues guarantee as review-fix inside run-all. No divergence.
 
@@ -816,7 +816,7 @@ Note: passing `--severity` implicitly disables LOOP_MODE (see Input → Flag sem
 /prp-core:prp-review-fix 163                                    # LOOP mode — fix all + re-review until 0 issues
 /prp-core:prp-review-fix 163 --severity critical,high           # SINGLE-PASS — only critical and high
 /prp-core:prp-review-fix 163 --single-pass                      # SINGLE-PASS explicit — fix all once, exit
-/prp-core:prp-review-fix 163 --max-rounds 3                     # LOOP mode with custom cap (default 5)
+/prp-core:prp-review-fix 163 --max-rounds 3                     # LOOP mode with custom cap (default 6)
 /prp-core:prp-review-fix                                        # Current branch's PR, LOOP mode
 /prp-core:prp-review-fix .prp-output/reviews/pr-42-review-claude-code.md  # By artifact path, LOOP mode
 ```

@@ -43,7 +43,7 @@ Execute the complete PRP workflow end-to-end autonomously. Each step delegates t
 | `--package <name>` | Scope to a specific monorepo package. Passed through to plan and implement steps. |
 | `--issue <N>` | Fetch GitHub issue #N context. Set ISSUE_NUMBER = N. Extracts title + body as FEATURE. |
 | `--merge` | Auto squash-merge PR after review passes (0 issues). Set AUTO_MERGE = true. |
-| `--max-review-rounds <N>` | Override max review-fix cycles (default: 5). |
+| `--max-review-rounds <N>` | Override max review-fix cycles (default: 6). |
 | `--verify` | Run /prp-verify before merge to check requirements traceability (Step 7.5). Set VERIFY = true. (automatic when the PR head has .prp-verify/feature-map.yaml — forced in Step 1/resume/Step 8; no flag can turn it off) |
 | `--qa-delegate=<agent>` | Delegate QA to agent after merge via /prp-qa --delegate (Step 8.5). Set QA_DELEGATE = agent. |
 | `--done` | Run /prp-done after QA delegation to close issue when all gates pass (Step 9). Set DONE = true. Requires --issue. |
@@ -78,7 +78,7 @@ MONOREPO_PACKAGE = "{from --package, or empty}"
 DRY_RUN = {true if --dry-run}
 ISSUE_NUMBER = "{from --issue, or empty}"
 AUTO_MERGE = {true if --merge}
-MAX_CYCLES = {from --max-review-rounds, default 5}
+MAX_CYCLES = {from --max-review-rounds, default 6}
 VERIFY = {true if --verify}
 QA_DELEGATE = "{from --qa-delegate, or empty}"
 DONE = {true if --done}
@@ -471,7 +471,7 @@ If ISSUE_NUMBER is set: ensure the PR body includes `Fixes #{ISSUE_NUMBER}` so t
 
 ### Step 6: REVIEW & FIX (skip if SKIP_REVIEW or NO_PR or RESUME_FROM > 6)
 
-Set: `REVIEW_CYCLE = {from state file if --resume, otherwise 1}` (MAX_CYCLES already set from Step 0 — default 5)
+Set: `REVIEW_CYCLE = {from state file if --resume, otherwise 1}` (MAX_CYCLES already set from Step 0 — default 6)
 
 #### 6.1 Run Review
 
@@ -834,7 +834,7 @@ This will: check all completion gates (PR merged, review artifact, verify artifa
 4. **Pass context forward** — information flows from earlier to later steps. Pass `--context` to review.
 5. **No extra validation** — each skill validates its own output. Adding more wastes tokens.
 6. **One commit per implementation** — review fixes committed separately by `/prp-review-fix`.
-7. **Max review cycles** — configurable via `--max-review-rounds` (default 5). Target is 0 issues all severities. STOP and report if exceeded.
+7. **Max review cycles** — configurable via `--max-review-rounds` (default 6). Target is 0 issues all severities. STOP and report if exceeded.
 8. **Re-verify after fix** — always re-run `/prp-review` after fix. Use `--since-last-review` for token optimization.
 9. **No-interact means ZERO questions** — when `NO_INTERACT = true`: NEVER ask user questions. Make autonomous decisions, pick defaults. Pass `--no-interact` to sub-commands.
 10. **State management** — update state file after every step. Delete on completion. Support `--resume`.
