@@ -582,7 +582,7 @@ if [ "$GATE2" -eq 0 ] && [ -n "$TRUSTED_LOGIN" ]; then
   if HEADS=$(gh api "repos/{owner}/{repo}/issues/{NUMBER}/comments" --paginate --jq '.[] | select(.user.login == env.TRUSTED_LOGIN) | .body | select(startswith("Reviewed head: ")) | split("\n")[0] | ltrimstr("Reviewed head: ")'); then
     PREV=$(printf '%s\n' "$HEADS" | grep -xE '[0-9a-f]{40}' | tail -n1)
     if [ -n "$PREV" ] && [ "$PREV" != "$REVIEWED_HEAD_SHA" ] && git merge-base --is-ancestor "$PREV" "$REVIEWED_HEAD_SHA" 2>/dev/null; then
-      FULLS=$(gh api "repos/{owner}/{repo}/issues/{NUMBER}/comments" --paginate --jq '.[] | select(.user.login == env.TRUSTED_LOGIN) | .body | select(startswith("Reviewed head: ")) | select((split("\n")[1]) == "Review-mode: full") | split("\n")[0] | ltrimstr("Reviewed head: ")' 2>/dev/null) || FULLS=""
+      FULLS=$(gh api "repos/{owner}/{repo}/issues/{NUMBER}/comments" --paginate --jq '.[] | select(.user.login == env.TRUSTED_LOGIN) | .body | select(startswith("Reviewed head: ")) | select((split("\n")[2]) == "Review-mode: full") | split("\n")[0] | ltrimstr("Reviewed head: ")' 2>/dev/null) || FULLS=""
       LAST_FULL=$(printf '%s\n' "$FULLS" | grep -xE '[0-9a-f]{40}' | tail -n1)
       if [ -n "$LAST_FULL" ] && git merge-base --is-ancestor "$LAST_FULL" "$REVIEWED_HEAD_SHA" 2>/dev/null \
          && TOTAL=$(gh pr view {NUMBER} --json additions,deletions -q '.additions + .deletions' 2>/dev/null) \
@@ -1516,8 +1516,8 @@ Each comment body, exactly in this order:
 
 ```
 Reviewed head: <REVIEWED_HEAD_SHA, 40 hex>
-Review-mode: full | delta <BASE_SHA, 40 hex>..<REVIEWED_HEAD_SHA, 40 hex>
 Passes run: <code-reviewer|security-reviewer|silent-failure-hunter>
+Review-mode: full | delta <BASE_SHA, 40 hex>..<REVIEWED_HEAD_SHA, 40 hex>
 
 ### Critical Issues (<N> found)
 <findings or "None.">
@@ -1535,7 +1535,7 @@ Generated-by: prp-review-agents v<PRP_VERSION> run=<RUN_ID> pass=<pass name>[ ti
 ```
 
 Rules the L2 verifier enforces (so do them exactly):
-- Line 1 is exactly `Reviewed head: ` + `$REVIEWED_HEAD_SHA` saved by Phase 2.0 (never re-queried); line 2 is exactly the `Review-mode:` line Step A saved from 2.0a's decision (`Review-mode: full`, or `Review-mode: delta $BASE_SHA..$REVIEWED_HEAD_SHA`) — written by the tool, never composed by agent prose; line 3 is exactly `Passes run: ` + the pass name. No other text on those lines, and neither line, nor a `Generated-by:` line, appears anywhere else in the body. All three pass bodies of one run carry the identical `Review-mode:` line; Step C refuses the round if any of them differs (a "mixed modes" round) or if the line is missing or malformed.
+- Line 1 is exactly `Reviewed head: ` + `$REVIEWED_HEAD_SHA` saved by Phase 2.0 (never re-queried); line 2 is exactly `Passes run: ` + the pass name; line 3 is exactly the `Review-mode:` line Step A saved from 2.0a's decision (`Review-mode: full`, or `Review-mode: delta $BASE_SHA..$REVIEWED_HEAD_SHA`) — written by the tool, never composed by agent prose. No other text on those lines, and neither line, nor a `Generated-by:` line, appears anywhere else in the body. All three pass bodies of one run carry the identical `Review-mode:` line; Step C refuses the round if any of them differs (a "mixed modes" round) or if the line is missing or malformed.
 - Exactly one each of `### Critical Issues (N found)`, `### Important Issues (N found)`, `### Suggestions (N found)` and `### Could not verify`, spelled exactly so; no `safe-merge-review` text anywhere in the body (any case).
 - The last line is the `Generated-by:` footer. `RUN_ID` is the same for all three comments of a run and new for every run; `PRP_VERSION` is the installed framework's release version. ` tier=trivial` is appended only in a trivial run, whose one comment is `code-reviewer`.
 - Write each body with the Write tool (or a quoted heredoc), never through an unquoted shell string.
@@ -1571,7 +1571,7 @@ printf 'REVIEWED_HEAD_SHA=%s\nPRP_VERSION=%s\nRUN_ID=%s\nTIER=%s\nMODE=%s\nBASE_
 cat "$D/pr-{NUMBER}-l2-run.env"
 ```
 
-**Step B — write the bodies** to `.prp-output/reviews/pr-{NUMBER}-l2-<pass>.md`, using the values Step A printed, in the format above: three at `TIER=standard`, only `code-reviewer` (footer ending ` tier=trivial`) at `TIER=trivial`. Line 2 of every body is exactly `Review-mode: full` when Step A's `MODE=full`, or exactly `Review-mode: delta $BASE_SHA..$REVIEWED_HEAD_SHA` when `MODE=delta` — copy it from Step A's printed values, never compose it by hand. At `MODE=delta`, the previous reviewed head for the incremental note in `### Could not verify` is `$BASE_SHA`.
+**Step B — write the bodies** to `.prp-output/reviews/pr-{NUMBER}-l2-<pass>.md`, using the values Step A printed, in the format above: three at `TIER=standard`, only `code-reviewer` (footer ending ` tier=trivial`) at `TIER=trivial`. Line 3 of every body is exactly `Review-mode: full` when Step A's `MODE=full`, or exactly `Review-mode: delta $BASE_SHA..$REVIEWED_HEAD_SHA` when `MODE=delta` — copy it from Step A's printed values, never compose it by hand. At `MODE=delta`, the previous reviewed head for the incremental note in `### Could not verify` is `$BASE_SHA`.
 
 A pass whose body mentions a timebox in any form (2.2.0: `Pass timeboxed`, `time-boxed`, ...) carries `Follow-up: https://github.com/<owner>/<repo>/issues/<n>` on its own line in `### Could not verify`; Step C refuses the round without it.
 
@@ -1609,8 +1609,8 @@ for PASS in $PASSES; do
   [ -s "$F" ] || { echo "FATAL: $F missing — nothing posted" >&2; exit 1; }
   why=""
   [ "$(sed -n 1p "$F")" = "Reviewed head: $REVIEWED_HEAD_SHA" ] || why="line 1"
-  [ "$(sed -n 2p "$F")" = "$EXPECTED_MODE_LINE" ] || why="$why line 2 (Review-mode missing, malformed, or disagrees with another pass in this run)"
-  [ "$(sed -n 3p "$F")" = "Passes run: $PASS" ] || why="$why line 3"
+  [ "$(sed -n 2p "$F")" = "Passes run: $PASS" ] || why="$why line 2"
+  [ "$(sed -n 3p "$F")" = "$EXPECTED_MODE_LINE" ] || why="$why line 3 (Review-mode missing, malformed, or disagrees with another pass in this run)"
   [ "$(grep -c '^Reviewed head:' "$F")" = 1 ] && [ "$(grep -c '^Review-mode:' "$F")" = 1 ] && [ "$(grep -c '^Passes run:' "$F")" = 1 ] && [ "$(grep -c '^Generated-by:' "$F")" = 1 ] || why="$why duplicate head/mode/pass/footer line"
   for h in '### Critical Issues \([0-9]+ found\)' '### Important Issues \([0-9]+ found\)' '### Suggestions \([0-9]+ found\)' '### Could not verify'; do
     [ "$(grep -cE "^$h[[:space:]]*\$" "$F")" = 1 ] || why="$why heading '$h'"
