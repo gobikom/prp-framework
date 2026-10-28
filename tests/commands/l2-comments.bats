@@ -89,8 +89,8 @@ body() {
   local pass="$1" sfx="" modeline; . .prp-output/reviews/pr-7-l2-run.env   # the test reads its own fixture file
   [ "${TIER:-}" = trivial ] && sfx=" tier=trivial"
   if [ "${MODE:-full}" = delta ]; then modeline="Review-mode: delta $BASE_SHA..$REVIEWED_HEAD_SHA"; else modeline="Review-mode: full"; fi
-  printf 'Reviewed head: %s\n%s\nPasses run: %s\n\n### Critical Issues (0 found)\nNone.\n\n### Important Issues (0 found)\nNone.\n\n### Suggestions (0 found)\nNone.\n\n### Could not verify\nNothing.\n\nGenerated-by: prp-review-agents v%s run=%s pass=%s%s\n' \
-    "$REVIEWED_HEAD_SHA" "$modeline" "$pass" "$PRP_VERSION" "$RUN_ID" "$pass" "$sfx" > ".prp-output/reviews/pr-7-l2-$pass.md"
+  printf 'Reviewed head: %s\nPasses run: %s\n%s\n\n### Critical Issues (0 found)\nNone.\n\n### Important Issues (0 found)\nNone.\n\n### Suggestions (0 found)\nNone.\n\n### Could not verify\nNothing.\n\nGenerated-by: prp-review-agents v%s run=%s pass=%s%s\n' \
+    "$REVIEWED_HEAD_SHA" "$pass" "$modeline" "$PRP_VERSION" "$RUN_ID" "$pass" "$sfx" > ".prp-output/reviews/pr-7-l2-$pass.md"
 }
 
 start() { run env -u REVIEWED_HEAD_SHA -u L2_COMMENTS bash stepA.sh; }   # a fresh shell: nothing inherited
@@ -683,7 +683,10 @@ fake_mode_comment() {
   # user.login must match the "api user" mock's default login ("bot", or $FAKE_LOGIN when the
   # caller set it) — 2.0a's own TRUSTED_LOGIN filter (prp-framework#228) now excludes any comment
   # whose author doesn't match, same as Phase 2.0's CLEAN_ROWS check.
+  # Line 2 is "Passes run: ..." (the real posted-body shape) so 2.0a's split("\n")[2] reader
+  # for Review-mode exercises the same index as production comments.
   jq -n --arg b "Reviewed head: $head
+Passes run: code-reviewer
 Review-mode: $modeline
 
 ### Could not verify
@@ -770,13 +773,31 @@ run_20a() { # run 2.0a in $WORK with REVIEWED_HEAD_SHA already saved to pr-7-rev
   sed -i '/^Review-mode: /d' .prp-output/reviews/pr-7-l2-code-reviewer.md
   post
   [ "$status" -ne 0 ]
-  [[ "$output" == *"line 2"* ]]
+  [[ "$output" == *"line 3"* ]]
   [ "$(wc -l < "$WORK_LOG")" -eq 0 ]
 }
 
 @test "B12: a Review-mode line that disagrees with the other two passes is refused" {
   start; write_all
   sed -i 's/^Review-mode: full$/Review-mode: delta 0000000000000000000000000000000000000000..0123456789abcdef0123456789abcdef01234567/' .prp-output/reviews/pr-7-l2-security-reviewer.md
+  post
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"line 3"* ]]
+  [ "$(wc -l < "$WORK_LOG")" -eq 0 ]
+}
+
+@test "B13: line 2 of every well-formed body is exactly 'Passes run: <pass>' — the consumer contract safe-merge, merger-policy and the generator read" {
+  start; write_all
+  for pass in code-reviewer security-reviewer silent-failure-hunter; do
+    [ "$(sed -n 2p ".prp-output/reviews/pr-7-l2-$pass.md")" = "Passes run: $pass" ]
+  done
+  post
+  [ "$status" -eq 0 ]
+}
+
+@test "B14: a missing Passes run line is refused" {
+  start; write_all
+  sed -i '/^Passes run: /d' .prp-output/reviews/pr-7-l2-code-reviewer.md
   post
   [ "$status" -ne 0 ]
   [[ "$output" == *"line 2"* ]]
