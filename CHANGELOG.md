@@ -34,6 +34,7 @@ Every major version release MUST include a `docs/migration/vX.0-to-vY.0.md` file
 ## [Unreleased]
 
 ### Fixed
+- `prompts/review-agents.md` **the unchanged-head refusal waits for the stop rule (agent-devops#1297 review diet, guard hotfix)**: since #228, §2.0 refused a run when the last clean round's head was the PR head. So after ONE clean round, the second clean round the stop rule needs (merger-policy `review_evidence`: two consecutive clean rounds, which may share one head) could not run without a new commit. That blocked gate-tier PRs. Now it refuses only when the two most recent rounds (by run id) are both complete and clean and the latest is at this head. A round with an incomplete pass set, mixed heads or no `Reviewed head:` line is a round that is not clean. Every other case runs. Fail-open is unchanged. A normal-tier PR may now get one extra round at an unchanged head; that is the safe direction. Pinned by 11 boundary tests in `tests/commands/l2-comments.bats`; with the old guard, 7 of them fail. Adapters regenerated.
 - `prompts/review-agents.md` **line 2 of per-pass L2 bodies is `Passes run: <pass>` again (agent-devops#1297 review diet, P1 hotfix, #230)**: #228 put the new `Review-mode:` line on line 2 of each `--l2-comments` per-pass body, which broke three consumers that read line 2 as `Passes run:` (safe-merge's review gate, merger-policy.yaml `review_evidence`, and soul-orchestra `claude_md_unit_table.py`). Line 2 is restored and `Review-mode:` moves to line 3. Pinned by tests B13/B14. Adapters regenerated.
 
 ### Added
