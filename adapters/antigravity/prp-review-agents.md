@@ -404,12 +404,14 @@ Agents use different severity systems internally. Map all findings to these unif
 
 ## Aspect Selection Logic
 
+**Round gate (review-diet plan PR-3, every path, `TIER=trivial` from 2.0b still overrides to one pass)**: 2.0 saves `ROUND` — 1 for the first run on this PR, 2 or higher after. Conditional agents (everything below except the always-run core 3) run **only in round 1**. From round 2 on, 2.3 spawns nothing and only the core agents in 2.2 run — whatever file types changed, whatever `perf`/`a11y` was passed. A conditional finding that still matters after round 1 belongs in a core agent's own report or a follow-up issue, not in a re-run of its specialist.
+
 **Always run (core agents)**:
 - `code-reviewer` — Core quality check
 - `security-reviewer` — Security vulnerabilities (OWASP Top 10)
 - `silent-failure-hunter` — Silent failures, error path tracing
 
-**Run based on changes (conditional agents)**:
+**Run based on changes (conditional agents, round 1 only)**:
 - Package files changed (package.json, lock files, requirements.txt) → `dependency-analyzer`
 - Production code changed (not test/config-only) → `docs-impact-agent`
 - Test files changed → `pr-test-analyzer`
@@ -471,46 +473,87 @@ Auto-dispatching: performance-analyzer (DB query patterns in 2 files)
 
 Invariant: the head this run reviews is captured **once, here, before any agent starts**, whatever path led here (Phase 1.3, a reused context file from Phase 0, `--context`, or agent mode), and it is **the commit the agents read**: the PR head must equal the local checkout's `HEAD`, and 2.1.1 clones exactly this saved head for the agents. Every later step reads it from the file below — nothing captures or re-queries it after the agents start. (A head captured at posting time would certify a commit nobody reviewed if a push landed during the review; a PR head that differs from the local `HEAD` would certify a commit the agents never read.)
 
-If this block prints FATAL, STOP: start no agent and post nothing. To recover, sync the checkout to the PR head (or push it) and re-run the review from Phase 2.0, including every agent after it. A `ROUND-CAP: refused` FATAL is final for this PR: do not start round 11 (the cap is the review stop rule — fix open Critical/Important findings or re-route, file Medium/Low in one follow-up issue, escalate).
+Also decided here, before the round cap: whether this head was already reviewed clean. `UNCHANGED-HEAD: refused` is final for this exact head — fix nothing is needed, there is nothing to review; wait for a new commit, or escalate if the PR is believed done. The round number (`ROUND`, 1 for the first run on this PR, 2+ after) is captured here too, for 2.2/2.3's core-vs-conditional gating and 2.0a's mode decision — both read it from the file this step saves, never recompute it.
+
+If this block prints FATAL, STOP: start no agent and post nothing. To recover, sync the checkout to the PR head (or push it) and re-run the review from Phase 2.0, including every agent after it. A `ROUND-CAP: refused` FATAL is final for this PR: do not start round 7 (the cap is the review stop rule — fix open Critical/Important findings or re-route, file Medium/Low in one follow-up issue, escalate).
 
 ```bash
 D=.prp-output/reviews; mkdir -p "$D" || { echo "FATAL: cannot create $D" >&2; exit 1; }
-rm -f "$D/pr-{NUMBER}-reviewed-head" || { echo "FATAL: cannot clear an earlier round's head file" >&2; exit 1; }
+rm -f "$D/pr-{NUMBER}-reviewed-head" "$D/pr-{NUMBER}-round" || { echo "FATAL: cannot clear an earlier round's head/round files" >&2; exit 1; }
 # always from the PR (each Bash call is a fresh shell; never from the environment), then bound to the local checkout
 REVIEWED_HEAD_SHA=$(gh pr view {NUMBER} --json headRefOid -q .headRefOid) || { echo "FATAL: cannot read the PR head (gh failed) — no agents started" >&2; exit 1; }
 LOCAL_HEAD=$(git rev-parse HEAD) || LOCAL_HEAD=""
 printf '%s' "$LOCAL_HEAD" | grep -qxE '[0-9a-f]{40}' || { echo "FATAL: cannot read the local HEAD — no agents started" >&2; exit 1; }
 [ "$REVIEWED_HEAD_SHA" = "$LOCAL_HEAD" ] || { echo "FATAL: the PR head ('$REVIEWED_HEAD_SHA') is not the local HEAD ($LOCAL_HEAD) the agents would read — sync the checkout, no agents started" >&2; exit 1; }
-# round cap (prp-framework#151): count the review runs already on the PR (the last line of each comment), from the installed framework's copy
 [ -L .prp ] || { echo "FATAL: .prp is not a symlink to the installed prp-framework — round cap not checkable, no agents started" >&2; exit 1; }
 PRP_DIR=$(readlink -f .prp) || { echo "FATAL: cannot resolve .prp — no agents started" >&2; exit 1; }
+# unchanged-head refusal: the last CLEAN round's reviewed head (0 Critical, 0 Important across every one of its per-pass comments) — never the merely-most-recent round, which may still have open findings worth re-reviewing at the same head
+CLEAN_ROWS=$(gh api "repos/{owner}/{repo}/issues/{NUMBER}/comments" --paginate --jq '
+    .[].body | sub("\\s+$"; "") as $b
+    | select($b | test("(^|\n)Generated-by: prp-review-agents ")) | ($b | split("\n")) as $l
+    | ([$l[-1] | capture("^Generated-by: prp-review-agents v[^ ]+ run=(?<run>[0-9]{8}T[0-9]{6}Z-[0-9a-f]{8}) pass=(?<pass>[a-z-]+)(?<t> tier=trivial)?$")] | first) as $f
+    | select($f != null)
+    | (if ($l[0] | test("^Reviewed head: [0-9a-f]{40}$")) then ($l[0] | capture("^Reviewed head: (?<h>[0-9a-f]{40})$").h) else "" end) as $head
+    | (if ($b | test("### Critical Issues \\([0-9]+ found\\)")) then ($b | capture("### Critical Issues \\((?<c>[0-9]+) found\\)").c) else "999" end) as $crit
+    | (if ($b | test("### Important Issues \\([0-9]+ found\\)")) then ($b | capture("### Important Issues \\((?<i>[0-9]+) found\\)").i) else "999" end) as $imp
+    | [$f.run, $head, $crit, $imp] | @tsv') \
+  || { echo "FATAL: cannot read the PR comments (gh failed) — unchanged-head not checkable, no agents started" >&2; exit 1; }
+LAST_CLEAN_HEAD=$(printf '%s\n' "$CLEAN_ROWS" | awk -F'\t' '
+    $2 != "" { run=$1; head[run]=$2; if ($3+0!=0 || $4+0!=0) dirty[run]=1 }
+    END { best=""; besthead=""; for (r in head) if (!(r in dirty) && r > best) { best=r; besthead=head[r] }; print besthead }')
+if [ -n "$LAST_CLEAN_HEAD" ] && [ "$LAST_CLEAN_HEAD" = "$REVIEWED_HEAD_SHA" ]; then
+  echo "UNCHANGED-HEAD: refused — head $REVIEWED_HEAD_SHA already has a clean round (0 Critical, 0 Important); nothing to review" >&2
+  exit 1
+fi
+# round cap (prp-framework#151): count the review runs already on the PR (the last line of each comment), from the installed framework's copy
 FOOTERS=$(gh api "repos/{owner}/{repo}/issues/{NUMBER}/comments" --paginate --jq '.[].body | rtrimstr("\n") | split("\n") | last') \
   || { echo "FATAL: cannot read the PR comments (gh failed) — round cap not checkable, no agents started" >&2; exit 1; }
-printf '%s\n' "$FOOTERS" | bash "$PRP_DIR/scripts/review/round-guard.sh" --cap 10 \
+ROUND_GUARD_OUT=$(printf '%s\n' "$FOOTERS" | bash "$PRP_DIR/scripts/review/round-guard.sh" --cap 6) \
   || { echo "FATAL: round cap — no agents started" >&2; exit 1; }
+echo "$ROUND_GUARD_OUT"
+ROUND=$(printf '%s\n' "$ROUND_GUARD_OUT" | grep -oE 'this is round [0-9]+$' | grep -oE '[0-9]+$')
+printf '%s' "$ROUND" | grep -qxE '[0-9]+' || { echo "FATAL: could not parse the round number from round-guard.sh's output — no agents started" >&2; exit 1; }
 printf '%s\n' "$REVIEWED_HEAD_SHA" > "$D/pr-{NUMBER}-reviewed-head" || { echo "FATAL: cannot save the reviewed head" >&2; exit 1; }
-echo "REVIEWED_HEAD_SHA=$REVIEWED_HEAD_SHA"
+printf '%s\n' "$ROUND" > "$D/pr-{NUMBER}-round" || { echo "FATAL: cannot save the round number" >&2; exit 1; }
+echo "REVIEWED_HEAD_SHA=$REVIEWED_HEAD_SHA ROUND=$ROUND"
 ```
 
-### 2.0a Incremental Hint (agent-devops#1297 L)
+### 2.0a Review Mode Decision (`--l2-comments` only, review-diet plan PR-3 v1.3)
 
-Run it right after 2.0 only when `--since-last-review` is NOT in this run's arguments; with the flag, skip it. When the saved head is the head an earlier round already reviewed (the last `Reviewed head:` line on the PR), print a one-line hint recommending `--since-last-review`. The hint is advice only: it never stops the run, it changes nothing the run posts, and the round counts either way. Any failure prints `hint skipped: <reason>` and the run goes on.
+Invariant: whether this round reviews the full diff or a delta is decided **here, by the tool**, never by agent prose and never by whether `--since-last-review` was passed — `--since-last-review` is no longer required under `--l2-comments` (incremental is automatic from R2 on, subject to the guards below) and has no additional effect when passed. Mode is `full` unless every guard below allows `delta`:
+
+- **G1 (base + ancestor)**: `PREV` is the `Reviewed head:` of the most recently posted round (the last such line across the PR's comments). `delta` requires `PREV` to exist, differ from this round's head, and be an ancestor of it (`git merge-base --is-ancestor`). A rebase or force-push (not an ancestor) forces `full`.
+- **G2 (40% size fallback)**: `delta` additionally requires a prior round whose own comment said `Review-mode: full` (`LAST_FULL`, read the same way as `PREV`), itself an ancestor of this head, and the cumulative changed-line count from `LAST_FULL` to this head (`git diff --numstat`, additions+deletions) to be at most 40% of the PR's total changed lines (`gh pr view --json additions,deletions`). No findable `LAST_FULL`, or over 40%, forces `full`.
+- **Gate tier**: `pr-risk-tier --rounds {NUMBER}` printing `2`, or the tool missing/failing, forces `full` (fail-safe) before G1/G2 are even checked — a gate-tier clean round is always full.
+
+The decision is saved to a file for Step A to pick up (same pattern as 2.0b's tier file); nothing here posts or starts an agent.
 
 ```bash
 D=.prp-output/reviews
-H=$(cat "$D/pr-{NUMBER}-reviewed-head" 2>/dev/null) || H=""
-if ! printf '%s' "$H" | grep -qxE '[0-9a-f]{40}'; then
-  echo "hint skipped: no saved reviewed head (run Phase 2.0 first)" >&2
-elif ! HEADS=$(gh api "repos/{owner}/{repo}/issues/{NUMBER}/comments" --paginate --jq '.[].body | select(startswith("Reviewed head: ")) | split("\n")[0] | ltrimstr("Reviewed head: ")'); then
-  echo "hint skipped: cannot read the PR comments (gh failed)" >&2
+REVIEWED_HEAD_SHA=$(cat "$D/pr-{NUMBER}-reviewed-head" 2>/dev/null) || REVIEWED_HEAD_SHA=""
+printf '%s' "$REVIEWED_HEAD_SHA" | grep -qxE '[0-9a-f]{40}' || { echo "FATAL: run Phase 2.0 first — no agents started" >&2; exit 1; }
+MODE=full; BASE_SHA=""
+GATE2=0
+if command -v pr-risk-tier >/dev/null 2>&1; then
+  RT=$(env -u PR_RISK_TIER_GH pr-risk-tier --rounds {NUMBER} 2>/dev/null) && [ "$RT" = 2 ] && GATE2=1
 else
+  GATE2=1
+fi
+if [ "$GATE2" -eq 0 ] && HEADS=$(gh api "repos/{owner}/{repo}/issues/{NUMBER}/comments" --paginate --jq '.[].body | select(startswith("Reviewed head: ")) | split("\n")[0] | ltrimstr("Reviewed head: ")'); then
   PREV=$(printf '%s\n' "$HEADS" | grep -xE '[0-9a-f]{40}' | tail -n1)
-  if [ -z "$PREV" ]; then
-    echo "hint skipped: no earlier reviewed head on the PR" >&2
-  elif [ "$PREV" = "$H" ]; then
-    echo "HINT: head $H was already reviewed in an earlier round; re-run with --since-last-review to carry its findings over (this round still counts either way)"
+  if [ -n "$PREV" ] && [ "$PREV" != "$REVIEWED_HEAD_SHA" ] && git merge-base --is-ancestor "$PREV" "$REVIEWED_HEAD_SHA" 2>/dev/null; then
+    FULLS=$(gh api "repos/{owner}/{repo}/issues/{NUMBER}/comments" --paginate --jq '.[].body | select(startswith("Reviewed head: ")) | select((split("\n")[1]) == "Review-mode: full") | split("\n")[0] | ltrimstr("Reviewed head: ")' 2>/dev/null) || FULLS=""
+    LAST_FULL=$(printf '%s\n' "$FULLS" | grep -xE '[0-9a-f]{40}' | tail -n1)
+    if [ -n "$LAST_FULL" ] && git merge-base --is-ancestor "$LAST_FULL" "$REVIEWED_HEAD_SHA" 2>/dev/null \
+       && TOTAL=$(gh pr view {NUMBER} --json additions,deletions -q '.additions + .deletions' 2>/dev/null) \
+       && [[ "$TOTAL" =~ ^[0-9]+$ ]] && [ "$TOTAL" -gt 0 ]; then
+      CUM=$(git diff --numstat "$LAST_FULL..$REVIEWED_HEAD_SHA" 2>/dev/null | awk '{a+=$1; d+=$2} END{print a+d+0}')
+      [[ "$CUM" =~ ^[0-9]+$ ]] && (( CUM * 100 <= TOTAL * 40 )) && { MODE=delta; BASE_SHA="$PREV"; }
+    fi
   fi
 fi
+printf '%s\n%s\n' "$MODE" "$BASE_SHA" > "$D/pr-{NUMBER}-mode" || { echo "FATAL: cannot save the review mode — no agents started" >&2; exit 1; }
+echo "MODE=$MODE BASE_SHA=$BASE_SHA"
 ```
 
 ### 2.0b Risk Tier (`--l2-comments` only, agent-devops#1259)
@@ -736,7 +779,9 @@ If no recurring patterns detected, state: 'No recurring patterns detected — sw
 
 ### 2.3 Conditional Agents (Spawn in Parallel — Based on File Analysis)
 
-After determining which conditional agents are needed (from Aspect Selection Logic above), spawn them in a **SINGLE message** alongside or after the core agents:
+**Round 1 only.** Read `ROUND` from `.prp-output/reviews/pr-{NUMBER}-round` (saved by 2.0). When `ROUND` is 2 or higher, or 2.0b saved `TIER=trivial`, skip this entire phase — spawn no conditional agent — and go straight to Phase 3 once the core agents (2.2) finish.
+
+In round 1 (and not trivial-tier), after determining which conditional agents are needed (from Aspect Selection Logic above), spawn them in a **SINGLE message** alongside or after the core agents:
 
 **If dependency files changed** — `dependency-analyzer`:
 ```
@@ -1423,13 +1468,14 @@ With `--l2-comments`, this run's GitHub output is **three per-pass comments** in
 - **No marker and no aggregated post**: skip "Emit safe-merge review marker" and "Post to GitHub" below (do not run their blocks). The `safe-merge-review` marker is written by the L2 verifier after it checks these three comments; a READY marker posted here would make the L2 recipe abort ("a READY marker for <head> is already on the PR"). The aggregated review is still saved locally (`.prp-output/reviews/pr-{NUMBER}-agents-review.md`, untracked).
 - **Core passes only**: one comment each for `code-reviewer`, `security-reviewer` and `silent-failure-hunter`, from that agent's own findings in this run (before cross-agent deduplication, so each comment stands alone). A core agent that failed or returned nothing usable is a FATAL for the run: post none of the three, and report it.
 - **Trivial tier** (2.0b saved `TIER=trivial`): exactly one comment, `code-reviewer`, whose footer ends in ` tier=trivial`. Step C re-runs `pr-risk-tier` at the reviewed head and posts nothing unless it still says `trivial`. safe-merge and merger recompute the tier themselves and never trust the footer (agent-devops#1259).
-- **With `--since-last-review`**: each comment describes the whole reviewed head, not only the new changes. A pass's counts include its still-open findings carried over by "Finding Merge" (an unresolved earlier Critical is still listed, and counted), and "Could not verify" names the incremental scope (`Incremental: files changed since <previous reviewed head>; earlier open findings carried over`).
+- **At `MODE=delta`** (2.0a decided it; `--since-last-review` is no longer required and has no additional effect here): `MODE=delta` is a label on what the round is believed to cover — it does not shrink `{CONTEXT_PATH}`. Every core pass still reads the full diff at the reviewed head (2.1) and reports its own fresh counts from that full read; an earlier open Critical or Important is still there to find and still counted, because the pass looked at the whole head again, not because anything was carried over. "Could not verify" may still name the incremental scope as a note (`Incremental: files changed since <BASE_SHA from the Review-mode line>`), but that note is advisory — it never excuses a pass from re-checking the rest of the diff.
 - **Trust model**: the footer is self-asserted text, like the marker. It makes a hand-run review stand out (it has no footer, or a footer that does not match a real run's three comments), and the L2 verifier and `safe-merge` refuse such a round once they check it (agent-devops#1243); it is not a signature.
 
 Each comment body, exactly in this order:
 
 ```
 Reviewed head: <REVIEWED_HEAD_SHA, 40 hex>
+Review-mode: full | delta <BASE_SHA, 40 hex>..<REVIEWED_HEAD_SHA, 40 hex>
 Passes run: <code-reviewer|security-reviewer|silent-failure-hunter>
 
 ### Critical Issues (<N> found)
@@ -1448,7 +1494,7 @@ Generated-by: prp-review-agents v<PRP_VERSION> run=<RUN_ID> pass=<pass name>[ ti
 ```
 
 Rules the L2 verifier enforces (so do them exactly):
-- Line 1 is exactly `Reviewed head: ` + `$REVIEWED_HEAD_SHA` saved by Phase 2.0 (never re-queried); line 2 is exactly `Passes run: ` + the pass name. No other text on those lines, and neither line, nor a `Generated-by:` line, appears anywhere else in the body.
+- Line 1 is exactly `Reviewed head: ` + `$REVIEWED_HEAD_SHA` saved by Phase 2.0 (never re-queried); line 2 is exactly the `Review-mode:` line Step A saved from 2.0a's decision (`Review-mode: full`, or `Review-mode: delta $BASE_SHA..$REVIEWED_HEAD_SHA`) — written by the tool, never composed by agent prose; line 3 is exactly `Passes run: ` + the pass name. No other text on those lines, and neither line, nor a `Generated-by:` line, appears anywhere else in the body. All three pass bodies of one run carry the identical `Review-mode:` line; Step C refuses the round if any of them differs (a "mixed modes" round) or if the line is missing or malformed.
 - Exactly one each of `### Critical Issues (N found)`, `### Important Issues (N found)`, `### Suggestions (N found)` and `### Could not verify`, spelled exactly so; no `safe-merge-review` text anywhere in the body (any case).
 - The last line is the `Generated-by:` footer. `RUN_ID` is the same for all three comments of a run and new for every run; `PRP_VERSION` is the installed framework's release version. ` tier=trivial` is appended only in a trivial run, whose one comment is `code-reviewer`.
 - Write each body with the Write tool (or a quoted heredoc), never through an unquoted shell string.
@@ -1472,11 +1518,19 @@ RAND=$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n') && [ ${#RAND} -eq 8 ] || { ec
 RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)-$RAND"
 TIER=$(cat "$D/pr-{NUMBER}-tier" 2>/dev/null) || TIER=""
 case "$TIER" in trivial|standard) ;; *) echo "FATAL: no tier saved by 2.0b ($D/pr-{NUMBER}-tier) — run 2.0b, then the agents" >&2; exit 1 ;; esac
-printf 'REVIEWED_HEAD_SHA=%s\nPRP_VERSION=%s\nRUN_ID=%s\nTIER=%s\n' "$REVIEWED_HEAD_SHA" "$PRP_VERSION" "$RUN_ID" "$TIER" > "$D/pr-{NUMBER}-l2-run.env" || { echo "FATAL: cannot save the run file" >&2; exit 1; }
+MF="$D/pr-{NUMBER}-mode"
+[ -s "$MF" ] || { echo "FATAL: no review mode saved by 2.0a ($MF) — run 2.0a, then the agents" >&2; exit 1; }
+MODE=$(sed -n 1p "$MF"); BASE_SHA=$(sed -n 2p "$MF")
+case "$MODE" in
+  full) [ -z "$BASE_SHA" ] || { echo "FATAL: $MF is not well-formed (full mode with a base sha)" >&2; exit 1; } ;;
+  delta) printf '%s' "$BASE_SHA" | grep -qxE '[0-9a-f]{40}' || { echo "FATAL: $MF is not well-formed (delta mode without a base sha)" >&2; exit 1; } ;;
+  *) echo "FATAL: $MF is not well-formed (bad MODE '$MODE')" >&2; exit 1 ;;
+esac
+printf 'REVIEWED_HEAD_SHA=%s\nPRP_VERSION=%s\nRUN_ID=%s\nTIER=%s\nMODE=%s\nBASE_SHA=%s\n' "$REVIEWED_HEAD_SHA" "$PRP_VERSION" "$RUN_ID" "$TIER" "$MODE" "$BASE_SHA" > "$D/pr-{NUMBER}-l2-run.env" || { echo "FATAL: cannot save the run file" >&2; exit 1; }
 cat "$D/pr-{NUMBER}-l2-run.env"
 ```
 
-**Step B — write the bodies** to `.prp-output/reviews/pr-{NUMBER}-l2-<pass>.md`, using the values Step A printed, in the format above: three at `TIER=standard`, only `code-reviewer` (footer ending ` tier=trivial`) at `TIER=trivial` (with `--since-last-review`, the previous reviewed head for the incremental note is the `Reviewed head:` of the last review round on the PR).
+**Step B — write the bodies** to `.prp-output/reviews/pr-{NUMBER}-l2-<pass>.md`, using the values Step A printed, in the format above: three at `TIER=standard`, only `code-reviewer` (footer ending ` tier=trivial`) at `TIER=trivial`. Line 2 of every body is exactly `Review-mode: full` when Step A's `MODE=full`, or exactly `Review-mode: delta $BASE_SHA..$REVIEWED_HEAD_SHA` when `MODE=delta` — copy it from Step A's printed values, never compose it by hand. At `MODE=delta`, the previous reviewed head for the incremental note in `### Could not verify` is `$BASE_SHA`.
 
 A pass whose body mentions a timebox in any form (2.2.0: `Pass timeboxed`, `time-boxed`, ...) carries `Follow-up: https://github.com/<owner>/<repo>/issues/<n>` on its own line in `### Could not verify`; Step C refuses the round without it.
 
@@ -1487,14 +1541,18 @@ D=.prp-output/reviews
 ENV_F="$D/pr-{NUMBER}-l2-run.env"
 [ -L .prp ] && PRP_DIR=$(readlink -f .prp) && [ -r "$PRP_DIR/scripts/review/pass-budget.sh" ] || { echo "FATAL: cannot find the installed prp-framework scripts via .prp — nothing posted" >&2; exit 1; }
 [ -s "$ENV_F" ] || { echo "FATAL: $ENV_F missing — run Step A (a run file is used once; after a failed post, start a new run)" >&2; exit 1; }
-# parse, never execute: exactly three known keys with validated values
+# parse, never execute: exactly six known keys with validated values
 REVIEWED_HEAD_SHA=$(sed -n 's/^REVIEWED_HEAD_SHA=//p' "$ENV_F"); PRP_VERSION=$(sed -n 's/^PRP_VERSION=//p' "$ENV_F"); RUN_ID=$(sed -n 's/^RUN_ID=//p' "$ENV_F"); TIER=$(sed -n 's/^TIER=//p' "$ENV_F")
-[ "$(wc -l < "$ENV_F")" -eq 4 ] \
+MODE=$(sed -n 's/^MODE=//p' "$ENV_F"); BASE_SHA=$(sed -n 's/^BASE_SHA=//p' "$ENV_F")
+[ "$(wc -l < "$ENV_F")" -eq 6 ] \
   && printf '%s' "$REVIEWED_HEAD_SHA" | grep -qxE '[0-9a-f]{40}' \
   && printf '%s' "$PRP_VERSION" | grep -qxE '[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?' \
   && printf '%s' "$RUN_ID" | grep -qxE '[0-9]{8}T[0-9]{6}Z-[0-9a-f]{8}' \
   && printf '%s' "$TIER" | grep -qxE 'trivial|standard' \
+  && printf '%s' "$MODE" | grep -qxE 'full|delta' \
+  && { [ "$MODE" = full ] && [ -z "$BASE_SHA" ] || { [ "$MODE" = delta ] && printf '%s' "$BASE_SHA" | grep -qxE '[0-9a-f]{40}'; }; } \
   || { echo "FATAL: $ENV_F is not a valid run file" >&2; exit 1; }
+if [ "$MODE" = full ]; then EXPECTED_MODE_LINE="Review-mode: full"; else EXPECTED_MODE_LINE="Review-mode: delta $BASE_SHA..$REVIEWED_HEAD_SHA"; fi
 [ "$(cat "$D/pr-{NUMBER}-reviewed-head" 2>/dev/null)" = "$REVIEWED_HEAD_SHA" ] || { echo "FATAL: the run file is not from this review (reviewed head differs) — run Step A" >&2; exit 1; }
 NOW_HEAD=$(gh pr view {NUMBER} --json headRefOid -q .headRefOid) || { echo "FATAL: cannot read the PR head (gh failed) — nothing posted" >&2; exit 1; }
 [ "$NOW_HEAD" = "$REVIEWED_HEAD_SHA" ] || { echo "FATAL: PR head moved ($REVIEWED_HEAD_SHA -> $NOW_HEAD) — re-run the review, nothing posted" >&2; exit 1; }
@@ -1510,8 +1568,9 @@ for PASS in $PASSES; do
   [ -s "$F" ] || { echo "FATAL: $F missing — nothing posted" >&2; exit 1; }
   why=""
   [ "$(sed -n 1p "$F")" = "Reviewed head: $REVIEWED_HEAD_SHA" ] || why="line 1"
-  [ "$(sed -n 2p "$F")" = "Passes run: $PASS" ] || why="$why line 2"
-  [ "$(grep -c '^Reviewed head:' "$F")" = 1 ] && [ "$(grep -c '^Passes run:' "$F")" = 1 ] && [ "$(grep -c '^Generated-by:' "$F")" = 1 ] || why="$why duplicate head/pass/footer line"
+  [ "$(sed -n 2p "$F")" = "$EXPECTED_MODE_LINE" ] || why="$why line 2 (Review-mode missing, malformed, or disagrees with another pass in this run)"
+  [ "$(sed -n 3p "$F")" = "Passes run: $PASS" ] || why="$why line 3"
+  [ "$(grep -c '^Reviewed head:' "$F")" = 1 ] && [ "$(grep -c '^Review-mode:' "$F")" = 1 ] && [ "$(grep -c '^Passes run:' "$F")" = 1 ] && [ "$(grep -c '^Generated-by:' "$F")" = 1 ] || why="$why duplicate head/mode/pass/footer line"
   for h in '### Critical Issues \([0-9]+ found\)' '### Important Issues \([0-9]+ found\)' '### Suggestions \([0-9]+ found\)' '### Could not verify'; do
     [ "$(grep -cE "^$h[[:space:]]*\$" "$F")" = 1 ] || why="$why heading '$h'"
   done
@@ -1757,7 +1816,7 @@ If implementation report references a Source PRD:
 - METRICS_COLLECTED: Review metrics appended to JSONL with review_type="agents"
 - RECOMMENDATION_CLEAR: Verdict with rationale
 - FALLBACK_AVAILABLE: Graceful fallback to /prp-review when Agent tool unavailable
-- ROUND_CAP_ENFORCED: Phase 2.0 counts the PR's review runs with `round-guard.sh` and starts no agent at the cap of 10 (prp-framework#151)
+- ROUND_CAP_ENFORCED: Phase 2.0 counts the PR's review runs with `round-guard.sh` and starts no agent at the cap of 6 (prp-framework#151, cap lowered 10→6 per review-diet plan PR-3)
 - PASS_TIMEBOXED_PARTIAL: probes run under one round deadline; a timeboxed pass returns a partial report with a follow-up issue link (prp-framework#151)
 - ONE_WAKE_PER_ROUND: All passes dispatched in one message; no caller turn between dispatch and completion; no idle status pings (prp-framework#151)
 

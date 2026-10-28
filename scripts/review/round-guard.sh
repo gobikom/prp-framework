@@ -21,7 +21,7 @@
 #   exit 2 = bad argument, cannot read stdin, or grep failure (fail closed)
 set -euo pipefail
 
-CAP=10
+CAP=6
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --cap) [[ $# -ge 2 ]] || { echo "error: --cap needs a value" >&2; exit 2; }; CAP="$2"; shift 2 ;;

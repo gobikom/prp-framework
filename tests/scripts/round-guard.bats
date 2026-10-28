@@ -37,22 +37,41 @@ boundary_footers() {
   [[ "$output" == *"this is round 1"* ]]
 }
 
-@test "nine runs allow round 10" {
-  run bash -c "$(declare -f runs_footers); runs_footers 9 | bash '$G'"
+@test "five runs allow round 6 (default cap is 6, review-diet plan PR-3)" {
+  run bash -c "$(declare -f runs_footers); runs_footers 5 | bash '$G'"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"rounds so far: 5 of 6; this is round 6"* ]]
+}
+
+@test "six runs refuse round 7 with a clear message (default cap is 6)" {
+  run bash -c "$(declare -f runs_footers); runs_footers 6 | bash '$G'"
+  [ "$status" -eq 3 ]
+  [[ "$output" == *"ROUND-CAP: refused"* ]]
+  [[ "$output" == *"6 review runs (cap 6)"* ]]
+  [[ "$output" == *"stop rule"* ]]
+}
+
+@test "seven runs are refused (default cap is 6)" {
+  run bash -c "$(declare -f runs_footers); runs_footers 7 | bash '$G'"
+  [ "$status" -eq 3 ]
+}
+
+@test "nine runs allow round 10 at an explicit cap of 10" {
+  run bash -c "$(declare -f runs_footers); runs_footers 9 | bash '$G' --cap 10"
   [ "$status" -eq 0 ]
   [[ "$output" == *"rounds so far: 9 of 10; this is round 10"* ]]
 }
 
-@test "ten runs refuse round 11 with a clear message" {
-  run bash -c "$(declare -f runs_footers); runs_footers 10 | bash '$G'"
+@test "ten runs refuse round 11 with a clear message at an explicit cap of 10" {
+  run bash -c "$(declare -f runs_footers); runs_footers 10 | bash '$G' --cap 10"
   [ "$status" -eq 3 ]
   [[ "$output" == *"ROUND-CAP: refused"* ]]
   [[ "$output" == *"10 review runs (cap 10)"* ]]
   [[ "$output" == *"stop rule"* ]]
 }
 
-@test "eleven runs are refused" {
-  run bash -c "$(declare -f runs_footers); runs_footers 11 | bash '$G'"
+@test "eleven runs are refused at an explicit cap of 10" {
+  run bash -c "$(declare -f runs_footers); runs_footers 11 | bash '$G' --cap 10"
   [ "$status" -eq 3 ]
 }
 
@@ -61,20 +80,20 @@ boundary_footers() {
     runs_footers 1
     printf 'Generated-by: prp-review-agents v2.12.0 run=20261022T000000Z-aaaaaaaa pass=code-reviewer tier=trivial\n'
   } > in.txt
-  run bash "$G" < in.txt
+  run bash "$G" --cap 10 < in.txt
   [ "$status" -eq 0 ]
   [[ "$output" == *"rounds so far: 2 of 10"* ]]
 }
 
 @test "the same ten run ids repeated still count ten" {
   { runs_footers 10; runs_footers 10; } > in.txt
-  run bash "$G" < in.txt
+  run bash "$G" --cap 10 < in.txt
   [ "$status" -eq 3 ]
 }
 
 @test "edited footer is counted by its ids only (#213): a footer with an unreadable run id" {
   printf 'Generated-by: prp-review-agents v2 run=BAD pass=x\n' > in.txt
-  run bash "$G" < in.txt
+  run bash "$G" --cap 10 < in.txt
   [ "$status" -eq 0 ]
   [[ "$output" == *"0 of 10"* ]]
   [[ "$output" != *"unreadable"* ]]
@@ -82,21 +101,21 @@ boundary_footers() {
 
 @test "a footer without a pass still counts its run" {
   printf 'Generated-by: prp-review-agents v2.12.0 run=20261021T000001Z-00000001\n' > in.txt
-  run bash "$G" < in.txt
+  run bash "$G" --cap 10 < in.txt
   [ "$status" -eq 0 ]
   [[ "$output" == *"rounds so far: 1 of 10"* ]]
 }
 
 @test "ordinary last lines, null and blanks are ignored" {
   printf 'LGTM\nnull\n\n   \n' > in.txt
-  run bash "$G" < in.txt
+  run bash "$G" --cap 10 < in.txt
   [ "$status" -eq 0 ]
   [[ "$output" == *"this is round 1"* ]]
 }
 
 @test "an unterminated final footer line is still read" {
   printf 'Generated-by: prp-review-agents v2.12.0 run=20261021T000001Z-00000001 pass=code-reviewer' > in.txt
-  run bash "$G" < in.txt
+  run bash "$G" --cap 10 < in.txt
   [ "$status" -eq 0 ]
   [[ "$output" == *"rounds so far: 1 of 10"* ]]
 }
@@ -130,48 +149,48 @@ boundary_footers() {
 
 @test "an exact 10th footer with a new run id hits the cap" {
   { boundary_footers; printf 'Generated-by: prp-review-agents v1 run=20261024T000000Z-0000000a pass=code-reviewer\n'; } > in.txt
-  run bash "$G" < in.txt
+  run bash "$G" --cap 10 < in.txt
   [ "$status" -eq 3 ]
 }
 
 @test "a 10th footer with a leading space still counts (hits the cap)" {
   { boundary_footers; printf ' Generated-by: prp-review-agents v1 run=20261024T000000Z-0000000a pass=code-reviewer\n'; } > in.txt
-  run bash "$G" < in.txt
+  run bash "$G" --cap 10 < in.txt
   [ "$status" -eq 3 ]
   [[ "$output" == *"ROUND-CAP"* ]]
 }
 
 @test "a 10th footer with a leading tab still counts (hits the cap)" {
   { boundary_footers; printf '\tGenerated-by: prp-review-agents v1 run=20261024T000000Z-0000000a pass=code-reviewer\n'; } > in.txt
-  run bash "$G" < in.txt
+  run bash "$G" --cap 10 < in.txt
   [ "$status" -eq 3 ]
   [[ "$output" == *"ROUND-CAP"* ]]
 }
 
 @test "a 10th footer with a trailing CR still counts (hits the cap)" {
   { boundary_footers; printf 'Generated-by: prp-review-agents v1 run=20261024T000000Z-0000000a pass=code-reviewer\r\n'; } > in.txt
-  run bash "$G" < in.txt
+  run bash "$G" --cap 10 < in.txt
   [ "$status" -eq 3 ]
   [[ "$output" == *"ROUND-CAP"* ]]
 }
 
 @test "a 10th footer in lower case still counts (hits the cap)" {
   { boundary_footers; printf 'generated-by: prp-review-agents v1 run=20261024T000000Z-0000000a pass=code-reviewer\n'; } > in.txt
-  run bash "$G" < in.txt
+  run bash "$G" --cap 10 < in.txt
   [ "$status" -eq 3 ]
   [[ "$output" == *"ROUND-CAP"* ]]
 }
 
 @test "a 10th footer quoted mid-line still counts (hits the cap)" {
   { boundary_footers; printf 'see "Generated-by: prp-review-agents v1 run=20261024T000000Z-0000000a pass=code-reviewer"\n'; } > in.txt
-  run bash "$G" < in.txt
+  run bash "$G" --cap 10 < in.txt
   [ "$status" -eq 3 ]
   [[ "$output" == *"ROUND-CAP"* ]]
 }
 
 @test "a 10th line that is genuinely unrelated is ignored" {
   { boundary_footers; printf 'LGTM\n'; } > in.txt
-  run bash "$G" < in.txt
+  run bash "$G" --cap 10 < in.txt
   [ "$status" -eq 0 ]
   [[ "$output" == *"rounds so far: 9 of 10"* ]]
 }
@@ -185,63 +204,63 @@ boundary_footers() {
 
 @test "a 10th footer with reversed word order still counts (hits the cap)" {
   { boundary_footers; printf 'prp-review-agents Generated-by: v1 run=20261024T000000Z-0000000a pass=code-reviewer\n'; } > in.txt
-  run bash "$G" < in.txt
+  run bash "$G" --cap 10 < in.txt
   [ "$status" -eq 3 ]
   [[ "$output" == *"ROUND-CAP"* ]]
 }
 
 @test "a 10th footer missing the colon still counts (hits the cap)" {
   { boundary_footers; printf 'Generated-by prp-review-agents v1 run=20261024T000000Z-0000000a pass=code-reviewer\n'; } > in.txt
-  run bash "$G" < in.txt
+  run bash "$G" --cap 10 < in.txt
   [ "$status" -eq 3 ]
   [[ "$output" == *"ROUND-CAP"* ]]
 }
 
 @test "a 10th footer with a space instead of a hyphen still counts (hits the cap)" {
   { boundary_footers; printf 'Generated by: prp-review-agents v1 run=20261024T000000Z-0000000a pass=code-reviewer\n'; } > in.txt
-  run bash "$G" < in.txt
+  run bash "$G" --cap 10 < in.txt
   [ "$status" -eq 3 ]
   [[ "$output" == *"ROUND-CAP"* ]]
 }
 
 @test "a 10th footer split over two lines (tail only) still counts (hits the cap)" {
   { boundary_footers; printf 'prp-review-agents v1 run=20261024T000000Z-0000000a pass=code-reviewer\n'; } > in.txt
-  run bash "$G" < in.txt
+  run bash "$G" --cap 10 < in.txt
   [ "$status" -eq 3 ]
   [[ "$output" == *"ROUND-CAP"* ]]
 }
 
 @test "a 10th line with only the footer's body still counts (hits the cap)" {
   { boundary_footers; printf 'v1 run=20261024T000000Z-0000000a pass=code-reviewer\n'; } > in.txt
-  run bash "$G" < in.txt
+  run bash "$G" --cap 10 < in.txt
   [ "$status" -eq 3 ]
   [[ "$output" == *"ROUND-CAP"* ]]
 }
 
 @test "a real 9-hex run id counts (hits the cap)" {
   { boundary_footers; printf 'Generated-by: prp-review-agents v2.12.0 run=20261022T044148Z-312938296 pass=code-reviewer\n'; } > in.txt
-  run bash "$G" < in.txt
+  run bash "$G" --cap 10 < in.txt
   [ "$status" -eq 3 ]
   [[ "$output" == *"ROUND-CAP"* ]]
 }
 
 @test "a real L2 marker is ignored, not refused" {
   { boundary_footers; printf '<!-- safe-merge-review: verdict=READY_TO_MERGE critical=0 important=0 agents=code-reviewer tool=prp-review-agents head=feb8536d -->\n'; } > in.txt
-  run bash "$G" < in.txt
+  run bash "$G" --cap 10 < in.txt
   [ "$status" -eq 0 ]
   [[ "$output" == *"rounds so far: 9 of 10"* ]]
 }
 
 @test "a prose note citing new run ids counts them" {
   { boundary_footers; printf 'Review stop rule met: round 1 (run 20261017T114850Z-9b35eebc) and round 2 (run 20261017T115125Z-0018cf7b) both had 0 Critical\n'; } > in.txt
-  run bash "$G" < in.txt
+  run bash "$G" --cap 10 < in.txt
   [ "$status" -eq 3 ]
   [[ "$output" == *"ROUND-CAP"* ]]
 }
 
 @test "a real prose note citing the skill name is ignored, not refused" {
   { boundary_footers; printf 'The review loop restarts with a real `/prp-core:prp-review-agents 190 --l2-comments` Skill call at the next head.\n'; } > in.txt
-  run bash "$G" < in.txt
+  run bash "$G" --cap 10 < in.txt
   [ "$status" -eq 0 ]
   [[ "$output" == *"rounds so far: 9 of 10"* ]]
 }
@@ -272,21 +291,21 @@ boundary_footers() {
   )
   for shape in "${shapes[@]}"; do
     { boundary_footers; printf '%s\n' "$shape"; } > in.txt
-    run bash "$G" < in.txt
+    run bash "$G" --cap 10 < in.txt
     [ "$status" -eq 3 ]
   done
 }
 
 @test "an id repeated in another case counts once" {
   { boundary_footers; printf 'run=20261024t000000z-00000009\n'; } > in.txt
-  run bash "$G" < in.txt
+  run bash "$G" --cap 10 < in.txt
   [ "$status" -eq 0 ]
   [[ "$output" == *"rounds so far: 9 of 10"* ]]
 }
 
 @test "a prose note citing this PR's own run ids adds nothing" {
   { boundary_footers; printf 'Review stop rule met: round 1 (run 20261024T000000Z-00000001) and round 2 (run 20261024T000000Z-00000002)\n'; } > in.txt
-  run bash "$G" < in.txt
+  run bash "$G" --cap 10 < in.txt
   [ "$status" -eq 0 ]
   [[ "$output" == *"rounds so far: 9 of 10"* ]]
 }
@@ -294,14 +313,14 @@ boundary_footers() {
 @test "a 64KB line is processed in under 2 seconds" {
   python3 -I -c "print('run=20261024T000000Z-0000000a pass=' + 'x' * 65536)" > in.txt
   SECONDS=0
-  run bash "$G" < in.txt
+  run bash "$G" --cap 10 < in.txt
   [ "$status" -eq 0 ]
   [ "$SECONDS" -lt 2 ]
 }
 
 @test "edited footer is counted by its ids only (#213): a run id with altered digits after run=" {
   { boundary_footers; printf 'see run=2026-10-24T00:00:00Z-0000000a for details\n'; } > in.txt
-  run bash "$G" < in.txt
+  run bash "$G" --cap 10 < in.txt
   [ "$status" -eq 0 ]
   [[ "$output" == *"9 of 10"* ]]
   [[ "$output" != *"unreadable"* ]]
@@ -320,21 +339,21 @@ exec "$real_grep" "\$@"
 EOF
   chmod +x fakebin/grep
   printf 'Generated-by: prp-review-agents v1 run=20261024T000000Z-00000001 pass=code-reviewer\n' > in.txt
-  PATH="$PWD/fakebin:$PATH" run bash "$G" < in.txt
+  PATH="$PWD/fakebin:$PATH" run bash "$G" --cap 10 < in.txt
   [ "$status" -eq 2 ]
   [[ "$output" == *"grep failed"* ]]
 }
 
 @test "two glued ids count as two" {
   printf 'Generated-by: prp-review-agents v1 run=20261024T000000Z-0000000a20261024T000000Z-0000000b pass=x\n' > in.txt
-  run bash "$G" < in.txt
+  run bash "$G" --cap 10 < in.txt
   [ "$status" -eq 0 ]
   [[ "$output" == *"rounds so far: 2 of 10"* ]]
 }
 
 @test "edited footer is counted by its ids only (#213): a foreign footer with an unreadable run=" {
   printf 'Generated-by: someone-else v1 run=x\n' > in.txt
-  run bash "$G" < in.txt
+  run bash "$G" --cap 10 < in.txt
   [ "$status" -eq 0 ]
   [[ "$output" == *"0 of 10"* ]]
   [[ "$output" != *"unreadable"* ]]
@@ -342,7 +361,7 @@ EOF
 
 @test "edited footer is counted by its ids only (#213): a run= marker without generated-by and a bad id" {
   printf 'prp-review-agents v1 run=2026-10-24T000000Z-0000000a pass=x\n' > in.txt
-  run bash "$G" < in.txt
+  run bash "$G" --cap 10 < in.txt
   [ "$status" -eq 0 ]
   [[ "$output" == *"0 of 10"* ]]
   [[ "$output" != *"unreadable"* ]]
@@ -350,7 +369,7 @@ EOF
 
 @test "edited footer is counted by its ids only (#213): a run = marker with spaces and a bad id" {
   printf 'prp-review-agents v1 run = 2026-10-24T000000Z-0000000a pass=x\n' > in.txt
-  run bash "$G" < in.txt
+  run bash "$G" --cap 10 < in.txt
   [ "$status" -eq 0 ]
   [[ "$output" == *"0 of 10"* ]]
   [[ "$output" != *"unreadable"* ]]
@@ -358,14 +377,14 @@ EOF
 
 @test "a run = marker with spaces and a good id counts" {
   printf 'prp-review-agents v1 run = 20261024T000000Z-0000000a pass=x\n' > in.txt
-  run bash "$G" < in.txt
+  run bash "$G" --cap 10 < in.txt
   [ "$status" -eq 0 ]
   [[ "$output" == *"rounds so far: 1 of 10"* ]]
 }
 
 @test "edited footer is counted by its ids only (#213): a second bad run= on a line with a good id" {
   printf 'Generated-by: prp-review-agents v1 run=20261024T000000Z-0000000a run=BAD\n' > in.txt
-  run bash "$G" < in.txt
+  run bash "$G" --cap 10 < in.txt
   [ "$status" -eq 0 ]
   [[ "$output" == *"1 of 10"* ]]
   [[ "$output" != *"unreadable"* ]]
@@ -373,7 +392,7 @@ EOF
 
 @test "edited footer is counted by its ids only (#213): a generated-by line with no id" {
   printf 'Generated by prp-review-agents v1\n' > in.txt
-  run bash "$G" < in.txt
+  run bash "$G" --cap 10 < in.txt
   [ "$status" -eq 0 ]
   [[ "$output" == *"0 of 10"* ]]
   [[ "$output" != *"unreadable"* ]]
@@ -381,7 +400,7 @@ EOF
 
 @test "edited footer is counted by its ids only (#213): a truncated id" {
   printf 'Generated-by: prp-review-agents v1 run=20261024T000000Z- pass=code-reviewer\n' > in.txt
-  run bash "$G" < in.txt
+  run bash "$G" --cap 10 < in.txt
   [ "$status" -eq 0 ]
   [[ "$output" == *"0 of 10"* ]]
   [[ "$output" != *"unreadable"* ]]
@@ -389,7 +408,7 @@ EOF
 
 @test "edited footer is counted by its ids only (#213): an id split across two lines (stated boundary)" {
   { printf 'Generated-by: prp-review-agents v1 run=20261024T00\n'; printf '0000Z-0000000a pass=x\n'; } > in.txt
-  run bash "$G" < in.txt
+  run bash "$G" --cap 10 < in.txt
   [ "$status" -eq 0 ]
   [[ "$output" == *"0 of 10"* ]]
   [[ "$output" != *"unreadable"* ]]
@@ -397,21 +416,21 @@ EOF
 
 @test "run inside a word or prose is not a marker" {
   { printf 'Deploy UAT did not run: it triggers only on workflow_run from main\n'; printf 'rerun=yes; workflow_run=3\n'; } > in.txt
-  run bash "$G" < in.txt
+  run bash "$G" --cap 10 < in.txt
   [ "$status" -eq 0 ]
   [[ "$output" == *"rounds so far: 0 of 10"* ]]
 }
 
 @test "an L2 marker is not a footer" {
   printf '<!-- safe-merge-review: verdict=READY_TO_MERGE critical=0 important=0 agents=a tool=prp-review-agents head=abc -->\n' > in.txt
-  run bash "$G" < in.txt
+  run bash "$G" --cap 10 < in.txt
   [ "$status" -eq 0 ]
   [[ "$output" == *"rounds so far: 0 of 10"* ]]
 }
 
 @test "a 9-hex id counts as its 8-hex prefix (stated boundary)" {
   { printf 'Generated-by: prp-review-agents v1 run=20261022T044148Z-312938296 pass=x\n'; printf 'Generated-by: prp-review-agents v1 run=20261022T044148Z-312938297 pass=x\n'; } > in.txt
-  run bash "$G" < in.txt
+  run bash "$G" --cap 10 < in.txt
   [ "$status" -eq 0 ]
   [[ "$output" == *"rounds so far: 1 of 10"* ]]
 }
@@ -419,7 +438,7 @@ EOF
 @test "edited footer is counted by its ids only (#213): a 64KB line ending in a bare run=" {
   python3 -I -c "print('run=20261024T000000Z-0000000a pass=' + 'x' * 65536 + ' run=')" > in.txt
   SECONDS=0
-  run bash "$G" < in.txt
+  run bash "$G" --cap 10 < in.txt
   [ "$status" -eq 0 ]
   [[ "$output" == *"1 of 10"* ]]
   [[ "$output" != *"unreadable"* ]]
@@ -428,7 +447,7 @@ EOF
 
 @test "edited footer is counted by its ids only (#213): a 2-space gap in generated by" {
   printf 'Generated  by prp-review-agents, run corrupted, no id available\n' > in.txt
-  run bash "$G" < in.txt
+  run bash "$G" --cap 10 < in.txt
   [ "$status" -eq 0 ]
   [[ "$output" == *"0 of 10"* ]]
   [[ "$output" != *"unreadable"* ]]
@@ -436,7 +455,7 @@ EOF
 
 @test "edited footer is counted by its ids only (#213): a tab gap in generated by" {
   printf 'Generated\t\tby prp-review-agents v1\n' > in.txt
-  run bash "$G" < in.txt
+  run bash "$G" --cap 10 < in.txt
   [ "$status" -eq 0 ]
   [[ "$output" == *"0 of 10"* ]]
   [[ "$output" != *"unreadable"* ]]
@@ -446,12 +465,12 @@ EOF
   local line
   for line in 'Report generated by Jenkins.' 'This diagram was generated by graphviz.' 'Documentation generated by Sphinx 7.2.'; do
     printf '%s\n' "$line" > in.txt
-    run bash "$G" < in.txt
+    run bash "$G" --cap 10 < in.txt
     [ "$status" -eq 0 ]
     [[ "$output" == *"0 of 10"* ]]
 
     { boundary_footers; printf '%s\n' "$line"; } > in.txt
-    run bash "$G" < in.txt
+    run bash "$G" --cap 10 < in.txt
     [ "$status" -eq 0 ]
     [[ "$output" == *"9 of 10"* ]]
   done
@@ -459,7 +478,7 @@ EOF
 
 @test "three glued ids count as three" {
   printf 'Generated-by: prp-review-agents v1 run=20261024T000000Z-0000000a20261024T000000Z-0000000b20261024T000000Z-0000000c pass=x\n' > in.txt
-  run bash "$G" < in.txt
+  run bash "$G" --cap 10 < in.txt
   [ "$status" -eq 0 ]
   [[ "$output" == *"rounds so far: 3 of 10"* ]]
 }
@@ -474,7 +493,7 @@ EOF
     printf '%s\n' "$gap21"
     printf 'Generated by Jenkins. prp-review-agents mentioned\n'
   } > in.txt
-  run bash "$G" < in.txt
+  run bash "$G" --cap 10 < in.txt
   [ "$status" -eq 0 ]
   [[ "$output" == *"9 of 10"* ]]
   [[ "$output" != *"unreadable"* ]]
@@ -502,10 +521,10 @@ EOF
   )
   for input in "${inputs[@]}"; do
     printf '%s\n' "$input" > in.txt
-    run bash "$G" < in.txt
+    run bash "$G" --cap 10 < in.txt
     [ "$status" -ne 2 ]
   done
   python3 -I -c "print('run=20261024T000000Z-0000000a pass=' + 'x' * 65536 + ' run=')" > in.txt
-  run bash "$G" < in.txt
+  run bash "$G" --cap 10 < in.txt
   [ "$status" -ne 2 ]
 }

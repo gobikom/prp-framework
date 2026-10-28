@@ -38,7 +38,7 @@ adapters/opencode/review-agents.md
 adapters/thclaws/prp-review-agents/SKILL.md"
 
 # run_matrix FILE -> runs the full l2-comments.bats suite with L2_ADAPTER=FILE,
-# as a nested bats process, and asserts: exit 0, TAP plan line "1..58" (the
+# as a nested bats process, and asserts: exit 0, TAP plan line "1..63" (the
 # suite's current test count -- a drift here means a test was added/removed
 # without updating this harness), and no "not ok" line.
 run_matrix() {
@@ -51,8 +51,8 @@ run_matrix() {
     printf '%s\n' "$out" >&2
     return 1
   fi
-  if ! printf '%s\n' "$out" | grep -qx '1\.\.58'; then
-    echo "expected TAP plan '1..58' for $file, got:" >&2
+  if ! printf '%s\n' "$out" | grep -qx '1\.\.63'; then
+    echo "expected TAP plan '1..63' for $file, got:" >&2
     printf '%s\n' "$out" | head -5 >&2
     return 1
   fi

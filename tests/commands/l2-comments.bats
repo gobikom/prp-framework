@@ -31,7 +31,12 @@ setup() {
   # gh stub: `pr view` prints $FAKE_HEAD (or fails with GH_FAIL=1); `pr comment` logs the body file, prints a URL
   cat > bin/gh <<'EOF'
 #!/usr/bin/env bash
-if [ "$1 $2" = "pr view" ]; then [ -n "${GH_FAIL:-}" ] && exit 1; printf '%s\n' "$FAKE_HEAD"; exit 0; fi
+if [ "$1 $2" = "pr view" ]; then
+  [ -n "${GH_FAIL:-}" ] && exit 1
+  shift 2; j=""; while [ $# -gt 0 ]; do [ "$1" = "--json" ] && j="$2"; shift; done
+  [ "$j" = "additions,deletions" ] && { printf '%s\n' "${FAKE_TOTAL:-0}"; exit 0; }
+  printf '%s\n' "$FAKE_HEAD"; exit 0
+fi
 if [ "$1" = "api" ]; then   # the round-cap read (Phase 2.0): last lines of the PR comments
   [ -n "${API_FAIL:-}" ] && exit 1
   # apply the REAL --jq filter from the prompt to comment JSON, as `gh api --paginate --jq` does per page
@@ -64,6 +69,7 @@ EOF
   : > "$WORK_LOG"
   printf '%s\n' "$HEAD_SHA" > .prp-output/reviews/pr-7-reviewed-head   # what Phase 2.0 saves
   printf 'standard\n' > .prp-output/reviews/pr-7-tier                    # what 2.0b saves (default)
+  printf 'full\n\n' > .prp-output/reviews/pr-7-mode                      # what 2.0a saves (default)
   step A > stepA.sh; step C > stepC.sh
   [ -s stepA.sh ] && [ -s stepC.sh ]
 }
@@ -72,10 +78,11 @@ teardown() { rm -rf "$WORK"; }
 
 # Step B: write a well-formed body for one pass from the saved run values
 body() {
-  local pass="$1" sfx=""; . .prp-output/reviews/pr-7-l2-run.env   # the test reads its own fixture file
+  local pass="$1" sfx="" modeline; . .prp-output/reviews/pr-7-l2-run.env   # the test reads its own fixture file
   [ "${TIER:-}" = trivial ] && sfx=" tier=trivial"
-  printf 'Reviewed head: %s\nPasses run: %s\n\n### Critical Issues (0 found)\nNone.\n\n### Important Issues (0 found)\nNone.\n\n### Suggestions (0 found)\nNone.\n\n### Could not verify\nNothing.\n\nGenerated-by: prp-review-agents v%s run=%s pass=%s%s\n' \
-    "$REVIEWED_HEAD_SHA" "$pass" "$PRP_VERSION" "$RUN_ID" "$pass" "$sfx" > ".prp-output/reviews/pr-7-l2-$pass.md"
+  if [ "${MODE:-full}" = delta ]; then modeline="Review-mode: delta $BASE_SHA..$REVIEWED_HEAD_SHA"; else modeline="Review-mode: full"; fi
+  printf 'Reviewed head: %s\n%s\nPasses run: %s\n\n### Critical Issues (0 found)\nNone.\n\n### Important Issues (0 found)\nNone.\n\n### Suggestions (0 found)\nNone.\n\n### Could not verify\nNothing.\n\nGenerated-by: prp-review-agents v%s run=%s pass=%s%s\n' \
+    "$REVIEWED_HEAD_SHA" "$modeline" "$pass" "$PRP_VERSION" "$RUN_ID" "$pass" "$sfx" > ".prp-output/reviews/pr-7-l2-$pass.md"
 }
 
 start() { run env -u REVIEWED_HEAD_SHA -u L2_COMMENTS bash stepA.sh; }   # a fresh shell: nothing inherited
@@ -286,15 +293,15 @@ repo_here() { git init -q . && git commit -q --allow-empty -m pr; FAKE_HEAD=$(gi
 runs() { local i p; for ((i = 1; i <= $1; i++)); do for p in code-reviewer security-reviewer silent-failure-hunter; do
   printf 'Generated-by: prp-review-agents v9.9.9 run=20261021T%06dZ-%08x pass=%s\n' "$i" "$i" "$p"; done; done; }
 
-@test "Phase 2.0 allows round 10 (nine runs on the PR) and saves the head" {
-  phase20 > p20.sh; repo_here; runs 9 > c.txt
+@test "Phase 2.0 allows round 6 (five runs on the PR) and saves the head" {
+  phase20 > p20.sh; repo_here; runs 5 > c.txt
   FAKE_COMMENTS="$PWD/c.txt" run env -u REVIEWED_HEAD_SHA bash p20.sh
   [ "$status" -eq 0 ]
   [ "$(cat .prp-output/reviews/pr-7-reviewed-head)" = "$FAKE_HEAD" ]
 }
 
-@test "Phase 2.0 refuses round 11 (ten runs) before any head file or agent" {
-  phase20 > p20.sh; repo_here; runs 10 > c.txt
+@test "Phase 2.0 refuses round 7 (six runs) before any head file or agent (default cap is 6)" {
+  phase20 > p20.sh; repo_here; runs 6 > c.txt
   FAKE_COMMENTS="$PWD/c.txt" run env -u REVIEWED_HEAD_SHA bash p20.sh
   [ "$status" -ne 0 ]
   [[ "$output" == *"ROUND-CAP: refused"* ]]
@@ -305,17 +312,19 @@ runs() { local i p; for ((i = 1; i <= $1; i++)); do for p in code-reviewer secur
 @test "Phase 2.0 runs the real jq filter over paginated comment JSON" {
   phase20 > p20.sh; repo_here
   # two pages (gh --paginate applies --jq per page): a multi-line body, a plain comment and a CRLF-free footer
-  { runs 5 | jq -R -s 'split("\n")[:-1] | map({body: ("review text\nmore\n" + . + "\n")})'
-    runs 10 | tail -n +16 | jq -R -s 'split("\n")[:-1] | map({body: ("other\n" + . + "\n")}) + [{body: "LGTM"}]'; } > c.json
+  # page1 = runs 1-3 (ids1-3), page2 keeps runs 4-6 (tail skips the 9 lines of ids1-3) -> 6 unique = at cap (default cap is 6)
+  { runs 3 | jq -R -s 'split("\n")[:-1] | map({body: ("review text\nmore\n" + . + "\n")})'
+    runs 6 | tail -n +10 | jq -R -s 'split("\n")[:-1] | map({body: ("other\n" + . + "\n")}) + [{body: "LGTM"}]'; } > c.json
   FAKE_COMMENTS_JSON="$PWD/c.json" run env -u REVIEWED_HEAD_SHA bash p20.sh
   [ "$status" -ne 0 ]
   [[ "$output" == *"ROUND-CAP: refused"* ]]
 }
 
-@test "Phase 2.0 allows round 10 over paginated comment JSON with ordinary comments" {
+@test "Phase 2.0 allows round 6 over paginated comment JSON with ordinary comments" {
   phase20 > p20.sh; repo_here
-  { runs 4 | jq -R -s 'split("\n")[:-1] | map({body: ("text\n" + . + "\n")}) + [{body: "LGTM"}, {body: "a\nb\nc"}]'
-    runs 9 | tail -n +13 | jq -R -s 'split("\n")[:-1] | map({body: ("text\n" + . + "\n")})'; } > c.json
+  # page1 = runs 1-2 (ids1-2), page2 keeps runs 3-5 (tail skips the 6 lines of ids1-2) -> 5 unique = one under cap (default cap is 6)
+  { runs 2 | jq -R -s 'split("\n")[:-1] | map({body: ("text\n" + . + "\n")}) + [{body: "LGTM"}, {body: "a\nb\nc"}]'
+    runs 5 | tail -n +7 | jq -R -s 'split("\n")[:-1] | map({body: ("text\n" + . + "\n")})'; } > c.json
   FAKE_COMMENTS_JSON="$PWD/c.json" run env -u REVIEWED_HEAD_SHA bash p20.sh
   [ "$status" -eq 0 ]
   [ "$(cat .prp-output/reviews/pr-7-reviewed-head)" = "$FAKE_HEAD" ]
@@ -345,9 +354,9 @@ runs() { local i p; for ((i = 1; i <= $1; i++)); do for p in code-reviewer secur
   [ "$(cat .prp-output/reviews/pr-7-reviewed-head)" = "$FAKE_HEAD" ]
 }
 
-@test "Phase 2.0 still refuses round 11 when a malformed footer sits among ten runs (it cannot lower R)" {
+@test "Phase 2.0 still refuses round 7 when a malformed footer sits among six runs (it cannot lower R; default cap is 6)" {
   phase20 > p20.sh; repo_here
-  { runs 10; printf 'Generated-by: prp-review-agents v1 run=oops pass=x\n'; } > c.txt
+  { runs 6; printf 'Generated-by: prp-review-agents v1 run=oops pass=x\n'; } > c.txt
   FAKE_COMMENTS="$PWD/c.txt" run env -u REVIEWED_HEAD_SHA bash p20.sh
   [ "$status" -ne 0 ]
   [[ "$output" == *"ROUND-CAP: refused"* ]]
@@ -590,7 +599,89 @@ timeboxed() { # timeboxed <pass> [link]: rewrite one body so its Could not verif
   # grep match on gemini's raw .toml is byte-identical to the decoded prompt
   # text for both patterns below (the TOML escaping only affects embedded
   # backslash-newline continuations, not the matched substrings themselves).
-  g=$(grep -n 'round-guard.sh" --cap 10' "$ADAPTER" | head -1 | cut -d: -f1)
+  g=$(grep -n 'round-guard.sh" --cap 6' "$ADAPTER" | head -1 | cut -d: -f1)
   h=$(grep -n "> \"\$D/pr-{NUMBER}-reviewed-head\"" "$ADAPTER" | head -1 | cut -d: -f1)
   [ -n "$g" ] && [ -n "$h" ] && [ "$g" -lt "$h" ]
+}
+
+# --- 2.0a Review Mode Decision (review-diet plan PR-3 v1.3) ---
+
+phase20a() { fence "$ADAPTER" "### 2.0a Review Mode Decision"; }
+
+# One fake PR comment whose body is "Reviewed head: <head>\nReview-mode: <mode-line>\n...".
+# mode-line is "full" (so it is also a valid LAST_FULL candidate for G2) or omitted ("" -> a
+# plain line that is neither full nor delta, so G2 never picks it as LAST_FULL).
+fake_mode_comment() {
+  local head="$1" modeline="${2:-full}"
+  jq -n --arg b "Reviewed head: $head
+Review-mode: $modeline
+
+### Could not verify
+Nothing.
+" '[{body: $b}]' > "$WORK/comments.json"
+  export FAKE_COMMENTS_JSON="$WORK/comments.json"
+}
+
+run_20a() { # run 2.0a in $WORK with REVIEWED_HEAD_SHA already saved to pr-7-reviewed-head
+  phase20a > p20a.sh
+  run env -u REVIEWED_HEAD_SHA bash p20a.sh
+}
+
+@test "a well-formed delta line is accepted (G1 ancestor + G2 under 40%)" {
+  repo_here
+  SHA0="$FAKE_HEAD"
+  printf 'line1\n' > f.txt; git add f.txt; git commit -q -m c1; printf 'line1\nline2\n' >> f.txt; git commit -aq -m c2
+  SHA1=$(git rev-parse HEAD)
+  printf '%s\n' "$SHA1" > .prp-output/reviews/pr-7-reviewed-head
+  fake_mode_comment "$SHA0" full
+  FAKE_TOTAL=100 run_20a
+  [ "$status" -eq 0 ]
+  [ "$(sed -n 1p .prp-output/reviews/pr-7-mode)" = delta ]
+  [ "$(sed -n 2p .prp-output/reviews/pr-7-mode)" = "$SHA0" ]
+}
+
+@test "a rebase (base not an ancestor) is forced to full" {
+  git init -q .
+  git commit -q --allow-empty -m c0; SHA0=$(git rev-parse HEAD)
+  git checkout -q --orphan newroot
+  git commit -q --allow-empty -m c1; SHA1=$(git rev-parse HEAD)
+  printf '%s\n' "$SHA1" > .prp-output/reviews/pr-7-reviewed-head
+  fake_mode_comment "$SHA0" full
+  FAKE_TOTAL=100 run_20a
+  [ "$status" -eq 0 ]
+  [ "$(sed -n 1p .prp-output/reviews/pr-7-mode)" = full ]
+  [ -z "$(sed -n 2p .prp-output/reviews/pr-7-mode)" ]
+}
+
+@test "a 40% overflow (cumulative delta too large) is forced to full" {
+  repo_here
+  SHA0="$FAKE_HEAD"
+  seq 1 50 > f.txt; git add f.txt; git commit -q -m c1
+  seq 51 100 > f.txt; git commit -aq -m c2
+  SHA1=$(git rev-parse HEAD)
+  printf '%s\n' "$SHA1" > .prp-output/reviews/pr-7-reviewed-head
+  fake_mode_comment "$SHA0" full
+  # SHA0..SHA1 adds f.txt with 50 lines = 50 changed; 50 > 40% of FAKE_TOTAL=100 (40) -> overflow
+  FAKE_TOTAL=100 run_20a
+  [ "$status" -eq 0 ]
+  [ "$(sed -n 1p .prp-output/reviews/pr-7-mode)" = full ]
+  [ -z "$(sed -n 2p .prp-output/reviews/pr-7-mode)" ]
+}
+
+@test "B11: a missing Review-mode line is refused" {
+  start; write_all
+  sed -i '/^Review-mode: /d' .prp-output/reviews/pr-7-l2-code-reviewer.md
+  post
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"line 2"* ]]
+  [ "$(wc -l < "$WORK_LOG")" -eq 0 ]
+}
+
+@test "B12: a Review-mode line that disagrees with the other two passes is refused" {
+  start; write_all
+  sed -i 's/^Review-mode: full$/Review-mode: delta 0000000000000000000000000000000000000000..0123456789abcdef0123456789abcdef01234567/' .prp-output/reviews/pr-7-l2-security-reviewer.md
+  post
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"line 2"* ]]
+  [ "$(wc -l < "$WORK_LOG")" -eq 0 ]
 }
