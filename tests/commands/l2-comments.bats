@@ -600,6 +600,36 @@ delta_run_json() { # delta_run_json <login> <run> <head> -> 3 passes with valid 
   [[ "$output" == *"ROUND-CAP: refused"* ]]
 }
 
+@test "B14: quoted heading before real heading with findings → runs (not fooled by quoted 0-found)" {
+  # A pass body that quotes a prior round's "### Critical Issues (0 found)" line before its own
+  # real "### Critical Issues (1 found)" heading. The guard must use anchored per-line extraction,
+  # not body-wide capture, to avoid reading the quoted line as the real count (#235 R1 finding).
+  phase20 > p20.sh; repo_here
+  local login=bot run=20261021T000001Z-00000001 head="$FAKE_HEAD"
+  local passes=(code-reviewer security-reviewer silent-failure-hunter)
+  { for ((i = 0; i < 3; i++)); do
+      jq -n --arg login "$login" --arg body "Reviewed head: $head
+Passes run: ${passes[$i]}
+Review-mode: full
+
+Previous round reported:
+> ### Critical Issues (0 found)
+
+### Critical Issues (1 found)
+| Severity | Issue |
+|----------|-------|
+| Critical | Something bad |
+
+### Important Issues (0 found)
+None.
+
+Generated-by: prp-review-agents v9.9.9 run=$run pass=${passes[$i]}
+" '{user: {login: $login}, body: $body}'
+    done; } | jq -s '.' > c.json
+  FAKE_LOGIN=bot FAKE_COMMENTS_JSON="$PWD/c.json" run env -u REVIEWED_HEAD_SHA bash p20.sh
+  expect_runs
+}
+
 # ---- additional guard tests (kept from #228/#233, adapted to one-clean-round rule) ----
 
 @test "Phase 2.0 fails open (does not refuse) when the trusted-login lookup itself fails" {

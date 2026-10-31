@@ -503,8 +503,8 @@ if [ -n "$TRUSTED_LOGIN" ]; then
       | ([$l[-1] | capture("^Generated-by: prp-review-agents v[^ ]+ run=(?<run>[0-9]{8}T[0-9]{6}Z-[0-9a-f]{8}) pass=(?<pass>[a-z-]+)(?<t> tier=trivial)?$")] | first) as $f
       | select($f != null)
       | (if ($l[0] | test("^Reviewed head: [0-9a-f]{40}$")) then ($l[0] | capture("^Reviewed head: (?<h>[0-9a-f]{40})$").h) else "" end) as $head
-      | (if ($b | test("### Critical Issues \\([0-9]+ found\\)")) then ($b | capture("### Critical Issues \\((?<c>[0-9]+) found\\)").c) else "999" end) as $crit
-      | (if ($b | test("### Important Issues \\([0-9]+ found\\)")) then ($b | capture("### Important Issues \\((?<i>[0-9]+) found\\)").i) else "999" end) as $imp
+      | ([$l[] | select(test("^### Critical Issues \\([0-9]+ found\\)$"))] | if length == 1 then first | capture("\\((?<c>[0-9]+) found\\)").c else "999" end) as $crit
+      | ([$l[] | select(test("^### Important Issues \\([0-9]+ found\\)$"))] | if length == 1 then first | capture("\\((?<i>[0-9]+) found\\)").i else "999" end) as $imp
       | (if ($f.t) then ($f.pass == "code-reviewer") else ($f.pass | IN("code-reviewer","security-reviewer","silent-failure-hunter")) end) as $passok
       | (($l[1] // "" | . == ("Passes run: " + $f.pass)) and $passok) as $line2ok
       | (if ($l[2] // "" | test("^Review-mode: (full|delta [0-9a-f]{40}\\.\\.[0-9a-f]{40})$")) then $l[2] else "" end) as $mode
@@ -515,11 +515,7 @@ if [ -n "$TRUSTED_LOGIN" ]; then
       | ([$l[] | select(startswith("Review-mode:"))] | length == 1) as $uniq_mode
       | ([$l[] | select(startswith("Generated-by:"))] | length == 1) as $uniq_gen
       | ($uniq_head and $uniq_passes and $uniq_mode and $uniq_gen) as $uniq
-      | ([$l[] | select(test("^### Critical Issues \\([0-9]+ found\\)$"))] | length) as $crithcount
-      | ([$l[] | select(test("^### Important Issues \\([0-9]+ found\\)$"))] | length) as $imphcount
-      | (if ($crithcount != 1) then "999" else $crit end) as $crit2
-      | (if ($imphcount != 1) then "999" else $imp end) as $imp2
-      | [$f.run, $head, $crit2, $imp2, $f.pass, (if $f.t then "trivial" else "" end), (if $line2ok then "1" else "0" end), $validmode, (if $uniq then "1" else "0" end)] | @tsv') \
+      | [$f.run, $head, $crit, $imp, $f.pass, (if $f.t then "trivial" else "" end), (if $line2ok then "1" else "0" end), $validmode, (if $uniq then "1" else "0" end)] | @tsv') \
     || { echo "FATAL: cannot read the PR comments (gh failed) — unchanged-head not checkable, no agents started" >&2; exit 1; }
 else
   CLEAN_ROWS=""
