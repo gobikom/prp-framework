@@ -474,7 +474,7 @@ Auto-dispatching: performance-analyzer (DB query patterns in 2 files)
 
 Invariant: the head this run reviews is captured **once, here, before any agent starts**, whatever path led here (Phase 1.3, a reused context file from Phase 0, `--context`, or agent mode), and it is **the commit the agents read**: the PR head must equal the local checkout's `HEAD`, and 2.1.1 clones exactly this saved head for the agents. Every later step reads it from the file below — nothing captures or re-queries it after the agents start. (A head captured at posting time would certify a commit nobody reviewed if a push landed during the review; a PR head that differs from the local `HEAD` would certify a commit the agents never read.)
 
-Also decided here, before the round cap: whether the review stop rule is already met at this head — the two most recent rounds both clean (0 Critical, 0 Important) and the latest at this head. One clean round is not enough: the second clean round the stop rule needs may run at the same head. `UNCHANGED-HEAD: refused` is final for this exact head — fix nothing is needed, there is nothing to review; wait for a new commit, or escalate if the PR is believed done. The round number (`ROUND`, 1 for the first run on this PR, 2+ after) is captured here too, for 2.2/2.3's core-vs-conditional gating and 2.0a's mode decision — both read it from the file this step saves, never recompute it.
+Also decided here, before the round cap: whether the review stop rule is already met at this head — the latest round is a valid clean FULL-DIFF round at this head (0 Critical, 0 Important, valid line 1–3 headers and footer per pass, `Review-mode: full`; merger-policy `review_evidence` is the binding text). `UNCHANGED-HEAD: refused` is final for this exact head — nothing needs to be fixed, there is nothing to review; wait for a new commit, or escalate if the PR is believed done. A valid clean `delta` round at this head does NOT trigger the refusal — at gate tier only a FULL-DIFF clean round satisfies the stop rule, and the guard has no reliable tier input, so this is fail-open by design (at worst one extra round runs). The round number (`ROUND`, 1 for the first run on this PR, 2+ after) is captured here too, for 2.2/2.3's core-vs-conditional gating and 2.0a's mode decision — both read it from the file this step saves, never recompute it.
 
 If this block prints FATAL, STOP: start no agent and post nothing. To recover, sync the checkout to the PR head (or push it) and re-run the review from Phase 2.0, including every agent after it. A `ROUND-CAP: refused` FATAL is final for this PR: do not start round 7 (the cap is the review stop rule — fix open Critical/Important findings or re-route, file Medium/Low in one follow-up issue, escalate).
 
@@ -488,7 +488,7 @@ printf '%s' "$LOCAL_HEAD" | grep -qxE '[0-9a-f]{40}' || { echo "FATAL: cannot re
 [ "$REVIEWED_HEAD_SHA" = "$LOCAL_HEAD" ] || { echo "FATAL: the PR head ('$REVIEWED_HEAD_SHA') is not the local HEAD ($LOCAL_HEAD) the agents would read — sync the checkout, no agents started" >&2; exit 1; }
 [ -L .prp ] || { echo "FATAL: .prp is not a symlink to the installed prp-framework — round cap not checkable, no agents started" >&2; exit 1; }
 PRP_DIR=$(readlink -f .prp) || { echo "FATAL: cannot resolve .prp — no agents started" >&2; exit 1; }
-# unchanged-head refusal: only when the stop rule is already met at this head — the two most recent rounds are both clean (0 Critical, 0 Important across every one of their per-pass comments) and the latest is at this head; one clean round still allows the second clean round the stop rule needs
+# unchanged-head refusal: only when the stop rule is already met at this head — the latest round is a valid clean FULL-DIFF round (0 Critical, 0 Important, valid line 1–3 headers and footer, Review-mode: full) at this head; merger-policy review_evidence is the binding text
 # Trust only comments from the account this session itself authenticates as (every legitimate agent run posts under one shared GitHub identity, prp-framework#228) — never a forged comment from an outside account on this public repo, which could otherwise fake a clean round and block real review.
 # If we can't learn our own login, fail OPEN: skip the unchanged-head check entirely (no refusal, run the review) rather than refusing to start — a false refusal blocks real review, which is the worse direction here.
 TRUSTED_LOGIN=$(gh api user --jq '.login' 2>/dev/null) || TRUSTED_LOGIN=""
@@ -503,20 +503,37 @@ if [ -n "$TRUSTED_LOGIN" ]; then
       | (if ($l[0] | test("^Reviewed head: [0-9a-f]{40}$")) then ($l[0] | capture("^Reviewed head: (?<h>[0-9a-f]{40})$").h) else "" end) as $head
       | (if ($b | test("### Critical Issues \\([0-9]+ found\\)")) then ($b | capture("### Critical Issues \\((?<c>[0-9]+) found\\)").c) else "999" end) as $crit
       | (if ($b | test("### Important Issues \\([0-9]+ found\\)")) then ($b | capture("### Important Issues \\((?<i>[0-9]+) found\\)").i) else "999" end) as $imp
-      | [$f.run, $head, $crit, $imp, $f.pass, (if $f.t then "trivial" else "" end)] | @tsv') \
+      | (if ($f.t) then ($f.pass == "code-reviewer") else ($f.pass | IN("code-reviewer","security-reviewer","silent-failure-hunter")) end) as $passok
+      | (($l[1] // "" | . == ("Passes run: " + $f.pass)) and $passok) as $line2ok
+      | (if ($l[2] // "" | test("^Review-mode: (full|delta [0-9a-f]{40}\\.\\.[0-9a-f]{40})$")) then $l[2] else "" end) as $mode
+      | (if ($mode != "" and ($mode | test("^Review-mode: delta [0-9a-f]{40}\\.\\."))) then ($mode | capture("\\.\\.(?<s>[0-9a-f]{40})$").s) else null end) as $deltasha
+      | (if $deltasha != null and $deltasha != $head then "" else $mode end) as $validmode
+      | ([$l[] | select(startswith("Reviewed head:"))] | length == 1) as $uniq_head
+      | ([$l[] | select(startswith("Passes run:"))] | length == 1) as $uniq_passes
+      | ([$l[] | select(startswith("Review-mode:"))] | length == 1) as $uniq_mode
+      | ([$l[] | select(startswith("Generated-by:"))] | length == 1) as $uniq_gen
+      | ($uniq_head and $uniq_passes and $uniq_mode and $uniq_gen) as $uniq
+      | ([$l[] | select(test("^### Critical Issues \\([0-9]+ found\\)$"))] | length) as $crithcount
+      | ([$l[] | select(test("^### Important Issues \\([0-9]+ found\\)$"))] | length) as $imphcount
+      | (if ($crithcount != 1) then "999" else $crit end) as $crit2
+      | (if ($imphcount != 1) then "999" else $imp end) as $imp2
+      | [$f.run, $head, $crit2, $imp2, $f.pass, (if $f.t then "trivial" else "" end), (if $line2ok then "1" else "0" end), $validmode, (if $uniq then "1" else "0" end)] | @tsv') \
     || { echo "FATAL: cannot read the PR comments (gh failed) — unchanged-head not checkable, no agents started" >&2; exit 1; }
 else
   CLEAN_ROWS=""
 fi
 # A round (one run id) only counts as clean once ALL of its expected per-pass comments are present (3 core
-# passes, or the single trivial-tier pass) and every one reports 0 Critical / 0 Important — a run with fewer
-# is incomplete (e.g. a mid-post failure lost a dirty pass's comment) and must never be read as clean,
-# whatever the posted subset says. A run with no `Reviewed head:` line, or with passes naming different
-# heads, is still a round (it keeps its place in the order) but is never clean.
+# passes, or the single trivial-tier pass) and every one reports 0 Critical / 0 Important, AND every pass
+# has valid line 1–3 headers (line2ok, uniq) and a valid Review-mode (full or delta with correct head) — a
+# run with fewer passes is incomplete, a run whose passes fail line validation is invalid evidence, and
+# neither may be read as clean. A run with no `Reviewed head:` line, or with passes naming different heads,
+# is still a round (it keeps its place in the order) but is never clean. Passes with different Review-mode
+# values within one run mark it dirty (mixed modes).
 # Refuse only when the stop rule is already met at this head: the LATEST round (highest run id — the id
-# starts with a UTC timestamp, so string order is time order) is clean and at this head, AND the round
-# before it (at any head) is clean too. One clean round is not enough: the stop rule needs two consecutive
-# clean rounds, and they may share one head (merger-policy review_evidence). Every other case runs.
+# starts with a UTC timestamp, so string order is time order) is clean, at this head, AND its Review-mode
+# is `Review-mode: full` (FULL-DIFF). A clean delta round at this head does NOT trigger the refusal — at
+# gate tier only a FULL-DIFF clean round satisfies the stop rule, and the guard has no reliable tier input,
+# so this is fail-open by design. merger-policy review_evidence is the binding text. Every other case runs.
 STOP_MET_HEAD=$(printf '%s\n' "$CLEAN_ROWS" | awk -F'\t' '
     $1 != "" {
       run=$1; seen[run]=1
@@ -524,6 +541,11 @@ STOP_MET_HEAD=$(printf '%s\n' "$CLEAN_ROWS" | awk -F'\t' '
       else if (!(run in head)) head[run]=$2
       else if (head[run] != $2) dirty[run]=1
       if ($3+0!=0 || $4+0!=0) dirty[run]=1
+      if ($7+0!=1) dirty[run]=1
+      if ($9+0!=1) dirty[run]=1
+      if ($8 == "") dirty[run]=1
+      else if (!(run in mode)) mode[run]=$8
+      else if (mode[run] != $8) dirty[run]=1
       key=run SUBSEP $5
       if (!(key in seenpass)) { seenpass[key]=1; passcount[run]++ }
       if ($6 == "trivial") istrivial[run]=1
@@ -533,12 +555,12 @@ STOP_MET_HEAD=$(printf '%s\n' "$CLEAN_ROWS" | awk -F'\t' '
       return (r in istrivial) ? (passcount[r] == 1) : (passcount[r] == 3)
     }
     END {
-      last=""; prev=""
-      for (r in seen) { if (r > last) { prev=last; last=r } else if (r > prev) { prev=r } }
-      if (clean(last) && clean(prev)) print head[last]
+      last=""
+      for (r in seen) { if (r > last) last=r }
+      if (clean(last) && mode[last] == "Review-mode: full") print head[last]
     }')
 if [ -n "$STOP_MET_HEAD" ] && [ "$STOP_MET_HEAD" = "$REVIEWED_HEAD_SHA" ]; then
-  echo "UNCHANGED-HEAD: refused — head $REVIEWED_HEAD_SHA already has two consecutive clean rounds (0 Critical, 0 Important; stop rule met); nothing to review" >&2
+  echo "UNCHANGED-HEAD: refused — head $REVIEWED_HEAD_SHA already has a valid clean FULL-DIFF round (0 Critical, 0 Important; stop rule met); nothing to review" >&2
   exit 1
 fi
 # round cap (prp-framework#151): count the review runs already on the PR (the last line of each comment), from the installed framework's copy
