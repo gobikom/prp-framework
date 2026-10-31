@@ -171,3 +171,30 @@ ck() { # ck <id> <shas-file> <prior-file> [epoch] — check at a fixed clock (de
   run bash "$S" check --id 20261031T054631Z-aabbccdd --shas-file shas.ok --prior-file prior.empty --foo
   [ "$status" -eq 2 ]
 }
+
+@test "B25: an unreadable prior file is a lookup failure, never a vacuous pass" {
+  printf 'run=20261031T054631Z-aabbccdd\n' > prior.noread
+  chmod 000 prior.noread
+  ck 20261031T054631Z-aabbccdd shas.ok prior.noread
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"prior file is not readable"* ]]
+}
+
+@test "B26: an unterminated last shas line fails closed, even a matching SHA" {
+  printf '%s' "$SHA_236" > shas.unterm          # full 40-hex, prefixes the id, but no trailing \n
+  ck 20261031T054600Z-ec87e0d0 shas.unterm prior.empty
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"unterminated"* ]]
+  printf '%s' 'error: rate limit' > shas.unterm2 # garbage and unterminated — same arm
+  ck 20261031T054631Z-aabbccdd shas.unterm2 prior.empty
+  [ "$status" -eq 2 ]
+}
+
+@test "B27: new dies when the clock cannot be read (no silent malformed id)" {
+  mkdir -p bin.nodate
+  printf '#!/bin/sh\nexit 1\n' > bin.nodate/date
+  chmod +x bin.nodate/date
+  run env PATH="$TEST_TMPDIR/bin.nodate:/usr/bin:/bin" bash "$S" new
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"clock"* ]]
+}

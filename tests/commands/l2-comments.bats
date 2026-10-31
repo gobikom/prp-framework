@@ -1099,6 +1099,15 @@ run_20a() { # run 2.0a in $WORK with REVIEWED_HEAD_SHA already saved to pr-7-rev
   [ "$status" -eq 0 ]
 }
 
+@test "W8: a failed PR-comments lookup posts nothing and names the lookup" {
+  start; [ "$status" -eq 0 ]
+  export API_FAIL=1
+  write_all; post
+  [ "$status" -ne 0 ]
+  [ "$(wc -l < "$WORK_LOG")" -eq 0 ]
+  [[ "$output" == *"cannot read PR comments"* ]]
+}
+
 @test "pin: the Pass-budget timebox sentence appears exactly 10 times and Step A draws the id through run-id.sh only" {
   # runs per $ADAPTER through the matrix, and once here against the canonical prompt
   local f n

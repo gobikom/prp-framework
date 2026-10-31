@@ -8,13 +8,16 @@
 # non-zero (the caller wraps every lookup in `|| FATAL`).
 # Boundaries, stated:
 # - `new` draws 8 hex from /dev/urandom and prints `date -u` + "-" + hex; it takes no arguments.
+#   A clock that cannot be read is an error (exit 2), never a malformed id printed with exit 0.
 # - `check` validates the id shape itself (lowercase only — the shape `new` writes) and parses the
 #   date in pure bash arithmetic (days-from-civil; no `date -d`, GNU/BSD differ): an impossible
 #   date (month 13, Feb 30, hour 24) is a bad argument (exit 2), never a refusal.
 # - The shas file must exist, be non-empty, and hold only 40-hex lines: a garbage lookup fails
-#   closed as exit 2, never passes as "no match". The prior file must exist but may be empty
-#   (a PR with no earlier trusted comments); it is only ever searched with `grep -F`, never
-#   evaluated (comment bodies are untrusted data).
+#   closed as exit 2, never passes as "no match"; a final line without a newline is never read by
+#   the loop, so it is a bad lookup input too (exit 2), never silently skipped. The prior file
+#   must exist and be readable but may be empty (a PR with no earlier trusted comments); the
+#   reuse search distinguishes no-match (rc 1, pass) from every other grep rc (exit 2); it is
+#   only ever searched with `grep -F`, never evaluated (comment bodies are untrusted data).
 # - `--now EPOCH` exists for tests only (a fixed clock); without it, now is `date -u +%s`.
 # exit 0 = ok (or id printed); 2 = usage error / bad value / unreadable lookup input, fail closed;
 # 3 = refused (the id fails an arm).
@@ -60,7 +63,9 @@ case "$SUB" in
     [[ $# -eq 0 ]] || die "new takes no arguments"
     RAND=$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n')
     num "$RAND" '[0-9a-f]{8}' "random hex"
-    echo "$(date -u +%Y%m%dT%H%M%SZ)-$RAND"
+    TS=$(date -u +%Y%m%dT%H%M%SZ) || die "cannot read the clock"
+    num "$TS" '[0-9]{8}T[0-9]{6}Z' "timestamp"
+    echo "$TS-$RAND"
     ;;
   check)
     ID=""; SHAS=""; PRIOR=""; NOW=""
@@ -127,12 +132,17 @@ case "$SUB" in
         refuse "hex $HEX starts with commit ${lc:0:$HEX_PREFIX_LEN}"
       fi
     done < "$SHAS"
+    [[ -z "${line:-}" ]] || die "shas file holds a non-SHA line (unterminated): $line"
 
     # arm (c): the id was not already used by the trusted login on this PR
     [[ -f "$PRIOR" ]] || die "prior file not found: $PRIOR"
-    if grep -qiF -- "$ID" "$PRIOR"; then
+    [[ -r "$PRIOR" ]] || die "prior file is not readable: $PRIOR"
+    PRC=0
+    grep -qiF -- "$ID" "$PRIOR" || PRC=$?
+    if [ "$PRC" -eq 0 ]; then
       refuse "id already used on this PR"
     fi
+    [ "$PRC" -eq 1 ] || die "cannot search prior comments (grep rc=$PRC): $PRIOR"
 
     echo "RUN-ID: ok $ID"
     ;;
