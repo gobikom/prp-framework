@@ -324,12 +324,13 @@ all_pos() { # <ERE>
   pos "$ADAPTER" "force verdict to NEEDS FIXES minimum"
 }
 
-@test "Step A mints a fresh run id every run (origin or main behaviour)" {
+@test "Step A mints a fresh run id every run (agent-devops#1336: through run-id.sh new)" {
   stepA="$BATS_TEST_TMPDIR/stepA.sh"
   awk -v want="**Step A" 'index($0, want) == 1 {f=1} f && /^```bash$/ {b=1; next} b && /^```$/ {exit} b' "$ADAPTER" | sed 's/{NUMBER}/7/g' > "$stepA"
   [ -s "$stepA" ]
   neg "$stepA" 'curr-run\.env'
-  pos "$stepA" 'RUN_ID="\$\(date -u \+%Y%m%dT%H%M%SZ\)-\$RAND"'
+  pos "$stepA" 'RUN_ID=\$\(bash "\$PRP_DIR/scripts/review/run-id\.sh" new\)'
+  neg "$stepA" 'od -An -N4'
 }
 
 @test "the FATAL guard and its pass-deadline echo line are pinned in the prompt and all 6 adapters, not just claude-code (round-7 Important)" {

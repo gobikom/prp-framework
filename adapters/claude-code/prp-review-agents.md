@@ -406,7 +406,7 @@ Agents use different severity systems internally. Map all findings to these unif
 
 ## Aspect Selection Logic
 
-**Round gate (review-diet plan PR-3, every path, `TIER=trivial` from 2.0b still overrides to one pass)**: 2.0 saves `ROUND` — 1 for the first run on this PR, 2 or higher after. Conditional agents (everything below except the always-run core 3) run **only in round 1**. From round 2 on, 2.3 spawns nothing and only the core agents in 2.2 run — whatever file types changed, whatever `perf`/`a11y` was passed. A conditional finding that still matters after round 1 belongs in a core agent's own report or a follow-up issue, not in a re-run of its specialist.
+**Round gate (review-diet plan PR-3, every path, `TIER=trivial` from 2.0b still overrides to one pass)**: 2.0 saves `ROUND` — 1 for the first run on this PR, 2 or higher after. Conditional agents (everything below except the always-run core 3) run **only in round 1**. From round 2 on, 2.3 spawns nothing and only the core agents in 2.2 run — whatever file types changed, whatever `perf`/`a11y` was passed. A conditional finding that still matters after round 1 belongs in a core agent's own report, not in a re-run of its specialist.
 
 **Always run (core agents)**:
 - `code-reviewer` — Core quality check
@@ -477,7 +477,7 @@ Invariant: the head this run reviews is captured **once, here, before any agent 
 
 Also decided here, before the round cap: whether the review stop rule is already met at this head — the latest round is a valid clean FULL-DIFF round at this head (0 Critical, 0 Important, valid line 1–3 headers and footer per pass, `Review-mode: full`; merger-policy `review_evidence` is the binding text). `UNCHANGED-HEAD: refused` is final for this exact head — nothing needs to be fixed, there is nothing to review; wait for a new commit, or escalate if the PR is believed done. A valid clean `delta` round at this head does NOT trigger the refusal — at gate tier only a FULL-DIFF clean round satisfies the stop rule, and the guard has no reliable tier input, so this is fail-open by design (at worst one extra round runs). The round number (`ROUND`, 1 for the first run on this PR, 2+ after) is captured here too, for 2.2/2.3's core-vs-conditional gating and 2.0a's mode decision — both read it from the file this step saves, never recompute it.
 
-If this block prints FATAL, STOP: start no agent and post nothing. To recover, sync the checkout to the PR head (or push it) and re-run the review from Phase 2.0, including every agent after it. A `ROUND-CAP: refused` FATAL is final for this PR: do not start round 7 (the cap is the review stop rule — fix open Critical/Important findings or re-route, file Medium/Low in one follow-up issue, escalate).
+If this block prints FATAL, STOP: start no agent and post nothing. To recover, sync the checkout to the PR head (or push it) and re-run the review from Phase 2.0, including every agent after it. A `ROUND-CAP: refused` FATAL is final for this PR: do not start round 7 (the cap is the review stop rule — fix open Critical/Important findings or re-route, name any open Medium in the L2 report; Low and Suggestions need no issue, escalate).
 
 ```bash
 D=.prp-output/reviews; mkdir -p "$D" || { echo "FATAL: cannot create $D" >&2; exit 1; }
@@ -719,7 +719,7 @@ Agent(
   prompt="Review PR #{NUMBER} for project guideline compliance, bugs, and quality issues.
 
 Read the PR context file at: {CONTEXT_PATH}
-Pass budget: PASS_DEADLINE={PASS_DEADLINE}. Run every command that executes PR code or can run long (tests, scripts, builds, probes) as: bash {PRP_DIR}/scripts/review/pass-budget.sh run {PASS_DEADLINE} -- <command>. When it prints PASS-TIMEBOXED, or the deadline has passed, stop probing, finish from what you have read, and begin the Could not verify section with a line Pass timeboxed: <n> probe(s) not completed: <names>. An unfinished probe is never a clean result.
+Pass budget: PASS_DEADLINE={PASS_DEADLINE}. Run every command that executes PR code or can run long (tests, scripts, builds, probes) as: bash {PRP_DIR}/scripts/review/pass-budget.sh run {PASS_DEADLINE} -- <command>. When it prints PASS-TIMEBOXED, or the deadline has passed, stop probing, finish from what you have read, and begin the Could not verify section with a line Pass timeboxed: <n> probe(s) not completed: <names>. An unfinished probe is never a clean result. Do not write time-box, timebox or time box anywhere in your report except on the `Pass timeboxed:` line: the posting check treats any such word as a timeboxed pass and then demands a Follow-up link.
 This file contains the PR diff, changed files list, and project guidelines.
 
 IMPORTANT: Also read the actual source files for deep exploration beyond the diff.
@@ -767,7 +767,7 @@ Agent(
   prompt="Review PR #{NUMBER} for security vulnerabilities.
 
 Read the PR context file at: {CONTEXT_PATH}
-Pass budget: PASS_DEADLINE={PASS_DEADLINE}. Run every command that executes PR code or can run long (tests, scripts, builds, probes) as: bash {PRP_DIR}/scripts/review/pass-budget.sh run {PASS_DEADLINE} -- <command>. When it prints PASS-TIMEBOXED, or the deadline has passed, stop probing, finish from what you have read, and begin the Could not verify section with a line Pass timeboxed: <n> probe(s) not completed: <names>. An unfinished probe is never a clean result.
+Pass budget: PASS_DEADLINE={PASS_DEADLINE}. Run every command that executes PR code or can run long (tests, scripts, builds, probes) as: bash {PRP_DIR}/scripts/review/pass-budget.sh run {PASS_DEADLINE} -- <command>. When it prints PASS-TIMEBOXED, or the deadline has passed, stop probing, finish from what you have read, and begin the Could not verify section with a line Pass timeboxed: <n> probe(s) not completed: <names>. An unfinished probe is never a clean result. Do not write time-box, timebox or time box anywhere in your report except on the `Pass timeboxed:` line: the posting check treats any such word as a timeboxed pass and then demands a Follow-up link.
 This file contains the PR diff, changed files list, and project guidelines.
 
 IMPORTANT: Go beyond the diff. Read actual source files:
@@ -807,7 +807,7 @@ Agent(
   prompt="Hunt for silent failures and inadequate error handling in PR #{NUMBER}.
 
 Read the PR context file at: {CONTEXT_PATH}
-Pass budget: PASS_DEADLINE={PASS_DEADLINE}. Run every command that executes PR code or can run long (tests, scripts, builds, probes) as: bash {PRP_DIR}/scripts/review/pass-budget.sh run {PASS_DEADLINE} -- <command>. When it prints PASS-TIMEBOXED, or the deadline has passed, stop probing, finish from what you have read, and begin the Could not verify section with a line Pass timeboxed: <n> probe(s) not completed: <names>. An unfinished probe is never a clean result.
+Pass budget: PASS_DEADLINE={PASS_DEADLINE}. Run every command that executes PR code or can run long (tests, scripts, builds, probes) as: bash {PRP_DIR}/scripts/review/pass-budget.sh run {PASS_DEADLINE} -- <command>. When it prints PASS-TIMEBOXED, or the deadline has passed, stop probing, finish from what you have read, and begin the Could not verify section with a line Pass timeboxed: <n> probe(s) not completed: <names>. An unfinished probe is never a clean result. Do not write time-box, timebox or time box anywhere in your report except on the `Pass timeboxed:` line: the posting check treats any such word as a timeboxed pass and then demands a Follow-up link.
 This file contains the PR diff, changed files list, and project guidelines.
 
 IMPORTANT: Go beyond the diff. Read the actual source files:
@@ -865,7 +865,7 @@ Agent(
   prompt="Analyze dependencies in PR #{NUMBER} for security and health.
 
 Read the PR context file at: {CONTEXT_PATH}
-Pass budget: PASS_DEADLINE={PASS_DEADLINE}. Run every command that executes PR code or can run long (tests, scripts, builds, probes) as: bash {PRP_DIR}/scripts/review/pass-budget.sh run {PASS_DEADLINE} -- <command>. When it prints PASS-TIMEBOXED, or the deadline has passed, stop probing, finish from what you have read, and begin the Could not verify section with a line Pass timeboxed: <n> probe(s) not completed: <names>. An unfinished probe is never a clean result.
+Pass budget: PASS_DEADLINE={PASS_DEADLINE}. Run every command that executes PR code or can run long (tests, scripts, builds, probes) as: bash {PRP_DIR}/scripts/review/pass-budget.sh run {PASS_DEADLINE} -- <command>. When it prints PASS-TIMEBOXED, or the deadline has passed, stop probing, finish from what you have read, and begin the Could not verify section with a line Pass timeboxed: <n> probe(s) not completed: <names>. An unfinished probe is never a clean result. Do not write time-box, timebox or time box anywhere in your report except on the `Pass timeboxed:` line: the posting check treats any such word as a timeboxed pass and then demands a Follow-up link.
 
 Check for:
 - Known CVEs in direct and transitive dependencies
@@ -894,7 +894,7 @@ Agent(
   prompt="Review UI code in PR #{NUMBER} for WCAG 2.1 compliance.
 
 Read the PR context file at: {CONTEXT_PATH}
-Pass budget: PASS_DEADLINE={PASS_DEADLINE}. Run every command that executes PR code or can run long (tests, scripts, builds, probes) as: bash {PRP_DIR}/scripts/review/pass-budget.sh run {PASS_DEADLINE} -- <command>. When it prints PASS-TIMEBOXED, or the deadline has passed, stop probing, finish from what you have read, and begin the Could not verify section with a line Pass timeboxed: <n> probe(s) not completed: <names>. An unfinished probe is never a clean result.
+Pass budget: PASS_DEADLINE={PASS_DEADLINE}. Run every command that executes PR code or can run long (tests, scripts, builds, probes) as: bash {PRP_DIR}/scripts/review/pass-budget.sh run {PASS_DEADLINE} -- <command>. When it prints PASS-TIMEBOXED, or the deadline has passed, stop probing, finish from what you have read, and begin the Could not verify section with a line Pass timeboxed: <n> probe(s) not completed: <names>. An unfinished probe is never a clean result. Do not write time-box, timebox or time box anywhere in your report except on the `Pass timeboxed:` line: the posting check treats any such word as a timeboxed pass and then demands a Follow-up link.
 Also read the actual source files for full component context.
 
 Check:
@@ -925,7 +925,7 @@ Agent(
   prompt="Analyze PR #{NUMBER} for performance issues.
 
 Read the PR context file at: {CONTEXT_PATH}
-Pass budget: PASS_DEADLINE={PASS_DEADLINE}. Run every command that executes PR code or can run long (tests, scripts, builds, probes) as: bash {PRP_DIR}/scripts/review/pass-budget.sh run {PASS_DEADLINE} -- <command>. When it prints PASS-TIMEBOXED, or the deadline has passed, stop probing, finish from what you have read, and begin the Could not verify section with a line Pass timeboxed: <n> probe(s) not completed: <names>. An unfinished probe is never a clean result.
+Pass budget: PASS_DEADLINE={PASS_DEADLINE}. Run every command that executes PR code or can run long (tests, scripts, builds, probes) as: bash {PRP_DIR}/scripts/review/pass-budget.sh run {PASS_DEADLINE} -- <command>. When it prints PASS-TIMEBOXED, or the deadline has passed, stop probing, finish from what you have read, and begin the Could not verify section with a line Pass timeboxed: <n> probe(s) not completed: <names>. An unfinished probe is never a clean result. Do not write time-box, timebox or time box anywhere in your report except on the `Pass timeboxed:` line: the posting check treats any such word as a timeboxed pass and then demands a Follow-up link.
 Also read the actual source files for full context.
 
 Focus on:
@@ -956,7 +956,7 @@ Agent(
   prompt="Analyze type design in PR #{NUMBER}.
 
 Read the PR context file at: {CONTEXT_PATH}
-Pass budget: PASS_DEADLINE={PASS_DEADLINE}. Run every command that executes PR code or can run long (tests, scripts, builds, probes) as: bash {PRP_DIR}/scripts/review/pass-budget.sh run {PASS_DEADLINE} -- <command>. When it prints PASS-TIMEBOXED, or the deadline has passed, stop probing, finish from what you have read, and begin the Could not verify section with a line Pass timeboxed: <n> probe(s) not completed: <names>. An unfinished probe is never a clean result.
+Pass budget: PASS_DEADLINE={PASS_DEADLINE}. Run every command that executes PR code or can run long (tests, scripts, builds, probes) as: bash {PRP_DIR}/scripts/review/pass-budget.sh run {PASS_DEADLINE} -- <command>. When it prints PASS-TIMEBOXED, or the deadline has passed, stop probing, finish from what you have read, and begin the Could not verify section with a line Pass timeboxed: <n> probe(s) not completed: <names>. An unfinished probe is never a clean result. Do not write time-box, timebox or time box anywhere in your report except on the `Pass timeboxed:` line: the posting check treats any such word as a timeboxed pass and then demands a Follow-up link.
 Also read the actual source files for full type context.
 
 Rate on 4 dimensions (1-10 each):
@@ -990,7 +990,7 @@ Agent(
   prompt="Review PR #{NUMBER} and update any documentation affected by code changes.
 
 Read the PR context file at: {CONTEXT_PATH}
-Pass budget: PASS_DEADLINE={PASS_DEADLINE}. Run every command that executes PR code or can run long (tests, scripts, builds, probes) as: bash {PRP_DIR}/scripts/review/pass-budget.sh run {PASS_DEADLINE} -- <command>. When it prints PASS-TIMEBOXED, or the deadline has passed, stop probing, finish from what you have read, and begin the Could not verify section with a line Pass timeboxed: <n> probe(s) not completed: <names>. An unfinished probe is never a clean result.
+Pass budget: PASS_DEADLINE={PASS_DEADLINE}. Run every command that executes PR code or can run long (tests, scripts, builds, probes) as: bash {PRP_DIR}/scripts/review/pass-budget.sh run {PASS_DEADLINE} -- <command>. When it prints PASS-TIMEBOXED, or the deadline has passed, stop probing, finish from what you have read, and begin the Could not verify section with a line Pass timeboxed: <n> probe(s) not completed: <names>. An unfinished probe is never a clean result. Do not write time-box, timebox or time box anywhere in your report except on the `Pass timeboxed:` line: the posting check treats any such word as a timeboxed pass and then demands a Follow-up link.
 Also read CLAUDE.md, README.md, and docs/ directory.
 
 Check:
@@ -1024,7 +1024,7 @@ Agent(
   prompt="Analyze code comments in PR #{NUMBER} for accuracy, completeness, and long-term value.
 
 Read the PR context file at: {CONTEXT_PATH}
-Pass budget: PASS_DEADLINE={PASS_DEADLINE}. Run every command that executes PR code or can run long (tests, scripts, builds, probes) as: bash {PRP_DIR}/scripts/review/pass-budget.sh run {PASS_DEADLINE} -- <command>. When it prints PASS-TIMEBOXED, or the deadline has passed, stop probing, finish from what you have read, and begin the Could not verify section with a line Pass timeboxed: <n> probe(s) not completed: <names>. An unfinished probe is never a clean result.
+Pass budget: PASS_DEADLINE={PASS_DEADLINE}. Run every command that executes PR code or can run long (tests, scripts, builds, probes) as: bash {PRP_DIR}/scripts/review/pass-budget.sh run {PASS_DEADLINE} -- <command>. When it prints PASS-TIMEBOXED, or the deadline has passed, stop probing, finish from what you have read, and begin the Could not verify section with a line Pass timeboxed: <n> probe(s) not completed: <names>. An unfinished probe is never a clean result. Do not write time-box, timebox or time box anywhere in your report except on the `Pass timeboxed:` line: the posting check treats any such word as a timeboxed pass and then demands a Follow-up link.
 Also read the actual source files to verify comments match code behavior.
 
 Check:
@@ -1051,7 +1051,7 @@ Agent(
   prompt="Analyze test coverage for PR #{NUMBER}.
 
 Read the PR context file at: {CONTEXT_PATH}
-Pass budget: PASS_DEADLINE={PASS_DEADLINE}. Run every command that executes PR code or can run long (tests, scripts, builds, probes) as: bash {PRP_DIR}/scripts/review/pass-budget.sh run {PASS_DEADLINE} -- <command>. When it prints PASS-TIMEBOXED, or the deadline has passed, stop probing, finish from what you have read, and begin the Could not verify section with a line Pass timeboxed: <n> probe(s) not completed: <names>. An unfinished probe is never a clean result.
+Pass budget: PASS_DEADLINE={PASS_DEADLINE}. Run every command that executes PR code or can run long (tests, scripts, builds, probes) as: bash {PRP_DIR}/scripts/review/pass-budget.sh run {PASS_DEADLINE} -- <command>. When it prints PASS-TIMEBOXED, or the deadline has passed, stop probing, finish from what you have read, and begin the Could not verify section with a line Pass timeboxed: <n> probe(s) not completed: <names>. An unfinished probe is never a clean result. Do not write time-box, timebox or time box anywhere in your report except on the `Pass timeboxed:` line: the posting check treats any such word as a timeboxed pass and then demands a Follow-up link.
 Also read the actual test files and the code they test.
 
 Focus on:
@@ -1582,7 +1582,7 @@ Rules the L2 verifier enforces (so do them exactly):
 
 The posting runs as **three separate steps**, because every shell starts fresh; the run values travel in a file, never retyped:
 
-**Step A — start the run** (run only in an `--l2-comments` run; clears any earlier run's files, reads the reviewed head saved in Phase 2.0, prints `RUN_ID` and `PRP_VERSION` for the footers and saves them):
+**Step A — start the run** (run only in an `--l2-comments` run; clears any earlier run's files, reads the reviewed head saved in Phase 2.0, prints `RUN_ID` and `PRP_VERSION` for the footers and saves them): Never type or edit a RUN_ID by hand; Step C refuses one whose time is not now, whose hex copies a commit SHA, or that was already used on this PR.
 
 ```bash
 D=.prp-output/reviews
@@ -1594,8 +1594,7 @@ PRP_DIR=$(readlink -f .prp) || { echo "FATAL: cannot resolve .prp" >&2; exit 1; 
 PRP_VERSION=$(git -C "$PRP_DIR" describe --tags --abbrev=0 --match 'v[0-9]*' 2>/dev/null) || { echo "FATAL: cannot read the prp-framework release tag — no comments posted" >&2; exit 1; }
 PRP_VERSION="${PRP_VERSION#v}"   # the latest release tag reachable from the installed framework; the footer adds the v
 printf '%s' "$PRP_VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$' || { echo "FATAL: release tag '$PRP_VERSION' is not a version" >&2; exit 1; }
-RAND=$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n') && [ ${#RAND} -eq 8 ] || { echo "FATAL: cannot draw a run id" >&2; exit 1; }
-RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)-$RAND"
+RUN_ID=$(bash "$PRP_DIR/scripts/review/run-id.sh" new) || { echo "FATAL: cannot draw a run id" >&2; exit 1; }
 TIER=$(cat "$D/pr-{NUMBER}-tier" 2>/dev/null) || TIER=""
 case "$TIER" in trivial|standard) ;; *) echo "FATAL: no tier saved by 2.0b ($D/pr-{NUMBER}-tier) — run 2.0b, then the agents" >&2; exit 1 ;; esac
 MF="$D/pr-{NUMBER}-mode"
@@ -1660,6 +1659,12 @@ for PASS in $PASSES; do
   CB=$(bash "$PRP_DIR/scripts/review/pass-budget.sh" check-body "$F" 2>&1) || why="$why timebox without a Follow-up issue link ($CB)"
   [ -z "$why" ] || { echo "FATAL: $F is not in the L2 format ($why) — nothing posted" >&2; exit 1; }
 done
+TRUSTED_LOGIN=$(gh api user --jq '.login') && [ -n "$TRUSTED_LOGIN" ] || { echo "FATAL: cannot read the trusted login; nothing posted" >&2; exit 1; }
+RID_DIR=$(mktemp -d) || { echo "FATAL: mktemp failed; nothing posted" >&2; exit 1; }
+gh api "repos/{owner}/{repo}/pulls/{NUMBER}/commits" --paginate --jq '.[].sha' > "$RID_DIR/shas" || { echo "FATAL: cannot list PR commits; nothing posted" >&2; exit 1; }
+printf '%s\n' "$NOW_HEAD" >> "$RID_DIR/shas"
+TRUSTED_LOGIN="$TRUSTED_LOGIN" gh api "repos/{owner}/{repo}/issues/{NUMBER}/comments" --paginate --jq '.[] | select(.user.login == env.TRUSTED_LOGIN) | .body' > "$RID_DIR/prior" || { echo "FATAL: cannot read PR comments; nothing posted" >&2; exit 1; }
+bash "$PRP_DIR/scripts/review/run-id.sh" check --id "$RUN_ID" --shas-file "$RID_DIR/shas" --prior-file "$RID_DIR/prior" || { echo "FATAL: run id refused; nothing posted" >&2; exit 1; }
 mv "$ENV_F" "$ENV_F.used" || { echo "FATAL: cannot consume the run file — nothing posted" >&2; exit 1; }
 POSTED=""
 for PASS in $PASSES; do

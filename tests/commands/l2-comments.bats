@@ -42,6 +42,11 @@ if [ "$1 $2" = "api user" ]; then   # the trusted-login lookup (Phase 2.0, uncha
   printf '{"login":"%s"}\n' "${FAKE_LOGIN:-bot}" | jq -r '.login'
   exit 0
 fi
+if [ "$1" = "api" ] && [ "$2" = "repos/{owner}/{repo}/pulls/7/commits" ]; then   # Step C run-id arm (b): the PR's commit SHAs
+  [ -n "${FAKE_COMMITS_FAIL:-}" ] && exit 1
+  printf '%s\n' "${FAKE_COMMITS:-$FAKE_HEAD}"
+  exit 0
+fi
 if [ "$1" = "api" ]; then   # the round-cap read (Phase 2.0): last lines of the PR comments
   [ -n "${API_FAIL:-}" ] && exit 1
   # apply the REAL --jq filter from the prompt to comment JSON, as `gh api --paginate --jq` does per page
@@ -52,12 +57,17 @@ if [ "$1" = "api" ]; then   # the round-cap read (Phase 2.0): last lines of the 
   # user.login matches the "api user" mock's default login ("bot", or $FAKE_LOGIN) so these
   # fixture comments count as trusted by default (prp-framework#228's round-cap/mode-decision
   # author filter); a test exercising the untrusted-author path sets FAKE_COMMENTS_JSON instead.
-  [ -n "${FAKE_COMMENTS:-}" ] && jq -R -s --arg login "${FAKE_LOGIN:-bot}" 'split("\n")[:-1] | map({user: {login: $login}, body: ("Reviewed head: x\n\n### Could not verify\nNothing.\n\n" + . + "\n")})' "$FAKE_COMMENTS" | jq -r "$filter"
+  if [ -n "${FAKE_COMMENTS:-}" ]; then jq -R -s --arg login "${FAKE_LOGIN:-bot}" 'split("\n")[:-1] | map({user: {login: $login}, body: ("Reviewed head: x\n\n### Could not verify\nNothing.\n\n" + . + "\n")})' "$FAKE_COMMENTS" | jq -r "$filter"; exit 0; fi
+  # no fixture set: serve the bodies posted so far this test, as the trusted login. A real PR
+  # returns the just-posted comments on the next listing too — this is what makes a run-id
+  # check placed inside the posting loop refuse pass 2 (the W1 pin on check-before-loop, M5).
+  [ -s "$WORK/posted.jsonl" ] && jq -s . "$WORK/posted.jsonl" | jq -r "$filter"
   exit 0
 fi
 if [ "$1 $2" = "pr comment" ]; then
   f=""; while [ $# -gt 0 ]; do [ "$1" = "--body-file" ] && f="$2"; shift; done
   [ -n "${FAIL_POST:-}" ] && grep -q "Passes run: $FAIL_POST" "$f" && exit 1
+  jq -Rs --arg login "${FAKE_LOGIN:-bot}" '{user: {login: $login}, body: .}' "$f" >> "$WORK/posted.jsonl"
   echo "$f" >> "$WORK_LOG"; echo "https://github.com/o/r/pull/7#issuecomment-$(wc -l < "$WORK_LOG")"; exit 0
 fi
 exit 2
@@ -1019,4 +1029,85 @@ run_20a() { # run 2.0a in $WORK with REVIEWED_HEAD_SHA already saved to pr-7-rev
   [ "$status" -ne 0 ]
   [[ "$output" == *"line 2"* ]]
   [ "$(wc -l < "$WORK_LOG")" -eq 0 ]
+}
+
+# --- run-id.sh wiring (agent-devops#1336, SO#1501): Step C refuses a bad RUN_ID and posts nothing ---
+# W1 (a clean run still posts 3 comments) is the existing happy-path test above: it also pins that
+# the run-id check runs ONCE before the first post, never inside the posting loop (M5: inside the
+# loop, pass 2 would see pass 1's posted comment and refuse).
+
+@test "W2: a future-dated RUN_ID swapped into the run file posts nothing" {
+  start; [ "$status" -eq 0 ]
+  sed -i 's/^RUN_ID=.*/RUN_ID=20330101T000000Z-12345678/' .prp-output/reviews/pr-7-l2-run.env
+  write_all; post
+  [ "$status" -ne 0 ]
+  [ "$(wc -l < "$WORK_LOG")" -eq 0 ]
+  [[ "$output" == *"run id refused"* ]]
+  [ -f .prp-output/reviews/pr-7-l2-run.env ]   # not consumed: the refusal precedes the mv
+}
+
+@test "W3: a RUN_ID whose hex prefixes a PR commit SHA posts nothing" {
+  start; [ "$status" -eq 0 ]
+  . .prp-output/reviews/pr-7-l2-run.env
+  export FAKE_COMMITS="${RUN_ID##*-}00000000000000000000000000000000"
+  write_all; post
+  [ "$status" -ne 0 ]
+  [ "$(wc -l < "$WORK_LOG")" -eq 0 ]
+  [[ "$output" == *"run id refused"* ]]
+}
+
+@test "W4: the run id already in a comment by the trusted login posts nothing; by another login it posts" {
+  start; [ "$status" -eq 0 ]
+  . .prp-output/reviews/pr-7-l2-run.env
+  printf 'Generated-by: prp-review-agents v9.9.9 run=%s pass=code-reviewer\n' "$RUN_ID" > "$WORK/c.txt"
+  export FAKE_COMMENTS="$WORK/c.txt"
+  write_all; post
+  [ "$status" -ne 0 ]
+  [ "$(wc -l < "$WORK_LOG")" -eq 0 ]
+  [[ "$output" == *"already used"* ]]
+  # same id, but in a comment by a DIFFERENT login: only trusted comments count, so it posts
+  # (the run file was never consumed: the refusal above precedes the mv)
+  unset FAKE_COMMENTS
+  export FAKE_COMMENTS_JSON="$WORK/untrusted.json"
+  jq -n --arg id "$RUN_ID" '[{user: {login: "someone-else"}, body: ("Reviewed head: x\n\nrun=" + $id + "\n")}]' > "$FAKE_COMMENTS_JSON"
+  write_all; post
+  [ "$status" -eq 0 ]
+  [ "$(wc -l < "$WORK_LOG")" -eq 3 ]
+}
+
+@test "W5: a failed PR-commits lookup posts nothing and names the lookup" {
+  start; [ "$status" -eq 0 ]
+  export FAKE_COMMITS_FAIL=1
+  write_all; post
+  [ "$status" -ne 0 ]
+  [ "$(wc -l < "$WORK_LOG")" -eq 0 ]
+  [[ "$output" == *"cannot list PR commits"* ]]
+}
+
+@test "W6: a failed trusted-login lookup posts nothing" {
+  start; [ "$status" -eq 0 ]
+  export USER_API_FAIL=1
+  write_all; post
+  [ "$status" -ne 0 ]
+  [ "$(wc -l < "$WORK_LOG")" -eq 0 ]
+  [[ "$output" == *"cannot read the trusted login"* ]]
+}
+
+@test "W7: Step A's env file carries an id in the canonical shape (built by run-id.sh new)" {
+  start; [ "$status" -eq 0 ]
+  run bash -c "sed -n 's/^RUN_ID=//p' .prp-output/reviews/pr-7-l2-run.env | grep -qxE '[0-9]{8}T[0-9]{6}Z-[0-9a-f]{8}'"
+  [ "$status" -eq 0 ]
+}
+
+@test "pin: the Pass-budget timebox sentence appears exactly 10 times and Step A draws the id through run-id.sh only" {
+  # runs per $ADAPTER through the matrix, and once here against the canonical prompt
+  local f n
+  for f in "$ADAPTER" "$ROOT/prompts/review-agents.md"; do
+    n="$(prompt_text "$f" | grep -c 'Do not write time-box, timebox or time box anywhere in your report')"
+    [ "$n" -eq 10 ]
+    if prompt_text "$f" | grep -q 'od -An -N4'; then
+      echo "od -An -N4 still present in $f — Step A must call run-id.sh new, not draw inline" >&2
+      return 1
+    fi
+  done
 }

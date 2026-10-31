@@ -50,7 +50,7 @@ R=0
 [[ -n "$IDS" ]] && R=$(printf '%s\n' "$IDS" | LC_ALL=C tr '[:upper:]' '[:lower:]' | LC_ALL=C sort -u | wc -l | tr -d ' ')
 
 if (( R >= CAP )); then
-  echo "ROUND-CAP: refused — this PR already has $R review runs (cap $CAP). Review stop rule: fix open Critical/Important findings or re-route the work; file Medium/Low in ONE follow-up issue; do not start another round; escalate (delegate_or_escalate)." >&2
+  echo "ROUND-CAP: refused — this PR already has $R review runs (cap $CAP). Review stop rule: fix open Critical/Important findings or re-route the work; name any open Medium in the L2 report; Low and Suggestions need no issue; do not start another round; escalate (delegate_or_escalate)." >&2
   exit 3
 fi
 echo "rounds so far: $R of $CAP; this is round $((R + 1))"
