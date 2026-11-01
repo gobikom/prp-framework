@@ -24,6 +24,7 @@
 
 ROOT="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)"
 ADAPTER="$ROOT/adapters/claude-code/prp-review-agents.md"
+source "$ROOT/tests/helpers/fence.bash"   # prompt_text: B31 must count the guard in gemini's TOML-decoded text, not the escaped raw file
 
 # The ONE explicit expected file set: the prompt + all 6 adapters (7 files).
 # A moved/renamed/deleted adapter changes this list's membership and fails
@@ -343,6 +344,18 @@ all_pos() { # <ERE>
   # that drops either line from ANY one of the 7 files fails this test.
   all_pos 'FATAL: cannot mint the pass deadline'
   all_pos 'echo "PASS_DEADLINE=\$PASS_DEADLINE PRP_DIR=\$PRP_DIR"'
+}
+
+@test "B31: the tracked-.prp guard line appears exactly 4 times in each of the 7 files (plan v2 drift pin)" {
+  # M8 pins the drop case: deleting the guard at any ONE of the 4 PRP_DIR resolution
+  # sites in the prompt (and regenerating, or not) leaves some file at 3 and this
+  # goes red. prompt_text decodes gemini's TOML, so the count is over the text an
+  # agent actually executes, not the escaped raw file.
+  local f n
+  for f in $EXPECTED_FILES; do
+    n="$(prompt_text "$ROOT/$f" | grep -cF -- 'TRACKED=$(git ls-files -- .prp)')" || true
+    [ "$n" -eq 4 ] || { echo "B31: $f carries the tracked-guard $n times, want 4" >&2; return 1; }
+  done
 }
 
 @test "the adapter lists match EXPECTED_FILES exactly (set equality; round-6 Important B)" {

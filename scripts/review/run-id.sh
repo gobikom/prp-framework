@@ -12,7 +12,8 @@
 # - `check` validates the id shape itself (lowercase only — the shape `new` writes) and parses the
 #   date in pure bash arithmetic (days-from-civil; no `date -d`, GNU/BSD differ): an impossible
 #   date (month 13, Feb 30, hour 24) is a bad argument (exit 2), never a refusal.
-# - The shas file must exist, be non-empty, and hold only 40-hex lines: a garbage lookup fails
+# - The shas file must exist, be non-empty, be readable (exit 2, not the shell's loop-redirect
+#   error), and hold only 40-hex lines: a garbage lookup fails
 #   closed as exit 2, never passes as "no match"; a final line without a newline is never read by
 #   the loop, so it is a bad lookup input too (exit 2), never silently skipped. The prior file
 #   must exist and be readable but may be empty (a PR with no earlier trusted comments); the
@@ -124,6 +125,7 @@ case "$SUB" in
     # arm (b): the hex is not a prefix copy of any commit SHA on the PR (head included)
     [[ -f "$SHAS" ]] || die "shas file not found: $SHAS"
     [[ -s "$SHAS" ]] || die "shas file is empty: $SHAS"
+    [[ -r "$SHAS" ]] || die "shas file is not readable: $SHAS"
     pref=${HEX:0:$HEX_PREFIX_LEN}
     while IFS= read -r line; do
       lc=${line,,}

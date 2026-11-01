@@ -490,6 +490,7 @@ printf '%s' "$LOCAL_HEAD" | grep -qxE '[0-9a-f]{40}' || { echo "FATAL: cannot re
 [ "$REVIEWED_HEAD_SHA" = "$LOCAL_HEAD" ] || { echo "FATAL: the PR head ('$REVIEWED_HEAD_SHA') is not the local HEAD ($LOCAL_HEAD) the agents would read — sync the checkout, no agents started" >&2; exit 1; }
 [ -L .prp ] || { echo "FATAL: .prp is not a symlink to the installed prp-framework — round cap not checkable, no agents started" >&2; exit 1; }
 PRP_DIR=$(readlink -f .prp) || { echo "FATAL: cannot resolve .prp — no agents started" >&2; exit 1; }
+TRACKED=$(git ls-files -- .prp) || { echo "FATAL: cannot check whether .prp is tracked — nothing posted" >&2; exit 1; }; [ -z "$TRACKED" ] || { echo "FATAL: .prp is tracked by the reviewed tree — refusing to run its scripts" >&2; exit 1; }
 # unchanged-head refusal: only when the stop rule is already met at this head — the latest round is a valid clean FULL-DIFF round (0 Critical, 0 Important, valid line 1–3 headers and footer, Review-mode: full) at this head; merger-policy review_evidence is the binding text
 # Trust only comments from the account this session itself authenticates as (every legitimate agent run posts under one shared GitHub identity, prp-framework#228) — never a forged comment from an outside account on this public repo, which could otherwise fake a clean round and block real review.
 # If we can't learn our own login, fail OPEN: skip the unchanged-head check entirely (no refusal, run the review) rather than refusing to start — a false refusal blocks real review, which is the worse direction here.
@@ -700,6 +701,7 @@ Invariant: no pass can run a probe past its budget without returning a partial r
 ```bash
 PRP_DIR=$(readlink -f .prp) && PASS_DEADLINE=$(bash "$PRP_DIR/scripts/review/pass-budget.sh" deadline) \
   || { echo "FATAL: cannot mint the pass deadline — no agents started" >&2; exit 1; }
+TRACKED=$(git ls-files -- .prp) || { echo "FATAL: cannot check whether .prp is tracked — nothing posted" >&2; exit 1; }; [ -z "$TRACKED" ] || { echo "FATAL: .prp is tracked by the reviewed tree — refusing to run its scripts" >&2; exit 1; }
 echo "PASS_DEADLINE=$PASS_DEADLINE PRP_DIR=$PRP_DIR"
 ```
 
@@ -1582,6 +1584,7 @@ REVIEWED_HEAD_SHA=$(cat "$D/pr-{NUMBER}-reviewed-head" 2>/dev/null) || REVIEWED_
 [ ${#REVIEWED_HEAD_SHA} -eq 40 ] && printf '%s' "$REVIEWED_HEAD_SHA" | grep -qxE '[0-9a-f]{40}' || { echo "FATAL: no reviewed head saved by Phase 2.0 ($D/pr-{NUMBER}-reviewed-head) — re-run the review from Phase 2.0 and every agent after it (the head is captured before the agents, never at posting time)" >&2; exit 1; }
 [ -L .prp ] || { echo "FATAL: .prp is not a symlink to the installed prp-framework — no comments posted" >&2; exit 1; }
 PRP_DIR=$(readlink -f .prp) || { echo "FATAL: cannot resolve .prp" >&2; exit 1; }
+TRACKED=$(git ls-files -- .prp) || { echo "FATAL: cannot check whether .prp is tracked — nothing posted" >&2; exit 1; }; [ -z "$TRACKED" ] || { echo "FATAL: .prp is tracked by the reviewed tree — refusing to run its scripts" >&2; exit 1; }
 PRP_VERSION=$(git -C "$PRP_DIR" describe --tags --abbrev=0 --match 'v[0-9]*' 2>/dev/null) || { echo "FATAL: cannot read the prp-framework release tag — no comments posted" >&2; exit 1; }
 PRP_VERSION="${PRP_VERSION#v}"   # the latest release tag reachable from the installed framework; the footer adds the v
 printf '%s' "$PRP_VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$' || { echo "FATAL: release tag '$PRP_VERSION' is not a version" >&2; exit 1; }
@@ -1610,6 +1613,7 @@ A pass whose body mentions a timebox in any form (2.2.0: `Pass timeboxed`, `time
 D=.prp-output/reviews
 ENV_F="$D/pr-{NUMBER}-l2-run.env"
 [ -L .prp ] && PRP_DIR=$(readlink -f .prp) && [ -r "$PRP_DIR/scripts/review/pass-budget.sh" ] || { echo "FATAL: cannot find the installed prp-framework scripts via .prp — nothing posted" >&2; exit 1; }
+TRACKED=$(git ls-files -- .prp) || { echo "FATAL: cannot check whether .prp is tracked — nothing posted" >&2; exit 1; }; [ -z "$TRACKED" ] || { echo "FATAL: .prp is tracked by the reviewed tree — refusing to run its scripts" >&2; exit 1; }
 [ -s "$ENV_F" ] || { echo "FATAL: $ENV_F missing — run Step A (a run file is used once; after a failed post, start a new run)" >&2; exit 1; }
 # parse, never execute: exactly six known keys with validated values
 REVIEWED_HEAD_SHA=$(sed -n 's/^REVIEWED_HEAD_SHA=//p' "$ENV_F"); PRP_VERSION=$(sed -n 's/^PRP_VERSION=//p' "$ENV_F"); RUN_ID=$(sed -n 's/^RUN_ID=//p' "$ENV_F"); TIER=$(sed -n 's/^TIER=//p' "$ENV_F")

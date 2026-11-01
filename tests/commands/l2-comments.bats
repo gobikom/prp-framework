@@ -24,6 +24,7 @@ step() { # step <A|C> -> the bash fence after "**Step <X>", {NUMBER} filled in
 setup() {
   WORK="$(mktemp -d)"
   cd "$WORK"
+  git init -q . && git commit -q --allow-empty -m w   # the reviewed tree is a repo: the tracked-.prp guard (B28-B30) runs `git ls-files` at cwd
   git init -q prp && git -C prp commit -q --allow-empty -m init && git -C prp tag v9.9.9
   mkdir -p prp/scripts && cp -r "$ROOT/scripts/review" prp/scripts/   # what Phase 2.0 and Step C run from the installed framework
   ln -s "$WORK/prp" .prp
@@ -861,6 +862,7 @@ timeboxed() { # timeboxed <pass> [link]: rewrite one body so its Could not verif
 
   work="$BATS_TEST_TMPDIR/work"
   mkdir -p "$work"
+  git init -q "$work" && git -C "$work" commit -q --allow-empty -m w   # the reviewed tree is a repo; .prp inside it stays untracked, so the tracked-guard (B28) lets the mint proceed
 
   # Failure mode 1: pass-budget.sh itself exits non-zero (forced bad budget).
   ln -s "$ROOT" "$work/.prp"
@@ -1106,6 +1108,34 @@ run_20a() { # run 2.0a in $WORK with REVIEWED_HEAD_SHA already saved to pr-7-rev
   [ "$status" -ne 0 ]
   [ "$(wc -l < "$WORK_LOG")" -eq 0 ]
   [[ "$output" == *"cannot read PR comments"* ]]
+}
+
+@test "B28: a .prp tracked by the reviewed tree FATALs before any post and before run-id.sh runs" {
+  start; [ "$status" -eq 0 ]
+  git add -f .prp && git commit -q -m tracked   # the attack shape: the reviewed tree commits its own .prp (git add -f works around .gitignore)
+  printf '#!/usr/bin/env bash\ntouch "$WORK/runid.ran"\n' > prp/scripts/review/run-id.sh   # marker stub: proves the check never ran
+  write_all; post
+  [ "$status" -ne 0 ]
+  [ "$(wc -l < "$WORK_LOG")" -eq 0 ]
+  [[ "$output" == *"tracked by the reviewed tree"* ]]
+  [ ! -e "$WORK/runid.ran" ]
+}
+
+@test "B29: an untracked .prp symlink (the normal install) proceeds — the tracked-guard stays silent" {
+  start; [ "$status" -eq 0 ]
+  write_all; post
+  [ "$status" -eq 0 ]
+  [ "$(wc -l < "$WORK_LOG")" -eq 3 ]
+}
+
+@test "B30: a failed tracked-check (git ls-files unavailable) FATALs closed — nothing posted" {
+  start; [ "$status" -eq 0 ]
+  write_all
+  printf '#!/usr/bin/env bash\nexit 128\n' > bin/git && chmod +x bin/git   # every git call now fails, the guard's lookup included
+  post
+  [ "$status" -ne 0 ]
+  [ "$(wc -l < "$WORK_LOG")" -eq 0 ]
+  [[ "$output" == *"cannot check whether .prp is tracked"* ]]
 }
 
 @test "pin: the Pass-budget timebox sentence appears exactly 10 times and Step A draws the id through run-id.sh only" {

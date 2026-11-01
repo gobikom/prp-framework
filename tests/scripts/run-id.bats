@@ -173,6 +173,7 @@ ck() { # ck <id> <shas-file> <prior-file> [epoch] — check at a fixed clock (de
 }
 
 @test "B25: an unreadable prior file is a lookup failure, never a vacuous pass" {
+  [ "$(id -u)" -eq 0 ] && skip "chmod 000 does not block root"
   printf 'run=20261031T054631Z-aabbccdd\n' > prior.noread
   chmod 000 prior.noread
   ck 20261031T054631Z-aabbccdd shas.ok prior.noread
@@ -197,4 +198,13 @@ ck() { # ck <id> <shas-file> <prior-file> [epoch] — check at a fixed clock (de
   run env PATH="$TEST_TMPDIR/bin.nodate:/usr/bin:/bin" bash "$S" new
   [ "$status" -eq 2 ]
   [[ "$output" == *"clock"* ]]
+}
+
+@test "B32: an unreadable shas file is a lookup failure (exit 2), never the shell's redirect error (exit 1)" {
+  [ "$(id -u)" -eq 0 ] && skip "chmod 000 does not block root"
+  printf '%s\n' "$SHA_CLEAN" > shas.noread
+  chmod 000 shas.noread
+  ck 20261031T054631Z-aabbccdd shas.noread prior.empty
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"shas file is not readable"* ]]
 }
