@@ -358,6 +358,25 @@ all_pos() { # <ERE>
   done
 }
 
+@test "B33: the tracked-.prp guard precedes the first PRP_DIR script call in every fence (R4 ordering pin)" {
+  # R3's Important: at the 2.2.0 site the guard sat AFTER the PASS_DEADLINE mint, so a
+  # tracked .prp ran pass-budget.sh once before the FATAL. The count pin (B31) cannot see
+  # ORDER — this walks every ```bash fence of each of the 7 files and fails the moment any
+  # fence runs a $PRP_DIR script before the guard has appeared IN THAT FENCE. M10 pins the
+  # R3 order itself: re-fusing the 2.2.0 mint turns this red while B31 stays green.
+  local f bad=0
+  for f in $EXPECTED_FILES; do
+    prompt_text "$ROOT/$f" | awk -v ncall='bash "$PRP_DIR/scripts/' -v nguard='TRACKED=$(git ls-files -- .prp)' -v fname="$f" '
+      /^```bash/ {infence=1; seen=0; next}
+      /^```/     {infence=0; next}
+      infence && index($0, nguard) {seen=1}
+      infence && index($0, ncall) && !seen {print "B33: " fname ": fence runs $PRP_DIR scripts before the guard (decoded line " NR ")"; bad=1}
+      END {exit bad}
+    ' || bad=1
+  done
+  [ "$bad" -eq 0 ]
+}
+
 @test "the adapter lists match EXPECTED_FILES exactly (set equality; round-6 Important B)" {
   # ADAPTER_FILES must be EXPECTED_FILES minus the prompt; OTHER_ADAPTERS must
   # be ADAPTER_FILES minus claude-code. Set equality: a 7th adapter (or a

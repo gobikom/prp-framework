@@ -699,9 +699,11 @@ is written by Phase 1 and is the only file agents need from there).
 Invariant: no pass can run a probe past its budget without returning a partial report plus a follow-up link. Mint ONE deadline for the round, before the agents are dispatched, and use the same value in every agent prompt below (core and conditional; all passes run in parallel under it):
 
 ```bash
-PRP_DIR=$(readlink -f .prp) && PASS_DEADLINE=$(bash "$PRP_DIR/scripts/review/pass-budget.sh" deadline) \
+PRP_DIR=$(readlink -f .prp) \
   || { echo "FATAL: cannot mint the pass deadline — no agents started" >&2; exit 1; }
 TRACKED=$(git ls-files -- .prp) || { echo "FATAL: cannot check whether .prp is tracked — nothing posted" >&2; exit 1; }; [ -z "$TRACKED" ] || { echo "FATAL: .prp is tracked by the reviewed tree — refusing to run its scripts" >&2; exit 1; }
+PASS_DEADLINE=$(bash "$PRP_DIR/scripts/review/pass-budget.sh" deadline) \
+  || { echo "FATAL: cannot mint the pass deadline — no agents started" >&2; exit 1; }
 echo "PASS_DEADLINE=$PASS_DEADLINE PRP_DIR=$PRP_DIR"
 ```
 
