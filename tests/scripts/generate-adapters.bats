@@ -140,8 +140,9 @@ gen() {
   [ "$(grep -c '^  run_in_background=false,$' "$d")" -eq 0 ]
   grep -qF '{AGNT_BLOCKING_PARAM}' "$d"  # the literal ships into the output
   # run the REAL count test against the temp tree and require it to FAIL
-  mkdir -p "$TREE/tests/commands"
+  mkdir -p "$TREE/tests/commands" "$TREE/tests/helpers"
   cp "$ROOT/tests/commands/review-rounds.bats" "$TREE/tests/commands/"
+  cp "$ROOT/tests/helpers/fence.bash" "$TREE/tests/helpers/"   # review-rounds.bats sources it (B31's prompt_text); without the copy the temp-tree run fails at load, not on the count
   rr_rc=0
   bats --filter 'every Agent dispatch in the claude-code adapter passes' \
     "$TREE/tests/commands/review-rounds.bats" >"$BATS_TEST_TMPDIR/rr.out" 2>&1 || rr_rc=$?

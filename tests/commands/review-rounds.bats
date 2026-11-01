@@ -24,6 +24,7 @@
 
 ROOT="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)"
 ADAPTER="$ROOT/adapters/claude-code/prp-review-agents.md"
+source "$ROOT/tests/helpers/fence.bash"   # prompt_text: B31 must count the guard in gemini's TOML-decoded text, not the escaped raw file
 
 # The ONE explicit expected file set: the prompt + all 6 adapters (7 files).
 # A moved/renamed/deleted adapter changes this list's membership and fails
@@ -324,12 +325,13 @@ all_pos() { # <ERE>
   pos "$ADAPTER" "force verdict to NEEDS FIXES minimum"
 }
 
-@test "Step A mints a fresh run id every run (origin or main behaviour)" {
+@test "Step A mints a fresh run id every run (agent-devops#1336: through run-id.sh new)" {
   stepA="$BATS_TEST_TMPDIR/stepA.sh"
   awk -v want="**Step A" 'index($0, want) == 1 {f=1} f && /^```bash$/ {b=1; next} b && /^```$/ {exit} b' "$ADAPTER" | sed 's/{NUMBER}/7/g' > "$stepA"
   [ -s "$stepA" ]
   neg "$stepA" 'curr-run\.env'
-  pos "$stepA" 'RUN_ID="\$\(date -u \+%Y%m%dT%H%M%SZ\)-\$RAND"'
+  pos "$stepA" 'RUN_ID=\$\(bash "\$PRP_DIR/scripts/review/run-id\.sh" new\)'
+  neg "$stepA" 'od -An -N4'
 }
 
 @test "the FATAL guard and its pass-deadline echo line are pinned in the prompt and all 6 adapters, not just claude-code (round-7 Important)" {
@@ -342,6 +344,37 @@ all_pos() { # <ERE>
   # that drops either line from ANY one of the 7 files fails this test.
   all_pos 'FATAL: cannot mint the pass deadline'
   all_pos 'echo "PASS_DEADLINE=\$PASS_DEADLINE PRP_DIR=\$PRP_DIR"'
+}
+
+@test "B31: the tracked-.prp guard line appears exactly 4 times in each of the 7 files (plan v2 drift pin)" {
+  # M8 pins the drop case: deleting the guard at any ONE of the 4 PRP_DIR resolution
+  # sites in the prompt (and regenerating, or not) leaves some file at 3 and this
+  # goes red. prompt_text decodes gemini's TOML, so the count is over the text an
+  # agent actually executes, not the escaped raw file.
+  local f n
+  for f in $EXPECTED_FILES; do
+    n="$(prompt_text "$ROOT/$f" | grep -cF -- 'TRACKED=$(git ls-files -- .prp)')" || true
+    [ "$n" -eq 4 ] || { echo "B31: $f carries the tracked-guard $n times, want 4" >&2; return 1; }
+  done
+}
+
+@test "B33: the tracked-.prp guard precedes the first PRP_DIR script call in every fence (R4 ordering pin)" {
+  # R3's Important: at the 2.2.0 site the guard sat AFTER the PASS_DEADLINE mint, so a
+  # tracked .prp ran pass-budget.sh once before the FATAL. The count pin (B31) cannot see
+  # ORDER — this walks every ```bash fence of each of the 7 files and fails the moment any
+  # fence runs a $PRP_DIR script before the guard has appeared IN THAT FENCE. M10 pins the
+  # R3 order itself: re-fusing the 2.2.0 mint turns this red while B31 stays green.
+  local f bad=0
+  for f in $EXPECTED_FILES; do
+    prompt_text "$ROOT/$f" | awk -v ncall='bash "$PRP_DIR/scripts/' -v nguard='TRACKED=$(git ls-files -- .prp)' -v fname="$f" '
+      /^```bash/ {infence=1; seen=0; next}
+      /^```/     {infence=0; next}
+      infence && index($0, nguard) {seen=1}
+      infence && index($0, ncall) && !seen {print "B33: " fname ": fence runs $PRP_DIR scripts before the guard (decoded line " NR ")"; bad=1}
+      END {exit bad}
+    ' || bad=1
+  done
+  [ "$bad" -eq 0 ]
 }
 
 @test "the adapter lists match EXPECTED_FILES exactly (set equality; round-6 Important B)" {

@@ -528,3 +528,10 @@ EOF
   run bash "$G" --cap 10 < in.txt
   [ "$status" -ne 2 ]
 }
+
+@test "the refusal message names Medium in the L2 report and promises no follow-up issue (SO#1501)" {
+  run bash -c "$(declare -f runs_footers); runs_footers 6 | bash '$G'"
+  [ "$status" -eq 3 ]
+  [[ "$output" == *"name any open Medium in the L2 report"* ]]
+  [[ "$output" != *"follow-up issue"* ]]
+}
