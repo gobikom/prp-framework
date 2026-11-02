@@ -476,7 +476,7 @@ Auto-dispatching: performance-analyzer (DB query patterns in 2 files)
 
 Invariant: the head this run reviews is captured **once, here, before any agent starts**, whatever path led here (Phase 1.3, a reused context file from Phase 0, `--context`, or agent mode), and it is **the commit the agents read**: the PR head must equal the local checkout's `HEAD`, and 2.1.1 clones exactly this saved head for the agents. Every later step reads it from the file below — nothing captures or re-queries it after the agents start. (A head captured at posting time would certify a commit nobody reviewed if a push landed during the review; a PR head that differs from the local `HEAD` would certify a commit the agents never read.)
 
-Also decided here, before the round cap: whether the review stop rule is already met at this head — the latest round is a valid clean FULL-DIFF round at this head (0 Critical, 0 Important, valid line 1–3 headers and footer per pass, `Review-mode: full`; merger-policy `review_evidence` is the binding text). `UNCHANGED-HEAD: refused` is final for this exact head — nothing needs to be fixed, there is nothing to review; wait for a new commit, or escalate if the PR is believed done. A valid clean `delta` round at this head does NOT trigger the refusal — at gate tier only a FULL-DIFF clean round satisfies the stop rule, and the guard has no reliable tier input, so this is fail-open by design (at worst one extra round runs). The round number (`ROUND`, 1 for the first run on this PR, 2+ after) is captured here too, for 2.2/2.3's core-vs-conditional gating and 2.0a's mode decision — both read it from the file this step saves, never recompute it.
+Also decided here, before the round cap: whether the review stop rule is already met at this head — the latest round is a valid clean FULL-DIFF round at this head (0 Critical, 0 Important, valid line 1–3 headers and footer per pass, `Review-mode: full`; merger-policy `review_evidence` is the binding text). `UNCHANGED-HEAD: refused` is final for this exact head — nothing needs to be fixed, there is nothing to review; wait for a new commit, or escalate if the PR is believed done. `UNCHANGED-TREE: refused` is the same verdict for a head whose TREE equals that clean head's tree (an empty re-queue commit, a rebase or amend that changes no file): the agents would read byte-identical files, so the clean round already covers them and a new round is only a token cost; the two commits' trees are compared with `git rev-parse <sha>^{tree}` (the clean head fetched by SHA when the checkout lacks it), and any lookup failure fails open (the review runs). A merger that requires the round at the exact head is then handed the clean round at the same-tree head as the evidence, or the operator's bypass — never a re-run. A valid clean `delta` round at this head does NOT trigger the refusal — at gate tier only a FULL-DIFF clean round satisfies the stop rule, and the guard has no reliable tier input, so this is fail-open by design (at worst one extra round runs). The round number (`ROUND`, 1 for the first run on this PR, 2+ after) is captured here too, for 2.2/2.3's core-vs-conditional gating and 2.0a's mode decision — both read it from the file this step saves, never recompute it.
 
 If this block prints FATAL, STOP: start no agent and post nothing. To recover, sync the checkout to the PR head (or push it) and re-run the review from Phase 2.0, including every agent after it. A `ROUND-CAP: refused` FATAL is final for this PR: do not start round 7 (the cap is the review stop rule — fix open Critical/Important findings or re-route, name any open Medium in the L2 report; Low and Suggestions need no issue, escalate).
 
@@ -561,6 +561,21 @@ STOP_MET_HEAD=$(printf '%s\n' "$CLEAN_ROWS" | awk -F'\t' '
 if [ -n "$STOP_MET_HEAD" ] && [ "$STOP_MET_HEAD" = "$REVIEWED_HEAD_SHA" ]; then
   echo "UNCHANGED-HEAD: refused — head $REVIEWED_HEAD_SHA already has a valid clean FULL-DIFF round (0 Critical, 0 Important; stop rule met); nothing to review" >&2
   exit 1
+fi
+# unchanged-tree refusal (agent-devops#1335 improvement 4): the stop rule is met at a DIFFERENT head whose tree is
+# this head's tree — an empty re-queue commit, or a rebase/amend that changes no file. The agents would read
+# byte-identical files, so the clean round at that head already covers them; a new round would only cost tokens.
+# Judged by `git rev-parse <sha>^{tree}` on both commits (the peel fails on an unknown object; the clean head is
+# fetched by SHA first when the checkout lacks it). Every lookup failure fails OPEN — the review runs — because a
+# false refusal blocks real review, the worse direction. UNCHANGED-TREE is as final as UNCHANGED-HEAD.
+if [ -n "$STOP_MET_HEAD" ] && [ "$STOP_MET_HEAD" != "$REVIEWED_HEAD_SHA" ]; then
+  git cat-file -e "$STOP_MET_HEAD^{commit}" 2>/dev/null || git fetch -q origin "$STOP_MET_HEAD" 2>/dev/null || true
+  HEAD_TREE=$(git rev-parse --verify -q "$REVIEWED_HEAD_SHA^{tree}" 2>/dev/null) || HEAD_TREE=""
+  CLEAN_TREE=$(git rev-parse --verify -q "$STOP_MET_HEAD^{tree}" 2>/dev/null) || CLEAN_TREE=""
+  if [ -n "$HEAD_TREE" ] && [ "$HEAD_TREE" = "$CLEAN_TREE" ]; then
+    echo "UNCHANGED-TREE: refused — head $REVIEWED_HEAD_SHA has the same tree ($HEAD_TREE) as $STOP_MET_HEAD, which already has a valid clean FULL-DIFF round (0 Critical, 0 Important; stop rule met); the files are byte-identical, nothing to review" >&2
+    exit 1
+  fi
 fi
 # round cap (prp-framework#151): count the review runs already on the PR (the last line of each comment), from the installed framework's copy
 # Same comment-trust rule as CLEAN_ROWS above (prp-framework#228): an untrusted commenter can post a

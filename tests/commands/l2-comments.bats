@@ -641,6 +641,41 @@ Generated-by: prp-review-agents v9.9.9 run=$run pass=${passes[$i]}
   expect_runs
 }
 
+# ---- B15–B17 same-tree refusal (agent-devops#1335 improvement 4: no new round on a byte-identical tree) ----
+
+expect_refused_tree() { [ "$status" -ne 0 ]; [[ "$output" == *"UNCHANGED-TREE: refused"* ]]; [ ! -e .prp-output/reviews/pr-7-reviewed-head ]; }
+
+@test "B15: latest clean FULL round at an older head with the SAME tree (empty re-queue commit) → refused" {
+  phase20 > p20.sh; repo_here
+  CLEAN_HEAD="$FAKE_HEAD"
+  git commit -q --allow-empty -m requeue; FAKE_HEAD=$(git rev-parse HEAD); export FAKE_HEAD   # new head, same tree
+  [ "$(git rev-parse "$CLEAN_HEAD^{tree}")" = "$(git rev-parse "$FAKE_HEAD^{tree}")" ]
+  clean_run_json bot 20261021T000001Z-00000001 "$CLEAN_HEAD" 3 > c.json
+  FAKE_LOGIN=bot FAKE_COMMENTS_JSON="$PWD/c.json" run env -u REVIEWED_HEAD_SHA bash p20.sh
+  expect_refused_tree
+  [[ "$output" == *"$CLEAN_HEAD"* ]]
+}
+
+@test "B16: latest clean FULL round at an older head whose tree DIFFERS → runs" {
+  phase20 > p20.sh; repo_here
+  CLEAN_HEAD="$FAKE_HEAD"
+  echo change > f.txt; git add f.txt; git commit -q -m change; FAKE_HEAD=$(git rev-parse HEAD); export FAKE_HEAD
+  clean_run_json bot 20261021T000001Z-00000001 "$CLEAN_HEAD" 3 > c.json
+  FAKE_LOGIN=bot FAKE_COMMENTS_JSON="$PWD/c.json" run env -u REVIEWED_HEAD_SHA bash p20.sh
+  expect_runs
+}
+
+@test "B17: same tree but the latest round is dirty → runs (the tree rule only extends a met stop rule)" {
+  phase20 > p20.sh; repo_here
+  CLEAN_HEAD="$FAKE_HEAD"
+  git commit -q --allow-empty -m requeue; FAKE_HEAD=$(git rev-parse HEAD); export FAKE_HEAD
+  clean_run_json bot 20261021T000001Z-00000001 "$CLEAN_HEAD" 3 > a.json
+  dirty_run_json bot 20261021T000002Z-00000002 "$CLEAN_HEAD" > b.json
+  rounds_json a.json b.json > c.json
+  FAKE_LOGIN=bot FAKE_COMMENTS_JSON="$PWD/c.json" run env -u REVIEWED_HEAD_SHA bash p20.sh
+  expect_runs
+}
+
 # ---- additional guard tests (kept from #228/#233, adapted to one-clean-round rule) ----
 
 @test "Phase 2.0 fails open (does not refuse) when the trusted-login lookup itself fails" {
