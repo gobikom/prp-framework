@@ -152,17 +152,30 @@ EOF
   grep -q "could not scan 'src/main/java/'" <<< "$output"
 }
 
-@test "S-J4-FAIL-VISIBLE-ELSEWHERE: a readable match elsewhere still lists it, and the failed scan still warns" {
-  if [ "$(id -u)" = "0" ]; then skip "running as root — chmod 000 is still readable"; fi
-  # locked/ is created BEFORE app/: small ext4 directories read back in creation
-  # order, so find hits (and reports) the unreadable dir before -quit at the match.
-  # Mirroring the map-site pattern, the errored scan discards its partial result
-  # (java_entry="") — the assertion is the WARNING, and --init's unchanged exit 0.
-  mkdir -p src/main/java/locked src/main/java/app
-  echo 'class Main {}' > src/main/java/app/Main.java
-  echo 'class Application {}' > src/main/java/locked/Application.java
-  chmod 000 src/main/java/locked
+@test "S-J4-FAIL-VISIBLE-ELSEWHERE: a scan that errors after printing a match discards it and still warns" {
+  # A1 (psak, 2026-11-05): the old J4 relied on readdir visiting the unreadable
+  # sibling before -print -quit quit at the match — order luck (CI red
+  # 41880242912 at e5d51d2). A find shim makes the arm deterministic: the java
+  # scan prints its match, errors on stderr, exits 1. The script must warn,
+  # read the scan as no entry (Main.java never listed), and not abort --init.
+  # Trigger is the literal first arg src/main/java — the only call shaped that
+  # way; the map scans (for dir in */) pass top-level names. The shim dir is a
+  # dotdir so no scan or entry arm sees it.
+  REAL_FIND=$(command -v find)
+  mkdir -p .shim-bin src/main/java
+  cat > .shim-bin/find <<SH
+#!/usr/bin/env bash
+if [ "\$1" = "src/main/java" ]; then
+  printf '%s\n' 'src/main/java/app/Main.java'
+  printf 'find: %s: Permission denied\n' "'src/main/java/locked'" >&2
+  exit 1
+fi
+exec "$REAL_FIND" "\$@"
+SH
+  chmod +x .shim-bin/find
+  export PATH="$PWD/.shim-bin:$PATH"
   run bash "$REPO_ROOT/scripts/gen-ai-context.sh" --init
   [ "$status" -eq 0 ]
   grep -q "could not scan 'src/main/java/'" <<< "$output"
+  ! grep -q 'Main\.java' PROJECT.md
 }
