@@ -56,6 +56,15 @@ Every major version release MUST include a `docs/migration/vX.0-to-vY.0.md` file
   it mirrors the map-site pattern (`-print -quit`, `log_warn "could not scan 'src/main/java/'"`),
   so a failed scan warns on stderr and reads as no entry, never as "nothing found" (Invariant S
   visibility clause; pinned by S-J1/S-J3/S-J4).
+- `gen-ai-context.sh` review round 2 hardening (#249 A2): every `log_warn` the map/check/update
+  paths emit goes to stderr (`>&2`, including `do_update`'s extra-block warning and `do_check`'s
+  could-not-scan warning, which printed to stdout where `run`-merged or redirected output hid
+  them); an AUTO-GEN block whose END marker was deleted is read by `--check` as STALE
+  (`AUTO-GEN:BEGIN found but AUTO-GEN:END missing` + stale=1) instead of letting body prose below
+  the dangling BEGIN satisfy the Stack check; and an unexpanded `*/` glob (a repo with no
+  non-hidden top-level dirs) is skipped by the map/check loops' dir guard instead of failing find
+  and permanently marking the repo STALE. Pinned by S1-STREAMS/S2-UNTERMINATED/S3-FILES-ONLY.
+
 
 ## [2.14.0] — 2026-11-02
 

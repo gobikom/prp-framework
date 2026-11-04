@@ -233,6 +233,7 @@ generate_context_map() {
 
     # Project-specific directories (any top-level dir with code)
     for dir in */; do
+        [ -d "$dir" ] || continue   # unexpanded glob (no non-hidden dirs) is not a dir — never a scan failure
         dir="${dir%/}"
         # Skip common non-code dirs
         case "$dir" in
@@ -375,7 +376,7 @@ do_update() {
     local begin_markers
     begin_markers=$(grep -c '<!-- AUTO-GEN:BEGIN' "$PROJECT_MD" || true)
     if [ "${begin_markers:-0}" -gt 1 ]; then
-        log_warn "extra AUTO-GEN block(s) found; only the first is maintained"
+        log_warn "extra AUTO-GEN block(s) found; only the first is maintained" >&2
     fi
 
     # Extract content before and after AUTO-GEN markers
@@ -472,7 +473,13 @@ do_check() {
         # duplicate block, or marker text quoted in the body, must not satisfy
         # the check); captured into a variable so no pipe can SIGPIPE.
         autogen_block=$(sed -n '/<!-- AUTO-GEN:BEGIN/,/<!-- AUTO-GEN:END -->/{p;/<!-- AUTO-GEN:END -->/q;}' "$PROJECT_MD" 2>/dev/null)
-        if grep -qxF -- "- **Stack:** $current_stack" <<< "$autogen_block"; then
+        if ! grep -q "AUTO-GEN:END" "$PROJECT_MD"; then
+            # A missing END must never read as "up-to-date": do_update refuses
+            # this file (would lose content); do_check marks it stale instead,
+            # so body prose below the dangling BEGIN cannot satisfy the check.
+            log_warn "AUTO-GEN:BEGIN found but AUTO-GEN:END missing" >&2
+            stale=1
+        elif grep -qxF -- "- **Stack:** $current_stack" <<< "$autogen_block"; then
             log_ok "Stack is up-to-date"
         else
             log_warn "Stack may be outdated (current: $current_stack)"
@@ -480,12 +487,13 @@ do_check() {
         fi
         begin_count=$(grep -c '<!-- AUTO-GEN:BEGIN' "$PROJECT_MD" || true)
         if [ "${begin_count:-0}" -gt 1 ]; then
-            log_warn "extra AUTO-GEN block(s) found; only the first is maintained"
+            log_warn "extra AUTO-GEN block(s) found; only the first is maintained" >&2
             stale=1
         fi
 
         # Check if new directories appeared that aren't in Context Map
         for dir in */; do
+            [ -d "$dir" ] || continue   # unexpanded glob (no non-hidden dirs) is not a dir — never a scan failure
             dir="${dir%/}"
             case "$dir" in
                 node_modules|.git|.prp|.prp-output|.claude|.codex|.opencode|.gemini|.agents|dist|build|__pycache__|.venv|venv|.env|coverage|.nyc_output|logs|output|tmp|temp|.claude-plugin|public|static|assets|backup|old|.sandbox-home|.sandbox-tmp|.sandbox-root|.sandbox-*) continue ;;  # .sandbox-* = agent sandboxes (chela), defense-in-depth vs dotglob — find below prunes them at depth
@@ -493,7 +501,7 @@ do_check() {
             esac
             local dir_scan
             if ! dir_scan=$(find "$dir" -maxdepth 2 \( -type d -name '.sandbox-*' -prune \) -o \( -type f \( -name "*.py" -o -name "*.ts" -o -name "*.js" -o -name "*.go" -o -name "*.rs" -o -name "*.sh" -o -name "*.yaml" \) -print -quit \)); then
-                log_warn "could not scan '${dir}/' (find failed)"
+                log_warn "could not scan '${dir}/' (find failed)" >&2
                 stale=1
                 continue
             fi

@@ -179,3 +179,59 @@ SH
   grep -q "could not scan 'src/main/java/'" <<< "$output"
   ! grep -q 'Main\.java' PROJECT.md
 }
+
+@test "S1-STREAMS: check-path could-not-scan warnings go to stderr, not stdout" {
+  # A2 (psak, 2026-11-05): the --check dir loop's find failure warning must be
+  # fail-visible on stderr only — stdout carries the human summary, so a buried
+  # warning must never look like a clean check. Same shim trick as J4, but the
+  # trigger is the check-path scan's first arg `foo`, and streams are asserted
+  # directly (bats `run` merges them, which is what hid the bug).
+  mkdir -p foo
+  echo 'x=1' > foo/real.py
+  run bash "$REPO_ROOT/scripts/gen-ai-context.sh" --init
+  [ "$status" -eq 0 ]
+  REAL_FIND=$(command -v find)
+  mkdir -p .shim-bin
+  cat > .shim-bin/find <<SH
+#!/usr/bin/env bash
+if [ "\$1" = "foo" ]; then
+  printf 'find: %s: Permission denied\n' "'foo/locked'" >&2
+  exit 1
+fi
+exec "$REAL_FIND" "\$@"
+SH
+  chmod +x .shim-bin/find
+  export PATH="$PWD/.shim-bin:$PATH"
+  bash "$REPO_ROOT/scripts/gen-ai-context.sh" --check >stdout.log 2>stderr.log && rc=0 || rc=$?
+  [ "$rc" -ne 0 ]
+  grep -q "could not scan 'foo/'" stderr.log
+  ! grep -q "could not scan 'foo/'" stdout.log
+}
+
+@test "S2-UNTERMINATED: BEGIN without END reads as stale, never up-to-date" {
+  # A2 (psak, 2026-11-05): a BEGIN whose END line was deleted must never let
+  # body prose below the dangling block satisfy the Stack check — do_update
+  # refuses this file (it would lose content), so do_check must say stale.
+  run bash "$REPO_ROOT/scripts/gen-ai-context.sh" --init
+  [ "$status" -eq 0 ]
+  sed -i '/<!-- AUTO-GEN:BEGIN/,/<!-- AUTO-GEN:END -->/{s/^- \*\*Stack:\*\* .*/- **Stack:** Rotten-Stack/}' PROJECT.md
+  sed -i '/<!-- AUTO-GEN:END -->/d' PROJECT.md
+  printf '%s\n' '- **Stack:** Node.js' >> PROJECT.md
+  run bash "$REPO_ROOT/scripts/gen-ai-context.sh" --check
+  [ "$status" -ne 0 ]
+  grep -q 'AUTO-GEN:BEGIN found but AUTO-GEN:END missing' <<< "$output"
+  ! grep -q 'Stack is up-to-date' <<< "$output"
+}
+
+@test "S3-FILES-ONLY: a repo with no top-level dirs never scans a phantom glob" {
+  # A2 (psak, 2026-11-05): with no non-hidden dirs, `for dir in */` stays
+  # unexpanded as the literal `*/`; the dir guard must skip it instead of
+  # running find on it — otherwise a files-only repo is permanently STALE.
+  rm -rf src .sandbox-home .sandbox-tmp .sandbox-custom
+  run bash "$REPO_ROOT/scripts/gen-ai-context.sh" --init
+  [ "$status" -eq 0 ]
+  ! grep -qF "could not scan '*/'" <<< "$output"
+  run bash "$REPO_ROOT/scripts/gen-ai-context.sh" --check
+  [ "$status" -eq 0 ]
+  ! grep -qF "could not scan '*/'" <<< "$output"
+}
