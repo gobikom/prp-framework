@@ -8,26 +8,67 @@
 # Run: bats tests/commands/l2-comments.bats
 
 ROOT="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)"
-ADAPTER="$ROOT/adapters/claude-code/prp-review-agents.md"
+source "$ROOT/tests/helpers/fence.bash"
+# L2_ADAPTER (prp-framework#151): which of the 7 EXPECTED_FILES this run exercises.
+# tests/commands/l2-adapters-matrix.bats sets it to each of the 6 non-claude-code
+# files in turn, via a nested bats run, so the whole suite below — not just the
+# claude-code-specific checks review-rounds.bats used to carry — runs against
+# every adapter. Defaults to claude-code for a plain, unparametrised run.
+ADAPTER="$ROOT/${L2_ADAPTER:-adapters/claude-code/prp-review-agents.md}"
 HEAD_SHA="0123456789abcdef0123456789abcdef01234567"
 
 step() { # step <A|C> -> the bash fence after "**Step <X>", {NUMBER} filled in
-  awk -v want="**Step $1" 'index($0, want) == 1 {f=1} f && /^```bash$/ {b=1; next} b && /^```$/ {exit} b' "$ADAPTER" | sed 's/{NUMBER}/7/g'
+  fence "$ADAPTER" "**Step $1"
 }
 
 setup() {
   WORK="$(mktemp -d)"
   cd "$WORK"
+  git init -q . && git commit -q --allow-empty -m w   # the reviewed tree is a repo: the tracked-.prp guard (B28-B30) runs `git ls-files` at cwd
   git init -q prp && git -C prp commit -q --allow-empty -m init && git -C prp tag v9.9.9
+  mkdir -p prp/scripts && cp -r "$ROOT/scripts/review" prp/scripts/   # what Phase 2.0 and Step C run from the installed framework
   ln -s "$WORK/prp" .prp
   mkdir -p .prp-output/reviews bin
   # gh stub: `pr view` prints $FAKE_HEAD (or fails with GH_FAIL=1); `pr comment` logs the body file, prints a URL
   cat > bin/gh <<'EOF'
 #!/usr/bin/env bash
-if [ "$1 $2" = "pr view" ]; then [ -n "${GH_FAIL:-}" ] && exit 1; printf '%s\n' "$FAKE_HEAD"; exit 0; fi
+if [ "$1 $2" = "pr view" ]; then
+  [ -n "${GH_FAIL:-}" ] && exit 1
+  shift 2; j=""; while [ $# -gt 0 ]; do [ "$1" = "--json" ] && j="$2"; shift; done
+  [ "$j" = "additions,deletions" ] && { printf '%s\n' "${FAKE_TOTAL:-0}"; exit 0; }
+  printf '%s\n' "$FAKE_HEAD"; exit 0
+fi
+if [ "$1 $2" = "api user" ]; then   # the trusted-login lookup (Phase 2.0, unchanged-head author check)
+  [ -n "${USER_API_FAIL:-}" ] && exit 1
+  printf '{"login":"%s"}\n' "${FAKE_LOGIN:-bot}" | jq -r '.login'
+  exit 0
+fi
+if [ "$1" = "api" ] && [ "$2" = "repos/{owner}/{repo}/pulls/7/commits" ]; then   # Step C run-id arm (b): the PR's commit SHAs
+  [ -n "${FAKE_COMMITS_FAIL:-}" ] && exit 1
+  printf '%s\n' "${FAKE_COMMITS:-$FAKE_HEAD}"
+  exit 0
+fi
+if [ "$1" = "api" ]; then   # the round-cap read (Phase 2.0): last lines of the PR comments
+  [ -n "${API_FAIL:-}" ] && exit 1
+  # apply the REAL --jq filter from the prompt to comment JSON, as `gh api --paginate --jq` does per page
+  filter=""; while [ $# -gt 0 ]; do [ "$1" = "--jq" ] && filter="$2"; shift; done
+  [ -n "$filter" ] || exit 1
+  if [ -n "${FAKE_COMMENTS_JSON:-}" ]; then jq -r "$filter" "$FAKE_COMMENTS_JSON" || exit 1; exit 0; fi
+  # FAKE_COMMENTS = one footer line per comment; wrap each as a multi-line body with a trailing newline
+  # user.login matches the "api user" mock's default login ("bot", or $FAKE_LOGIN) so these
+  # fixture comments count as trusted by default (prp-framework#228's round-cap/mode-decision
+  # author filter); a test exercising the untrusted-author path sets FAKE_COMMENTS_JSON instead.
+  if [ -n "${FAKE_COMMENTS:-}" ]; then jq -R -s --arg login "${FAKE_LOGIN:-bot}" 'split("\n")[:-1] | map({user: {login: $login}, body: ("Reviewed head: x\n\n### Could not verify\nNothing.\n\n" + . + "\n")})' "$FAKE_COMMENTS" | jq -r "$filter"; exit 0; fi
+  # no fixture set: serve the bodies posted so far this test, as the trusted login. A real PR
+  # returns the just-posted comments on the next listing too — this is what makes a run-id
+  # check placed inside the posting loop refuse pass 2 (the W1 pin on check-before-loop, M5).
+  [ -s "$WORK/posted.jsonl" ] && jq -s . "$WORK/posted.jsonl" | jq -r "$filter"
+  exit 0
+fi
 if [ "$1 $2" = "pr comment" ]; then
   f=""; while [ $# -gt 0 ]; do [ "$1" = "--body-file" ] && f="$2"; shift; done
   [ -n "${FAIL_POST:-}" ] && grep -q "Passes run: $FAIL_POST" "$f" && exit 1
+  jq -Rs --arg login "${FAKE_LOGIN:-bot}" '{user: {login: $login}, body: .}' "$f" >> "$WORK/posted.jsonl"
   echo "$f" >> "$WORK_LOG"; echo "https://github.com/o/r/pull/7#issuecomment-$(wc -l < "$WORK_LOG")"; exit 0
 fi
 exit 2
@@ -47,6 +88,7 @@ EOF
   : > "$WORK_LOG"
   printf '%s\n' "$HEAD_SHA" > .prp-output/reviews/pr-7-reviewed-head   # what Phase 2.0 saves
   printf 'standard\n' > .prp-output/reviews/pr-7-tier                    # what 2.0b saves (default)
+  printf 'full\n\n' > .prp-output/reviews/pr-7-mode                      # what 2.0a saves (default)
   step A > stepA.sh; step C > stepC.sh
   [ -s stepA.sh ] && [ -s stepC.sh ]
 }
@@ -55,15 +97,25 @@ teardown() { rm -rf "$WORK"; }
 
 # Step B: write a well-formed body for one pass from the saved run values
 body() {
-  local pass="$1" sfx=""; . .prp-output/reviews/pr-7-l2-run.env   # the test reads its own fixture file
+  local pass="$1" sfx="" modeline; . .prp-output/reviews/pr-7-l2-run.env   # the test reads its own fixture file
   [ "${TIER:-}" = trivial ] && sfx=" tier=trivial"
-  printf 'Reviewed head: %s\nPasses run: %s\n\n### Critical Issues (0 found)\nNone.\n\n### Important Issues (0 found)\nNone.\n\n### Suggestions (0 found)\nNone.\n\n### Could not verify\nNothing.\n\nGenerated-by: prp-review-agents v%s run=%s pass=%s%s\n' \
-    "$REVIEWED_HEAD_SHA" "$pass" "$PRP_VERSION" "$RUN_ID" "$pass" "$sfx" > ".prp-output/reviews/pr-7-l2-$pass.md"
+  if [ "${MODE:-full}" = delta ]; then modeline="Review-mode: delta $BASE_SHA..$REVIEWED_HEAD_SHA"; else modeline="Review-mode: full"; fi
+  printf 'Reviewed head: %s\nPasses run: %s\n%s\n\n### Critical Issues (0 found)\nNone.\n\n### Important Issues (0 found)\nNone.\n\n### Suggestions (0 found)\nNone.\n\n### Could not verify\nNothing.\n\nGenerated-by: prp-review-agents v%s run=%s pass=%s%s\n' \
+    "$REVIEWED_HEAD_SHA" "$pass" "$modeline" "$PRP_VERSION" "$RUN_ID" "$pass" "$sfx" > ".prp-output/reviews/pr-7-l2-$pass.md"
 }
 
 start() { run env -u REVIEWED_HEAD_SHA -u L2_COMMENTS bash stepA.sh; }   # a fresh shell: nothing inherited
 write_all() { for p in code-reviewer security-reviewer silent-failure-hunter; do body "$p"; done; }
 post() { run bash stepC.sh; }
+
+@test "every fence this file extracts is non-empty for \$ADAPTER (guard against a vacuous pass on a wrong or empty path)" {
+  # setup() already requires stepA.sh/stepC.sh non-empty; this covers the other
+  # three extractors (phase20, phase20b, clone211) so a bad $L2_ADAPTER path or
+  # a heading typo fails loudly here instead of passing every later test vacuously.
+  [ -n "$(phase20)" ]
+  [ -n "$(phase20b)" ]
+  [ -n "$(clone211)" ]
+}
 
 @test "the adapter documents --l2-comments and both steps extract" {
   grep -q -- '--l2-comments' "$ADAPTER"
@@ -216,7 +268,7 @@ post() { run bash stepC.sh; }
   [ ! -e .prp-output/reviews/pr-7-l2-code-reviewer.md ]
 }
 
-phase20() { awk 'index($0, "### 2.0 Capture the Reviewed Head") == 1 {f=1} f && /^```bash$/ {b=1; next} b && /^```$/ {exit} b' "$ADAPTER" | sed 's/{NUMBER}/7/g'; }
+phase20() { fence "$ADAPTER" "### 2.0 Capture the Reviewed Head"; }
 
 @test "Phase 2.0 comes before the agents start (2.1.1)" {
   a=$(grep -n '^### 2.0 Capture the Reviewed Head' "$ADAPTER" | cut -d: -f1)
@@ -256,12 +308,405 @@ repo_here() { git init -q . && git commit -q --allow-empty -m pr; FAKE_HEAD=$(gi
   [ "$(cat .prp-output/reviews/pr-7-reviewed-head)" = "$FAKE_HEAD" ]
 }
 
+# footers of <n> distinct review runs, three comments each (the last line of each comment)
+runs() { local i p; for ((i = 1; i <= $1; i++)); do for p in code-reviewer security-reviewer silent-failure-hunter; do
+  printf 'Generated-by: prp-review-agents v9.9.9 run=20261021T%06dZ-%08x pass=%s\n' "$i" "$i" "$p"; done; done; }
+
+@test "Phase 2.0 allows round 6 (five runs on the PR) and saves the head" {
+  phase20 > p20.sh; repo_here; runs 5 > c.txt
+  FAKE_COMMENTS="$PWD/c.txt" run env -u REVIEWED_HEAD_SHA bash p20.sh
+  [ "$status" -eq 0 ]
+  [ "$(cat .prp-output/reviews/pr-7-reviewed-head)" = "$FAKE_HEAD" ]
+}
+
+@test "Phase 2.0 refuses round 7 (six runs) before any head file or agent (default cap is 6)" {
+  phase20 > p20.sh; repo_here; runs 6 > c.txt
+  FAKE_COMMENTS="$PWD/c.txt" run env -u REVIEWED_HEAD_SHA bash p20.sh
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"ROUND-CAP: refused"* ]]
+  [[ "$output" == *"round cap — no agents started"* ]]
+  [ ! -e .prp-output/reviews/pr-7-reviewed-head ]
+}
+
+@test "Phase 2.0 runs the real jq filter over paginated comment JSON" {
+  phase20 > p20.sh; repo_here
+  # two pages (gh --paginate applies --jq per page): a multi-line body, a plain comment and a CRLF-free footer
+  # page1 = runs 1-3 (ids1-3), page2 keeps runs 4-6 (tail skips the 9 lines of ids1-3) -> 6 unique = at cap (default cap is 6)
+  # tagged with the default trusted login ("bot") so Phase 2.0's TRUSTED_LOGIN filter
+  # (FOOTERS, same as CLEAN_ROWS) keeps these rows instead of silently dropping them
+  { runs 3 | jq -R -s 'split("\n")[:-1] | map({user: {login: "bot"}, body: ("review text\nmore\n" + . + "\n")})'
+    runs 6 | tail -n +10 | jq -R -s 'split("\n")[:-1] | map({user: {login: "bot"}, body: ("other\n" + . + "\n")}) + [{user: {login: "bot"}, body: "LGTM"}]'; } > c.json
+  FAKE_COMMENTS_JSON="$PWD/c.json" run env -u REVIEWED_HEAD_SHA bash p20.sh
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"ROUND-CAP: refused"* ]]
+}
+
+@test "Phase 2.0 allows round 6 over paginated comment JSON with ordinary comments" {
+  phase20 > p20.sh; repo_here
+  # page1 = runs 1-2 (ids1-2), page2 keeps runs 3-5 (tail skips the 6 lines of ids1-2) -> 5 unique = one under cap (default cap is 6)
+  # tagged with the default trusted login ("bot"), same reason as the test above
+  { runs 2 | jq -R -s 'split("\n")[:-1] | map({user: {login: "bot"}, body: ("text\n" + . + "\n")}) + [{user: {login: "bot"}, body: "LGTM"}, {user: {login: "bot"}, body: "a\nb\nc"}]'
+    runs 5 | tail -n +7 | jq -R -s 'split("\n")[:-1] | map({user: {login: "bot"}, body: ("text\n" + . + "\n")})'; } > c.json
+  FAKE_COMMENTS_JSON="$PWD/c.json" run env -u REVIEWED_HEAD_SHA bash p20.sh
+  [ "$status" -eq 0 ]
+  [ "$(cat .prp-output/reviews/pr-7-reviewed-head)" = "$FAKE_HEAD" ]
+}
+
+@test "Phase 2.0 refuses on a comment with a null body" {
+  phase20 > p20.sh; repo_here
+  # tagged with the default trusted login so the TRUSTED_LOGIN filter passes it through
+  # to the null-body handling this test actually exercises, instead of dropping it first
+  printf '[{"user": {"login": "bot"}, "body": null}]\n' > c.json
+  FAKE_COMMENTS_JSON="$PWD/c.json" run env -u REVIEWED_HEAD_SHA bash p20.sh
+  [ "$status" -ne 0 ]
+  [ ! -e .prp-output/reviews/pr-7-reviewed-head ]
+}
+
+@test "Phase 2.0 refuses when the PR comments cannot be read" {
+  phase20 > p20.sh; repo_here
+  API_FAIL=1 run env -u REVIEWED_HEAD_SHA bash p20.sh
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"cannot read the PR comments"* ]]
+  [ ! -e .prp-output/reviews/pr-7-reviewed-head ]
+}
+
+@test "Phase 2.0 counts a review footer with no well-formed run id as zero (round-guard v6: content never refuses)" {
+  phase20 > p20.sh; repo_here
+  printf 'Generated-by: prp-review-agents v1 run=oops pass=x\n' > c.txt
+  FAKE_COMMENTS="$PWD/c.txt" run env -u REVIEWED_HEAD_SHA bash p20.sh
+  [ "$status" -eq 0 ]
+  [ "$(cat .prp-output/reviews/pr-7-reviewed-head)" = "$FAKE_HEAD" ]
+}
+
+@test "Phase 2.0 still refuses round 7 when a malformed footer sits among six runs (it cannot lower R; default cap is 6)" {
+  phase20 > p20.sh; repo_here
+  { runs 6; printf 'Generated-by: prp-review-agents v1 run=oops pass=x\n'; } > c.txt
+  FAKE_COMMENTS="$PWD/c.txt" run env -u REVIEWED_HEAD_SHA bash p20.sh
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"ROUND-CAP: refused"* ]]
+  [[ "$output" == *"round cap — no agents started"* ]]
+  [ ! -e .prp-output/reviews/pr-7-reviewed-head ]
+}
+
+@test "Phase 2.0 refuses when .prp is not a symlink to the framework" {
+  phase20 > p20.sh; repo_here; rm .prp; mkdir .prp
+  run env -u REVIEWED_HEAD_SHA bash p20.sh
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"round cap not checkable"* ]]
+}
+
 @test "Phase 2.0 fails before any agent when the head cannot be captured" {
   phase20 > p20.sh; repo_here
   GH_FAIL=1 run env -u REVIEWED_HEAD_SHA bash p20.sh
   [ "$status" -ne 0 ]
   [[ "$output" == *"cannot read the PR head (gh failed) — no agents started"* ]]
   [ ! -e .prp-output/reviews/pr-7-reviewed-head ]
+}
+
+# ---- unchanged-head author trust + run completeness (prp-framework#228 R1 findings) ----
+
+clean_row() { # clean_row <login> <run> <pass> <head> [mode]  -> one well-formed 0C/0I comment object as JSON
+  local login="$1" run="$2" pass="$3" head="$4" mode="${5:-Review-mode: full}"
+  jq -n --arg login "$login" --arg body "Reviewed head: $head
+Passes run: $pass
+$mode
+
+### Critical Issues (0 found)
+None.
+
+### Important Issues (0 found)
+None.
+
+Generated-by: prp-review-agents v9.9.9 run=$run pass=$pass
+" '{user: {login: $login}, body: $body}'
+}
+
+clean_run_json() { # clean_run_json <login> <run> <head> <n_passes 1-3> -> JSON array, written by caller
+  local login="$1" run="$2" head="$3" n="$4" passes=(code-reviewer security-reviewer silent-failure-hunter)
+  { for ((i = 0; i < n; i++)); do clean_row "$login" "$run" "${passes[$i]}" "$head"; done; } | jq -s '.'
+}
+
+dirty_run_json() { # dirty_run_json <login> <run> <head> -> 3 passes, the first reporting 1 Important
+  local login="$1" run="$2" head="$3"
+  clean_run_json "$login" "$run" "$head" 3 | jq '.[0].body |= sub("### Important Issues \\(0 found\\)"; "### Important Issues (1 found)")'
+}
+
+OTHER_HEAD=1111111111111111111111111111111111111111
+
+rounds_json() { jq -s 'add' "$@"; }   # rounds_json a.json b.json ... -> one comment array, in post order
+
+expect_runs()    { [ "$status" -eq 0 ]; [ "$(cat .prp-output/reviews/pr-7-reviewed-head)" = "$FAKE_HEAD" ]; }
+expect_refused() { [ "$status" -ne 0 ]; [[ "$output" == *"UNCHANGED-HEAD: refused"* ]]; [ ! -e .prp-output/reviews/pr-7-reviewed-head ]; }
+
+# ---- B1–B13 boundary tests (prp-framework#234 + #235: one valid clean FULL round at head) ----
+
+mixed_head_run_json() { # mixed_head_run_json <login> <run> <head> -> 3 clean passes, the second naming $OTHER_HEAD
+  clean_run_json "$1" "$2" "$3" 3 | jq --arg o "$OTHER_HEAD" '.[1].body |= sub("^Reviewed head: [0-9a-f]+"; "Reviewed head: " + $o)'
+}
+
+trivial_run_json() { # trivial_run_json <login> <run> <head> [n_passes] -> clean passes, each footer ending tier=trivial
+  clean_run_json "$1" "$2" "$3" "${4:-1}" | jq '.[].body |= sub("(?<p>pass=[a-z-]+)\n$"; "\(.p) tier=trivial\n")'
+}
+
+short_pass_run_json() { # short_pass_run_json <login> <run> <head> -> 3 passes with short names code/security/sfh
+  local login="$1" run="$2" head="$3"
+  local short_passes=(code security sfh)
+  local full_passes=(code-reviewer security-reviewer silent-failure-hunter)
+  { for ((i = 0; i < 3; i++)); do
+      jq -n --arg login "$login" --arg body "Reviewed head: $head
+Passes run: ${short_passes[$i]}
+Review-mode: full
+
+### Critical Issues (0 found)
+None.
+
+### Important Issues (0 found)
+None.
+
+Generated-by: prp-review-agents v9.9.9 run=$run pass=${short_passes[$i]}
+" '{user: {login: $login}, body: $body}'
+    done; } | jq -s '.'
+}
+
+trailing_mode_run_json() { # trailing_mode_run_json <login> <run> <head> -> 3 passes, line 3 has trailing prose (daa0abac shape)
+  local login="$1" run="$2" head="$3"
+  local passes=(code-reviewer security-reviewer silent-failure-hunter)
+  { for ((i = 0; i < 3; i++)); do
+      jq -n --arg login "$login" --arg body "Reviewed head: $head
+Passes run: ${passes[$i]}
+Review-mode: full (round 6 of 6, cap reached)
+
+### Critical Issues (0 found)
+None.
+
+### Important Issues (0 found)
+None.
+
+Generated-by: prp-review-agents v9.9.9 run=$run pass=${passes[$i]}
+" '{user: {login: $login}, body: $body}'
+    done; } | jq -s '.'
+}
+
+mixed_mode_run_json() { # mixed_mode_run_json <login> <run> <head> -> 3 passes, first is full, second is delta
+  local login="$1" run="$2" head="$3"
+  clean_run_json "$login" "$run" "$head" 3 | jq --arg h "$head" '.[1].body |= sub("Review-mode: full"; "Review-mode: delta 0000000000000000000000000000000000000000.." + $h)'
+}
+
+duplicate_mode_run_json() { # duplicate_mode_run_json <login> <run> <head> -> 3 passes, first body has two Review-mode lines
+  local login="$1" run="$2" head="$3"
+  clean_run_json "$login" "$run" "$head" 3 | jq '.[0].body |= sub("### Critical Issues"; "Review-mode: full\n### Critical Issues")'
+}
+
+delta_wrong_head_run_json() { # delta_wrong_head_run_json <login> <run> <head> -> 3 passes, delta line whose second SHA is not the head
+  local login="$1" run="$2" head="$3"
+  clean_run_json "$login" "$run" "$head" 3 | jq '.[].body |= sub("Review-mode: full"; "Review-mode: delta 0000000000000000000000000000000000000000..1111111111111111111111111111111111111111")'
+}
+
+delta_run_json() { # delta_run_json <login> <run> <head> -> 3 passes with valid delta mode
+  local login="$1" run="$2" head="$3"
+  local mode="Review-mode: delta 0000000000000000000000000000000000000000..$head"
+  local passes=(code-reviewer security-reviewer silent-failure-hunter)
+  { for ((i = 0; i < 3; i++)); do clean_row "$login" "$run" "${passes[$i]}" "$head" "$mode"; done; } | jq -s '.'
+}
+
+@test "B1: one valid clean FULL round at this head → refused (#234)" {
+  phase20 > p20.sh; repo_here
+  clean_run_json bot 20261021T000001Z-00000001 "$FAKE_HEAD" 3 > c.json
+  FAKE_LOGIN=bot FAKE_COMMENTS_JSON="$PWD/c.json" run env -u REVIEWED_HEAD_SHA bash p20.sh
+  expect_refused
+  [[ "$output" == *"valid clean FULL-DIFF round"* ]]
+}
+
+@test "B2: one valid clean DELTA round at this head → runs (fail-open: only FULL triggers refusal)" {
+  phase20 > p20.sh; repo_here
+  delta_run_json bot 20261021T000001Z-00000001 "$FAKE_HEAD" > c.json
+  FAKE_LOGIN=bot FAKE_COMMENTS_JSON="$PWD/c.json" run env -u REVIEWED_HEAD_SHA bash p20.sh
+  expect_runs
+}
+
+@test "B3: clean at head, line 3 has trailing prose (daa0abac shape from SO#1494) → runs (#235)" {
+  phase20 > p20.sh; repo_here
+  trailing_mode_run_json bot 20261021T000001Z-00000001 "$FAKE_HEAD" > c.json
+  FAKE_LOGIN=bot FAKE_COMMENTS_JSON="$PWD/c.json" run env -u REVIEWED_HEAD_SHA bash p20.sh
+  expect_runs
+}
+
+@test "B4: clean at head, short pass names code/security/sfh (26a33980 shape from SO#1494) → runs (#235)" {
+  phase20 > p20.sh; repo_here
+  short_pass_run_json bot 20261021T000001Z-00000001 "$FAKE_HEAD" > c.json
+  FAKE_LOGIN=bot FAKE_COMMENTS_JSON="$PWD/c.json" run env -u REVIEWED_HEAD_SHA bash p20.sh
+  expect_runs
+}
+
+@test "B5: clean at head, passes with different Review-mode lines → runs" {
+  phase20 > p20.sh; repo_here
+  mixed_mode_run_json bot 20261021T000001Z-00000001 "$FAKE_HEAD" > c.json
+  FAKE_LOGIN=bot FAKE_COMMENTS_JSON="$PWD/c.json" run env -u REVIEWED_HEAD_SHA bash p20.sh
+  expect_runs
+}
+
+@test "B6: clean at head, one body has a second Review-mode line → runs" {
+  phase20 > p20.sh; repo_here
+  duplicate_mode_run_json bot 20261021T000001Z-00000001 "$FAKE_HEAD" > c.json
+  FAKE_LOGIN=bot FAKE_COMMENTS_JSON="$PWD/c.json" run env -u REVIEWED_HEAD_SHA bash p20.sh
+  expect_runs
+}
+
+@test "B7: clean at head, delta line whose second SHA is not the head → runs" {
+  phase20 > p20.sh; repo_here
+  delta_wrong_head_run_json bot 20261021T000001Z-00000001 "$FAKE_HEAD" > c.json
+  FAKE_LOGIN=bot FAKE_COMMENTS_JSON="$PWD/c.json" run env -u REVIEWED_HEAD_SHA bash p20.sh
+  expect_runs
+}
+
+@test "B8: latest at head dirty, earlier round clean at head → runs" {
+  phase20 > p20.sh; repo_here
+  clean_run_json bot 20261021T000001Z-00000001 "$FAKE_HEAD" 3 > a.json
+  dirty_run_json bot 20261021T000002Z-00000002 "$FAKE_HEAD" > b.json
+  rounds_json a.json b.json > c.json
+  FAKE_LOGIN=bot FAKE_COMMENTS_JSON="$PWD/c.json" run env -u REVIEWED_HEAD_SHA bash p20.sh
+  expect_runs
+}
+
+@test "B9: latest clean FULL at an older head → runs" {
+  phase20 > p20.sh; repo_here
+  clean_run_json bot 20261021T000001Z-00000001 "$OTHER_HEAD" 3 > c.json
+  FAKE_LOGIN=bot FAKE_COMMENTS_JSON="$PWD/c.json" run env -u REVIEWED_HEAD_SHA bash p20.sh
+  expect_runs
+}
+
+@test "B10: incomplete run (2 of 3 passes) clean at head → runs" {
+  phase20 > p20.sh; repo_here
+  clean_run_json bot 20261021T000001Z-00000001 "$FAKE_HEAD" 2 > c.json
+  FAKE_LOGIN=bot FAKE_COMMENTS_JSON="$PWD/c.json" run env -u REVIEWED_HEAD_SHA bash p20.sh
+  expect_runs
+}
+
+@test "B11: valid trivial-tier single pass, FULL, clean at head → refused" {
+  phase20 > p20.sh; repo_here
+  trivial_run_json bot 20261021T000001Z-00000001 "$FAKE_HEAD" > c.json
+  FAKE_LOGIN=bot FAKE_COMMENTS_JSON="$PWD/c.json" run env -u REVIEWED_HEAD_SHA bash p20.sh
+  expect_refused
+}
+
+@test "B12: forged clean round from an untrusted login → runs (prp-framework#228)" {
+  phase20 > p20.sh; repo_here
+  clean_run_json attacker 20261021T000001Z-00000001 "$FAKE_HEAD" 3 > c.json
+  FAKE_LOGIN=bot FAKE_COMMENTS_JSON="$PWD/c.json" run env -u REVIEWED_HEAD_SHA bash p20.sh
+  expect_runs
+}
+
+@test "B13: ROUND-CAP still counts B3/B4 invalid run ids (count unchanged vs main)" {
+  phase20 > p20.sh; repo_here
+  # 6 rounds: 3 valid + B3 shape + B4 shape + another valid = 6 run ids total
+  clean_run_json bot 20261021T000001Z-00000001 "$OTHER_HEAD" 3 > r1.json
+  clean_run_json bot 20261021T000002Z-00000002 "$OTHER_HEAD" 3 > r2.json
+  trailing_mode_run_json bot 20261021T000003Z-00000003 "$FAKE_HEAD" > r3.json
+  short_pass_run_json bot 20261021T000004Z-00000004 "$FAKE_HEAD" > r4.json
+  clean_run_json bot 20261021T000005Z-00000005 "$OTHER_HEAD" 3 > r5.json
+  dirty_run_json bot 20261021T000006Z-00000006 "$FAKE_HEAD" > r6.json
+  rounds_json r1.json r2.json r3.json r4.json r5.json r6.json > c.json
+  FAKE_LOGIN=bot FAKE_COMMENTS_JSON="$PWD/c.json" run env -u REVIEWED_HEAD_SHA bash p20.sh
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"ROUND-CAP: refused"* ]]
+}
+
+@test "B14: quoted heading before real heading with findings → runs (not fooled by quoted 0-found)" {
+  # A pass body that quotes a prior round's "### Critical Issues (0 found)" line before its own
+  # real "### Critical Issues (1 found)" heading. The guard must use anchored per-line extraction,
+  # not body-wide capture, to avoid reading the quoted line as the real count (#235 R1 finding).
+  phase20 > p20.sh; repo_here
+  local login=bot run=20261021T000001Z-00000001 head="$FAKE_HEAD"
+  local passes=(code-reviewer security-reviewer silent-failure-hunter)
+  { for ((i = 0; i < 3; i++)); do
+      jq -n --arg login "$login" --arg body "Reviewed head: $head
+Passes run: ${passes[$i]}
+Review-mode: full
+
+Previous round reported:
+> ### Critical Issues (0 found)
+
+### Critical Issues (1 found)
+| Severity | Issue |
+|----------|-------|
+| Critical | Something bad |
+
+### Important Issues (0 found)
+None.
+
+Generated-by: prp-review-agents v9.9.9 run=$run pass=${passes[$i]}
+" '{user: {login: $login}, body: $body}'
+    done; } | jq -s '.' > c.json
+  FAKE_LOGIN=bot FAKE_COMMENTS_JSON="$PWD/c.json" run env -u REVIEWED_HEAD_SHA bash p20.sh
+  expect_runs
+}
+
+# ---- B15–B17 same-tree refusal (agent-devops#1335 improvement 4: no new round on a byte-identical tree) ----
+
+expect_refused_tree() { [ "$status" -ne 0 ]; [[ "$output" == *"UNCHANGED-TREE: refused"* ]]; [ ! -e .prp-output/reviews/pr-7-reviewed-head ]; }
+
+@test "B15: latest clean FULL round at an older head with the SAME tree (empty re-queue commit) → refused" {
+  phase20 > p20.sh; repo_here
+  CLEAN_HEAD="$FAKE_HEAD"
+  git commit -q --allow-empty -m requeue; FAKE_HEAD=$(git rev-parse HEAD); export FAKE_HEAD   # new head, same tree
+  [ "$(git rev-parse "$CLEAN_HEAD^{tree}")" = "$(git rev-parse "$FAKE_HEAD^{tree}")" ]
+  clean_run_json bot 20261021T000001Z-00000001 "$CLEAN_HEAD" 3 > c.json
+  FAKE_LOGIN=bot FAKE_COMMENTS_JSON="$PWD/c.json" run env -u REVIEWED_HEAD_SHA bash p20.sh
+  expect_refused_tree
+  [[ "$output" == *"$CLEAN_HEAD"* ]]
+}
+
+@test "B16: latest clean FULL round at an older head whose tree DIFFERS → runs" {
+  phase20 > p20.sh; repo_here
+  CLEAN_HEAD="$FAKE_HEAD"
+  echo change > f.txt; git add f.txt; git commit -q -m change; FAKE_HEAD=$(git rev-parse HEAD); export FAKE_HEAD
+  clean_run_json bot 20261021T000001Z-00000001 "$CLEAN_HEAD" 3 > c.json
+  FAKE_LOGIN=bot FAKE_COMMENTS_JSON="$PWD/c.json" run env -u REVIEWED_HEAD_SHA bash p20.sh
+  expect_runs
+}
+
+@test "B17: same tree but the latest round is dirty → runs (the tree rule only extends a met stop rule)" {
+  phase20 > p20.sh; repo_here
+  CLEAN_HEAD="$FAKE_HEAD"
+  git commit -q --allow-empty -m requeue; FAKE_HEAD=$(git rev-parse HEAD); export FAKE_HEAD
+  clean_run_json bot 20261021T000001Z-00000001 "$CLEAN_HEAD" 3 > a.json
+  dirty_run_json bot 20261021T000002Z-00000002 "$CLEAN_HEAD" > b.json
+  rounds_json a.json b.json > c.json
+  FAKE_LOGIN=bot FAKE_COMMENTS_JSON="$PWD/c.json" run env -u REVIEWED_HEAD_SHA bash p20.sh
+  expect_runs
+}
+
+# ---- additional guard tests (kept from #228/#233, adapted to one-clean-round rule) ----
+
+@test "Phase 2.0 fails open (does not refuse) when the trusted-login lookup itself fails" {
+  phase20 > p20.sh; repo_here
+  clean_run_json bot 20261021T000001Z-00000001 "$FAKE_HEAD" 3 > c.json
+  FAKE_LOGIN=bot USER_API_FAIL=1 FAKE_COMMENTS_JSON="$PWD/c.json" run env -u REVIEWED_HEAD_SHA bash p20.sh
+  expect_runs
+}
+
+@test "Phase 2.0 orders rounds by run id, not by comment order (latest dirty → runs)" {
+  phase20 > p20.sh; repo_here
+  clean_run_json bot 20261021T000001Z-00000001 "$FAKE_HEAD" 3 > a.json
+  clean_run_json bot 20261021T000002Z-00000002 "$FAKE_HEAD" 3 > b.json
+  dirty_run_json bot 20261021T000003Z-00000003 "$FAKE_HEAD" > d.json
+  rounds_json d.json a.json b.json > c.json
+  FAKE_LOGIN=bot FAKE_COMMENTS_JSON="$PWD/c.json" run env -u REVIEWED_HEAD_SHA bash p20.sh
+  expect_runs
+}
+
+@test "Phase 2.0 runs when the latest round's passes name different heads" {
+  phase20 > p20.sh; repo_here
+  mixed_head_run_json bot 20261021T000001Z-00000001 "$FAKE_HEAD" > c.json
+  FAKE_LOGIN=bot FAKE_COMMENTS_JSON="$PWD/c.json" run env -u REVIEWED_HEAD_SHA bash p20.sh
+  expect_runs
+}
+
+@test "Phase 2.0 runs when a trivial-tier round has more than its one pass (not a complete trivial round)" {
+  phase20 > p20.sh; repo_here
+  trivial_run_json bot 20261021T000001Z-00000001 "$FAKE_HEAD" 2 > c.json
+  FAKE_LOGIN=bot FAKE_COMMENTS_JSON="$PWD/c.json" run env -u REVIEWED_HEAD_SHA bash p20.sh
+  expect_runs
 }
 
 clonedir() { ls -d "$PWD"/s/prp-review-clone-*-pr-7 | head -n1; }
@@ -282,7 +727,7 @@ clonedir() { ls -d "$PWD"/s/prp-review-clone-*-pr-7 | head -n1; }
   [ "$(ls -d s/prp-review-clone-*-pr-7 | wc -l)" -eq 2 ]
 }
 
-clone211() { awk 'index($0, "### 2.1.1 ") == 1 {f=1} f && /^```bash$/ {b=1; next} b && /^```$/ {exit} b' "$ADAPTER" | sed 's/{NUMBER}/7/g'; }
+clone211() { fence "$ADAPTER" "### 2.1.1 "; }
 
 @test "2.1.1 clones the agents' tree at the saved head even when HEAD moved after Phase 2.0" {
   phase20 > p20.sh; clone211 > c211.sh; repo_here
@@ -320,7 +765,7 @@ clone211() { awk 'index($0, "### 2.1.1 ") == 1 {f=1} f && /^```bash$/ {b=1; next
 }
 
 # ---- risk tier (agent-devops#1259) ---------------------------------------------------------------
-phase20b() { awk 'index($0, "### 2.0b Risk Tier") == 1 {f=1} f && /^```bash$/ {b=1; next} b && /^```$/ {exit} b' "$ADAPTER" | sed 's/{NUMBER}/7/g'; }
+phase20b() { fence "$ADAPTER" "### 2.0b Risk Tier"; }
 trivial_run() { printf 'trivial\n' > .prp-output/reviews/pr-7-tier; export FAKE_TIER=trivial; start; }
 
 @test "2.0b saves trivial only when pr-risk-tier prints trivial at the reviewed head" {
@@ -391,4 +836,352 @@ trivial_run() { printf 'trivial\n' > .prp-output/reviews/pr-7-tier; export FAKE_
   sed -i 's/^TIER=standard$/TIER=lite/' .prp-output/reviews/pr-7-l2-run.env
   post
   [ "$status" -ne 0 ]; [[ "$output" == *"not a valid run file"* ]]
+}
+
+# --- pass timebox (prp-framework#151 AC2): Step C refuses a timeboxed body without a follow-up link ---
+
+timeboxed() { # timeboxed <pass> [link]: rewrite one body so its Could not verify says the pass was timeboxed
+  local f=".prp-output/reviews/pr-7-l2-$1.md" link="${2:-}"
+  { sed -n '1,/^### Could not verify$/p' "$f"; printf 'Pass timeboxed: 1 probe(s) not completed: bats\n'; [ -n "$link" ] && printf 'Follow-up: %s\n' "$link"
+    printf '\n'; tail -n1 "$f"; } > t.md && mv t.md "$f"
+}
+
+@test "a timeboxed body without a follow-up link posts nothing" {
+  start; write_all; timeboxed security-reviewer
+  post
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"timebox without a Follow-up issue link"* ]]
+  [[ "$output" == *"pass mentions a timebox"* ]]
+  [ ! -s "$WORK_LOG" ]
+}
+
+@test "a timebox mention in any markup posts nothing without a link" {
+  start; write_all
+  f=".prp-output/reviews/pr-7-l2-security-reviewer.md"
+  { sed -n '1,/^### Could not verify$/p' "$f"; printf '## **Pass** time-boxed\n\n'; tail -n1 "$f"; } > t.md && mv t.md "$f"
+  post
+  [ "$status" -ne 0 ]
+  [ ! -s "$WORK_LOG" ]
+}
+
+@test "a timeboxed body with a follow-up issue link is posted with the other passes" {
+  start; write_all; timeboxed security-reviewer https://github.com/o/r/issues/12
+  post
+  [ "$status" -eq 0 ]
+  [ "$(wc -l < "$WORK_LOG")" -eq 3 ]
+}
+
+@test "Step C posts nothing when the installed framework scripts cannot be found" {
+  start; write_all; rm -rf prp/scripts
+  post
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"cannot find the installed prp-framework scripts"* ]]
+  [ ! -s "$WORK_LOG" ]
+}
+
+# The next two tests moved here from tests/commands/review-rounds.bats
+# (prp-framework#151): both used to hardcode $ADAPTER to claude-code, so the
+# behaviour they pin — the pass-deadline-mint FATAL guard actually aborting,
+# and the round-cap guard running before the reviewed head is saved — was
+# never exercised against the other 6 files. Moving them here, under the
+# parametrised $ADAPTER, closes that gap the same way the rest of this file
+# does: tests/commands/l2-adapters-matrix.bats runs this whole suite once per
+# EXPECTED_FILES entry.
+
+@test "the pass-deadline-mint FATAL guard actually aborts closed: script failure and a broken .prp symlink (round-6 Important)" {
+  guard="$BATS_TEST_TMPDIR/guard.sh"
+  fence "$ADAPTER" "### 2.2.0 Pass Budget" > "$guard"
+  [ -s "$guard" ]
+  grep -qE -- 'FATAL: cannot mint the pass deadline' "$guard"
+  grep -qE -- 'echo "PASS_DEADLINE=\$PASS_DEADLINE PRP_DIR=\$PRP_DIR"' "$guard"
+
+  work="$BATS_TEST_TMPDIR/work"
+  mkdir -p "$work"
+  git init -q "$work" && git -C "$work" commit -q --allow-empty -m w   # the reviewed tree is a repo; .prp inside it stays untracked, so the tracked-guard (B28) lets the mint proceed
+
+  # Failure mode 1: pass-budget.sh itself exits non-zero (forced bad budget).
+  ln -s "$ROOT" "$work/.prp"
+  run bash -c "cd \"$work\" && PRP_PASS_BUDGET_SECS=abc bash \"$guard\""
+  rm -f "$work/.prp"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"FATAL: cannot mint the pass deadline — no agents started"* ]]
+
+  # Failure mode 2: .prp is a broken symlink (script path under it doesn't exist).
+  ln -s "$BATS_TEST_TMPDIR/does-not-exist" "$work/.prp"
+  run bash -c "cd \"$work\" && bash \"$guard\""
+  rm -f "$work/.prp"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"FATAL: cannot mint the pass deadline — no agents started"* ]]
+
+  # Success path: still mints the deadline AND now prints it (the regression
+  # this test closes — a prior fix silently dropped the echo).
+  ln -s "$ROOT" "$work/.prp"
+  run bash -c "cd \"$work\" && bash \"$guard\""
+  rm -f "$work/.prp"
+  [ "$status" -eq 0 ]
+  real_root="$(readlink -f "$ROOT")"
+  [[ "$output" == *"PASS_DEADLINE="*"PRP_DIR=$real_root"* ]]
+  [[ "$output" =~ PASS_DEADLINE=[0-9]+ ]]
+}
+
+@test "the round-cap guard runs in Phase 2.0 before the reviewed head is saved" {
+  # Plain line numbers, not a fence extraction — verified this does not need
+  # fence()/tomllib decoding: unlike a multi-line bash fence, a single-line
+  # grep match on gemini's raw .toml is byte-identical to the decoded prompt
+  # text for both patterns below (the TOML escaping only affects embedded
+  # backslash-newline continuations, not the matched substrings themselves).
+  g=$(grep -n 'round-guard.sh" --cap 6' "$ADAPTER" | head -1 | cut -d: -f1)
+  h=$(grep -n "> \"\$D/pr-{NUMBER}-reviewed-head\"" "$ADAPTER" | head -1 | cut -d: -f1)
+  [ -n "$g" ] && [ -n "$h" ] && [ "$g" -lt "$h" ]
+}
+
+# --- 2.0a Review Mode Decision (review-diet plan PR-3 v1.3) ---
+
+phase20a() { fence "$ADAPTER" "### 2.0a Review Mode Decision"; }
+
+# One fake PR comment whose body is "Reviewed head: <head>\nReview-mode: <mode-line>\n...".
+# mode-line is "full" (so it is also a valid LAST_FULL candidate for G2) or omitted ("" -> a
+# plain line that is neither full nor delta, so G2 never picks it as LAST_FULL).
+fake_mode_comment() {
+  local head="$1" modeline="${2:-full}"
+  # user.login must match the "api user" mock's default login ("bot", or $FAKE_LOGIN when the
+  # caller set it) — 2.0a's own TRUSTED_LOGIN filter (prp-framework#228) now excludes any comment
+  # whose author doesn't match, same as Phase 2.0's CLEAN_ROWS check.
+  # Line 2 is "Passes run: ..." (the real posted-body shape) so 2.0a's split("\n")[2] reader
+  # for Review-mode exercises the same index as production comments.
+  jq -n --arg b "Reviewed head: $head
+Passes run: code-reviewer
+Review-mode: $modeline
+
+### Could not verify
+Nothing.
+" --arg login "${FAKE_LOGIN:-bot}" '[{user: {login: $login}, body: $b}]' > "$WORK/comments.json"
+  export FAKE_COMMENTS_JSON="$WORK/comments.json"
+}
+
+run_20a() { # run 2.0a in $WORK with REVIEWED_HEAD_SHA already saved to pr-7-reviewed-head
+  phase20a > p20a.sh
+  run env -u REVIEWED_HEAD_SHA bash p20a.sh
+}
+
+@test "a well-formed delta line is accepted (G1 ancestor + G2 under 40%)" {
+  repo_here
+  SHA0="$FAKE_HEAD"
+  printf 'line1\n' > f.txt; git add f.txt; git commit -q -m c1; printf 'line1\nline2\n' >> f.txt; git commit -aq -m c2
+  SHA1=$(git rev-parse HEAD)
+  printf '%s\n' "$SHA1" > .prp-output/reviews/pr-7-reviewed-head
+  fake_mode_comment "$SHA0" full
+  FAKE_TOTAL=100 run_20a
+  [ "$status" -eq 0 ]
+  [ "$(sed -n 1p .prp-output/reviews/pr-7-mode)" = delta ]
+  [ "$(sed -n 2p .prp-output/reviews/pr-7-mode)" = "$SHA0" ]
+}
+
+@test "a rebase (base not an ancestor) is forced to full" {
+  git init -q .
+  git commit -q --allow-empty -m c0; SHA0=$(git rev-parse HEAD)
+  git checkout -q --orphan newroot
+  git commit -q --allow-empty -m c1; SHA1=$(git rev-parse HEAD)
+  printf '%s\n' "$SHA1" > .prp-output/reviews/pr-7-reviewed-head
+  fake_mode_comment "$SHA0" full
+  FAKE_TOTAL=100 run_20a
+  [ "$status" -eq 0 ]
+  [ "$(sed -n 1p .prp-output/reviews/pr-7-mode)" = full ]
+  [ -z "$(sed -n 2p .prp-output/reviews/pr-7-mode)" ]
+}
+
+@test "a 40% overflow (cumulative delta too large) is forced to full" {
+  repo_here
+  SHA0="$FAKE_HEAD"
+  seq 1 50 > f.txt; git add f.txt; git commit -q -m c1
+  seq 51 100 > f.txt; git commit -aq -m c2
+  SHA1=$(git rev-parse HEAD)
+  printf '%s\n' "$SHA1" > .prp-output/reviews/pr-7-reviewed-head
+  fake_mode_comment "$SHA0" full
+  # SHA0..SHA1 adds f.txt with 50 lines = 50 changed; 50 > 40% of FAKE_TOTAL=100 (40) -> overflow
+  FAKE_TOTAL=100 run_20a
+  [ "$status" -eq 0 ]
+  [ "$(sed -n 1p .prp-output/reviews/pr-7-mode)" = full ]
+  [ -z "$(sed -n 2p .prp-output/reviews/pr-7-mode)" ]
+}
+
+@test "2.0a forces full when pr-risk-tier is missing from PATH, even when G1/G2 would allow delta (gate-tier-forces-full)" {
+  repo_here
+  SHA0="$FAKE_HEAD"
+  printf 'line1\n' > f.txt; git add f.txt; git commit -q -m c1; printf 'line1\nline2\n' >> f.txt; git commit -aq -m c2
+  SHA1=$(git rev-parse HEAD)
+  printf '%s\n' "$SHA1" > .prp-output/reviews/pr-7-reviewed-head
+  fake_mode_comment "$SHA0" full
+  rm -f bin/pr-risk-tier
+  phase20a > p20a.sh
+  FAKE_TOTAL=100 PATH="$WORK/bin:/usr/bin:/bin" run env -u REVIEWED_HEAD_SHA bash p20a.sh
+  [ "$status" -eq 0 ]
+  [ "$(sed -n 1p .prp-output/reviews/pr-7-mode)" = full ]
+}
+
+@test "2.0a forces full when pr-risk-tier is installed but the --rounds call errors, even when G1/G2 would allow delta (gate-tier-forces-full)" {
+  repo_here
+  SHA0="$FAKE_HEAD"
+  printf 'line1\n' > f.txt; git add f.txt; git commit -q -m c1; printf 'line1\nline2\n' >> f.txt; git commit -aq -m c2
+  SHA1=$(git rev-parse HEAD)
+  printf '%s\n' "$SHA1" > .prp-output/reviews/pr-7-reviewed-head
+  fake_mode_comment "$SHA0" full
+  TIER_FAIL=1 FAKE_TOTAL=100 run_20a
+  [ "$status" -eq 0 ]
+  [ "$(sed -n 1p .prp-output/reviews/pr-7-mode)" = full ]
+  grep -q -- '--rounds 7' "$WORK/tier.calls"
+}
+
+@test "B11: a missing Review-mode line is refused" {
+  start; write_all
+  sed -i '/^Review-mode: /d' .prp-output/reviews/pr-7-l2-code-reviewer.md
+  post
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"line 3"* ]]
+  [ "$(wc -l < "$WORK_LOG")" -eq 0 ]
+}
+
+@test "B12: a Review-mode line that disagrees with the other two passes is refused" {
+  start; write_all
+  sed -i 's/^Review-mode: full$/Review-mode: delta 0000000000000000000000000000000000000000..0123456789abcdef0123456789abcdef01234567/' .prp-output/reviews/pr-7-l2-security-reviewer.md
+  post
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"line 3"* ]]
+  [ "$(wc -l < "$WORK_LOG")" -eq 0 ]
+}
+
+@test "B13: line 2 of every well-formed body is exactly 'Passes run: <pass>' — the consumer contract safe-merge, merger-policy and the generator read" {
+  start; write_all
+  for pass in code-reviewer security-reviewer silent-failure-hunter; do
+    [ "$(sed -n 2p ".prp-output/reviews/pr-7-l2-$pass.md")" = "Passes run: $pass" ]
+  done
+  post
+  [ "$status" -eq 0 ]
+}
+
+@test "B14: a missing Passes run line is refused" {
+  start; write_all
+  sed -i '/^Passes run: /d' .prp-output/reviews/pr-7-l2-code-reviewer.md
+  post
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"line 2"* ]]
+  [ "$(wc -l < "$WORK_LOG")" -eq 0 ]
+}
+
+# --- run-id.sh wiring (agent-devops#1336, SO#1501): Step C refuses a bad RUN_ID and posts nothing ---
+# W1 (a clean run still posts 3 comments) is the existing happy-path test above: it also pins that
+# the run-id check runs ONCE before the first post, never inside the posting loop (M5: inside the
+# loop, pass 2 would see pass 1's posted comment and refuse).
+
+@test "W2: a future-dated RUN_ID swapped into the run file posts nothing" {
+  start; [ "$status" -eq 0 ]
+  sed -i 's/^RUN_ID=.*/RUN_ID=20330101T000000Z-12345678/' .prp-output/reviews/pr-7-l2-run.env
+  write_all; post
+  [ "$status" -ne 0 ]
+  [ "$(wc -l < "$WORK_LOG")" -eq 0 ]
+  [[ "$output" == *"run id refused"* ]]
+  [ -f .prp-output/reviews/pr-7-l2-run.env ]   # not consumed: the refusal precedes the mv
+}
+
+@test "W3: a RUN_ID whose hex prefixes a PR commit SHA posts nothing" {
+  start; [ "$status" -eq 0 ]
+  . .prp-output/reviews/pr-7-l2-run.env
+  export FAKE_COMMITS="${RUN_ID##*-}00000000000000000000000000000000"
+  write_all; post
+  [ "$status" -ne 0 ]
+  [ "$(wc -l < "$WORK_LOG")" -eq 0 ]
+  [[ "$output" == *"run id refused"* ]]
+}
+
+@test "W4: the run id already in a comment by the trusted login posts nothing; by another login it posts" {
+  start; [ "$status" -eq 0 ]
+  . .prp-output/reviews/pr-7-l2-run.env
+  printf 'Generated-by: prp-review-agents v9.9.9 run=%s pass=code-reviewer\n' "$RUN_ID" > "$WORK/c.txt"
+  export FAKE_COMMENTS="$WORK/c.txt"
+  write_all; post
+  [ "$status" -ne 0 ]
+  [ "$(wc -l < "$WORK_LOG")" -eq 0 ]
+  [[ "$output" == *"already used"* ]]
+  # same id, but in a comment by a DIFFERENT login: only trusted comments count, so it posts
+  # (the run file was never consumed: the refusal above precedes the mv)
+  unset FAKE_COMMENTS
+  export FAKE_COMMENTS_JSON="$WORK/untrusted.json"
+  jq -n --arg id "$RUN_ID" '[{user: {login: "someone-else"}, body: ("Reviewed head: x\n\nrun=" + $id + "\n")}]' > "$FAKE_COMMENTS_JSON"
+  write_all; post
+  [ "$status" -eq 0 ]
+  [ "$(wc -l < "$WORK_LOG")" -eq 3 ]
+}
+
+@test "W5: a failed PR-commits lookup posts nothing and names the lookup" {
+  start; [ "$status" -eq 0 ]
+  export FAKE_COMMITS_FAIL=1
+  write_all; post
+  [ "$status" -ne 0 ]
+  [ "$(wc -l < "$WORK_LOG")" -eq 0 ]
+  [[ "$output" == *"cannot list PR commits"* ]]
+}
+
+@test "W6: a failed trusted-login lookup posts nothing" {
+  start; [ "$status" -eq 0 ]
+  export USER_API_FAIL=1
+  write_all; post
+  [ "$status" -ne 0 ]
+  [ "$(wc -l < "$WORK_LOG")" -eq 0 ]
+  [[ "$output" == *"cannot read the trusted login"* ]]
+}
+
+@test "W7: Step A's env file carries an id in the canonical shape (built by run-id.sh new)" {
+  start; [ "$status" -eq 0 ]
+  run bash -c "sed -n 's/^RUN_ID=//p' .prp-output/reviews/pr-7-l2-run.env | grep -qxE '[0-9]{8}T[0-9]{6}Z-[0-9a-f]{8}'"
+  [ "$status" -eq 0 ]
+}
+
+@test "W8: a failed PR-comments lookup posts nothing and names the lookup" {
+  start; [ "$status" -eq 0 ]
+  export API_FAIL=1
+  write_all; post
+  [ "$status" -ne 0 ]
+  [ "$(wc -l < "$WORK_LOG")" -eq 0 ]
+  [[ "$output" == *"cannot read PR comments"* ]]
+}
+
+@test "B28: a .prp tracked by the reviewed tree FATALs before any post and before run-id.sh runs" {
+  start; [ "$status" -eq 0 ]
+  git add -f .prp && git commit -q -m tracked   # the attack shape: the reviewed tree commits its own .prp (git add -f works around .gitignore)
+  printf '#!/usr/bin/env bash\ntouch "$WORK/runid.ran"\n' > prp/scripts/review/run-id.sh   # marker stub: proves the check never ran
+  write_all; post
+  [ "$status" -ne 0 ]
+  [ "$(wc -l < "$WORK_LOG")" -eq 0 ]
+  [[ "$output" == *"tracked by the reviewed tree"* ]]
+  [ ! -e "$WORK/runid.ran" ]
+}
+
+@test "B29: an untracked .prp symlink (the normal install) proceeds — the tracked-guard stays silent" {
+  start; [ "$status" -eq 0 ]
+  write_all; post
+  [ "$status" -eq 0 ]
+  [ "$(wc -l < "$WORK_LOG")" -eq 3 ]
+}
+
+@test "B30: a failed tracked-check (git ls-files unavailable) FATALs closed — nothing posted" {
+  start; [ "$status" -eq 0 ]
+  write_all
+  printf '#!/usr/bin/env bash\nexit 128\n' > bin/git && chmod +x bin/git   # every git call now fails, the guard's lookup included
+  post
+  [ "$status" -ne 0 ]
+  [ "$(wc -l < "$WORK_LOG")" -eq 0 ]
+  [[ "$output" == *"cannot check whether .prp is tracked"* ]]
+}
+
+@test "pin: the Pass-budget timebox sentence appears exactly 10 times and Step A draws the id through run-id.sh only" {
+  # runs per $ADAPTER through the matrix, and once here against the canonical prompt
+  local f n
+  for f in "$ADAPTER" "$ROOT/prompts/review-agents.md"; do
+    n="$(prompt_text "$f" | grep -c 'Do not write time-box, timebox or time box anywhere in your report')"
+    [ "$n" -eq 10 ]
+    if prompt_text "$f" | grep -q 'od -An -N4'; then
+      echo "od -An -N4 still present in $f — Step A must call run-id.sh new, not draw inline" >&2
+      return 1
+    fi
+  done
 }

@@ -384,6 +384,8 @@ Agents use different severity systems internally. Map all findings to these unif
 
 **Implementation report check**: Documented deviations are intentional — only flag **undocumented** deviations.
 
+**Invariant tag (every Important, agent-devops#1297 C)**: every Important names the plan Invariant it breaks as `Invariant: <short name>`, copied from the `Invariant:` line of the PR body or the plan it cites (`Invariant: unstated` when the PR states none). The tag is part of the finding's table row inside `### Important Issues`, before any other backticked `Invariant:` text in that row (the check reads only the first one per row); it adds no heading or line to the per-pass comment format. When an agent omits it, the session adds it while writing the bodies. Phase 6's re-route check compares these tags across rounds.
+
 ---
 
 ## Agent Aspect Mapping
@@ -405,12 +407,14 @@ Agents use different severity systems internally. Map all findings to these unif
 
 ## Aspect Selection Logic
 
+**Round gate (review-diet plan PR-3, every path, `TIER=trivial` from 2.0b still overrides to one pass)**: 2.0 saves `ROUND` — 1 for the first run on this PR, 2 or higher after. Conditional agents (everything below except the always-run core 3) run **only in round 1**. From round 2 on, 2.3 spawns nothing and only the core agents in 2.2 run — whatever file types changed, whatever `perf`/`a11y` was passed. A conditional finding that still matters after round 1 belongs in a core agent's own report, not in a re-run of its specialist.
+
 **Always run (core agents)**:
 - `code-reviewer` — Core quality check
 - `security-reviewer` — Security vulnerabilities (OWASP Top 10)
 - `silent-failure-hunter` — Silent failures, error path tracing
 
-**Run based on changes (conditional agents)**:
+**Run based on changes (conditional agents, round 1 only)**:
 - Package files changed (package.json, lock files, requirements.txt) → `dependency-analyzer`
 - Production code changed (not test/config-only) → `docs-impact-agent`
 - Test files changed → `pr-test-analyzer`
@@ -472,18 +476,171 @@ Auto-dispatching: performance-analyzer (DB query patterns in 2 files)
 
 Invariant: the head this run reviews is captured **once, here, before any agent starts**, whatever path led here (Phase 1.3, a reused context file from Phase 0, `--context`, or agent mode), and it is **the commit the agents read**: the PR head must equal the local checkout's `HEAD`, and 2.1.1 clones exactly this saved head for the agents. Every later step reads it from the file below — nothing captures or re-queries it after the agents start. (A head captured at posting time would certify a commit nobody reviewed if a push landed during the review; a PR head that differs from the local `HEAD` would certify a commit the agents never read.)
 
-If this block prints FATAL, STOP: start no agent and post nothing. To recover, sync the checkout to the PR head (or push it) and re-run the review from Phase 2.0, including every agent after it.
+Also decided here, before the round cap: whether the review stop rule is already met at this head — the latest round is a valid clean FULL-DIFF round at this head (0 Critical, 0 Important, valid line 1–3 headers and footer per pass, `Review-mode: full`; merger-policy `review_evidence` is the binding text). `UNCHANGED-HEAD: refused` is final for this exact head — nothing needs to be fixed, there is nothing to review; wait for a new commit, or escalate if the PR is believed done. `UNCHANGED-TREE: refused` is the same verdict for a head whose TREE equals that clean head's tree (an empty re-queue commit, a rebase or amend that changes no file): the agents would read byte-identical files, so the clean round already covers them and a new round is only a token cost; the two commits' trees are compared with `git rev-parse <sha>^{tree}` (the clean head fetched by SHA when the checkout lacks it), and any lookup failure fails open (the review runs). A merger that requires the round at the exact head is then handed the clean round at the same-tree head as the evidence, or the operator's bypass — never a re-run. A valid clean `delta` round at this head does NOT trigger the refusal — at gate tier only a FULL-DIFF clean round satisfies the stop rule, and the guard has no reliable tier input, so this is fail-open by design (at worst one extra round runs). The round number (`ROUND`, 1 for the first run on this PR, 2+ after) is captured here too, for 2.2/2.3's core-vs-conditional gating and 2.0a's mode decision — both read it from the file this step saves, never recompute it.
+
+If this block prints FATAL, STOP: start no agent and post nothing. To recover, sync the checkout to the PR head (or push it) and re-run the review from Phase 2.0, including every agent after it. A `ROUND-CAP: refused` FATAL is final for this PR: do not start round 7 (the cap is the review stop rule — fix open Critical/Important findings or re-route, name any open Medium in the L2 report; Low and Suggestions need no issue, escalate).
 
 ```bash
 D=.prp-output/reviews; mkdir -p "$D" || { echo "FATAL: cannot create $D" >&2; exit 1; }
-rm -f "$D/pr-{NUMBER}-reviewed-head" || { echo "FATAL: cannot clear an earlier round's head file" >&2; exit 1; }
+rm -f "$D/pr-{NUMBER}-reviewed-head" "$D/pr-{NUMBER}-round" || { echo "FATAL: cannot clear an earlier round's head/round files" >&2; exit 1; }
 # always from the PR (each Bash call is a fresh shell; never from the environment), then bound to the local checkout
 REVIEWED_HEAD_SHA=$(gh pr view {NUMBER} --json headRefOid -q .headRefOid) || { echo "FATAL: cannot read the PR head (gh failed) — no agents started" >&2; exit 1; }
 LOCAL_HEAD=$(git rev-parse HEAD) || LOCAL_HEAD=""
 printf '%s' "$LOCAL_HEAD" | grep -qxE '[0-9a-f]{40}' || { echo "FATAL: cannot read the local HEAD — no agents started" >&2; exit 1; }
 [ "$REVIEWED_HEAD_SHA" = "$LOCAL_HEAD" ] || { echo "FATAL: the PR head ('$REVIEWED_HEAD_SHA') is not the local HEAD ($LOCAL_HEAD) the agents would read — sync the checkout, no agents started" >&2; exit 1; }
+[ -L .prp ] || { echo "FATAL: .prp is not a symlink to the installed prp-framework — round cap not checkable, no agents started" >&2; exit 1; }
+PRP_DIR=$(readlink -f .prp) || { echo "FATAL: cannot resolve .prp — no agents started" >&2; exit 1; }
+TRACKED=$(git ls-files -- .prp) || { echo "FATAL: cannot check whether .prp is tracked — nothing posted" >&2; exit 1; }; [ -z "$TRACKED" ] || { echo "FATAL: .prp is tracked by the reviewed tree — refusing to run its scripts" >&2; exit 1; }
+# unchanged-head refusal: only when the stop rule is already met at this head — the latest round is a valid clean FULL-DIFF round (0 Critical, 0 Important, valid line 1–3 headers and footer, Review-mode: full) at this head; merger-policy review_evidence is the binding text
+# Trust only comments from the account this session itself authenticates as (every legitimate agent run posts under one shared GitHub identity, prp-framework#228) — never a forged comment from an outside account on this public repo, which could otherwise fake a clean round and block real review.
+# If we can't learn our own login, fail OPEN: skip the unchanged-head check entirely (no refusal, run the review) rather than refusing to start — a false refusal blocks real review, which is the worse direction here.
+TRUSTED_LOGIN=$(gh api user --jq '.login' 2>/dev/null) || TRUSTED_LOGIN=""
+if [ -n "$TRUSTED_LOGIN" ]; then
+  export TRUSTED_LOGIN   # `gh api --jq` takes one jq expression and nothing else — no --arg passthrough — so the
+                          # login reaches jq via its own env builtin, not bash-side string interpolation into the filter
+  CLEAN_ROWS=$(gh api "repos/{owner}/{repo}/issues/{NUMBER}/comments" --paginate --jq '
+      .[] | select(.user.login == env.TRUSTED_LOGIN) | .body | sub("\\s+$"; "") as $b
+      | select($b | test("(^|\n)Generated-by: prp-review-agents ")) | ($b | split("\n")) as $l
+      | ([$l[-1] | capture("^Generated-by: prp-review-agents v[^ ]+ run=(?<run>[0-9]{8}T[0-9]{6}Z-[0-9a-f]{8}) pass=(?<pass>[a-z-]+)(?<t> tier=trivial)?$")] | first) as $f
+      | select($f != null)
+      | (if ($l[0] | test("^Reviewed head: [0-9a-f]{40}$")) then ($l[0] | capture("^Reviewed head: (?<h>[0-9a-f]{40})$").h) else "" end) as $head
+      | ([$l[] | select(test("^### Critical Issues \\([0-9]+ found\\)$"))] | if length == 1 then first | capture("\\((?<c>[0-9]+) found\\)").c else "999" end) as $crit
+      | ([$l[] | select(test("^### Important Issues \\([0-9]+ found\\)$"))] | if length == 1 then first | capture("\\((?<i>[0-9]+) found\\)").i else "999" end) as $imp
+      | (if ($f.t) then ($f.pass == "code-reviewer") else ($f.pass | IN("code-reviewer","security-reviewer","silent-failure-hunter")) end) as $passok
+      | (($l[1] // "" | . == ("Passes run: " + $f.pass)) and $passok) as $line2ok
+      | (if ($l[2] // "" | test("^Review-mode: (full|delta [0-9a-f]{40}\\.\\.[0-9a-f]{40})$")) then $l[2] else "" end) as $mode
+      | (if ($mode != "" and ($mode | test("^Review-mode: delta [0-9a-f]{40}\\.\\."))) then ($mode | capture("\\.\\.(?<s>[0-9a-f]{40})$").s) else null end) as $deltasha
+      | (if $deltasha != null and $deltasha != $head then "" else $mode end) as $validmode
+      | ([$l[] | select(startswith("Reviewed head:"))] | length == 1) as $uniq_head
+      | ([$l[] | select(startswith("Passes run:"))] | length == 1) as $uniq_passes
+      | ([$l[] | select(startswith("Review-mode:"))] | length == 1) as $uniq_mode
+      | ([$l[] | select(startswith("Generated-by:"))] | length == 1) as $uniq_gen
+      | ($uniq_head and $uniq_passes and $uniq_mode and $uniq_gen) as $uniq
+      | [$f.run, $head, $crit, $imp, $f.pass, (if $f.t then "trivial" else "" end), (if $line2ok then "1" else "0" end), $validmode, (if $uniq then "1" else "0" end)] | @tsv') \
+    || { echo "FATAL: cannot read the PR comments (gh failed) — unchanged-head not checkable, no agents started" >&2; exit 1; }
+else
+  CLEAN_ROWS=""
+fi
+# A round (one run id) only counts as clean once ALL of its expected per-pass comments are present (3 core
+# passes, or the single trivial-tier pass) and every one reports 0 Critical / 0 Important, AND every pass
+# has valid line 1–3 headers (line2ok, uniq) and a valid Review-mode (full or delta with correct head) — a
+# run with fewer passes is incomplete, a run whose passes fail line validation is invalid evidence, and
+# neither may be read as clean. A run with no `Reviewed head:` line, or with passes naming different heads,
+# is still a round (it keeps its place in the order) but is never clean. Passes with different Review-mode
+# values within one run mark it dirty (mixed modes).
+# Refuse only when the stop rule is already met at this head: the LATEST round (highest run id — the id
+# starts with a UTC timestamp, so string order is time order) is clean, at this head, AND its Review-mode
+# is `Review-mode: full` (FULL-DIFF). A clean delta round at this head does NOT trigger the refusal — at
+# gate tier only a FULL-DIFF clean round satisfies the stop rule, and the guard has no reliable tier input,
+# so this is fail-open by design. merger-policy review_evidence is the binding text. Every other case runs.
+STOP_MET_HEAD=$(printf '%s\n' "$CLEAN_ROWS" | awk -F'\t' '
+    $1 != "" {
+      run=$1; seen[run]=1
+      if ($2 == "") dirty[run]=1
+      else if (!(run in head)) head[run]=$2
+      else if (head[run] != $2) dirty[run]=1
+      if ($3+0!=0 || $4+0!=0) dirty[run]=1
+      if ($7+0!=1) dirty[run]=1
+      if ($9+0!=1) dirty[run]=1
+      if ($8 == "") dirty[run]=1
+      else if (!(run in mode)) mode[run]=$8
+      else if (mode[run] != $8) dirty[run]=1
+      key=run SUBSEP $5
+      if (!(key in seenpass)) { seenpass[key]=1; passcount[run]++ }
+      if ($6 == "trivial") istrivial[run]=1
+    }
+    function clean(r) {
+      if (r == "" || (r in dirty) || !(r in head)) return 0
+      return (r in istrivial) ? (passcount[r] == 1) : (passcount[r] == 3)
+    }
+    END {
+      last=""
+      for (r in seen) { if (r > last) last=r }
+      if (clean(last) && mode[last] == "Review-mode: full") print head[last]
+    }')
+if [ -n "$STOP_MET_HEAD" ] && [ "$STOP_MET_HEAD" = "$REVIEWED_HEAD_SHA" ]; then
+  echo "UNCHANGED-HEAD: refused — head $REVIEWED_HEAD_SHA already has a valid clean FULL-DIFF round (0 Critical, 0 Important; stop rule met); nothing to review" >&2
+  exit 1
+fi
+# unchanged-tree refusal (agent-devops#1335 improvement 4): the stop rule is met at a DIFFERENT head whose tree is
+# this head's tree — an empty re-queue commit, or a rebase/amend that changes no file. The agents would read
+# byte-identical files, so the clean round at that head already covers them; a new round would only cost tokens.
+# Judged by `git rev-parse <sha>^{tree}` on both commits (the peel fails on an unknown object; the clean head is
+# fetched by SHA first when the checkout lacks it). Every lookup failure fails OPEN — the review runs — because a
+# false refusal blocks real review, the worse direction. UNCHANGED-TREE is as final as UNCHANGED-HEAD.
+if [ -n "$STOP_MET_HEAD" ] && [ "$STOP_MET_HEAD" != "$REVIEWED_HEAD_SHA" ]; then
+  git cat-file -e "$STOP_MET_HEAD^{commit}" 2>/dev/null || git fetch -q origin "$STOP_MET_HEAD" 2>/dev/null || true
+  HEAD_TREE=$(git rev-parse --verify -q "$REVIEWED_HEAD_SHA^{tree}" 2>/dev/null) || HEAD_TREE=""
+  CLEAN_TREE=$(git rev-parse --verify -q "$STOP_MET_HEAD^{tree}" 2>/dev/null) || CLEAN_TREE=""
+  if [ -n "$HEAD_TREE" ] && [ "$HEAD_TREE" = "$CLEAN_TREE" ]; then
+    echo "UNCHANGED-TREE: refused — head $REVIEWED_HEAD_SHA has the same tree ($HEAD_TREE) as $STOP_MET_HEAD, which already has a valid clean FULL-DIFF round (0 Critical, 0 Important; stop rule met); the files are byte-identical, nothing to review" >&2
+    exit 1
+  fi
+fi
+# round cap (prp-framework#151): count the review runs already on the PR (the last line of each comment), from the installed framework's copy
+# Same comment-trust rule as CLEAN_ROWS above (prp-framework#228): an untrusted commenter can post a
+# run-id-shaped line with no footer formatting at all, which would otherwise both exhaust the round
+# cap early and (new in this plan) make 2.3 skip conditional agents on what is really the PR's first
+# round. Fail OPEN to an empty FOOTERS (round 1, cap never tripped) when the login lookup failed —
+# under-counting is the safe direction here, same as the unchanged-head check.
+if [ -n "$TRUSTED_LOGIN" ]; then
+  FOOTERS=$(gh api "repos/{owner}/{repo}/issues/{NUMBER}/comments" --paginate --jq '.[] | select(.user.login == env.TRUSTED_LOGIN) | .body | rtrimstr("\n") | split("\n") | last') \
+    || { echo "FATAL: cannot read the PR comments (gh failed) — round cap not checkable, no agents started" >&2; exit 1; }
+else
+  FOOTERS=""
+fi
+ROUND_GUARD_OUT=$(printf '%s\n' "$FOOTERS" | bash "$PRP_DIR/scripts/review/round-guard.sh" --cap 6) \
+  || { echo "FATAL: round cap — no agents started" >&2; exit 1; }
+echo "$ROUND_GUARD_OUT"
+ROUND=$(printf '%s\n' "$ROUND_GUARD_OUT" | grep -oE 'this is round [0-9]+$' | grep -oE '[0-9]+$')
+printf '%s' "$ROUND" | grep -qxE '[0-9]+' || { echo "FATAL: could not parse the round number from round-guard.sh's output — no agents started" >&2; exit 1; }
 printf '%s\n' "$REVIEWED_HEAD_SHA" > "$D/pr-{NUMBER}-reviewed-head" || { echo "FATAL: cannot save the reviewed head" >&2; exit 1; }
-echo "REVIEWED_HEAD_SHA=$REVIEWED_HEAD_SHA"
+printf '%s\n' "$ROUND" > "$D/pr-{NUMBER}-round" || { echo "FATAL: cannot save the round number" >&2; exit 1; }
+echo "REVIEWED_HEAD_SHA=$REVIEWED_HEAD_SHA ROUND=$ROUND"
+```
+
+### 2.0a Review Mode Decision (`--l2-comments` only, review-diet plan PR-3 v1.3)
+
+Invariant: whether this round reviews the full diff or a delta is decided **here, by the tool**, never by agent prose and never by whether `--since-last-review` was passed — `--since-last-review` is no longer required under `--l2-comments` (incremental is automatic from R2 on, subject to the guards below) and has no additional effect when passed. Mode is `full` unless every guard below allows `delta`:
+
+- **G1 (base + ancestor)**: `PREV` is the `Reviewed head:` of the most recently posted round (the last such line across the PR's comments). `delta` requires `PREV` to exist, differ from this round's head, and be an ancestor of it (`git merge-base --is-ancestor`). A rebase or force-push (not an ancestor) forces `full`.
+- **G2 (40% size fallback)**: `delta` additionally requires a prior round whose own comment said `Review-mode: full` (`LAST_FULL`, read the same way as `PREV`), itself an ancestor of this head, and the cumulative changed-line count from `LAST_FULL` to this head (`git diff --numstat`, additions+deletions) to be at most 40% of the PR's total changed lines (`gh pr view --json additions,deletions`). No findable `LAST_FULL`, or over 40%, forces `full`.
+- **Gate tier**: `pr-risk-tier --rounds {NUMBER}` printing `2`, or the tool missing/failing, forces `full` (fail-safe) before G1/G2 are even checked — a gate-tier clean round is always full.
+
+The decision is saved to a file for Step A to pick up (same pattern as 2.0b's tier file); nothing here posts or starts an agent.
+
+```bash
+D=.prp-output/reviews
+REVIEWED_HEAD_SHA=$(cat "$D/pr-{NUMBER}-reviewed-head" 2>/dev/null) || REVIEWED_HEAD_SHA=""
+printf '%s' "$REVIEWED_HEAD_SHA" | grep -qxE '[0-9a-f]{40}' || { echo "FATAL: run Phase 2.0 first — no agents started" >&2; exit 1; }
+MODE=full; BASE_SHA=""
+GATE2=1
+if command -v pr-risk-tier >/dev/null 2>&1; then
+  RT=$(env -u PR_RISK_TIER_GH pr-risk-tier --rounds {NUMBER} 2>/dev/null) && [ "$RT" != 2 ] && GATE2=0
+fi
+# Same comment-trust rule as Phase 2.0's CLEAN_ROWS (prp-framework#228): PREV/LAST_FULL drive the
+# posted Review-mode line and must come only from this session's own GitHub identity, never an
+# outside commenter forging a "Reviewed head: <ancestor sha>" line. Fail OPEN to MODE=full (never
+# refuse, never skip the round) when the login lookup itself fails.
+TRUSTED_LOGIN=$(gh api user --jq '.login' 2>/dev/null) || TRUSTED_LOGIN=""
+if [ "$GATE2" -eq 0 ] && [ -n "$TRUSTED_LOGIN" ]; then
+  export TRUSTED_LOGIN
+  if HEADS=$(gh api "repos/{owner}/{repo}/issues/{NUMBER}/comments" --paginate --jq '.[] | select(.user.login == env.TRUSTED_LOGIN) | .body | select(startswith("Reviewed head: ")) | split("\n")[0] | ltrimstr("Reviewed head: ")'); then
+    PREV=$(printf '%s\n' "$HEADS" | grep -xE '[0-9a-f]{40}' | tail -n1)
+    if [ -n "$PREV" ] && [ "$PREV" != "$REVIEWED_HEAD_SHA" ] && git merge-base --is-ancestor "$PREV" "$REVIEWED_HEAD_SHA" 2>/dev/null; then
+      FULLS=$(gh api "repos/{owner}/{repo}/issues/{NUMBER}/comments" --paginate --jq '.[] | select(.user.login == env.TRUSTED_LOGIN) | .body | select(startswith("Reviewed head: ")) | select((split("\n")[2]) == "Review-mode: full") | split("\n")[0] | ltrimstr("Reviewed head: ")' 2>/dev/null) || FULLS=""
+      LAST_FULL=$(printf '%s\n' "$FULLS" | grep -xE '[0-9a-f]{40}' | tail -n1)
+      if [ -n "$LAST_FULL" ] && git merge-base --is-ancestor "$LAST_FULL" "$REVIEWED_HEAD_SHA" 2>/dev/null \
+         && TOTAL=$(gh pr view {NUMBER} --json additions,deletions -q '.additions + .deletions' 2>/dev/null) \
+         && [[ "$TOTAL" =~ ^[0-9]+$ ]] && [ "$TOTAL" -gt 0 ]; then
+        CUM=$(git diff --numstat "$LAST_FULL..$REVIEWED_HEAD_SHA" 2>/dev/null | awk '{a+=$1; d+=$2} END{print a+d+0}')
+        [[ "$CUM" =~ ^[0-9]+$ ]] && (( CUM * 100 <= TOTAL * 40 )) && { MODE=delta; BASE_SHA="$PREV"; }
+      fi
+    fi
+  fi
+fi
+printf '%s\n%s\n' "$MODE" "$BASE_SHA" > "$D/pr-{NUMBER}-mode" || { echo "FATAL: cannot save the review mode — no agents started" >&2; exit 1; }
+echo "MODE=$MODE BASE_SHA=$BASE_SHA"
 ```
 
 ### 2.0b Risk Tier (`--l2-comments` only, agent-devops#1259)
@@ -552,6 +709,23 @@ Pass `$REVIEW_CLONE` (not `$AUTHOR_WORKTREE`) to every agent prompt as the worki
 directory. The context file at `CONTEXT_PATH` is still read from the author tree (it
 is written by Phase 1 and is the only file agents need from there).
 
+### 2.2.0 Pass Budget (prp-framework#151)
+
+Invariant: no pass can run a probe past its budget without returning a partial report plus a follow-up link. Mint ONE deadline for the round, before the agents are dispatched, and use the same value in every agent prompt below (core and conditional; all passes run in parallel under it):
+
+```bash
+PRP_DIR=$(readlink -f .prp) \
+  || { echo "FATAL: cannot mint the pass deadline — no agents started" >&2; exit 1; }
+TRACKED=$(git ls-files -- .prp) || { echo "FATAL: cannot check whether .prp is tracked — nothing posted" >&2; exit 1; }; [ -z "$TRACKED" ] || { echo "FATAL: .prp is tracked by the reviewed tree — refusing to run its scripts" >&2; exit 1; }
+PASS_DEADLINE=$(bash "$PRP_DIR/scripts/review/pass-budget.sh" deadline) \
+  || { echo "FATAL: cannot mint the pass deadline — no agents started" >&2; exit 1; }
+echo "PASS_DEADLINE=$PASS_DEADLINE PRP_DIR=$PRP_DIR"
+```
+
+If this block prints FATAL, STOP: spawn no agent and post nothing. Otherwise the `echo` is the only place the minted values reach the transcript — shell state does not persist between tool calls, so read `{PASS_DEADLINE}` and `{PRP_DIR}` below from that printed line, never by re-running `deadline` or inventing a value.
+
+`$PASS_DEADLINE` is `{PASS_DEADLINE}` and `$PRP_DIR` is `{PRP_DIR}` in the prompts below, as printed by the `echo` above (the default budget is 20 minutes; `PRP_PASS_BUDGET_SECS` overrides it for tests). A command run through `pass-budget.sh run` is killed at the deadline and not started after it; nothing else extends a pass. When a pass reports `Pass timeboxed`, file ONE follow-up issue for the round listing the unfinished probes (`gh issue create`) and add `Follow-up: <issue url>` as the next line of that pass's `### Could not verify` in Step B; Step C posts nothing for a `Pass timeboxed` body without it. The inconclusive probes stay fail-closed: they are Could not verify, never a clean pass.
+
 ### 2.2 Core Agents (Always — Spawn ALL in Parallel)
 
 Spawn these 3 agents simultaneously in a **SINGLE message with multiple Agent tool calls** (when 2.0b saved `TIER=trivial`, spawn Agent 1 only, and no conditional agents):
@@ -564,6 +738,7 @@ Agent(
   prompt="Review PR #{NUMBER} for project guideline compliance, bugs, and quality issues.
 
 Read the PR context file at: {CONTEXT_PATH}
+Pass budget: PASS_DEADLINE={PASS_DEADLINE}. Run every command that executes PR code or can run long (tests, scripts, builds, probes) as: bash {PRP_DIR}/scripts/review/pass-budget.sh run {PASS_DEADLINE} -- <command>. When it prints PASS-TIMEBOXED, or the deadline has passed, stop probing, finish from what you have read, and begin the Could not verify section with a line Pass timeboxed: <n> probe(s) not completed: <names>. An unfinished probe is never a clean result. Do not write time-box, timebox or time box anywhere in your report except on the `Pass timeboxed:` line: the posting check treats any such word as a timeboxed pass and then demands a Follow-up link.
 This file contains the PR diff, changed files list, and project guidelines.
 
 IMPORTANT: Also read the actual source files for deep exploration beyond the diff.
@@ -581,6 +756,8 @@ files changed in this PR for ALL instances of that pattern before reporting.
 A bug is 'recurring' if you observe 2+ instances of the same structural defect.
 List every occurrence — not just the ones you noticed first. This prevents
 whack-a-mole re-review cycles where the same pattern is found piecemeal.
+
+Tag every High finding with the PR's Invariant it breaks, written as the code span `Invariant: <short name>` (from the Invariant: line of the PR body or plan; `Invariant: unstated` if there is none).
 
 Report findings as structured markdown:
 ## Findings
@@ -608,6 +785,7 @@ Agent(
   prompt="Review PR #{NUMBER} for security vulnerabilities.
 
 Read the PR context file at: {CONTEXT_PATH}
+Pass budget: PASS_DEADLINE={PASS_DEADLINE}. Run every command that executes PR code or can run long (tests, scripts, builds, probes) as: bash {PRP_DIR}/scripts/review/pass-budget.sh run {PASS_DEADLINE} -- <command>. When it prints PASS-TIMEBOXED, or the deadline has passed, stop probing, finish from what you have read, and begin the Could not verify section with a line Pass timeboxed: <n> probe(s) not completed: <names>. An unfinished probe is never a clean result. Do not write time-box, timebox or time box anywhere in your report except on the `Pass timeboxed:` line: the posting check treats any such word as a timeboxed pass and then demands a Follow-up link.
 This file contains the PR diff, changed files list, and project guidelines.
 
 IMPORTANT: Go beyond the diff. Read actual source files:
@@ -627,6 +805,8 @@ Focus on OWASP Top 10:
 
 Report ONLY vulnerabilities with clear attack vectors — not theoretical issues.
 
+Tag every High finding with the PR's Invariant it breaks, written as the code span `Invariant: <short name>` (from the Invariant: line of the PR body or plan; `Invariant: unstated` if there is none).
+
 Report findings as structured markdown:
 ## Findings
 | Severity | Issue | File:Line | Attack Vector | Remediation |
@@ -644,6 +824,7 @@ Agent(
   prompt="Hunt for silent failures and inadequate error handling in PR #{NUMBER}.
 
 Read the PR context file at: {CONTEXT_PATH}
+Pass budget: PASS_DEADLINE={PASS_DEADLINE}. Run every command that executes PR code or can run long (tests, scripts, builds, probes) as: bash {PRP_DIR}/scripts/review/pass-budget.sh run {PASS_DEADLINE} -- <command>. When it prints PASS-TIMEBOXED, or the deadline has passed, stop probing, finish from what you have read, and begin the Could not verify section with a line Pass timeboxed: <n> probe(s) not completed: <names>. An unfinished probe is never a clean result. Do not write time-box, timebox or time box anywhere in your report except on the `Pass timeboxed:` line: the posting check treats any such word as a timeboxed pass and then demands a Follow-up link.
 This file contains the PR diff, changed files list, and project guidelines.
 
 IMPORTANT: Go beyond the diff. Read the actual source files:
@@ -668,6 +849,8 @@ A pattern is 'recurring' if you observe 2+ instances of the same structural defe
 List every occurrence — not just the ones you noticed first. This prevents
 whack-a-mole re-review cycles where the same pattern is found piecemeal.
 
+Tag every High finding with the PR's Invariant it breaks, written as the code span `Invariant: <short name>` (from the Invariant: line of the PR body or plan; `Invariant: unstated` if there is none).
+
 Report findings as structured markdown:
 ## Findings
 | Severity | Issue | File:Line | Error Path | Fix |
@@ -686,7 +869,9 @@ If no recurring patterns detected, state: 'No recurring patterns detected — sw
 
 ### 2.3 Conditional Agents (Spawn in Parallel — Based on File Analysis)
 
-After determining which conditional agents are needed (from Aspect Selection Logic above), spawn them in a **SINGLE message** alongside or after the core agents:
+**Round 1 only.** Read `ROUND` from `.prp-output/reviews/pr-{NUMBER}-round` (saved by 2.0, which already validates it as numeric before writing). When `ROUND` is 2 or higher, or 2.0b saved `TIER=trivial`, skip this entire phase — spawn no conditional agent — and go straight to Phase 3 once the core agents (2.2) finish. If `ROUND` is missing, empty, or not a plain number (a stale file from an aborted run, or anything else breaking 2.0's own guarantee), fail closed the same as "round 2 or higher": skip this phase and spawn no conditional agent, rather than defaulting to "round 1" and running agents that round-gating exists to stop after round 1.
+
+In round 1 (and not trivial-tier), after determining which conditional agents are needed (from Aspect Selection Logic above), spawn them in a **SINGLE message** alongside or after the core agents:
 
 **If dependency files changed** — `dependency-analyzer`:
 ```
@@ -696,6 +881,7 @@ Agent(
   prompt="Analyze dependencies in PR #{NUMBER} for security and health.
 
 Read the PR context file at: {CONTEXT_PATH}
+Pass budget: PASS_DEADLINE={PASS_DEADLINE}. Run every command that executes PR code or can run long (tests, scripts, builds, probes) as: bash {PRP_DIR}/scripts/review/pass-budget.sh run {PASS_DEADLINE} -- <command>. When it prints PASS-TIMEBOXED, or the deadline has passed, stop probing, finish from what you have read, and begin the Could not verify section with a line Pass timeboxed: <n> probe(s) not completed: <names>. An unfinished probe is never a clean result. Do not write time-box, timebox or time box anywhere in your report except on the `Pass timeboxed:` line: the posting check treats any such word as a timeboxed pass and then demands a Follow-up link.
 
 Check for:
 - Known CVEs in direct and transitive dependencies
@@ -723,6 +909,7 @@ Agent(
   prompt="Review UI code in PR #{NUMBER} for WCAG 2.1 compliance.
 
 Read the PR context file at: {CONTEXT_PATH}
+Pass budget: PASS_DEADLINE={PASS_DEADLINE}. Run every command that executes PR code or can run long (tests, scripts, builds, probes) as: bash {PRP_DIR}/scripts/review/pass-budget.sh run {PASS_DEADLINE} -- <command>. When it prints PASS-TIMEBOXED, or the deadline has passed, stop probing, finish from what you have read, and begin the Could not verify section with a line Pass timeboxed: <n> probe(s) not completed: <names>. An unfinished probe is never a clean result. Do not write time-box, timebox or time box anywhere in your report except on the `Pass timeboxed:` line: the posting check treats any such word as a timeboxed pass and then demands a Follow-up link.
 Also read the actual source files for full component context.
 
 Check:
@@ -752,6 +939,7 @@ Agent(
   prompt="Analyze PR #{NUMBER} for performance issues.
 
 Read the PR context file at: {CONTEXT_PATH}
+Pass budget: PASS_DEADLINE={PASS_DEADLINE}. Run every command that executes PR code or can run long (tests, scripts, builds, probes) as: bash {PRP_DIR}/scripts/review/pass-budget.sh run {PASS_DEADLINE} -- <command>. When it prints PASS-TIMEBOXED, or the deadline has passed, stop probing, finish from what you have read, and begin the Could not verify section with a line Pass timeboxed: <n> probe(s) not completed: <names>. An unfinished probe is never a clean result. Do not write time-box, timebox or time box anywhere in your report except on the `Pass timeboxed:` line: the posting check treats any such word as a timeboxed pass and then demands a Follow-up link.
 Also read the actual source files for full context.
 
 Focus on:
@@ -781,6 +969,7 @@ Agent(
   prompt="Analyze type design in PR #{NUMBER}.
 
 Read the PR context file at: {CONTEXT_PATH}
+Pass budget: PASS_DEADLINE={PASS_DEADLINE}. Run every command that executes PR code or can run long (tests, scripts, builds, probes) as: bash {PRP_DIR}/scripts/review/pass-budget.sh run {PASS_DEADLINE} -- <command>. When it prints PASS-TIMEBOXED, or the deadline has passed, stop probing, finish from what you have read, and begin the Could not verify section with a line Pass timeboxed: <n> probe(s) not completed: <names>. An unfinished probe is never a clean result. Do not write time-box, timebox or time box anywhere in your report except on the `Pass timeboxed:` line: the posting check treats any such word as a timeboxed pass and then demands a Follow-up link.
 Also read the actual source files for full type context.
 
 Rate on 4 dimensions (1-10 each):
@@ -813,6 +1002,7 @@ Agent(
   prompt="Review PR #{NUMBER} and update any documentation affected by code changes.
 
 Read the PR context file at: {CONTEXT_PATH}
+Pass budget: PASS_DEADLINE={PASS_DEADLINE}. Run every command that executes PR code or can run long (tests, scripts, builds, probes) as: bash {PRP_DIR}/scripts/review/pass-budget.sh run {PASS_DEADLINE} -- <command>. When it prints PASS-TIMEBOXED, or the deadline has passed, stop probing, finish from what you have read, and begin the Could not verify section with a line Pass timeboxed: <n> probe(s) not completed: <names>. An unfinished probe is never a clean result. Do not write time-box, timebox or time box anywhere in your report except on the `Pass timeboxed:` line: the posting check treats any such word as a timeboxed pass and then demands a Follow-up link.
 Also read CLAUDE.md, README.md, and docs/ directory.
 
 Check:
@@ -845,6 +1035,7 @@ Agent(
   prompt="Analyze code comments in PR #{NUMBER} for accuracy, completeness, and long-term value.
 
 Read the PR context file at: {CONTEXT_PATH}
+Pass budget: PASS_DEADLINE={PASS_DEADLINE}. Run every command that executes PR code or can run long (tests, scripts, builds, probes) as: bash {PRP_DIR}/scripts/review/pass-budget.sh run {PASS_DEADLINE} -- <command>. When it prints PASS-TIMEBOXED, or the deadline has passed, stop probing, finish from what you have read, and begin the Could not verify section with a line Pass timeboxed: <n> probe(s) not completed: <names>. An unfinished probe is never a clean result. Do not write time-box, timebox or time box anywhere in your report except on the `Pass timeboxed:` line: the posting check treats any such word as a timeboxed pass and then demands a Follow-up link.
 Also read the actual source files to verify comments match code behavior.
 
 Check:
@@ -870,6 +1061,7 @@ Agent(
   prompt="Analyze test coverage for PR #{NUMBER}.
 
 Read the PR context file at: {CONTEXT_PATH}
+Pass budget: PASS_DEADLINE={PASS_DEADLINE}. Run every command that executes PR code or can run long (tests, scripts, builds, probes) as: bash {PRP_DIR}/scripts/review/pass-budget.sh run {PASS_DEADLINE} -- <command>. When it prints PASS-TIMEBOXED, or the deadline has passed, stop probing, finish from what you have read, and begin the Could not verify section with a line Pass timeboxed: <n> probe(s) not completed: <names>. An unfinished probe is never a clean result. Do not write time-box, timebox or time box anywhere in your report except on the `Pass timeboxed:` line: the posting check treats any such word as a timeboxed pass and then demands a Follow-up link.
 Also read the actual test files and the code they test.
 
 Focus on:
@@ -1047,6 +1239,64 @@ After deduplication, categorize all findings:
 
 **Note**: If validation fails, verdict is at least NEEDS FIXES regardless of agent findings.
 
+### Round Check (agent-devops#1297 C + H)
+
+Run it in every run, after the verdict and before anything is posted (so the newest per-pass comments on the PR are the previous round's). It writes two lines into the aggregate summary — the terminal output and the local `.prp-output/reviews/` artifact — and nowhere else: it changes no per-pass comment, no footer and no marker. It is advice, not a gate; merger and safe-merge remain the gates. It is one-sided: it can show that a re-route is required, never that one is not, and it never counts clean rounds.
+
+Before running it, write `.prp-output/reviews/pr-{NUMBER}-round-invariants`: line 1 is `head ` plus the reviewed head saved in 2.0, then one line per Important with its `Invariant:` name without the prefix (`unstated` when it has none). Put this round's Important count, from this run's own aggregation, in place of `{ROUND_IMPORTANT}`.
+
+- **Re-route (C):** the line is exactly one of: `Re-route: n/a (this round has 0 Important)`; `RE-ROUTE REQUIRED: <invariant>`, when a tag of this round's Importants is also on an Important row of the previous run's per-pass comments (the newest run id on the PR) — the same finding family in 2 rounds means stop patching and revisit the design (re-plan with the invariant, or cut scope to a new issue); or `Re-route: check by hand (<why>)` in every other case: unreadable comments, a footer that is not a valid last line, no earlier run, a previous run that is not exactly the three core passes (a one-pass trivial run, or 1–2 passes posted — even when a tag matches), an invariants file not written for this head, or no shared tag found (`unstated` never matches). It never prints that there is no re-route.
+- **Next step (H):** `pr-risk-tier --rounds` (from the installed ops checkout, the same way 2.0b runs the tier) gives the clean rounds the stop rule needs at the reviewed head: `1` for the normal tier, `2` for the gate tier. A missing tool, a failure or any output other than `1` means 2, and the line says why. A normal-tier round is still a full round (all three core passes, `--l2-comments`); only the number of clean rounds differs, and it has nothing to do with the one-pass trivial run of 2.0b. The line does not count clean rounds: count them from the per-pass comments by hand.
+
+```bash
+D=.prp-output/reviews; INV_F="$D/pr-{NUMBER}-round-invariants"; RI={ROUND_IMPORTANT}
+H=$(cat "$D/pr-{NUMBER}-reviewed-head" 2>/dev/null) || H=""
+trim() { sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | grep -v '^$' | grep -vx 'unstated' | sort -u; }
+byhand() { echo "Re-route: check by hand ($1)"; }
+if [ "$RI" = 0 ]; then
+  echo "Re-route: n/a (this round has 0 Important)"
+elif ! printf '%s' "$RI" | grep -qxE '[0-9]+'; then
+  byhand "this round's Important count was not filled in"
+elif ! printf '%s' "$H" | grep -qxE '[0-9a-f]{40}' || [ "$(sed -n 1p "$INV_F" 2>/dev/null)" != "head $H" ]; then
+  byhand "$INV_F is missing or not written for this reviewed head"
+elif ! ROWS=$(gh api "repos/{owner}/{repo}/issues/{NUMBER}/comments" --paginate --jq '
+    .[].body | sub("\\s+$"; "") as $b
+    | select($b | test("(^|\n)Generated-by: prp-review-agents ")) | ($b | split("\n")) as $l
+    | ([$l[-1] | capture("^Generated-by: prp-review-agents v[^ ]+ run=(?<run>[0-9]{8}T[0-9]{6}Z-[0-9a-f]{8}) pass=(?<pass>[a-z-]+)(?<t> tier=trivial)?$")] | first) as $f
+    | if $f == null then (["U", "footer"] | @tsv) else
+      (["R", $f.run, $f.pass, (if $f.t then "trivial" else "full" end)] | @tsv),
+      ([$b | capture("### Important Issues[^\n]*\n(?<s>[\\s\\S]*?)\n### Suggestions") | .s | split("\n")[] | select(startswith("|")) | [scan("`Invariant: ([^`\n]+)`")] | first // empty | .[0]] | .[] | ["I", $f.run, .] | @tsv)
+      end'); then
+  byhand "cannot read the PR comments (gh failed)"
+elif printf '%s\n' "$ROWS" | grep -q '^U'; then
+  byhand "a comment carries a prp-review-agents footer that is not a valid last line"
+else
+  PREV=$(printf '%s\n' "$ROWS" | awk -F'\t' '$1=="R"{r=$2} END{print r}')
+  PASSES=$(printf '%s\n' "$ROWS" | awk -F'\t' -v r="$PREV" '$1=="R" && $2==r {print $3 "/" $4}' | sort | tr '\n' ' ')
+  SHARED=$(comm -12 <(printf '%s\n' "$ROWS" | awk -F'\t' -v r="$PREV" '$1=="I" && $2==r {print $3}' | trim) <(sed 1d "$INV_F" | trim))
+  if [ -z "$PREV" ]; then
+    byhand "no earlier round on the PR"
+  elif [ "$PASSES" != "code-reviewer/full security-reviewer/full silent-failure-hunter/full " ]; then
+    byhand "run $PREV is not a full three-pass round: $PASSES"
+  elif [ -n "$SHARED" ]; then
+    printf '%s\n' "$SHARED" | sed 's/^/RE-ROUTE REQUIRED: /'
+  else
+    byhand "no Important invariant tag shared with run $PREV; compare the finding families"
+  fi
+fi
+N=2; WHY="gate tier"
+if ! command -v pr-risk-tier >/dev/null 2>&1; then
+  WHY="pr-risk-tier not installed, so 2"
+elif ! printf '%s' "$H" | grep -qxE '[0-9a-f]{40}'; then
+  WHY="no saved reviewed head, so 2"
+elif R=$(env -u PR_RISK_TIER_GH pr-risk-tier --rounds --head "$H" {NUMBER} 2>"$D/pr-{NUMBER}-rounds.err"); then
+  if [ "$R" = 1 ]; then N=1; WHY="normal tier"; elif [ "$R" != 2 ]; then WHY="unexpected pr-risk-tier output, so 2"; fi
+else
+  WHY="pr-risk-tier --rounds failed (see $D/pr-{NUMBER}-rounds.err), so 2"
+fi
+echo "Next step: $N clean round(s) needed (pr-risk-tier --rounds: $WHY). Count clean rounds from the per-pass comments by hand: this line does not count them."
+```
+
 ### Summary Format
 
 ```markdown
@@ -1094,6 +1344,10 @@ After deduplication, categorize all findings:
 
 ### Verdict
 [READY TO MERGE / NEEDS FIXES / CRITICAL ISSUES]
+
+### Re-route and Next Step
+- {the Round Check's re-route line: "RE-ROUTE REQUIRED: <invariant>", "Re-route: n/a (...)" or "Re-route: check by hand (<why>)"}
+- {the Round Check's "Next step: ..." line}
 
 ### Recommended Actions
 1. Fix critical issues first
@@ -1304,7 +1558,7 @@ With `--l2-comments`, this run's GitHub output is **three per-pass comments** in
 - **No marker and no aggregated post**: skip "Emit safe-merge review marker" and "Post to GitHub" below (do not run their blocks). The `safe-merge-review` marker is written by the L2 verifier after it checks these three comments; a READY marker posted here would make the L2 recipe abort ("a READY marker for <head> is already on the PR"). The aggregated review is still saved locally (`.prp-output/reviews/pr-{NUMBER}-agents-review.md`, untracked).
 - **Core passes only**: one comment each for `code-reviewer`, `security-reviewer` and `silent-failure-hunter`, from that agent's own findings in this run (before cross-agent deduplication, so each comment stands alone). A core agent that failed or returned nothing usable is a FATAL for the run: post none of the three, and report it.
 - **Trivial tier** (2.0b saved `TIER=trivial`): exactly one comment, `code-reviewer`, whose footer ends in ` tier=trivial`. Step C re-runs `pr-risk-tier` at the reviewed head and posts nothing unless it still says `trivial`. safe-merge and merger recompute the tier themselves and never trust the footer (agent-devops#1259).
-- **With `--since-last-review`**: each comment describes the whole reviewed head, not only the new changes. A pass's counts include its still-open findings carried over by "Finding Merge" (an unresolved earlier Critical is still listed, and counted), and "Could not verify" names the incremental scope (`Incremental: files changed since <previous reviewed head>; earlier open findings carried over`).
+- **At `MODE=delta`** (2.0a decided it; `--since-last-review` is no longer required and has no additional effect here): `MODE=delta` is a label on what the round is believed to cover — it does not shrink `{CONTEXT_PATH}`. Every core pass still reads the full diff at the reviewed head (2.1) and reports its own fresh counts from that full read; an earlier open Critical or Important is still there to find and still counted, because the pass looked at the whole head again, not because anything was carried over. "Could not verify" may still name the incremental scope as a note (`Incremental: files changed since <BASE_SHA from the Review-mode line>`), but that note is advisory — it never excuses a pass from re-checking the rest of the diff.
 - **Trust model**: the footer is self-asserted text, like the marker. It makes a hand-run review stand out (it has no footer, or a footer that does not match a real run's three comments), and the L2 verifier and `safe-merge` refuse such a round once they check it (agent-devops#1243); it is not a signature.
 
 Each comment body, exactly in this order:
@@ -1312,6 +1566,7 @@ Each comment body, exactly in this order:
 ```
 Reviewed head: <REVIEWED_HEAD_SHA, 40 hex>
 Passes run: <code-reviewer|security-reviewer|silent-failure-hunter>
+Review-mode: full | delta <BASE_SHA, 40 hex>..<REVIEWED_HEAD_SHA, 40 hex>
 
 ### Critical Issues (<N> found)
 <findings or "None.">
@@ -1329,7 +1584,7 @@ Generated-by: prp-review-agents v<PRP_VERSION> run=<RUN_ID> pass=<pass name>[ ti
 ```
 
 Rules the L2 verifier enforces (so do them exactly):
-- Line 1 is exactly `Reviewed head: ` + `$REVIEWED_HEAD_SHA` saved by Phase 2.0 (never re-queried); line 2 is exactly `Passes run: ` + the pass name. No other text on those lines, and neither line, nor a `Generated-by:` line, appears anywhere else in the body.
+- Line 1 is exactly `Reviewed head: ` + `$REVIEWED_HEAD_SHA` saved by Phase 2.0 (never re-queried); line 2 is exactly `Passes run: ` + the pass name; line 3 is exactly the `Review-mode:` line Step A saved from 2.0a's decision (`Review-mode: full`, or `Review-mode: delta $BASE_SHA..$REVIEWED_HEAD_SHA`) — written by the tool, never composed by agent prose. No other text on those lines, and neither line, nor a `Generated-by:` line, appears anywhere else in the body. All three pass bodies of one run carry the identical `Review-mode:` line; Step C refuses the round if any of them differs (a "mixed modes" round) or if the line is missing or malformed.
 - Exactly one each of `### Critical Issues (N found)`, `### Important Issues (N found)`, `### Suggestions (N found)` and `### Could not verify`, spelled exactly so; no `safe-merge-review` text anywhere in the body (any case).
 - The last line is the `Generated-by:` footer. `RUN_ID` is the same for all three comments of a run and new for every run; `PRP_VERSION` is the installed framework's release version. ` tier=trivial` is appended only in a trivial run, whose one comment is `code-reviewer`.
 - Write each body with the Write tool (or a quoted heredoc), never through an unquoted shell string.
@@ -1337,7 +1592,7 @@ Rules the L2 verifier enforces (so do them exactly):
 
 The posting runs as **three separate steps**, because every shell starts fresh; the run values travel in a file, never retyped:
 
-**Step A — start the run** (run only in an `--l2-comments` run; clears any earlier run's files, reads the reviewed head saved in Phase 2.0, prints `RUN_ID` and `PRP_VERSION` for the footers and saves them):
+**Step A — start the run** (run only in an `--l2-comments` run; clears any earlier run's files, reads the reviewed head saved in Phase 2.0, prints `RUN_ID` and `PRP_VERSION` for the footers and saves them): Never type or edit a RUN_ID by hand; Step C refuses one whose time is not now, whose hex copies a commit SHA, or that was already used on this PR.
 
 ```bash
 D=.prp-output/reviews
@@ -1346,33 +1601,49 @@ REVIEWED_HEAD_SHA=$(cat "$D/pr-{NUMBER}-reviewed-head" 2>/dev/null) || REVIEWED_
 [ ${#REVIEWED_HEAD_SHA} -eq 40 ] && printf '%s' "$REVIEWED_HEAD_SHA" | grep -qxE '[0-9a-f]{40}' || { echo "FATAL: no reviewed head saved by Phase 2.0 ($D/pr-{NUMBER}-reviewed-head) — re-run the review from Phase 2.0 and every agent after it (the head is captured before the agents, never at posting time)" >&2; exit 1; }
 [ -L .prp ] || { echo "FATAL: .prp is not a symlink to the installed prp-framework — no comments posted" >&2; exit 1; }
 PRP_DIR=$(readlink -f .prp) || { echo "FATAL: cannot resolve .prp" >&2; exit 1; }
+TRACKED=$(git ls-files -- .prp) || { echo "FATAL: cannot check whether .prp is tracked — nothing posted" >&2; exit 1; }; [ -z "$TRACKED" ] || { echo "FATAL: .prp is tracked by the reviewed tree — refusing to run its scripts" >&2; exit 1; }
 PRP_VERSION=$(git -C "$PRP_DIR" describe --tags --abbrev=0 --match 'v[0-9]*' 2>/dev/null) || { echo "FATAL: cannot read the prp-framework release tag — no comments posted" >&2; exit 1; }
 PRP_VERSION="${PRP_VERSION#v}"   # the latest release tag reachable from the installed framework; the footer adds the v
 printf '%s' "$PRP_VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$' || { echo "FATAL: release tag '$PRP_VERSION' is not a version" >&2; exit 1; }
-RAND=$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n') && [ ${#RAND} -eq 8 ] || { echo "FATAL: cannot draw a run id" >&2; exit 1; }
-RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)-$RAND"
+RUN_ID=$(bash "$PRP_DIR/scripts/review/run-id.sh" new) || { echo "FATAL: cannot draw a run id" >&2; exit 1; }
 TIER=$(cat "$D/pr-{NUMBER}-tier" 2>/dev/null) || TIER=""
 case "$TIER" in trivial|standard) ;; *) echo "FATAL: no tier saved by 2.0b ($D/pr-{NUMBER}-tier) — run 2.0b, then the agents" >&2; exit 1 ;; esac
-printf 'REVIEWED_HEAD_SHA=%s\nPRP_VERSION=%s\nRUN_ID=%s\nTIER=%s\n' "$REVIEWED_HEAD_SHA" "$PRP_VERSION" "$RUN_ID" "$TIER" > "$D/pr-{NUMBER}-l2-run.env" || { echo "FATAL: cannot save the run file" >&2; exit 1; }
+MF="$D/pr-{NUMBER}-mode"
+[ -s "$MF" ] || { echo "FATAL: no review mode saved by 2.0a ($MF) — run 2.0a, then the agents" >&2; exit 1; }
+MODE=$(sed -n 1p "$MF"); BASE_SHA=$(sed -n 2p "$MF")
+case "$MODE" in
+  full) [ -z "$BASE_SHA" ] || { echo "FATAL: $MF is not well-formed (full mode with a base sha)" >&2; exit 1; } ;;
+  delta) printf '%s' "$BASE_SHA" | grep -qxE '[0-9a-f]{40}' || { echo "FATAL: $MF is not well-formed (delta mode without a base sha)" >&2; exit 1; } ;;
+  *) echo "FATAL: $MF is not well-formed (bad MODE '$MODE')" >&2; exit 1 ;;
+esac
+printf 'REVIEWED_HEAD_SHA=%s\nPRP_VERSION=%s\nRUN_ID=%s\nTIER=%s\nMODE=%s\nBASE_SHA=%s\n' "$REVIEWED_HEAD_SHA" "$PRP_VERSION" "$RUN_ID" "$TIER" "$MODE" "$BASE_SHA" > "$D/pr-{NUMBER}-l2-run.env" || { echo "FATAL: cannot save the run file" >&2; exit 1; }
 cat "$D/pr-{NUMBER}-l2-run.env"
 ```
 
-**Step B — write the bodies** to `.prp-output/reviews/pr-{NUMBER}-l2-<pass>.md`, using the values Step A printed, in the format above: three at `TIER=standard`, only `code-reviewer` (footer ending ` tier=trivial`) at `TIER=trivial` (with `--since-last-review`, the previous reviewed head for the incremental note is the `Reviewed head:` of the last review round on the PR).
+**Step B — write the bodies** to `.prp-output/reviews/pr-{NUMBER}-l2-<pass>.md`, using the values Step A printed, in the format above: three at `TIER=standard`, only `code-reviewer` (footer ending ` tier=trivial`) at `TIER=trivial`. Line 3 of every body is exactly `Review-mode: full` when Step A's `MODE=full`, or exactly `Review-mode: delta $BASE_SHA..$REVIEWED_HEAD_SHA` when `MODE=delta` — copy it from Step A's printed values, never compose it by hand. At `MODE=delta`, the previous reviewed head for the incremental note in `### Could not verify` is `$BASE_SHA`.
+
+A pass whose body mentions a timebox in any form (2.2.0: `Pass timeboxed`, `time-boxed`, ...) carries `Follow-up: https://github.com/<owner>/<repo>/issues/<n>` on its own line in `### Could not verify`; Step C refuses the round without it.
 
 **Step C — check all three, then post all three** (nothing is posted unless every body passes; the run file is consumed before the first post, so a replay cannot post a run twice):
 
 ```bash
 D=.prp-output/reviews
 ENV_F="$D/pr-{NUMBER}-l2-run.env"
+[ -L .prp ] && PRP_DIR=$(readlink -f .prp) && [ -r "$PRP_DIR/scripts/review/pass-budget.sh" ] || { echo "FATAL: cannot find the installed prp-framework scripts via .prp — nothing posted" >&2; exit 1; }
+TRACKED=$(git ls-files -- .prp) || { echo "FATAL: cannot check whether .prp is tracked — nothing posted" >&2; exit 1; }; [ -z "$TRACKED" ] || { echo "FATAL: .prp is tracked by the reviewed tree — refusing to run its scripts" >&2; exit 1; }
 [ -s "$ENV_F" ] || { echo "FATAL: $ENV_F missing — run Step A (a run file is used once; after a failed post, start a new run)" >&2; exit 1; }
-# parse, never execute: exactly three known keys with validated values
+# parse, never execute: exactly six known keys with validated values
 REVIEWED_HEAD_SHA=$(sed -n 's/^REVIEWED_HEAD_SHA=//p' "$ENV_F"); PRP_VERSION=$(sed -n 's/^PRP_VERSION=//p' "$ENV_F"); RUN_ID=$(sed -n 's/^RUN_ID=//p' "$ENV_F"); TIER=$(sed -n 's/^TIER=//p' "$ENV_F")
-[ "$(wc -l < "$ENV_F")" -eq 4 ] \
+MODE=$(sed -n 's/^MODE=//p' "$ENV_F"); BASE_SHA=$(sed -n 's/^BASE_SHA=//p' "$ENV_F")
+[ "$(wc -l < "$ENV_F")" -eq 6 ] \
   && printf '%s' "$REVIEWED_HEAD_SHA" | grep -qxE '[0-9a-f]{40}' \
   && printf '%s' "$PRP_VERSION" | grep -qxE '[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?' \
   && printf '%s' "$RUN_ID" | grep -qxE '[0-9]{8}T[0-9]{6}Z-[0-9a-f]{8}' \
   && printf '%s' "$TIER" | grep -qxE 'trivial|standard' \
+  && printf '%s' "$MODE" | grep -qxE 'full|delta' \
+  && { [ "$MODE" = full ] && [ -z "$BASE_SHA" ] || { [ "$MODE" = delta ] && printf '%s' "$BASE_SHA" | grep -qxE '[0-9a-f]{40}'; }; } \
   || { echo "FATAL: $ENV_F is not a valid run file" >&2; exit 1; }
+if [ "$MODE" = full ]; then EXPECTED_MODE_LINE="Review-mode: full"; else EXPECTED_MODE_LINE="Review-mode: delta $BASE_SHA..$REVIEWED_HEAD_SHA"; fi
 [ "$(cat "$D/pr-{NUMBER}-reviewed-head" 2>/dev/null)" = "$REVIEWED_HEAD_SHA" ] || { echo "FATAL: the run file is not from this review (reviewed head differs) — run Step A" >&2; exit 1; }
 NOW_HEAD=$(gh pr view {NUMBER} --json headRefOid -q .headRefOid) || { echo "FATAL: cannot read the PR head (gh failed) — nothing posted" >&2; exit 1; }
 [ "$NOW_HEAD" = "$REVIEWED_HEAD_SHA" ] || { echo "FATAL: PR head moved ($REVIEWED_HEAD_SHA -> $NOW_HEAD) — re-run the review, nothing posted" >&2; exit 1; }
@@ -1389,15 +1660,23 @@ for PASS in $PASSES; do
   why=""
   [ "$(sed -n 1p "$F")" = "Reviewed head: $REVIEWED_HEAD_SHA" ] || why="line 1"
   [ "$(sed -n 2p "$F")" = "Passes run: $PASS" ] || why="$why line 2"
-  [ "$(grep -c '^Reviewed head:' "$F")" = 1 ] && [ "$(grep -c '^Passes run:' "$F")" = 1 ] && [ "$(grep -c '^Generated-by:' "$F")" = 1 ] || why="$why duplicate head/pass/footer line"
+  [ "$(sed -n 3p "$F")" = "$EXPECTED_MODE_LINE" ] || why="$why line 3 (Review-mode missing, malformed, or disagrees with another pass in this run)"
+  [ "$(grep -c '^Reviewed head:' "$F")" = 1 ] && [ "$(grep -c '^Review-mode:' "$F")" = 1 ] && [ "$(grep -c '^Passes run:' "$F")" = 1 ] && [ "$(grep -c '^Generated-by:' "$F")" = 1 ] || why="$why duplicate head/mode/pass/footer line"
   for h in '### Critical Issues \([0-9]+ found\)' '### Important Issues \([0-9]+ found\)' '### Suggestions \([0-9]+ found\)' '### Could not verify'; do
     [ "$(grep -cE "^$h[[:space:]]*\$" "$F")" = 1 ] || why="$why heading '$h'"
   done
   [ "$(grep -ciE '^[[:space:]]*#+[[:space:]]*(critical|important)[[:space:]]+issues' "$F")" = 2 ] || why="$why extra severity heading"
   ! grep -qi 'safe-merge-review' "$F" || why="$why safe-merge-review text"
   [ "$(tail -n1 "$F")" = "Generated-by: prp-review-agents v$PRP_VERSION run=$RUN_ID pass=$PASS$SUFFIX" ] || why="$why footer"
+  CB=$(bash "$PRP_DIR/scripts/review/pass-budget.sh" check-body "$F" 2>&1) || why="$why timebox without a Follow-up issue link ($CB)"
   [ -z "$why" ] || { echo "FATAL: $F is not in the L2 format ($why) — nothing posted" >&2; exit 1; }
 done
+TRUSTED_LOGIN=$(gh api user --jq '.login') && [ -n "$TRUSTED_LOGIN" ] || { echo "FATAL: cannot read the trusted login; nothing posted" >&2; exit 1; }
+RID_DIR=$(mktemp -d) || { echo "FATAL: mktemp failed; nothing posted" >&2; exit 1; }
+gh api "repos/{owner}/{repo}/pulls/{NUMBER}/commits" --paginate --jq '.[].sha' > "$RID_DIR/shas" || { echo "FATAL: cannot list PR commits; nothing posted" >&2; exit 1; }
+printf '%s\n' "$NOW_HEAD" >> "$RID_DIR/shas"
+TRUSTED_LOGIN="$TRUSTED_LOGIN" gh api "repos/{owner}/{repo}/issues/{NUMBER}/comments" --paginate --jq '.[] | select(.user.login == env.TRUSTED_LOGIN) | .body' > "$RID_DIR/prior" || { echo "FATAL: cannot read PR comments; nothing posted" >&2; exit 1; }
+bash "$PRP_DIR/scripts/review/run-id.sh" check --id "$RUN_ID" --shas-file "$RID_DIR/shas" --prior-file "$RID_DIR/prior" || { echo "FATAL: run id refused; nothing posted" >&2; exit 1; }
 mv "$ENV_F" "$ENV_F.used" || { echo "FATAL: cannot consume the run file — nothing posted" >&2; exit 1; }
 POSTED=""
 for PASS in $PASSES; do
@@ -1634,5 +1913,7 @@ If implementation report references a Source PRD:
 - METRICS_COLLECTED: Review metrics appended to JSONL with review_type="agents"
 - RECOMMENDATION_CLEAR: Verdict with rationale
 - FALLBACK_AVAILABLE: Graceful fallback to /prp-review when Agent tool unavailable
+- ROUND_CAP_ENFORCED: Phase 2.0 counts the PR's review runs with `round-guard.sh` and starts no agent at the cap of 6 (prp-framework#151, cap lowered 10→6 per review-diet plan PR-3)
+- PASS_TIMEBOXED_PARTIAL: probes run under one round deadline; a timeboxed pass returns a partial report with a follow-up issue link (prp-framework#151)
 - ONE_WAKE_PER_ROUND: All passes dispatched in one message; no caller turn between dispatch and completion; no idle status pings (prp-framework#151)
 

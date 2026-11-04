@@ -28,6 +28,46 @@ PROMPTS_DIR="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)/prompts"
     grep -qi "Acceptance Criteria\|acceptance.criteria" "$PROMPTS_DIR/plan.md"
 }
 
+@test "plan.md contains Phase 4.1 Design Alternatives" {
+    grep -q "Phase 4.1: DESIGN ALTERNATIVES" "$PROMPTS_DIR/plan.md"
+}
+
+@test "plan.md lists the Design-first trigger keywords" {
+    grep -q "gate, security, policy, parser, validator or scanner" "$PROMPTS_DIR/plan.md"
+    grep -q "scripts/\*\*gate\*" "$PROMPTS_DIR/plan.md"
+    grep -q '\*validat\*' "$PROMPTS_DIR/plan.md"
+}
+
+@test "plan.md states the mechanical tie-break order" {
+    grep -q "covers ALL boundary cases" "$PROMPTS_DIR/plan.md"
+    grep -q "Smaller estimated changed lines wins" "$PROMPTS_DIR/plan.md"
+    grep -q "Fewer files touched wins" "$PROMPTS_DIR/plan.md"
+    grep -q "Lowest index wins" "$PROMPTS_DIR/plan.md"
+}
+
+@test "plan.md forbids asking the user to pick a design" {
+    grep -q "Selection is mechanical — never ask the user to pick a design, in any mode." "$PROMPTS_DIR/plan.md"
+}
+
+@test "plan.md defines blocked-design outcome" {
+    grep -q "blocked-design" "$PROMPTS_DIR/plan.md"
+}
+
+@test "plan.md requires Invariant and Verified by" {
+    grep -q "Invariant: <property>" "$PROMPTS_DIR/plan.md"
+    grep -q "Verified by: <check>" "$PROMPTS_DIR/plan.md"
+}
+
+@test "plan.md documents --no-alternatives skip-with-reason" {
+    grep -q -- "--no-alternatives" "$PROMPTS_DIR/plan.md"
+    grep -q "Design alternatives: skipped — <reason>" "$PROMPTS_DIR/plan.md"
+}
+
+@test "run-all.md handles blocked-design status" {
+    grep -q "blocked-design" "$PROMPTS_DIR/run-all.md"
+    grep -q "status:escalated" "$PROMPTS_DIR/run-all.md"
+}
+
 # ─────────────────────────────────────────────
 # 2. implement.md structure
 # ─────────────────────────────────────────────
@@ -512,4 +552,292 @@ CLEANUP_FILE="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)/adapters/cla
 
 @test "prp-cleanup.md has Success Criteria" {
     grep -qi "Success Criteria" "$CLEANUP_FILE"
+}
+
+@test "plan.md validates --alternatives and --no-alternatives flags" {
+    grep -q -- "--alternatives must be 2..3" "$PROMPTS_DIR/plan.md"
+    grep -q -- "--no-alternatives requires a reason" "$PROMPTS_DIR/plan.md"
+    grep -q -- "--alternatives N" "$PROMPTS_DIR/plan.md"
+}
+
+@test "plan.md requires shared invariant across designs" {
+    grep -q "restated verbatim" "$PROMPTS_DIR/plan.md"
+    grep -q "the SAME invariant" "$PROMPTS_DIR/plan.md"
+}
+
+@test "run-all.md escalates blocked-design via body-file" {
+    grep -q -- "--body-file" "$PROMPTS_DIR/run-all.md"
+    grep -q "STOPPED: blocked-design" "$PROMPTS_DIR/run-all.md"
+    grep -q "If ISSUE_NUMBER is empty" "$PROMPTS_DIR/run-all.md"
+}
+
+@test "implement.md refuses to implement a blocked-design plan" {
+    grep -q "STOPPED: blocked-design" "$PROMPTS_DIR/implement.md"
+    grep -q "do not change the status" "$PROMPTS_DIR/implement.md"
+    # R6: full-sentence pin — inverting `status: pending` -> STOP must go red
+    grep -qF '**If `status: blocked-design` → STOP immediately: report `STOPPED: blocked-design — no design covers all boundary cases`; do not implement' "$PROMPTS_DIR/implement.md"
+}
+
+@test "run-all.md blocked-design escalation has a failure branch" {
+    grep -q "blocked-design-{RUN_TIMESTAMP}" "$PROMPTS_DIR/run-all.md"
+}
+
+@test "run-all.md never mentions the design-alternatives flags" {
+    # `! cmd` is errexit-exempt in bats except as the last command, so each
+    # assertion is enforced explicitly via `run` + status
+    run grep -q -- "--alternatives" "$PROMPTS_DIR/run-all.md"
+    [ "$status" -ne 0 ]
+    run grep -q -- "--no-alternatives" "$PROMPTS_DIR/run-all.md"
+    [ "$status" -ne 0 ]
+}
+
+@test "run-all.md Step 2.5 PLAN GATE sits between Step 2 and Step 3 with skip guard (A1/A2)" {
+    local gate step2
+    gate=$(awk '/^### Step 2\.5: PLAN GATE/{f=1} /^### Step 3: IMPLEMENT/{f=0} f' "$PROMPTS_DIR/run-all.md")
+    [ -n "$gate" ]
+    # R6: the position is load-bearing — each heading exactly once, 2 < 2.5 < 3
+    [ "$(grep -c '^### Step 2: CREATE PLAN' "$PROMPTS_DIR/run-all.md")" -eq 1 ]
+    [ "$(grep -c '^### Step 2\.5: PLAN GATE' "$PROMPTS_DIR/run-all.md")" -eq 1 ]
+    [ "$(grep -c '^### Step 3: IMPLEMENT' "$PROMPTS_DIR/run-all.md")" -eq 1 ]
+    local step2_at gate_at step3_at
+    step2_at=$(grep -n '^### Step 2: CREATE PLAN' "$PROMPTS_DIR/run-all.md" | cut -d: -f1)
+    gate_at=$(grep -n '^### Step 2\.5: PLAN GATE' "$PROMPTS_DIR/run-all.md" | cut -d: -f1)
+    step3_at=$(grep -n '^### Step 3: IMPLEMENT' "$PROMPTS_DIR/run-all.md" | cut -d: -f1)
+    [ "$step2_at" -lt "$gate_at" ]
+    [ "$gate_at" -lt "$step3_at" ]
+    # A2: the gate is skipped on resume past Step 3, not unconditional
+    printf '%s\n' "$gate" | grep -q "skip if RESUME_FROM > 3"
+    run grep -q "resuming past Step 2" <<< "$gate"
+    [ "$status" -ne 0 ]
+    # A1: the gate body names every forward entry path and carries the escalation machinery
+    printf '%s\n' "$gate" | grep -q -- "--prp-path"
+    printf '%s\n' "$gate" | grep -q -- "--skip-plan"
+    printf '%s\n' "$gate" | grep -q -- "--resume"
+    printf '%s\n' "$gate" | grep -q "Blocked design (Phase 4.1)"
+    printf '%s\n' "$gate" | grep -q "status: blocked-design"
+    printf '%s\n' "$gate" | grep -q "PLAN_PATH"
+    printf '%s\n' "$gate" | grep -q -- "--body-file"
+    printf '%s\n' "$gate" | grep -q "status:escalated"
+    printf '%s\n' "$gate" | grep -q "STOPPED: blocked-design"
+    # semantic, not keyword-only: the STOP directive itself must survive
+    printf '%s\n' "$gate" | grep -q "STOP the whole run"
+    printf '%s\n' "$gate" | grep -q "do NOT implement"
+    printf '%s\n' "$gate" | grep -qF 'If `status: blocked-design`, STOP the whole run — do NOT implement, do NOT ask anything.'
+    # A2 leftover: no unconditional-execution claim in the gated section
+    run grep -qi 'always executes' <<< "$gate"
+    [ "$status" -ne 0 ]
+    run grep -q 'ALWAYS run' <<< "$gate"
+    [ "$status" -ne 0 ]
+    # the gate moved out of Step 2: the skip-window must no longer carry it
+    step2=$(awk '/^### Step 2: CREATE PLAN/{f=1} /^### Step 2\.5: PLAN GATE/{f=0} f' "$PROMPTS_DIR/run-all.md")
+    run grep -q "Blocked design (Phase 4.1)" <<< "$step2"
+    [ "$status" -ne 0 ]
+}
+
+@test "run-all.md Step 3 hard-stops on STOPPED before the 3.2 fallback (A3)" {
+    # order-scoped: the terminal STOPPED rule must precede the success TRANSITION and the 3.2 heading
+    local step3 stopped_at transition_at fallback_at
+    step3=$(awk '/^### Step 3: IMPLEMENT/{f=1} /^### Step 4: COMMIT/{f=0} f' "$PROMPTS_DIR/run-all.md")
+    printf '%s\n' "$step3" | grep -q "Hard STOP"
+    printf '%s\n' "$step3" | grep -q "STOPPED:"
+    # semantic, not keyword-only: the 3.2 fallback is forbidden, the outcome is recorded
+    printf '%s\n' "$step3" | grep -q "do NOT run the Step 3.2"
+    printf '%s\n' "$step3" | grep -q "status: stopped"
+    printf '%s\n' "$step3" | grep -q 'no `STOPPED:` line'
+    stopped_at=$(printf '%s\n' "$step3" | grep -n "Hard STOP" | head -1 | cut -d: -f1)
+    transition_at=$(printf '%s\n' "$step3" | grep -n '^\*\*TRANSITION\*\*' | head -1 | cut -d: -f1)
+    fallback_at=$(printf '%s\n' "$step3" | grep -n '^#### 3\.2' | head -1 | cut -d: -f1)
+    [ -n "$stopped_at" ] && [ -n "$transition_at" ] && [ -n "$fallback_at" ]
+    [ "$stopped_at" -lt "$transition_at" ]
+    [ "$stopped_at" -lt "$fallback_at" ]
+}
+
+@test "ralph.md 1.4 defines ISSUE_NUMBER and RUN_TIMESTAMP (A4)" {
+    local gate
+    gate=$(awk '/^### 1\.4 Blocked-Design Gate/{f=1} /^### 1\.5 If PRD/{f=0} f' "$PROMPTS_DIR/ralph.md")
+    [ -n "$gate" ]
+    printf '%s\n' "$gate" | grep -q "ISSUE_NUMBER"
+    printf '%s\n' "$gate" | grep -qF 'RUN_TIMESTAMP=$(date -u +%Y%m%dT%H%M%SZ)'
+    # R6: full-sentence pins — the inverted or gutted §1.4 must go red
+    printf '%s\n' "$gate" | grep -qF 'If `status: blocked-design`, STOP immediately — the ralph loop must not start.'
+    printf '%s\n' "$gate" | grep -qF 'Escalation failed — blocked-design artifact saved locally, file manually: <path>'
+    printf '%s\n' "$gate" | grep -qF '.prp-output/escalations/blocked-design-{RUN_TIMESTAMP}.md'
+}
+
+@test "ralph.md has no loop-time plan gate; §1.5 points PRD mode to #206 (R2.2)" {
+    # R2.2 scope cut: standalone /prp-ralph x.prd.md phase plans carry no
+    # design status, so the §1.4 gate does not apply there (tracked #206)
+    run grep -qF '### 3.0 Plan Gate' "$PROMPTS_DIR/ralph.md"
+    [ "$status" -ne 0 ]
+    local p15
+    p15=$(awk '/^### 1\.5 If PRD File/{f=1} /^\*\*PHASE_1_CHECKPOINT/{f=0} f' "$PROMPTS_DIR/ralph.md")
+    [ -n "$p15" ]
+    printf '%s\n' "$p15" | grep -qF 'does not apply to it'
+    printf '%s\n' "$p15" | grep -qF 'prp-framework#206'
+}
+
+@test "ralph.md blocked-design gate runs before Phase 2" {
+    # section-scoped: the gate lives in Phase 1 input validation, before SETUP
+    local p1
+    p1=$(awk '/^### 1\.3 Verify File Exists/{f=1} /^## Phase 2: SETUP/{f=0} f' "$PROMPTS_DIR/ralph.md")
+    printf '%s\n' "$p1" | grep -q "Blocked-Design Gate"
+    printf '%s\n' "$p1" | grep -q "status: blocked-design"
+    printf '%s\n' "$p1" | grep -q "STOPPED: blocked-design"
+    printf '%s\n' "$p1" | grep -q "before any iteration or archive"
+}
+
+# ─────────────────────────────────────────────
+# verify-map wiring (#202 PR-C)
+# ─────────────────────────────────────────────
+
+@test "verify.md contains the feature-map wiring markers (B4)" {
+    grep -q "UNVERIFIED" "$PROMPTS_DIR/verify.md"
+    grep -q "criteria_unverified" "$PROMPTS_DIR/verify.md"
+    grep -q "map_entries_run" "$PROMPTS_DIR/verify.md"
+    grep -q "map_synced" "$PROMPTS_DIR/verify.md"
+    grep -q "verified_sha" "$PROMPTS_DIR/verify.md"
+    grep -q -- "--init" "$PROMPTS_DIR/verify.md"
+    grep -q -- "--sync" "$PROMPTS_DIR/verify.md"
+    grep -q "feature-map.yaml" "$PROMPTS_DIR/verify.md"
+    grep -qF "never PASS on env-unavailable" "$PROMPTS_DIR/verify.md"
+}
+
+@test "verify.md artifact path is unchanged (Invariant 5)" {
+    grep -qF '.prp-output/reviews/pr-{NUMBER}-verify.md' "$PROMPTS_DIR/verify.md"
+    # verdict enum untouched: no new verdict value invented
+    grep -qF 'PASS | FAIL | PARTIAL' "$PROMPTS_DIR/verify.md"
+}
+
+@test "verify.md 0.4 refuses diff fallback on an invalid map (B8)" {
+    local sect
+    sect=$(awk '/^### 0\.4 Load Feature Map/{f=1} /^## Phase 1/{f=0} f' "$PROMPTS_DIR/verify.md")
+    [ -n "$sect" ]
+    printf '%s\n' "$sect" | grep -q "No diff fallback"
+    printf '%s\n' "$sect" | grep -q "every AC is UNVERIFIED"
+    printf '%s\n' "$sect" | grep -q "cat-file -e"
+}
+
+@test "verify.md maps removed: tombstones to UNVERIFIED + escalate (B6)" {
+    grep -q "removed:" "$PROMPTS_DIR/verify.md"
+    grep -q "removed_reason" "$PROMPTS_DIR/verify.md"
+    grep -q "UNVERIFIED + escalate" "$PROMPTS_DIR/verify.md"
+}
+
+@test "verify.md keeps diff evidence for unmapped ACs only (Invariant 7)" {
+    grep -q "diff-evidence" "$PROMPTS_DIR/verify.md"
+    grep -q "never judged by diff evidence" "$PROMPTS_DIR/verify.md"
+}
+
+@test "run-all.md STOP row for criteria_unverified precedes the PARTIAL row (B5)" {
+    local f="$PROMPTS_DIR/run-all.md"
+    local stop_at passed_at partial_at
+    stop_at=$(grep -n 'criteria_unverified > 0' "$f" | head -1 | cut -d: -f1)
+    passed_at=$(grep -n '^| VERIFY PASSED | Proceed to Step 8 |' "$f" | head -1 | cut -d: -f1)
+    partial_at=$(grep -n 'VERIFY PASSED (with gaps)' "$f" | head -1 | cut -d: -f1)
+    [ -n "$stop_at" ] && [ -n "$passed_at" ] && [ -n "$partial_at" ]
+    # the STOP row is the FIRST result row — above both the PASS row and the PARTIAL row
+    [ "$stop_at" -lt "$passed_at" ]
+    [ "$stop_at" -lt "$partial_at" ]
+    grep -q "status:escalated" "$f"
+}
+
+@test "run-all.md forces verify from the commit at exactly 3 points (B5a/B11)" {
+    local f="$PROMPTS_DIR/run-all.md"
+    [ "$(grep -cF 'feature map present → verify enforced' "$f")" -eq 3 ]
+    # hit 1 lives between the Step 1 and Step 2 headings
+    local step1
+    step1=$(awk '/^### Step 1: CREATE BRANCH/{f=1} /^### Step 2: CREATE PLAN/{f=0} f' "$f")
+    printf '%s\n' "$step1" | grep -qF 'feature map present → verify enforced'
+    printf '%s\n' "$step1" | grep -qF 'MAP_AT "HEAD"'
+    printf '%s\n' "$step1" | grep -qF 'invalid object name'
+    # hit 2 lives in the resume section
+    local resume
+    resume=$(awk '/^## Step 0\.5: INITIALIZE STATE/{f=1} /^## Workflow/{f=0} f' "$f")
+    printf '%s\n' "$resume" | grep -qF 'feature map present → verify enforced'
+    printf '%s\n' "$resume" | grep -qF 'MAP_AT "HEAD"'
+    printf '%s\n' "$resume" | grep -qF 'invalid object name'
+    printf '%s\n' "$resume" | grep -qF 'RESUME_FROM = 7.5'
+    # hit 3 lives in Step 8, which also enforces the same-head verdict
+    local step8
+    step8=$(awk '/^### Step 8: MERGE/{f=1} /^### Step 8\.5/{f=0} f' "$f")
+    printf '%s\n' "$step8" | grep -qF 'feature map present → verify enforced'
+    printf '%s\n' "$step8" | grep -q "cat-file -e"
+    printf '%s\n' "$step8" | grep -qF 'verified_sha'
+    printf '%s\n' "$step8" | grep -qF 'criteria_failed == 0'
+    printf '%s\n' "$step8" | grep -qF 'criteria_unverified == 0'
+    printf '%s\n' "$step8" | grep -qF 'Never merge'
+}
+
+@test "run-all.md detects the map with git, never the filesystem (B11)" {
+    local f="$PROMPTS_DIR/run-all.md"
+    run grep -qF '[ -f .prp-verify/feature-map.yaml' "$f"
+    [ "$status" -ne 0 ]
+    run grep -qF 'test -f .prp-verify/feature-map.yaml' "$f"
+    [ "$status" -ne 0 ]
+    # the fail-closed clause is present: a git error is never "map absent"
+    grep -qF 'A git error is never read as' "$f"
+}
+
+@test "run-all.md 7.5 skip condition is unchanged (B5a)" {
+    grep -qF 'skip if not AUTO_MERGE or VERIFY != true or REVIEW_VERDICT != "0_issues"' "$PROMPTS_DIR/run-all.md"
+    grep -qF '(automatic when the PR head has .prp-verify/feature-map.yaml' "$PROMPTS_DIR/run-all.md"
+}
+
+@test "verify.md 0.4 resolves the PR head and discriminates exit codes (r1 fix)" {
+    local sect
+    sect=$(awk '/^### 0\.4 Load Feature Map/{f=1} /^## Phase 1/{f=0} f' "$PROMPTS_DIR/verify.md")
+    printf '%s\n' "$sect" | grep -qF 'headRefOid'
+    printf '%s\n' "$sect" | grep -qF 'pull/{NUMBER}/head'
+    printf '%s\n' "$sect" | grep -qF 'invalid object name'
+    printf '%s\n' "$sect" | grep -qF '2>&1 >/dev/null'
+    # the fail-open one-liner must be gone from verify.md entirely
+    run grep -qF '&& echo MAP_PRESENT' "$PROMPTS_DIR/verify.md"
+    [ "$status" -ne 0 ]
+}
+
+@test "verify.md maps the sync tombstone outcome and exit-2 catch-all (r1 fix)" {
+    grep -qF 'all paths deleted at HEAD -> tombstone' "$PROMPTS_DIR/verify.md"
+    grep -qF 'removed_reason' "$PROMPTS_DIR/verify.md"
+    grep -qF '`2` = entry id not found' "$PROMPTS_DIR/verify.md"
+    grep -qF 'any other exit' "$PROMPTS_DIR/verify.md"
+}
+
+@test "verify.md requires the checkout at the PR head before map mechanics (r1 fix)" {
+    grep -qF 'git rev-parse HEAD' "$PROMPTS_DIR/verify.md"
+    grep -qF 'synced_sha' "$PROMPTS_DIR/verify.md"
+}
+
+@test "run-all.md Step 8 classifies MAP_AT stderr and requires map_entries_run (r1 fix)" {
+    grep -qF 'MAP_AT_ERR' "$PROMPTS_DIR/run-all.md"
+    grep -qF '2>&1 >/dev/null' "$PROMPTS_DIR/run-all.md"
+    grep -qF 'invalid object name' "$PROMPTS_DIR/run-all.md"
+    grep -qF 'map_entries_run > 0' "$PROMPTS_DIR/run-all.md"
+}
+
+@test "run-all.md Step 1 and resume detection classify git errors via MAP_AT (r2 fix)" {
+    local f="$PROMPTS_DIR/run-all.md"
+    local step1 resume
+    step1=$(awk '/^### Step 1: CREATE BRANCH/{f=1} /^### Step 2: CREATE PLAN/{f=0} f' "$f")
+    resume=$(awk '/^## Step 0\.5: INITIALIZE STATE/{f=1} /^## Workflow/{f=0} f' "$f")
+    printf '%s\n' "$step1" | grep -qF 'MAP_AT "HEAD"'
+    printf '%s\n' "$step1" | grep -qF 'MAP_AT_ERR'
+    printf '%s\n' "$step1" | grep -qF 'escalate'
+    printf '%s\n' "$resume" | grep -qF 'MAP_AT "HEAD"'
+    printf '%s\n' "$resume" | grep -qF 'MAP_AT_ERR'
+    printf '%s\n' "$resume" | grep -qF 'escalate'
+    # the fail-open one-liner is gone from run-all.md entirely
+    run grep -qF '&& echo MAP_PRESENT' "$f"
+    [ "$status" -ne 0 ]
+}
+
+@test "run-all.md 7.5 has an escape row for the zero-map-exercise artifact (r2 fix)" {
+    grep -qF 'map_entries_run == 0' "$PROMPTS_DIR/run-all.md"
+    grep -qF 'status:escalated' "$PROMPTS_DIR/run-all.md"
+}
+
+@test "verify.md 0.4 proves the fetched head is a commit before detection (r2 fix)" {
+    local sect
+    sect=$(awk '/^### 0\.4 Load Feature Map/{f=1} /^## Phase 1/{f=0} f' "$PROMPTS_DIR/verify.md")
+    printf '%s\n' "$sect" | grep -qF '${PR_HEAD_SHA}^{commit}'
+    printf '%s\n' "$sect" | grep -qF 'PR head not present after fetch'
 }

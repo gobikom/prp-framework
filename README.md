@@ -105,9 +105,19 @@ cp -r prp-framework/* my-project/
 | **Rollback** | Safely undo implementation changes (--soft / --hard with stash backup / --restore) | Implementation went wrong |
 | **Project Context** | Generate PROJECT.md — compact project docs for AI + human | New project or missing docs |
 | **Cleanup** | Post-merge cleanup (delete branches, verify merge, auto-update PROJECT.md, `--all` / `--dry-run`) | After PR merged |
-| **Verify** | Requirements traceability — checks PR diff against acceptance criteria from issue or plan | Before merge to confirm all criteria are implemented |
+| **Verify** | Requirements traceability — checks PR diff against acceptance criteria from issue or plan; runs mapped behavioural checks when a `.prp-verify/feature-map.yaml` exists (`--init` builds one, `--sync` re-proves stale entries; env-limited criteria report UNVERIFIED, never PASS) | Before merge to confirm all criteria are implemented |
 | **Done** | Issue closure gate — verifies PR merged, review artifact, verify artifact, and Vera QA before closing | After QA to formally close the issue |
 | **Run All** | Full workflow end-to-end (supports `--fast`, `--skip-plan`, `--ralph`, `--review-single-agent`, `--resume`, `--fix-severity`, `--no-interact`, `--dry-run`, `--verify`, `--qa-delegate=<agent>`, `--done`) | Complete automation |
+
+### Feature map
+
+A project can commit `.prp-verify/feature-map.yaml`: one entry per feature with `match` keywords, product `paths`, an `exercise` (a real command) and an `expect`. When the map exists on the PR head:
+
+- `{TOOL}:verify` judges matched criteria by **running** the exercise (`scripts/prp-verify-map.sh`), not by grepping the diff; env-limited entries report **UNVERIFIED** and never PASS; stale entries are re-proved via `--sync`.
+- `run-all --merge` **forces verify** whenever the map is present on the PR head (detected on the commit, not the cwd) and refuses to merge with `criteria_unverified > 0` or a verify artifact that is not same-head PASS/PARTIAL.
+- `{TOOL}:qa` uses mapped exercises as hints and each entry's `env` as the environment requirement.
+
+Build the map with `/prp-core:verify <pr> --init`, re-prove it with `--sync`; the mechanics live in `scripts/prp-verify-map.sh` (schema: `schemas/verify-map.schema.json`).
 
 ## Tool Support
 
@@ -144,6 +154,8 @@ cp -r prp-framework/* my-project/
 /prp-core:run-all --issue 87 --merge --verify --qa-delegate=vera --done  # Full autonomous lifecycle with QA + issue closure
 /prp-core:verify 25 --issue 87                             # Check PR diff implements all acceptance criteria
 /prp-core:verify 25 --plan .prp-output/plans/feature.plan.md  # Verify against plan criteria
+/prp-core:verify 25 --init                                 # Build .prp-verify/feature-map.yaml from existing suites/CLIs
+/prp-core:verify 25 --sync                                 # Re-prove stale feature-map entries (or --sync <id> for one)
 /prp-core:done 87                                          # Close issue after all gates pass (merged, reviewed, verified, QA)
 /prp-core:done 87 --skip-vera --reason="no UI changes"     # Close issue bypassing Vera QA gate (audit-logged)
 /prp-core:review-agents 25                                 # Multi-agent PR review

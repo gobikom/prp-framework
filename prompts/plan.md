@@ -59,6 +59,8 @@ ls -la */ 2>/dev/null | head -50
 | `--fast` | Fast-track mode (lighter analysis) |
 | `--no-interact` | Never ask questions — use best judgment |
 | `--package <name>` | Scope to a specific monorepo package (e.g., `--package api`). Sets `MONOREPO_PACKAGE`. |
+| `--alternatives N` | Force Design Alternatives (Phase 4.1) with N designs (2 ≤ N ≤ 3), even if the task is not Design-first. N outside 2–3, non-numeric, or missing → STOP: `--alternatives must be 2..3`. |
+| `--no-alternatives "<reason>"` | Skip Phase 4.1 on Design-first input. The plan must record `Design alternatives: skipped — <reason>`; a blank or whitespace-only reason → STOP: `--no-alternatives requires a reason`. Passing both `--alternatives` and `--no-alternatives` → STOP: mutually exclusive. |
 
 | Input Pattern | Type | Action |
 |---------------|------|--------|
@@ -145,7 +147,10 @@ Type Check: {runner} run {script-name}
 Lint: {runner} run {script-name}
 Test: {runner} {test-command}
 Build: {runner} run {script-name}
+Tier: gate|normal — {reason}
 ```
+
+`Tier:` is a forecast: the machine tier (`pr-risk-tier --rounds` at the head) decides; it can only raise this.
 
 ### 0.5.4 Detect Monorepo
 
@@ -271,6 +276,7 @@ When `--fast` flag provided:
 - **Compact plan**: Summary, Metadata (with runner), Files to Change (with Insert At), Integration Points, Tasks (max 5), Validation Commands (pre-filled), Confidence Score
 - **No**: UX diagrams, Mandatory Reading, Patterns to Mirror, expanded Testing Strategy, Risks table
 - Add plan metadata: `Mode: fast-track`
+- **Phase 4.1 interaction**: a Design-first task (or `--alternatives N`) still runs Phase 4.1 under `--fast` — never silently skipped. The compact plan additionally includes the Invariant (with `Verified by:`), the D1..Dn blocks, and the SELECTED/REJECTED record (or the skipped-reason line); `Tasks (max 5)` may exceed 5 by the per-boundary-case tests.
 
 **Warning** (complexity mismatch): If complexity > LOW detected:
 ```
@@ -412,6 +418,49 @@ NOT_BUILDING (explicit scope limits):
 - {Item 2 — out of scope and why}
 ```
 
+### Phase 4.1: DESIGN ALTERNATIVES (Design-first only)
+
+**Trigger — Design-first if ANY of:**
+- the task adds or changes gate, security, policy, parser, validator or scanner behaviour;
+- the expected change paths match `.github/**`, `scripts/**gate*`, `*validat*`, `*pars*`, `*scan*`, `auth`, `policy`, or `security`;
+- `--alternatives N` was passed (N = number of designs to draft; N outside 2–3, non-numeric, or missing → STOP: `--alternatives must be 2..3`).
+
+**Skip:** none of the above and no `--alternatives` → keep the single-design `APPROACH_CHOSEN` block above. Do NOT emit a `## Design Alternatives` section (structure and cost unchanged).
+**Skip-with-reason:** `--no-alternatives "<reason>"` on Design-first input is allowed, but the plan MUST record `Design alternatives: skipped — <reason>`. A blank or whitespace-only reason → STOP: `--no-alternatives requires a reason`. Passing both `--alternatives` and `--no-alternatives` → STOP: mutually exclusive.
+
+When triggered, FIRST enumerate the task's boundary cases as a table at the top of the plan's `## Design Alternatives` section (derived from the Invariant). Rule 1, each design's `Covers all boundary cases` field, the blocked-design trigger, and the PHASE_4_CHECKPOINT item all evaluate coverage against THIS table — not against the cases an individual design block lists. Then draft 2–3 competing designs. Each design gets its own block:
+
+```
+### D{n}: {name}
+Invariant: {the task's Invariant (section 4), restated verbatim — every design must satisfy the SAME invariant}
+| Boundary case | Handled how | Test (one per boundary case) |
+Est. changed lines: {N} · Files: {list}
+Covers all boundary cases: yes|no (missing: …)
+Channels trusted: {every input channel this design must trust — e.g. PR body, env var, file on disk, API response, CLI arg; `none` if it trusts none}
+```
+
+Every design must satisfy the task's Invariant. "Covers ALL boundary cases" means coverage of the task's boundary-case table — not just the cases the design's own block lists.
+
+**Selection rule — applied in order until one design remains:**
+1. A design that covers ALL boundary cases beats one that does not.
+2. Fewer input channels the design must trust wins (count the `Channels trusted:` line).
+3. Smaller estimated changed lines wins.
+4. Fewer files touched wins.
+5. Lowest index wins (D1 = closest to the existing pattern).
+
+Rules 2–5 never override rule 1: a design that fails the task's `Verified by:` checks (section 4) for the Invariant does not count as covering all boundary cases, whatever its estimated size. Rule 5's tie-break favors the existing pattern — for security-adjacent Design-first work, first verify the existing pattern is not itself the vulnerability before relying on the tie-break.
+
+Selection is mechanical — never ask the user to pick a design, in any mode.
+
+Record the outcome in the plan:
+
+```
+SELECTED: D{n} — rule step {1-5} decided
+REJECTED: D{m} — {failed step + detail}
+```
+
+**If NO design covers every boundary case:** set plan frontmatter `status: blocked-design`, list the uncovered cases under the selection record, and do not proceed to implement. `run-all` treats `blocked-design` as STOP + issue comment with the uncovered cases + label `status:escalated` — never a question.
+
 ### Design Doc Integration
 
 ```bash
@@ -455,6 +504,7 @@ If found: incorporate API contracts, DB schema, NFRs. Design doc takes precedenc
 - [ ] Edge cases identified with mitigations
 - [ ] Scope boundaries explicit and justified
 - [ ] Technical Design sections included (if applicable)
+- [ ] If Design-first: selection record present (`SELECTED`/`REJECTED`, or `Design alternatives: skipped — <reason>`), Invariant stated with `Verified by:`, every boundary case has a test
 
 ---
 
@@ -503,37 +553,46 @@ Create directory: `mkdir -p .prp-output/plans`
 
 ### Plan Structure
 
-The plan file MUST include lifecycle frontmatter (`status: pending`, `runner`, `mode`) and ALL these sections:
+**Header line (required, directly under the title):**
+
+> Plans are written by the orchestrator (psak) and peer-reviewed before implementation; implementers run `/prp-core:prp-implement <plan>`, not `prp-run-all`.
+
+The plan file MUST include lifecycle frontmatter (`status: pending` — or `blocked-design` when Phase 4.1 blocks, `runner`, `mode`) and ALL these sections:
 
 1. **Summary** — what we're building
 2. **User Story** — who, what, why
 3. **Problem/Solution Statements** — specific and testable
-4. **Metadata** — type, complexity, systems, dependencies, task count, **Runner + Type Check + Lint + Test + Build commands** (+ Monorepo/Package/Filter if applicable)
-5. **UX Design** — before/after ASCII diagrams + interaction changes table
-6. **Mandatory Reading** — P0/P1/P2 priority files the implementer MUST read first, external docs with version
-7. **Patterns to Mirror** — ACTUAL code snippets with SOURCE tags: naming, errors, logging, repository, service, tests
-8. **Files to Change** — CREATE/UPDATE list with **Insert At** hints and justifications
-9. **Integration Points** — new code → existing code hook locations (file:line, wiring details)
-10. **NOT Building** — explicit scope limits
-11. **Step-by-Step Tasks** — ordered, atomic, each with:
+4. **Invariant** (required for Design-first tasks) — `Invariant: <property>` + `Verified by: <check>` (the checks/tests that prove the invariant holds)
+5. **Design Alternatives** (Design-first only) — the task boundary-case table, the D1..Dn blocks, one test per boundary case, and the SELECTED/REJECTED record; or `Design alternatives: skipped — <reason>`
+6. **Metadata** — type, complexity, systems, dependencies, task count, **Runner + Type Check + Lint + Test + Build commands** (+ Monorepo/Package/Filter if applicable)
+7. **UX Design** — before/after ASCII diagrams + interaction changes table
+8. **Mandatory Reading** — P0/P1/P2 priority files the implementer MUST read first, external docs with version
+9. **Patterns to Mirror** — ACTUAL code snippets with SOURCE tags: naming, errors, logging, repository, service, tests
+10. **Files to Change** — CREATE/UPDATE list with **Insert At** hints and justifications
+11. **Integration Points** — new code → existing code hook locations (file:line, wiring details)
+12. **NOT Building** — explicit scope limits
+13. **Step-by-Step Tasks** — ordered, atomic, each with:
     - **ACTION**: What to do (CREATE/UPDATE)
     - **IMPLEMENT**: Specific details
     - **MIRROR**: Source file:lines to copy pattern from
     - **IMPORTS**: Exact import statements
     - **GOTCHA**: Known pitfalls to avoid
     - **VALIDATE**: Exact command to verify (pre-filled, no placeholders)
-12. **Testing Strategy** — unit tests table + integration tests (conditional) + test data + performance benchmarks (conditional) + edge cases checklist
-13. **Docs Impact** — list docs pages to update/create, or "N/A" with per-feature justification. If the plan changes user-facing behavior, list which `packages/docs/` pages need updating and include docs + translation as implementation steps (the implementing agent writes EN docs + translates to 13 locales in the same PR). Blank = ⚠️ warning at gate audit.
-14. **Gate Compliance** (ALWAYS emit — agent-devops#799) — a `## Gate Compliance` section that maps the project's `/gate` operational checklists to plan tasks so the pre-implement gate-audit (Layer 3) can verify completeness. Classify the change and scale the content (tiered — never silently omit):
+14. **Testing Strategy** — unit tests table + integration tests (conditional) + test data + performance benchmarks (conditional) + edge cases checklist
+15. **Docs Impact** — list docs pages to update/create, or "N/A" with per-feature justification. If the plan changes user-facing behavior, list which `packages/docs/` pages need updating and include docs + translation as implementation steps (the implementing agent writes EN docs + translates to 13 locales in the same PR). Blank = ⚠️ warning at gate audit.
+16. **Gate Compliance** (ALWAYS emit — agent-devops#799) — a `## Gate Compliance` section that maps the project's `/gate` operational checklists to plan tasks so the pre-implement gate-audit (Layer 3) can verify completeness. Classify the change and scale the content (tiered — never silently omit):
     - **User-facing / new endpoint / schema / new entity / feature flag / billing change** → map each applicable `new_feature` + `epic_kickoff` + `post_ship` item to an owning plan task/phase: smoke-test L1/L2 for new endpoints, `seed-uat-roles` for new entities, nav entry points for new pages, `ALTER TYPE … ADD VALUE` for new enums, feature-flag verify-all-envs, docs redeploy, post-ship rollback/version-bump/branch-cleanup.
     - **Genuinely internal-only** (docs/config/refactor with no user-facing or CI-observable change) → `Gate Compliance: N/A — <enumerated reason>`. A blanket "N/A — no new features" is **REJECTED** (mirrors the Docs Impact N/A bar): enumerate what was checked (no `packages/web` pages, no `/api` routes, no schema/entities, no flags/billing) and why none apply.
     - The always-present, justified classification is what lets the gate-auditor mechanically verify L3. **If this project ships a `/gate` skill (e.g. claude-code/codex), run `/gate audit pre-implement` to verify this section** (other toolchains: skip — this line degrades gracefully).
-15. **Validation Commands** — 6 levels (Static Analysis, Unit Tests, Full Suite, Database, Browser, Manual), **pre-filled with actual commands**
-16. **Confidence Score** — 5 dimensions × 2pts = 10 formula: Patterns + Gotchas + Integration + Validation + Testing
-17. **Acceptance Criteria** — definition of done (including unit tests cover >= 90% of new code)
-18. **Completion Checklist** — all 6 validation levels
-19. **Risks and Mitigations** — likelihood, impact, strategy
-20. **Technical Design** (conditional, HIGH or API/DB) — API contracts, DB schema, sequence diagrams, NFRs, migration & rollback
+17. **Validation Commands** — 6 levels (Static Analysis, Unit Tests, Full Suite, Database, Browser, Manual), **pre-filled with actual commands**
+18. **Confidence Score** — 5 dimensions × 2pts = 10 formula: Patterns + Gotchas + Integration + Validation + Testing
+19. **Acceptance Criteria** — definition of done (including unit tests cover >= 90% of new code)
+20. **Completion Checklist** — all 6 validation levels
+21. **Risks and Mitigations** — likelihood, impact, strategy
+22. **Technical Design** (conditional, HIGH or API/DB) — API contracts, DB schema, sequence diagrams, NFRs, migration & rollback
+23. **Threat model / Out of scope** (required) — a `## Threat model / Out of scope` section: who controls which inputs, and which environments the plan does NOT defend (e.g. "a host where `grep` is missing from PATH"). Rule: A review finding that needs an out-of-scope environment is a Suggestion — only when that environment is unreachable: no input listed under who controls which inputs, and no `Channels trusted:` channel, reaches it, and the change never runs there (CI and self-hosted runners are always in scope). The downgrade never applies to a Critical, and a reviewer who shows the environment is reachable keeps the original severity.
+24. **Baseline** (required) — a `## Baseline` section: the full-suite command and its result (pass/fail counts) before any change, and for every changed symbol or file its callers and test stubs, citing the `grep -rn` or `ck_impact` output.
+25. **PR stack** (required when the estimate is over 800 counted lines, generated adapters included) — a `## PR stack` table: `| PR | Scope | Est. lines | Depends on |`. Each PR stays at or under 800 counted lines; tests stay in the same PR as the code they test.
 
 **IMPORTANT**: The saved plan file MUST NOT contain any unfilled `{...}` placeholders in Validation Commands section. Pre-fill with actual detected commands.
 

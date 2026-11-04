@@ -1,0 +1,112 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PRP verify feature map",
+  "description": "Committed, project-local map of feature id to a runnable exercise and its expected observable result (.prp-verify/feature-map.yaml). Consumed by scripts/prp-verify-map.sh; wired into {TOOL}:verify by PR-C (prp-framework#202).",
+  "type": "object",
+  "required": ["version", "features"],
+  "additionalProperties": false,
+  "properties": {
+    "version": { "const": 1 },
+    "features": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/feature" }
+    },
+    "removed": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/tombstone" }
+    }
+  },
+  "$defs": {
+    "expect": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": false,
+      "properties": {
+        "exit": { "type": "integer" },
+        "stdout_regex": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "http_status": { "type": "integer", "minimum": 100, "maximum": 599 },
+        "json_path": { "type": "string", "minLength": 1, "maxLength": 256 }
+      }
+    },
+    "negative_proof": {
+      "type": "object",
+      "required": ["sha", "exit"],
+      "additionalProperties": false,
+      "properties": {
+        "sha": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$",
+          "description": "Head at which the negative proof was recorded."
+        },
+        "exit": {
+          "type": "integer",
+          "not": { "const": 0 },
+          "description": "Exit the exercise produced with the product paths deleted. Must be non-zero: a 0 here means the negative proof met expect and the entry is vacuous."
+        }
+      }
+    },
+    "feature": {
+      "type": "object",
+      "required": [
+        "id", "summary", "match", "paths", "surface", "env",
+        "exercise", "expect", "synced_sha", "negative_proof"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+          "maxLength": 64,
+          "description": "Unique kebab-case feature id."
+        },
+        "summary": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "match": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1, "maxLength": 80 },
+          "description": "AC-text keywords (case-insensitive whole-word) that route an AC to this entry."
+        },
+        "paths": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1, "maxLength": 200 },
+          "description": "Product-path globs (fnmatch with ** support). The exercise is re-run with these deleted for the negative proof; the exercise's own files must not be inside them."
+        },
+        "surface": { "enum": ["cli", "api", "ui", "lib"] },
+        "env": {
+          "type": "string",
+          "pattern": "^(local|uat|staging|browser|creds:[A-Z0-9_]+)$"
+        },
+        "exercise": { "type": "string", "minLength": 1, "maxLength": 2000 },
+        "expect": { "$ref": "#/$defs/expect" },
+        "timeout": { "type": "integer", "minimum": 1, "maximum": 3600, "default": 120 },
+        "synced_sha": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$",
+          "description": "Head at which the entry last passed run and prove-negative. Advanced only by sync exiting 0."
+        },
+        "negative_proof": { "$ref": "#/$defs/negative_proof" }
+      }
+    },
+    "tombstone": {
+      "type": "object",
+      "required": ["id", "removed_reason", "removed_sha"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+          "maxLength": 64
+        },
+        "match": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1, "maxLength": 80 },
+          "description": "Kept from the live entry so tombstoned ACs still route to removed:<id>."
+        },
+        "removed_reason": { "type": "string", "minLength": 10 },
+        "removed_sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" }
+      }
+    }
+  }
+}

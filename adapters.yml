@@ -273,8 +273,8 @@ commands:
   verify:
     description:
       claude-code: "Verify PR implements acceptance criteria - requirements traceability from issue/plan to diff evidence"
-      default: "Requirements verification — for each acceptance criterion, find evidence in the PR diff that it was implemented. Produces verify artifact for safe-merge Gate 2."
-    argument-hint: "<pr-number> [--plan <path>] [--issue <N>] [--criteria \"...\"]"
+      default: "Requirements verification — for each acceptance criterion, find evidence in the PR diff that it was implemented; runs mapped behavioural checks when .prp-verify/feature-map.yaml exists. Produces verify artifact for safe-merge Gate 2."
+    argument-hint: "<pr-number> [--plan <path>] [--issue <N>] [--criteria \"...\"] [--init] [--sync [id]]"
     codex-short-description: "Verify PR implements requirements"
     opencode-agent: "plan"
 

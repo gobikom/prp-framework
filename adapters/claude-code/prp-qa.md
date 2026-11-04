@@ -84,6 +84,8 @@ Criteria come from ONE of these sources (in priority order):
 | `--plan <path>` | Read plan file — extract acceptance criteria / success criteria section |
 | None provided | STOP — "No acceptance criteria specified. Use --criteria, --issue, or --plan." |
 
+**Feature map hints (read-only).** If `.prp-verify/feature-map.yaml` exists in the repo, read it and, for each criterion that matches a map entry (`scripts/prp-verify-map.sh match .prp-verify/feature-map.yaml "<criterion text>"`), list the entry's `exercise` as a **hint** for how to exercise that criterion, and treat the entry's `env` as the **environment requirement** (e.g. `env: uat` needs `PRP_VERIFY_UAT_URL` and a reachable UAT). The map never decides a QA verdict — QA verdict logic is unchanged; hints only speed up exercise design.
+
 ### 0.3 Parse Criteria into Checklist
 
 Convert raw criteria into a structured checklist:

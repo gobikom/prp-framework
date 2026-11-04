@@ -1,0 +1,32 @@
+# Invalid: two features share an id (B8)
+version: 1
+features:
+  - id: dup-id
+    summary: first
+    match: [dup]
+    paths: ["src/**"]
+    surface: cli
+    env: local
+    exercise: "true"
+    expect:
+      exit: 0
+    timeout: 10
+    synced_sha: a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0
+    negative_proof:
+      sha: a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0
+      exit: 1
+  - id: dup-id
+    summary: second with the same id
+    match: [dup]
+    paths: ["docs/**"]
+    surface: cli
+    env: local
+    exercise: "true"
+    expect:
+      exit: 0
+    timeout: 10
+    synced_sha: a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0
+    negative_proof:
+      sha: a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0
+      exit: 1
+removed: []

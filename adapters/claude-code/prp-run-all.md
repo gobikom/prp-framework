@@ -45,8 +45,8 @@ Execute the complete PRP workflow end-to-end autonomously. Each step delegates t
 | `--package <name>` | Scope to a specific monorepo package. Passed through to plan and implement steps. |
 | `--issue <N>` | Fetch GitHub issue #N context. Set ISSUE_NUMBER = N. Extracts title + body as FEATURE. |
 | `--merge` | Auto squash-merge PR after review passes (0 issues). Set AUTO_MERGE = true. |
-| `--max-review-rounds <N>` | Override max review-fix cycles (default: 5). |
-| `--verify` | Run /prp-core:prp-verify before merge to check requirements traceability (Step 7.5). Set VERIFY = true. |
+| `--max-review-rounds <N>` | Override max review-fix cycles (default: 6). |
+| `--verify` | Run /prp-core:prp-verify before merge to check requirements traceability (Step 7.5). Set VERIFY = true. (automatic when the PR head has .prp-verify/feature-map.yaml — forced in Step 1/resume/Step 8; no flag can turn it off) |
 | `--qa-delegate=<agent>` | Delegate QA to agent after merge via /prp-core:prp-qa --delegate (Step 8.5). Set QA_DELEGATE = agent. |
 | `--done` | Run /prp-core:prp-done after QA delegation to close issue when all gates pass (Step 9). Set DONE = true. Requires --issue. |
 | `--dry-run` | Preview all steps without executing. Show estimated token cost. Exit after preview. |
@@ -80,7 +80,7 @@ MONOREPO_PACKAGE = "{from --package, or empty}"
 DRY_RUN = {true if --dry-run}
 ISSUE_NUMBER = "{from --issue, or empty}"
 AUTO_MERGE = {true if --merge}
-MAX_CYCLES = {from --max-review-rounds, default 5}
+MAX_CYCLES = {from --max-review-rounds, default 6}
 VERIFY = {true if --verify}
 QA_DELEGATE = "{from --qa-delegate, or empty}"
 DONE = {true if --done}
@@ -214,6 +214,16 @@ Write `.prp-output/state/run-all.state.md` using Bash heredoc with YAML frontmat
 On `--resume`: restore ALL variables from state file. Set `RESUME_FROM = step` from frontmatter.
 If `worktree_path` is non-empty: validate it starts with `/tmp/prp-worktree/` and the directory exists, then `cd` to it before resuming. Reject paths that don't match the prefix.
 
+**Feature-map detection on `--resume` (forced verify).** After state is restored and the shell is in the saved worktree, evaluate with `MAP_AT` (defined in the Workflow section below; same fail-closed classification as Step 8 — a git error is never read as "map absent"):
+
+```bash
+MAP_AT "HEAD"; MAP_RC=$?
+# MAP_RC = 0 → MAP_PRESENT; MAP_RC = 128 with `does not exist` / `invalid object name`
+# in MAP_AT_ERR → NO_MAP; anything else → STOP: "feature-map detection error" + escalate.
+```
+
+If `MAP_PRESENT`: set `VERIFY = true`, persist `verify_forced: true` to the state file, and log `feature map present → verify enforced`. Additionally, if `RESUME_FROM > 7.5`, set `RESUME_FROM = 7.5` — verify always re-runs on resume; a verify artifact from before the resume is never trusted.
+
 **STATE FILE I/O RULE**: Always use **Bash with heredoc** (`cat > file << 'EOF'`) to create and update state and lock files in `.prp-output/state/`. These are machine-generated tracking files, not source code.
 
 **STATE UPDATE RULE**: After each step completes:
@@ -238,6 +248,14 @@ If `worktree_path` is non-empty: validate it starts with `/tmp/prp-worktree/` an
 ## Workflow
 
 Execute these steps in sequence. **Stop immediately on any failure.**
+
+**MAP_AT helper (feature-map-on-commit detection).** One helper, evaluated at three points (end of Step 1, on `--resume`, in Step 8). Detection reads the commit — never the cwd, never saved state alone:
+
+```bash
+# MAP_AT <ref> — exit 0 = the commit <ref> contains .prp-verify/feature-map.yaml;
+# on failure MAP_AT_ERR holds cat-file's stderr for the fail-closed classification below
+MAP_AT() { MAP_AT_ERR="$(git -C "${WORKTREE_PATH:-.}" cat-file -e "$1:.prp-verify/feature-map.yaml" 2>&1 >/dev/null)"; return $?; }
+```
 
 ### Step 0.8: FETCH ISSUE CONTEXT (skip if no --issue)
 
@@ -310,6 +328,16 @@ Artifacts (`.prp-output/`) are symlinked to the original repo — they persist a
 **Variable update**: `BRANCH = feature/{slug}`, `WORKTREE_PATH = /tmp/prp-worktree/...`
 **Failure**: worktree creation fails → falls back to `git checkout -b` (WORKTREE_PATH = empty). All guards STOP on unrecoverable errors.
 
+**Feature-map detection (end of Step 1 — forced verify).** After the branch/worktree exists (`WORKTREE_PATH` is set), evaluate with `MAP_AT` (same fail-closed classification as Step 8 — a git error is never read as "map absent"):
+
+```bash
+MAP_AT "HEAD"; MAP_RC=$?
+# MAP_RC = 0 → MAP_PRESENT; MAP_RC = 128 with `does not exist` / `invalid object name`
+# in MAP_AT_ERR → NO_MAP; anything else → STOP: "feature-map detection error" + escalate.
+```
+
+If `MAP_PRESENT`: set `VERIFY = true`, persist `verify_forced: true` to the state file, and log `feature map present → verify enforced`. From here no flag can turn verify off for this run. (Detection is here, not at Step 0, because the PR worktree does not exist yet at Step 0.)
+
 ---
 
 ### Step 2: CREATE PLAN (skip if --prp-path or SKIP_PLAN or RESUME_FROM > 2)
@@ -353,6 +381,16 @@ This will: analyze codebase (lighter if --fast), generate plan with validation c
 
 ---
 
+### Step 2.5: PLAN GATE (skip if RESUME_FROM > 3)
+
+Runs on every path that sets PLAN_PATH and has not yet reached Step 4: `--prp-path` (explicit plan), `--skip-plan`/stub, smart plan detection, and `--resume` resuming into Steps 2-3 (`RESUME_FROM` ≤ 3). SKIP it when `RESUME_FROM > 3` — that run already passed this gate before Step 4, and implement may since have moved the plan to `plans/completed/`, so re-gating would read a moved or missing file.
+
+**Blocked design (Phase 4.1):** read the plan at `PLAN_PATH` frontmatter. If `status: blocked-design`, STOP the whole run — do NOT implement, do NOT ask anything. Extract the uncovered boundary cases from the plan's Design Alternatives section and write them + the plan path to a temp file with a quoted-delimiter heredoc (`<<'EOF'`) — never inline-interpolate plan text into a shell argument. If ISSUE_NUMBER is set: `gh issue comment <N> --body-file <file>`. If ISSUE_NUMBER is empty: `gh issue create` titled `blocked-design: <feature>` with `--body-file <file>` and use that issue as the escalation target. If the `gh` command fails (non-zero exit): copy the body file to `.prp-output/escalations/blocked-design-{RUN_TIMESTAMP}.md` and STOP with `Escalation failed — blocked-design artifact saved locally, file manually: <path>` (do NOT report an issue URL). If `gh` succeeds: add label `status:escalated` (create the label if missing; a label failure is non-fatal — WARN and continue) on the target issue, and report `STOPPED: blocked-design — no design covers all boundary cases (see <issue>)`. Escalation is a comment + label, never a question.
+
+**CHECKPOINT**: Did you read the plan frontmatter at `PLAN_PATH` before implementing? If not → STOP → do it.
+
+---
+
 ### Step 3: IMPLEMENT (skip if RESUME_FROM > 3)
 
 **Choose path based on `USE_RALPH`:**
@@ -375,7 +413,8 @@ This will: loop iteratively until ALL validations pass, self-fix failures, write
 
 **DO NOT**: Read implement/ralph skill and execute logic yourself, write code directly.
 **CHECKPOINT**: Did you invoke `/prp-core:prp-implement` or `/prp-core:prp-ralph`? If not → STOP → invoke it.
-**TRANSITION**: Implement succeeded → **immediately proceed to Step 3.1**.
+**Hard STOP — `STOPPED:` output**: if implement (3A) or ralph (3B) reports `STOPPED:` (e.g. `STOPPED: blocked-design`), that is a terminal outcome for the whole run: do NOT proceed to Step 3.1, do NOT run the Step 3.2 "Create Missing Artifacts" fallback, do NOT fabricate a report or review context. Write `status: stopped` and the `STOPPED:` reason to the state file (keep the worktree and lock so `--resume` can pick up), report the `STOPPED:` line verbatim, and stop.
+**TRANSITION**: Implement succeeded (no `STOPPED:` line) → **immediately proceed to Step 3.1**.
 
 #### 3.1 Verify Artifacts
 
@@ -434,7 +473,7 @@ If ISSUE_NUMBER is set: ensure the PR body includes `Fixes #{ISSUE_NUMBER}` so t
 
 ### Step 6: REVIEW & FIX (skip if SKIP_REVIEW or NO_PR or RESUME_FROM > 6)
 
-Set: `REVIEW_CYCLE = {from state file if --resume, otherwise 1}` (MAX_CYCLES already set from Step 0 — default 5)
+Set: `REVIEW_CYCLE = {from state file if --resume, otherwise 1}` (MAX_CYCLES already set from Step 0 — default 6)
 
 #### 6.1 Run Review
 
@@ -644,10 +683,12 @@ Use `/prp-core:prp-verify` with `--pr {PR_NUMBER}` (append `--issue {ISSUE_NUMBE
 
 This will: fetch the PR diff, gather acceptance criteria from the linked issue or plan, check each criterion for implementation evidence, and produce a verify artifact at `.prp-output/reviews/pr-{PR_NUMBER}-verify.md`.
 
-**Variable update**: `VERIFY_VERDICT = {PASS | FAIL | PARTIAL from artifact}`
+**Variable update**: `VERIFY_VERDICT = {PASS | FAIL | PARTIAL from artifact}`; `VERIFY_UNVERIFIED = criteria_unverified` (from the artifact frontmatter; 0 when the key is absent — no feature map)
 
 | Result | Action |
 |--------|--------|
+| `VERIFY_UNVERIFIED > 0` (`criteria_unverified > 0`) | STOP: do not merge. `gh issue comment` with the UNVERIFIED criteria + the env each one needs; add label `status:escalated`. Checked first — an incomplete verify never proceeds, even when `verdict: PARTIAL` would otherwise pass the next row. |
+| map present on the PR head ∧ `criteria_unverified == 0` ∧ `map_entries_run == 0` | STOP: do not merge — the verify artifact never ran a map exercise despite a mapped PR (no criterion matched any map entry). `gh issue comment` with the mismatch; add label `status:escalated`. |
 | VERIFY PASSED | Proceed to Step 8 |
 | VERIFY PASSED (with gaps) | WARN: "Verify has partial coverage — proceeding to merge." Proceed to Step 8. |
 | VERIFY FAILED | STOP — "Requirements verification failed. Fix issues then re-run with --verify." Do NOT merge. |
@@ -675,10 +716,32 @@ gh pr view {PR_NUMBER} --json state,mergeable --jq '{state: .state, mergeable: .
 | Result | Action |
 |--------|--------|
 | state=MERGED | WARN: "PR #{PR_NUMBER} was already merged." → skip 8.1, proceed to 8.2 |
-| state=OPEN, mergeable=MERGEABLE | Proceed to 8.1 |
+| state=OPEN, mergeable=MERGEABLE | Proceed to the feature-map gate below, then 8.1 |
 | state=OPEN, mergeable=CONFLICTING | STOP: "Merge conflict. Resolve manually then run `--resume`." |
 | state=OPEN, mergeable=UNKNOWN | Wait 5 seconds, retry once. If still UNKNOWN → STOP: "GitHub merge check pending. Re-run with `--resume`." |
 | state=CLOSED | STOP: "PR was closed. Cannot merge." |
+
+**Feature-map detection at the PR head (fail-closed) + verdict enforcement.** This catches a map that landed on the PR head after Step 1:
+
+```bash
+git -C "${WORKTREE_PATH:-.}" fetch origin "pull/{PR_NUMBER}/head" || { echo "STOP: cannot fetch PR head"; exit 1; }
+PR_HEAD_SHA="$(gh pr view {PR_NUMBER} --json headRefOid -q .headRefOid)"
+printf '%s' "$PR_HEAD_SHA" | grep -qE '^[0-9a-f]{40}$' || { echo "STOP: could not read PR head SHA"; exit 1; }
+git -C "${WORKTREE_PATH:-.}" cat-file -e "${PR_HEAD_SHA}^{commit}" 2>/dev/null || { echo "STOP: fetched PR head is not a commit object"; exit 1; }
+MAP_AT "$PR_HEAD_SHA"; MAP_RC=$?
+```
+
+**Fail-closed rules**: if the fetch fails, the head SHA cannot be read, or `cat-file -e` exits with anything other than `0` (map present) or `128` with `does not exist` / `invalid object name` in `MAP_AT_ERR` (map absent, ref already proven to be a commit above) → STOP + escalate. A git error is never read as "map absent" — `MAP_AT` captures cat-file's stderr in `MAP_AT_ERR` precisely so this classification can be made; if `MAP_AT_ERR` does not clearly match one of the two absent-messages above, STOP + escalate.
+
+If `MAP_RC = 0` (map present at the PR head): set `VERIFY = true` and log `feature map present → verify enforced`, then read `.prp-output/reviews/pr-{PR_NUMBER}-verify.md` frontmatter and require **all** of:
+
+- `verified_sha` == `{PR_HEAD_SHA}` (same-head verify artifact);
+- `verdict` ∈ {`PASS`, `PARTIAL`};
+- `criteria_failed == 0`;
+- `criteria_unverified == 0`;
+- `map_entries_run > 0` (the verify artifact actually ran at least one map exercise — a mapped PR where every entry was skipped or tombstoned cannot merge).
+
+If the artifact is missing, unparsable, or fails any of these → go back to Step 7.5. If Step 7.5 then yields the same failing result → STOP + escalate per the 7.5 table. Never merge.
 
 #### 8.1 Merge
 
@@ -773,7 +836,7 @@ This will: check all completion gates (PR merged, review artifact, verify artifa
 4. **Pass context forward** — information flows from earlier to later steps. Pass `--context` to review.
 5. **No extra validation** — each skill validates its own output. Adding more wastes tokens.
 6. **One commit per implementation** — review fixes committed separately by `/prp-core:prp-review-fix`.
-7. **Max review cycles** — configurable via `--max-review-rounds` (default 5). Target is 0 issues all severities. STOP and report if exceeded.
+7. **Max review cycles** — configurable via `--max-review-rounds` (default 6). Target is 0 issues all severities. STOP and report if exceeded.
 8. **Re-verify after fix** — always re-run `/prp-core:prp-review` after fix. Use `--since-last-review` for token optimization.
 9. **No-interact means ZERO questions** — when `NO_INTERACT = true`: NEVER ask user questions. Make autonomous decisions, pick defaults. Pass `--no-interact` to sub-commands.
 10. **State management** — update state file after every step. Delete on completion. Support `--resume`.
