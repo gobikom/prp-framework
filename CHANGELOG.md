@@ -33,6 +33,25 @@ Every major version release MUST include a `docs/migration/vX.0-to-vY.0.md` file
 
 ## [Unreleased]
 
+### Fixed
+- `gen-ai-context.sh` excludes `.sandbox-home` / `.sandbox-tmp` / `.sandbox-root` (and `.sandbox-*` glob)
+  from every scan site — `detect_stack` EXCL and `detect_exports` EXCL via grep `--exclude-dir`
+  (matches at any depth), the Context Map generate loop and the `--check` forward scan via a
+  `find \( -type d -name '.sandbox-*' -prune \)` at depth (a nested `foo/.sandbox-*/x.py` no longer
+  marks `foo/` as a code dir or reports it missing from the Context Map), and the
+  `detect_entry_points` Java find via the same prune (`src/main/java/.sandbox-*/Application.java`
+  never becomes an Entry point). The top-level `.sandbox-*` case arms stay as defense-in-depth
+  against `dotglob`. `--check` reads only the FIRST AUTO-GEN block (anchored `<!-- AUTO-GEN:` markers):
+  the Stack is up to date only on an exact whole-line `- **Stack:** <detect_stack>` match there, so a
+  duplicate block or marker text quoted in the body no longer satisfies it (extra blocks warn in
+  `--update` and make `--check` stale). A failed `find` in the map/check scans is visible
+  (`could not scan '<dir>/'`, plus stale=1 in `--check`), never read as "nothing found". Agent
+  harnesses (chela) that spawn sessions with a sandboxed HOME inside the working repo previously
+  leaked plugin junk into PROJECT.md auto-gen sections: `sqlite3` matches in sandbox `.py` files
+  produced a false `Stack: SQLite`, and the Express-route grep matched `app.getHostCapabilities()`
+  (an `app.get` prefix collision) as fake API endpoints. Same failure class as #72/#73
+  (backup-dir skip; PR #133/#245).
+
 ## [2.14.0] — 2026-11-02
 
 **Review diet + per-pass L2 comments** — `prp-review-agents --l2-comments` posts one comment per core pass with a provenance footer, dispatches every pass of a round in one wake, runs conditional agents in round 1 only, decides full/incremental mode and risk tier, and refuses a new round at an unchanged head or a byte-identical tree. Plans carry a threat model and PR stack; `generate-adapters.py` fails loud; `install.sh` leaves generator-owned `AGENTS.md` alone. Everything below was merged under [Unreleased] since 2.13.0 (2026-07-09).
@@ -62,20 +81,6 @@ Every major version release MUST include a `docs/migration/vX.0-to-vY.0.md` file
 - `prp-review-agents` **One Wake Per Round** (prp-framework#151, Parts 1 / 2.4): all passes of a round are dispatched in one message, the caller takes no turn between dispatch and completion (background-shell runtimes wait for all shells as one blocking unit), and no idle status pings are emitted while waiting. Failed/timed-out agent handling is unchanged. Provenance format (three per-pass L2 comments, `Generated-by:` footer, one run id, artifacts) is unchanged; Step A mints a fresh run id per run as before. Pinned by structure tests in `tests/commands/review-rounds.bats`. Part 2.1 (pass timebox) and Part 2.2 (round cap) plus the completion-proof mechanism are tracked in #154; Part 2.3 (allow rules for scratch probes) and AC5 are tracked in #153.
 - `prp-review-agents --l2-comments` (#142): posts one PR comment per core pass (code-reviewer, security-reviewer, silent-failure-hunter). Each comment starts with `Reviewed head: <sha>` / `Passes run: <name>`, then the exact Critical/Important/Suggestions/Could not verify headings, and ends with a `Generated-by: prp-review-agents v<ver> run=<id> pass=<name>` provenance footer. The option implies `--no-commit` and posts neither the aggregate review nor a safe-merge marker; the L2 verifier writes the marker after checking the three comments. Behaviour is tested in `tests/commands/l2-comments.bats`.
 - `prp-review-agents --l2-comments` risk tier (agent-devops#1259): a new step 2.0b runs `pr-risk-tier` (gobikom/ops) at the reviewed head before any agent starts. When it prints `trivial`, which means the PR changes only bare version lines and the one `PROJECT.md` Status line, the run spawns `code-reviewer` alone and posts one comment whose footer ends ` tier=trivial`. Step C re-runs the classifier before posting. Anything else, including a missing tool or an error, keeps the three core passes, and their output is unchanged. safe-merge and merger recompute the tier themselves.
-
-### Fixed
-- `gen-ai-context.sh` excludes `.sandbox-home` / `.sandbox-tmp` / `.sandbox-root` (and `.sandbox-*` glob)
-  from all four scan sites — `detect_stack` EXCL and `detect_exports` EXCL via grep `--exclude-dir`
-  (matches at any depth), and the Context Map generate loop plus the `--check` forward scan via a
-  `find \( -type d -name '.sandbox-*' -prune \)` at depth: a nested `foo/.sandbox-*/x.py` no longer
-  marks `foo/` as a code dir or reports it missing from the Context Map. The top-level `.sandbox-*`
-  case arms stay as defense-in-depth against `dotglob`. `--check` reports the Stack as up to date
-  only on an exact whole-line match of `- **Stack:** <detect_stack>` inside the AUTO-GEN block, so a
-  poisoned `- **Stack:** Node.js, SQLite` line no longer passes a `Node.js` check. Agent harnesses
-  (chela) that spawn sessions with a sandboxed HOME inside the working repo previously leaked plugin
-  junk into PROJECT.md auto-gen sections: `sqlite3` matches in sandbox `.py` files produced a false
-  `Stack: SQLite`, and the Express-route grep matched `app.getHostCapabilities()` (an `app.get`
-  prefix collision) as fake API endpoints. Same failure class as #72/#73 (backup-dir skip; PR #133).
 
 ## [2.13.0] — 2026-07-09
 

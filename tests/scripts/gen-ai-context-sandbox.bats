@@ -17,7 +17,10 @@ setup() {
   echo 'app.get("/leak")' > .sandbox-custom/q.js
 }
 
-teardown() { rm -rf "$TEST_TMPDIR"; }
+teardown() {
+  chmod -R u+rwX "$TEST_TMPDIR" 2>/dev/null || true
+  rm -rf "$TEST_TMPDIR"
+}
 
 @test "--init does not leak sandbox dirs into stack, endpoints or context map" {
   run bash "$REPO_ROOT/scripts/gen-ai-context.sh" --init
@@ -78,4 +81,54 @@ teardown() { rm -rf "$TEST_TMPDIR"; }
   run bash "$REPO_ROOT/scripts/gen-ai-context.sh" --check
   [ "$status" -eq 0 ]
   ! grep -qi 'sandbox' <<< "$output"
+}
+
+@test "S-NESTED-JAVA: sandbox under src/main/java never becomes an Entry point, real one does" {
+  mkdir -p src/main/java/.sandbox-home/junk src/main/java/app
+  echo 'class Application {}' > src/main/java/.sandbox-home/junk/Application.java
+  echo 'class Application {}' > src/main/java/app/Application.java
+  run bash "$REPO_ROOT/scripts/gen-ai-context.sh" --init
+  [ "$status" -eq 0 ]
+  grep -qF 'src/main/java/app/Application.java' PROJECT.md
+  run grep -qF '.sandbox-home/junk' PROJECT.md
+  [ "$status" -eq 1 ]
+}
+
+@test "S-DUP-BLOCK: a duplicate AUTO-GEN block does not satisfy the Stack check" {
+  run bash "$REPO_ROOT/scripts/gen-ai-context.sh" --init
+  [ "$status" -eq 0 ]
+  sed -i '/<!-- AUTO-GEN:BEGIN/,/<!-- AUTO-GEN:END -->/{s/^- \*\*Stack:\*\* .*/- **Stack:** Stale-Stack/}' PROJECT.md
+  cat >> PROJECT.md <<'EOF'
+<!-- AUTO-GEN:BEGIN — duplicate -->
+- **Stack:** Node.js
+<!-- AUTO-GEN:END -->
+EOF
+  run bash "$REPO_ROOT/scripts/gen-ai-context.sh" --check
+  [ "$status" -ne 0 ]
+  grep -q 'Stack may be outdated' <<< "$output"
+  grep -q 'extra AUTO-GEN block' <<< "$output"
+}
+
+@test "S-MARKER-IN-BODY: marker text quoted in the body does not open the block" {
+  run bash "$REPO_ROOT/scripts/gen-ai-context.sh" --init
+  [ "$status" -eq 0 ]
+  sed -i '/<!-- AUTO-GEN:BEGIN/,/<!-- AUTO-GEN:END -->/{s/^- \*\*Stack:\*\* .*/- **Stack:** Real-Stack/}' PROJECT.md
+  sed -i '/<!-- AUTO-GEN:BEGIN/i Docs: the AUTO-GEN:BEGIN marker opens the managed block.' PROJECT.md
+  sed -i '/<!-- AUTO-GEN:BEGIN/i - **Stack:** Node.js' PROJECT.md
+  run bash "$REPO_ROOT/scripts/gen-ai-context.sh" --check
+  [ "$status" -ne 0 ]
+  grep -q 'Stack may be outdated' <<< "$output"
+}
+
+@test "S-UNREADABLE: an unreadable dir warns and never reports up-to-date" {
+  if [ "$(id -u)" = "0" ]; then skip "running as root — chmod 000 is still readable"; fi
+  mkdir -p foo
+  echo 'x=1' > foo/real.py
+  run bash "$REPO_ROOT/scripts/gen-ai-context.sh" --init
+  [ "$status" -eq 0 ]
+  chmod 000 foo
+  run bash "$REPO_ROOT/scripts/gen-ai-context.sh" --check
+  [ "$status" -ne 0 ]
+  grep -q "could not scan 'foo/'" <<< "$output"
+  ! grep -q 'PROJECT.md is up-to-date' <<< "$output"
 }

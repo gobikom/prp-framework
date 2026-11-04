@@ -143,7 +143,7 @@ detect_entry_points() {
     # Java/Kotlin: Application.java or Main.java in Maven/Gradle layout
     local java_entry=""
     if [ -d "src/main/java" ]; then
-        java_entry=$(find src/main/java -maxdepth 6 \( -name "Application.java" -o -name "Main.java" \) -print 2>/dev/null | head -1 || true)
+        java_entry=$(find src/main/java -maxdepth 6 \( -type d -name '.sandbox-*' -prune \) -o \( -type f \( -name "Application.java" -o -name "Main.java" \) -print \) 2>/dev/null | head -1 || true)
     fi
     [ -n "$java_entry" ] && entries+=("$java_entry")
     [ -d "bin" ] && {
@@ -235,8 +235,14 @@ generate_context_map() {
             .sandbox-home|.sandbox-tmp|.sandbox-root|.sandbox-*) continue ;;  # agent sandboxes (chela); defense-in-depth vs dotglob — find below prunes them at depth
             *.backup|*.backup.*|*.bak|*.old|*.orig|*~|*-backup) continue ;;  # backup/stale dir conventions (#72)
         esac
-        # Only include if it has code files
-        if find "$dir" -maxdepth 2 \( -type d -name '.sandbox-*' -prune \) -o \( -type f \( -name "*.py" -o -name "*.ts" -o -name "*.js" -o -name "*.go" -o -name "*.rs" -o -name "*.java" -o -name "*.yaml" -o -name "*.yml" -o -name "*.sh" \) -print -quit \) 2>/dev/null | grep -q .; then
+        # Only include if it has code files; a failed scan is visible (stderr),
+        # never read as "nothing found"
+        local dir_scan
+        if ! dir_scan=$(find "$dir" -maxdepth 2 \( -type d -name '.sandbox-*' -prune \) -o \( -type f \( -name "*.py" -o -name "*.ts" -o -name "*.js" -o -name "*.go" -o -name "*.rs" -o -name "*.java" -o -name "*.yaml" -o -name "*.yml" -o -name "*.sh" \) -print -quit \)); then
+            log_warn "could not scan '${dir}/' (find failed)" >&2
+            continue
+        fi
+        if [ -n "$dir_scan" ]; then
             echo "| ${dir} | \`${dir}/\` |"
         fi
     done
@@ -359,6 +365,13 @@ do_update() {
         exit 1
     fi
 
+    # Only the first AUTO-GEN block is maintained; extra ones survive in $after — say so
+    local begin_markers
+    begin_markers=$(grep -c '<!-- AUTO-GEN:BEGIN' "$PROJECT_MD" || true)
+    if [ "${begin_markers:-0}" -gt 1 ]; then
+        log_warn "extra AUTO-GEN block(s) found; only the first is maintained"
+    fi
+
     # Extract content before and after AUTO-GEN markers
     local before after
     before=$(sed '/<!-- AUTO-GEN:BEGIN/,$d' "$PROJECT_MD")
@@ -447,12 +460,21 @@ do_check() {
 
     # 5. Staleness check — compare current auto-gen vs what's in file
     if grep -q "AUTO-GEN:BEGIN" "$PROJECT_MD"; then
-        local current_stack
+        local current_stack autogen_block begin_count
         current_stack=$(detect_stack)
-        if sed -n '/AUTO-GEN:BEGIN/,/AUTO-GEN:END/p' "$PROJECT_MD" 2>/dev/null | grep -qxF -- "- **Stack:** $current_stack"; then
+        # Only the FIRST AUTO-GEN block is authoritative (anchored markers: a
+        # duplicate block, or marker text quoted in the body, must not satisfy
+        # the check); captured into a variable so no pipe can SIGPIPE.
+        autogen_block=$(sed -n '/<!-- AUTO-GEN:BEGIN/,/<!-- AUTO-GEN:END -->/{p;/<!-- AUTO-GEN:END -->/q;}' "$PROJECT_MD" 2>/dev/null)
+        if grep -qxF -- "- **Stack:** $current_stack" <<< "$autogen_block"; then
             log_ok "Stack is up-to-date"
         else
             log_warn "Stack may be outdated (current: $current_stack)"
+            stale=1
+        fi
+        begin_count=$(grep -c '<!-- AUTO-GEN:BEGIN' "$PROJECT_MD" || true)
+        if [ "${begin_count:-0}" -gt 1 ]; then
+            log_warn "extra AUTO-GEN block(s) found; only the first is maintained"
             stale=1
         fi
 
@@ -463,11 +485,15 @@ do_check() {
                 node_modules|.git|.prp|.prp-output|.claude|.codex|.opencode|.gemini|.agents|dist|build|__pycache__|.venv|venv|.env|coverage|.nyc_output|logs|output|tmp|temp|.claude-plugin|public|static|assets|backup|old|.sandbox-home|.sandbox-tmp|.sandbox-root|.sandbox-*) continue ;;  # .sandbox-* = agent sandboxes (chela), defense-in-depth vs dotglob — find below prunes them at depth
                 *.backup|*.backup.*|*.bak|*.old|*.orig|*~|*-backup) continue ;;  # backup/stale dir conventions (#72)
             esac
-            if find "$dir" -maxdepth 2 \( -type d -name '.sandbox-*' -prune \) -o \( -type f \( -name "*.py" -o -name "*.ts" -o -name "*.js" -o -name "*.go" -o -name "*.rs" -o -name "*.sh" -o -name "*.yaml" \) -print -quit \) 2>/dev/null | grep -q .; then
-                if ! grep -q "\`${dir}/\`\|${dir}/" "$PROJECT_MD" 2>/dev/null; then
-                    log_warn "Directory '$dir/' not in Context Map"
-                    stale=1
-                fi
+            local dir_scan
+            if ! dir_scan=$(find "$dir" -maxdepth 2 \( -type d -name '.sandbox-*' -prune \) -o \( -type f \( -name "*.py" -o -name "*.ts" -o -name "*.js" -o -name "*.go" -o -name "*.rs" -o -name "*.sh" -o -name "*.yaml" \) -print -quit \)); then
+                log_warn "could not scan '${dir}/' (find failed)"
+                stale=1
+                continue
+            fi
+            if [ -n "$dir_scan" ] && ! grep -q "\`${dir}/\`\|${dir}/" "$PROJECT_MD" 2>/dev/null; then
+                log_warn "Directory '$dir/' not in Context Map"
+                stale=1
             fi
         done
 
@@ -482,7 +508,7 @@ do_check() {
                     stale=1
                     ;;
             esac
-        done < <(sed -n '/AUTO-GEN:BEGIN/,/AUTO-GEN:END/p' "$PROJECT_MD" \
+        done < <(sed -n '/<!-- AUTO-GEN:BEGIN/,/<!-- AUTO-GEN:END -->/{p;/<!-- AUTO-GEN:END -->/q;}' "$PROJECT_MD" \
                  | grep -oE '`[^`]+/`' | tr -d '`' | sed 's|/$||')
     fi
 
