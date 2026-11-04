@@ -27,3 +27,55 @@ teardown() { rm -rf "$TEST_TMPDIR"; }
   run grep -iE 'sqlite|getHostCapabilities|/leak|\.sandbox' PROJECT.md
   [ "$status" -eq 1 ]
 }
+
+@test "S-NESTED-MAP: code only under a nested .sandbox-* does not put the dir in the Context Map" {
+  mkdir -p foo/.sandbox-home
+  echo 'x=1' > foo/.sandbox-home/x.py
+  run bash "$REPO_ROOT/scripts/gen-ai-context.sh" --init
+  [ "$status" -eq 0 ]
+  run grep -q 'foo/' PROJECT.md
+  [ "$status" -eq 1 ]
+}
+
+@test "S-NESTED-CHECK: nested .sandbox-* does not make --check report the dir as missing" {
+  run bash "$REPO_ROOT/scripts/gen-ai-context.sh" --init
+  [ "$status" -eq 0 ]
+  mkdir -p foo/.sandbox-home
+  echo 'x=1' > foo/.sandbox-home/x.py
+  run bash "$REPO_ROOT/scripts/gen-ai-context.sh" --check
+  [ "$status" -eq 0 ]
+  ! grep -qF "Directory 'foo/' not in Context Map" <<< "$output"
+}
+
+@test "S-REAL-NESTED: real code one level down still appears in the Context Map" {
+  mkdir -p foo
+  echo 'x=1' > foo/real.py
+  run bash "$REPO_ROOT/scripts/gen-ai-context.sh" --init
+  [ "$status" -eq 0 ]
+  grep -qF '`foo/`' PROJECT.md
+}
+
+@test "S-STACK-POISONED: substring Stack line is reported outdated" {
+  run bash "$REPO_ROOT/scripts/gen-ai-context.sh" --init
+  [ "$status" -eq 0 ]
+  sed -i '/AUTO-GEN:BEGIN/,/AUTO-GEN:END/s/^- \*\*Stack:\*\* .*/- **Stack:** Node.js, SQLite/' PROJECT.md
+  run bash "$REPO_ROOT/scripts/gen-ai-context.sh" --check
+  [ "$status" -ne 0 ]
+  grep -q 'Stack may be outdated' <<< "$output"
+}
+
+@test "S-STACK-EXACT: clean init reports Stack is up-to-date" {
+  run bash "$REPO_ROOT/scripts/gen-ai-context.sh" --init
+  [ "$status" -eq 0 ]
+  run bash "$REPO_ROOT/scripts/gen-ai-context.sh" --check
+  [ "$status" -eq 0 ]
+  grep -q 'Stack is up-to-date' <<< "$output"
+}
+
+@test "S-TOP-CHECK: top-level .sandbox-* dirs never produce a check warning" {
+  run bash "$REPO_ROOT/scripts/gen-ai-context.sh" --init
+  [ "$status" -eq 0 ]
+  run bash "$REPO_ROOT/scripts/gen-ai-context.sh" --check
+  [ "$status" -eq 0 ]
+  ! grep -qi 'sandbox' <<< "$output"
+}

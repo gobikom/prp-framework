@@ -232,11 +232,11 @@ generate_context_map() {
         case "$dir" in
             node_modules|.git|.prp|.prp-output|.claude|.codex|.opencode|.gemini|.agents|dist|build|__pycache__|.venv|venv|.env|coverage|.nyc_output|logs|output|tmp|temp|backup|old) continue ;;
             src|test|tests|docs|scripts|bin|deploy|config|conf|prisma|public|static|assets) continue ;;  # already handled above
-            .sandbox-home|.sandbox-tmp|.sandbox-root|.sandbox-*) continue ;;  # agent runtime sandboxes (chela)
+            .sandbox-home|.sandbox-tmp|.sandbox-root|.sandbox-*) continue ;;  # agent sandboxes (chela); defense-in-depth vs dotglob — find below prunes them at depth
             *.backup|*.backup.*|*.bak|*.old|*.orig|*~|*-backup) continue ;;  # backup/stale dir conventions (#72)
         esac
         # Only include if it has code files
-        if find "$dir" -maxdepth 2 \( -name "*.py" -o -name "*.ts" -o -name "*.js" -o -name "*.go" -o -name "*.rs" -o -name "*.java" -o -name "*.yaml" -o -name "*.yml" -o -name "*.sh" \) -print -quit 2>/dev/null | grep -q .; then
+        if find "$dir" -maxdepth 2 \( -type d -name '.sandbox-*' -prune \) -o \( -type f \( -name "*.py" -o -name "*.ts" -o -name "*.js" -o -name "*.go" -o -name "*.rs" -o -name "*.java" -o -name "*.yaml" -o -name "*.yml" -o -name "*.sh" \) -print -quit \) 2>/dev/null | grep -q .; then
             echo "| ${dir} | \`${dir}/\` |"
         fi
     done
@@ -449,7 +449,7 @@ do_check() {
     if grep -q "AUTO-GEN:BEGIN" "$PROJECT_MD"; then
         local current_stack
         current_stack=$(detect_stack)
-        if grep -q "$current_stack" "$PROJECT_MD" 2>/dev/null; then
+        if sed -n '/AUTO-GEN:BEGIN/,/AUTO-GEN:END/p' "$PROJECT_MD" 2>/dev/null | grep -qxF -- "- **Stack:** $current_stack"; then
             log_ok "Stack is up-to-date"
         else
             log_warn "Stack may be outdated (current: $current_stack)"
@@ -460,10 +460,10 @@ do_check() {
         for dir in */; do
             dir="${dir%/}"
             case "$dir" in
-                node_modules|.git|.prp|.prp-output|.claude|.codex|.opencode|.gemini|.agents|dist|build|__pycache__|.venv|venv|.env|coverage|.nyc_output|logs|output|tmp|temp|.claude-plugin|public|static|assets|backup|old|.sandbox-home|.sandbox-tmp|.sandbox-root|.sandbox-*) continue ;;
+                node_modules|.git|.prp|.prp-output|.claude|.codex|.opencode|.gemini|.agents|dist|build|__pycache__|.venv|venv|.env|coverage|.nyc_output|logs|output|tmp|temp|.claude-plugin|public|static|assets|backup|old|.sandbox-home|.sandbox-tmp|.sandbox-root|.sandbox-*) continue ;;  # .sandbox-* = agent sandboxes (chela), defense-in-depth vs dotglob — find below prunes them at depth
                 *.backup|*.backup.*|*.bak|*.old|*.orig|*~|*-backup) continue ;;  # backup/stale dir conventions (#72)
             esac
-            if find "$dir" -maxdepth 2 \( -name "*.py" -o -name "*.ts" -o -name "*.js" -o -name "*.go" -o -name "*.rs" -o -name "*.sh" -o -name "*.yaml" \) -print -quit 2>/dev/null | grep -q .; then
+            if find "$dir" -maxdepth 2 \( -type d -name '.sandbox-*' -prune \) -o \( -type f \( -name "*.py" -o -name "*.ts" -o -name "*.js" -o -name "*.go" -o -name "*.rs" -o -name "*.sh" -o -name "*.yaml" \) -print -quit \) 2>/dev/null | grep -q .; then
                 if ! grep -q "\`${dir}/\`\|${dir}/" "$PROJECT_MD" 2>/dev/null; then
                     log_warn "Directory '$dir/' not in Context Map"
                     stale=1

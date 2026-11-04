@@ -65,12 +65,17 @@ Every major version release MUST include a `docs/migration/vX.0-to-vY.0.md` file
 
 ### Fixed
 - `gen-ai-context.sh` excludes `.sandbox-home` / `.sandbox-tmp` / `.sandbox-root` (and `.sandbox-*` glob)
-  from all four scan sites — `detect_stack` EXCL, `detect_exports` EXCL, Context Map generate skip-list,
-  and `--check` forward scan. Agent harnesses (chela) that spawn sessions with a sandboxed HOME inside
-  the working repo previously leaked plugin junk into PROJECT.md auto-gen sections: `sqlite3` matches in
-  sandbox `.py` files produced a false `Stack: SQLite`, and the Express-route grep matched
-  `app.getHostCapabilities()` (an `app.get` prefix collision) as fake API endpoints. Same failure class
-  as #72/#73 (backup-dir skip; PR #133).
+  from all four scan sites — `detect_stack` EXCL and `detect_exports` EXCL via grep `--exclude-dir`
+  (matches at any depth), and the Context Map generate loop plus the `--check` forward scan via a
+  `find \( -type d -name '.sandbox-*' -prune \)` at depth: a nested `foo/.sandbox-*/x.py` no longer
+  marks `foo/` as a code dir or reports it missing from the Context Map. The top-level `.sandbox-*`
+  case arms stay as defense-in-depth against `dotglob`. `--check` reports the Stack as up to date
+  only on an exact whole-line match of `- **Stack:** <detect_stack>` inside the AUTO-GEN block, so a
+  poisoned `- **Stack:** Node.js, SQLite` line no longer passes a `Node.js` check. Agent harnesses
+  (chela) that spawn sessions with a sandboxed HOME inside the working repo previously leaked plugin
+  junk into PROJECT.md auto-gen sections: `sqlite3` matches in sandbox `.py` files produced a false
+  `Stack: SQLite`, and the Express-route grep matched `app.getHostCapabilities()` (an `app.get`
+  prefix collision) as fake API endpoints. Same failure class as #72/#73 (backup-dir skip; PR #133).
 
 ## [2.13.0] — 2026-07-09
 
