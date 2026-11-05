@@ -33,6 +33,49 @@ Every major version release MUST include a `docs/migration/vX.0-to-vY.0.md` file
 
 ## [Unreleased]
 
+### Fixed
+- `gen-ai-context.sh` excludes `.sandbox-home` / `.sandbox-tmp` / `.sandbox-root` (and `.sandbox-*` glob)
+  from every scan site — `detect_stack` EXCL and `detect_exports` EXCL via grep `--exclude-dir`
+  (matches at any depth), the Context Map generate loop and the `--check` forward scan via a
+  `find \( -type d -name '.sandbox-*' -prune \)` at depth (a nested `foo/.sandbox-*/x.py` no longer
+  marks `foo/` as a code dir or reports it missing from the Context Map), and the
+  `detect_entry_points` Java find via the same prune (`src/main/java/.sandbox-*/Application.java`
+  never becomes an Entry point). The top-level `.sandbox-*` case arms stay as defense-in-depth
+  against `dotglob`. `--check` reads only the FIRST AUTO-GEN block (anchored `<!-- AUTO-GEN:` markers):
+  the Stack is up to date only on an exact whole-line `- **Stack:** <detect_stack>` match there, so a
+  duplicate block or marker text quoted in the body no longer satisfies it (extra blocks warn in
+  `--update` and make `--check` stale). A failed `find` in the map/check scans is visible
+  (`could not scan '<dir>/'`, plus stale=1 in `--check`), never read as "nothing found". Agent
+  harnesses (chela) that spawn sessions with a sandboxed HOME inside the working repo previously
+  leaked plugin junk into PROJECT.md auto-gen sections: `sqlite3` matches in sandbox `.py` files
+  produced a false `Stack: SQLite`, and the Express-route grep matched `app.getHostCapabilities()`
+  (an `app.get` prefix collision) as fake API endpoints. Same failure class as #72/#73
+  (backup-dir skip; PR #133/#245).
+- `gen-ai-context.sh` `detect_entry_points` Java scan is fail-visible too (r3 of #245): the
+  `find src/main/java` no longer silences its errors (`2>/dev/null | head -1 || true` is gone) —
+  it mirrors the map-site pattern (`-print -quit`, `log_warn "could not scan 'src/main/java/'"`),
+  so a failed scan warns on stderr and reads as no entry, never as "nothing found" (Invariant S
+  visibility clause; pinned by S-J1/S-J3/S-J4).
+- `gen-ai-context.sh` marker and warning hardening (re-route of #249 and #245): AUTO-GEN marker
+  matching lives in exactly two helpers — `autogen_span FILE` (prints the first block's
+  BEGIN/END line numbers; BEGIN is a column-1 `<!-- AUTO-GEN:BEGIN`, END the first exact
+  whole-line `<!-- AUTO-GEN:END -->` after it; rc 1 no BEGIN, rc 2 BEGIN without END, both fail
+  closed) and `autogen_begin_count FILE` — and no other `grep`/`sed`/`awk` in the script matches
+  AUTO-GEN (structural pin M0). `do_update`/`do_check` slice the file by those line numbers, so
+  marker text quoted in the body, an indented or prose BEGIN, an END mid-line/before BEGIN/with
+  trailing spaces, or a duplicate second block can no longer open or extend the block (M1–M8);
+  a dangling BEGIN makes `--update` refuse (exit 1) and `--check` report
+  `AUTO-GEN:BEGIN found but AUTO-GEN:END missing` with stale=1, never up-to-date, and an
+  unexpanded `*/` glob (no non-hidden top-level dirs) is skipped by the map/check loops' dir
+  guard instead of failing find and permanently marking the repo STALE. `log_warn` itself writes
+  to stderr (`>&2` inside the helper), so every warning the script emits — extra-block,
+  could-not-scan, missing-section — lands on stderr at every call site, and `--quiet` silences
+  it on both streams (W1/W2). The Java-scan fail-visible fix with its S-J4 find shim and the
+  sandbox-prune tests are carried over from the r3 tree unchanged (pinned above by S-J1/S-J3/
+  S-J4 and the S-* cases; S1-STREAMS/S2-UNTERMINATED/S3-FILES-ONLY still pin the carried
+  behaviors under the new helpers).
+
+
 ## [2.14.0] — 2026-11-02
 
 **Review diet + per-pass L2 comments** — `prp-review-agents --l2-comments` posts one comment per core pass with a provenance footer, dispatches every pass of a round in one wake, runs conditional agents in round 1 only, decides full/incremental mode and risk tier, and refuses a new round at an unchanged head or a byte-identical tree. Plans carry a threat model and PR stack; `generate-adapters.py` fails loud; `install.sh` leaves generator-owned `AGENTS.md` alone. Everything below was merged under [Unreleased] since 2.13.0 (2026-07-09).
