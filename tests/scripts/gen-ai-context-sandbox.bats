@@ -465,6 +465,27 @@ init_ok() { run bash "$REPO_ROOT/scripts/gen-ai-context.sh" --init; [ "$status" 
   grep -q 'No AUTO-GEN markers' <<< "$output"
 }
 
+@test "M-NUL-MARKERFUL: a NUL-bearing PROJECT.md WITH markers is rc 3 cannot-read — never the rc-1 marker-less branch (R2 High, Invariant M)" {
+  # grep matches the BEGIN but the file is binary (NUL byte) → rc 0 with empty
+  # captured stdout. Before the fix that hit the rc-1 arm: --update skipped green,
+  # --check claimed up-to-date. Both must now refuse with 'cannot read'.
+  { m_body
+    printf '%s\n' '<!-- AUTO-GEN:END -->'
+    printf '%s\n' 'body line'
+  } > PROJECT.md
+  head -c 1 /dev/zero >> PROJECT.md
+  cp PROJECT.md PROJECT.md.copy
+  run bash "$REPO_ROOT/scripts/gen-ai-context.sh" --update
+  [ "$status" -eq 1 ]
+  grep -q 'cannot read' <<< "$output"
+  ! grep -q 'Skipping update' <<< "$output"
+  cmp PROJECT.md PROJECT.md.copy
+  run bash "$REPO_ROOT/scripts/gen-ai-context.sh" --check
+  [ "$status" -eq 1 ]
+  grep -q 'cannot read' <<< "$output"
+  ! grep -q 'up-to-date' <<< "$output"
+}
+
 @test "M-BEGIN1: BEGIN at line 1 updates, converges to a stable shape, never loses the tail" {
   { printf '%s\n' '<!-- AUTO-GEN:BEGIN — Do not edit manually. Run: gen-ai-context.sh --update -->'
     printf '%s\n' '- **Stack:** Old'

@@ -67,12 +67,19 @@ autogen_span() { # FILE -> prints "B E" (1-based line numbers of the first block
     # (an END only before the BEGIN, mid-line, or with trailing spaces is NOT an END);
     # 3 = cannot read (EACCES/EIO/read races, I-1 of #250 R1) — grep runs unpiped so
     # its rc survives (pipefail would mask it), and never aliases to the rc-1
-    # "no markers" branch.
+    # "no markers" branch. R2 High (Invariant M): grep rc 0 with UNUSABLE output —
+    # the binary/NUL shape, where grep matched but captured stdout is empty or
+    # "Binary file …" — is also rc 3: a marker-ful NUL-bearing file must refuse,
+    # not no-op green through the rc-1 branch. The marker-LESS NUL shape stays
+    # rc 1 (grep finds nothing there; M-EMPTY-NUL decision unchanged).
     local file="$1" b e grc tail_out
     grc=0; b=$(grep -n '^<!-- AUTO-GEN:BEGIN' "$file") || grc=$?
     if [ "$grc" -eq 2 ]; then return 3; fi
     b=${b%%$'\n'*}; b=${b%%:*}
-    case "$b" in ''|*[!0-9]*) return 1 ;; esac
+    case "$b" in ''|*[!0-9]*)
+        if [ "$grc" -eq 0 ]; then return 3; fi
+        return 1 ;;
+    esac
     tail_out=$(tail -n +"$((b + 1))" "$file") || return 3
     e=$(grep -nxF -- '<!-- AUTO-GEN:END -->' <<< "$tail_out") || true
     e=${e%%$'\n'*}; e=${e%%:*}
