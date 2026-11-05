@@ -48,9 +48,11 @@ NC='\033[0m'
 log() { $QUIET || echo -e "$@"; }
 log_ok() { log "  ${GREEN}✓${NC} $1"; }
 # Invariant W (r4 of #245): every warning reaches stderr because log_warn itself
-# writes there — no call site adds its own redirect.
+# writes there — no call site adds its own redirect. Fatal refusals (log_fatal)
+# write stderr unconditionally: a refusal stays visible under --quiet too.
 log_warn() { $QUIET || echo -e "  ${YELLOW}⚠${NC} $1" >&2; }
 log_err() { log "  ${RED}✗${NC} $1"; }
+log_fatal() { echo -e "  ${RED}✗${NC} $1" >&2; }
 
 # ─────────────────────────────────────────────────
 # AUTO-GEN marker predicate (Invariant M, r4 of #245): the ONLY place marker
@@ -61,19 +63,28 @@ log_err() { log "  ${RED}✗${NC} $1"; }
 #   END   = the first line AFTER that BEGIN that is exactly '<!-- AUTO-GEN:END -->'
 # ─────────────────────────────────────────────────
 autogen_span() { # FILE -> prints "B E" (1-based line numbers of the first block)
-    # rc 0 = BEGIN with an END after it; 1 = no BEGIN; 2 = BEGIN but no END
-    # after it. rc 2 fails closed: an END only before the BEGIN, only mid-line,
-    # or with trailing spaces is NOT an END.
-    local file="$1" b e
-    b=$(grep -n '^<!-- AUTO-GEN:BEGIN' "$file" | head -1 | cut -d: -f1) || true
-    [ -n "$b" ] || return 1
-    e=$(tail -n +"$((b + 1))" "$file" | grep -nxF -- '<!-- AUTO-GEN:END -->' | head -1 | cut -d: -f1) || true
-    [ -n "$e" ] || return 2
+    # rc 0 = BEGIN with an END after it; 1 = no BEGIN; 2 = BEGIN but no END after it
+    # (an END only before the BEGIN, mid-line, or with trailing spaces is NOT an END);
+    # 3 = cannot read (EACCES/EIO/read races, I-1 of #250 R1) — grep runs unpiped so
+    # its rc survives (pipefail would mask it), and never aliases to the rc-1
+    # "no markers" branch.
+    local file="$1" b e grc tail_out
+    grc=0; b=$(grep -n '^<!-- AUTO-GEN:BEGIN' "$file") || grc=$?
+    if [ "$grc" -eq 2 ]; then return 3; fi
+    b=${b%%$'\n'*}; b=${b%%:*}
+    case "$b" in ''|*[!0-9]*) return 1 ;; esac
+    tail_out=$(tail -n +"$((b + 1))" "$file") || return 3
+    e=$(grep -nxF -- '<!-- AUTO-GEN:END -->' <<< "$tail_out") || true
+    e=${e%%$'\n'*}; e=${e%%:*}
+    case "$e" in ''|*[!0-9]*) return 2 ;; esac
     echo "$b $((b + e))"
 }
 
-autogen_begin_count() { # FILE -> count of anchored BEGIN lines
-    grep -c '^<!-- AUTO-GEN:BEGIN' "$1" || true
+autogen_begin_count() { # FILE -> count of anchored BEGIN lines; rc 3 = cannot read
+    local n grc
+    grc=0; n=$(grep -c '^<!-- AUTO-GEN:BEGIN' "$1") || grc=$?
+    if [ "$grc" -eq 2 ]; then return 3; fi
+    printf '%s\n' "$n"
 }
 
 # ─────────────────────────────────────────────────
@@ -383,26 +394,31 @@ do_init() {
 # ─────────────────────────────────────────────────
 do_update() {
     if [ ! -f "$PROJECT_MD" ]; then
-        log "${RED}PROJECT.md not found. Use --init to create it first.${NC}"
+        log_fatal "PROJECT.md not found. Use --init to create it first."
         exit 1
     fi
 
     # Invariant M: marker presence and position come only from autogen_span —
-    # marker text in prose cannot pass or fail these gates.
-    local span rc begin end
+    # marker text in prose cannot pass or fail these gates; rc 3 (cannot read) is fatal — never the no-markers branch
+    local span rc begin end nblocks
     rc=0; span=$(autogen_span "$PROJECT_MD") || rc=$?
+    if [ "$rc" -eq 3 ]; then
+        log_fatal "cannot read $PROJECT_MD — refusing to update"
+        exit 1
+    fi
     if [ "$rc" -eq 1 ]; then
         log "${YELLOW}No AUTO-GEN markers found in PROJECT.md. Skipping update.${NC}"
         exit 0
     fi
     if [ "$rc" -eq 2 ]; then
-        log "${RED}AUTO-GEN:BEGIN found but AUTO-GEN:END missing — refusing to update (would lose content)${NC}"
+        log_fatal "AUTO-GEN:BEGIN found but AUTO-GEN:END missing — refusing to update (would lose content)"
         exit 1
     fi
     read -r begin end <<< "$span"
 
     # Only the first AUTO-GEN block is maintained; extra ones survive in $after — say so
-    if [ "$(autogen_begin_count "$PROJECT_MD")" -gt 1 ]; then
+    nblocks=$(autogen_begin_count "$PROJECT_MD") || { log_fatal "cannot read $PROJECT_MD — refusing to update"; exit 1; }
+    if [ "$nblocks" -gt 1 ]; then
         log_warn "extra AUTO-GEN block(s) found; only the first is maintained"
     fi
 
@@ -445,7 +461,7 @@ do_update() {
         echo "<!-- AUTO-GEN:END -->"
         echo "$after"
     } > "$tmp_md" && mv "$tmp_md" "$PROJECT_MD" || {
-        log "${RED}Failed to write PROJECT.md — original preserved${NC}"
+        log_fatal "Failed to write PROJECT.md — original preserved"
         rm -f "$tmp_md"
         exit 1
     }
@@ -465,10 +481,12 @@ do_check() {
 
     # 1. Check PROJECT.md exists
     if [ ! -f "$PROJECT_MD" ]; then
-        log_err "PROJECT.md does not exist (run: gen-ai-context.sh --init)"
+        log_fatal "PROJECT.md does not exist (run: gen-ai-context.sh --init)"
         exit 1
     fi
-    log_ok "PROJECT.md exists ($(wc -l < "$PROJECT_MD") lines)"
+    local md_lines
+    md_lines=$(wc -l < "$PROJECT_MD" 2>/dev/null) || md_lines="?"
+    log_ok "PROJECT.md exists ($md_lines lines)"
 
     # 2. Check required sections
     for section in "What & Why" "Problem" "Requirements" "Key Decisions" "Constraints"; do
@@ -481,9 +499,13 @@ do_check() {
     done
 
     # 3. Check AUTO-GEN markers exist (Invariant M: only autogen_span decides —
-    # a BEGIN without its END after it is not "present")
-    local span rc begin end
+    # a BEGIN without its END after it is not "present"; rc 3, cannot read, is fatal — never marker-less or up-to-date)
+    local span rc begin end nblocks
     rc=0; span=$(autogen_span "$PROJECT_MD") || rc=$?
+    if [ "$rc" -eq 3 ]; then
+        log_fatal "cannot read $PROJECT_MD — refusing to check"
+        exit 1
+    fi
     if [ "$rc" -eq 0 ]; then
         log_ok "AUTO-GEN markers present"
     else
@@ -525,7 +547,8 @@ do_check() {
                 stale=1
             fi
         fi
-        if [ "$(autogen_begin_count "$PROJECT_MD")" -gt 1 ]; then
+        nblocks=$(autogen_begin_count "$PROJECT_MD") || { log_fatal "cannot read $PROJECT_MD — refusing to check"; exit 1; }
+        if [ "$nblocks" -gt 1 ]; then
             log_warn "extra AUTO-GEN block(s) found; only the first is maintained"
             stale=1
         fi

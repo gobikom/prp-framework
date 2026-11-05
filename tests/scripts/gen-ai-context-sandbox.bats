@@ -147,9 +147,11 @@ EOF
   mkdir -p src/main/java/locked
   echo 'class Application {}' > src/main/java/locked/Application.java
   chmod 000 src/main/java/locked
-  run bash "$REPO_ROOT/scripts/gen-ai-context.sh" --init
-  [ "$status" -eq 0 ]
-  grep -q "could not scan 'src/main/java/'" <<< "$output"
+  # Stream pin (bats `run` merges them, which is what hid the bug): the warn
+  # is log_warn output and must be on stderr only.
+  bash "$REPO_ROOT/scripts/gen-ai-context.sh" --init >stdout.log 2>stderr.log
+  grep -q "could not scan 'src/main/java/'" stderr.log
+  ! grep -q "could not scan 'src/main/java/'" stdout.log
 }
 
 @test "S-J4-FAIL-VISIBLE-ELSEWHERE: a scan that errors after printing a match discards it and still warns" {
@@ -264,9 +266,10 @@ PRE
 }
 
 @test "M0: only autogen_span/autogen_begin_count match AUTO-GEN" {
-  # Structural: a raw AUTO-GEN match in any text command outside the two
-  # helpers (by line range) turns this red — the invariant cannot regress by
-  # adding a new site without touching this test.
+  # Structural tripwire on the three line tools: a raw AUTO-GEN match in any
+  # grep/sed/awk command outside the two helpers turns this red. It does NOT
+  # pin case/[[ ]]/perl/rg or indirected matchers — the invariant itself is
+  # the plan's; this test only guards its grep/sed/awk surface.
   local script="$REPO_ROOT/scripts/gen-ai-context.sh"
   local s1 e1 s2 e2
   s1=$(grep -n '^autogen_span() {' "$script" | cut -d: -f1)
@@ -371,6 +374,7 @@ PRE
   [ "$status" -eq 0 ]
   grep -q 'No AUTO-GEN markers' <<< "$output"
   run bash "$REPO_ROOT/scripts/gen-ai-context.sh" --check
+  [ "$status" -eq 0 ]
   grep -q 'markers missing' <<< "$output"
 }
 
@@ -382,6 +386,7 @@ PRE
   [ "$status" -eq 0 ]
   grep -q 'No AUTO-GEN markers' <<< "$output"
   run bash "$REPO_ROOT/scripts/gen-ai-context.sh" --check
+  [ "$status" -eq 0 ]
   grep -q 'markers missing' <<< "$output"
 }
 
@@ -403,11 +408,145 @@ EOF
   grep -q 'extra AUTO-GEN block' <<< "$output"
 }
 
+# ─── I-1 (fix of #250 R1): rc 3 cannot-read — an unreadable PROJECT.md is never the rc-1 "no markers" branch (root skips: chmod 000 stays readable) ───
+
+init_ok() { run bash "$REPO_ROOT/scripts/gen-ai-context.sh" --init; [ "$status" -eq 0 ]; }
+
+@test "M-UNREADABLE: unreadable PROJECT.md is rc 3 — all three modes exit 1, none claims markers or freshness; readable marker-less control still rc 1" {
+  if [ "$(id -u)" = "0" ]; then skip "running as root — chmod 000 stays readable, rc 3 not reachable via chmod"; fi
+  init_ok
+  chmod 000 PROJECT.md
+  bash "$REPO_ROOT/scripts/gen-ai-context.sh" --update >u.out 2>u.err && rc=0 || rc=$?
+  [ "$rc" -eq 1 ]
+  grep -q 'cannot read' u.err
+  ! grep -q 'Skipping update' u.out
+  bash "$REPO_ROOT/scripts/gen-ai-context.sh" --check >c.out 2>c.err && rc=0 || rc=$?
+  [ "$rc" -eq 1 ]
+  grep -q 'cannot read' c.err
+  ! grep -q 'up-to-date' c.out
+  bash "$REPO_ROOT/scripts/gen-ai-context.sh" --check --quiet >q.out 2>q.err && rc=0 || rc=$?
+  [ "$rc" -eq 1 ]
+  [ ! -s q.out ]
+  grep -q 'cannot read' q.err
+  chmod 644 PROJECT.md
+  { printf '%s\n' '# Proj' ''; printf '%s\n' 'body line'; } > PROJECT.md
+  run bash "$REPO_ROOT/scripts/gen-ai-context.sh" --update
+  [ "$status" -eq 0 ]
+  grep -q 'No AUTO-GEN markers' <<< "$output"
+}
+
+@test "M-CRLF: an END with a trailing carriage return is no END — update refuses (rc 2), check reports it" {
+  { m_body
+    printf '<!-- AUTO-GEN:END -->\r\n'
+    printf '%s\n' 'body line'
+  } > PROJECT.md
+  cp PROJECT.md PROJECT.md.copy
+  run bash "$REPO_ROOT/scripts/gen-ai-context.sh" --update
+  [ "$status" -eq 1 ]
+  grep -q 'refusing to update' <<< "$output"
+  cmp PROJECT.md PROJECT.md.copy
+  run bash "$REPO_ROOT/scripts/gen-ai-context.sh" --check
+  [ "$status" -ne 0 ]
+  grep -q 'END missing' <<< "$output"
+}
+
+@test "M-EMPTY-NUL: empty and NUL-bearing marker-less files are the rc-1 issue path, not fatal (decision: no readable BEGIN line reads as marker-less; never aliases to rc 3)" {
+  : > PROJECT.md
+  run bash "$REPO_ROOT/scripts/gen-ai-context.sh" --update
+  [ "$status" -eq 0 ]
+  grep -q 'No AUTO-GEN markers' <<< "$output"
+  : > PROJECT.md
+  run bash "$REPO_ROOT/scripts/gen-ai-context.sh" --check
+  [ "$status" -eq 0 ]
+  grep -q 'markers missing' <<< "$output"
+  printf 'x' > PROJECT.md; head -c 1 /dev/zero >> PROJECT.md; printf 'y\n' >> PROJECT.md
+  run bash "$REPO_ROOT/scripts/gen-ai-context.sh" --update
+  [ "$status" -eq 0 ]
+  grep -q 'No AUTO-GEN markers' <<< "$output"
+}
+
+@test "M-BEGIN1: BEGIN at line 1 updates, converges to a stable shape, never loses the tail" {
+  { printf '%s\n' '<!-- AUTO-GEN:BEGIN — Do not edit manually. Run: gen-ai-context.sh --update -->'
+    printf '%s\n' '- **Stack:** Old'
+    printf '%s\n' '<!-- AUTO-GEN:END -->'
+    printf '%s\n' 'body line'
+  } > PROJECT.md
+  run bash "$REPO_ROOT/scripts/gen-ai-context.sh" --update
+  [ "$status" -eq 0 ]
+  # before="" still echoes one blank line: BEGIN converges to line 2 and stays
+  [ "$(sed -n 2p PROJECT.md)" = '<!-- AUTO-GEN:BEGIN — Do not edit manually. Run: gen-ai-context.sh --update -->' ]
+  grep -q 'body line' PROJECT.md
+  cp PROJECT.md P2
+  run bash "$REPO_ROOT/scripts/gen-ai-context.sh" --update
+  [ "$status" -eq 0 ]
+  cmp P2 PROJECT.md
+}
+
+@test "R-BACKUP-PRESENT: a backup-pattern entry in the first block warns and goes stale" {
+  init_ok
+  sed -i '/<!-- AUTO-GEN:END -->/i | Legacy | `old/` |' PROJECT.md
+  run bash "$REPO_ROOT/scripts/gen-ai-context.sh" --check
+  [ "$status" -eq 1 ]
+  grep -q "matches backup-dir skip pattern" <<< "$output"
+}
+
+@test "R-BACKUP-SECOND-BLOCK: a backup entry in a later block never warns (scan reads the first block)" {
+  init_ok
+  cat >> PROJECT.md <<'EOF'
+<!-- AUTO-GEN:BEGIN — duplicate -->
+| Legacy | `old/` |
+<!-- AUTO-GEN:END -->
+EOF
+  run bash "$REPO_ROOT/scripts/gen-ai-context.sh" --check
+  [ "$status" -ne 0 ]
+  grep -q 'extra AUTO-GEN block' <<< "$output"
+  ! grep -q 'matches backup-dir skip pattern' <<< "$output"
+}
+
+@test "R-BACKUP-PROSE: a backup-style path in body prose never warns" {
+  init_ok
+  printf '%s\n' 'see `old/` for legacy notes' >> PROJECT.md
+  run bash "$REPO_ROOT/scripts/gen-ai-context.sh" --check
+  [ "$status" -eq 0 ]
+  ! grep -q 'matches backup-dir skip pattern' <<< "$output"
+}
+
+@test "W-CONTRACT: --update refreshes Stack inside the span, keeps prelude and tail byte-identical, second run is a no-op" {
+  init_ok
+  printf '%s\n' 'Trailer line below the block.' >> PROJECT.md
+  sed -i '/<!-- AUTO-GEN:BEGIN/,/<!-- AUTO-GEN:END -->/{s/^- \*\*Stack:\*\* .*/- **Stack:** Stale-Stack/}' PROJECT.md
+  B=$(grep -n '^<!-- AUTO-GEN:BEGIN' PROJECT.md | head -1 | cut -d: -f1)
+  E=$(grep -nxF '<!-- AUTO-GEN:END -->' PROJECT.md | head -1 | cut -d: -f1)
+  sed -n "1,$((B - 1))p" PROJECT.md > pre.expected
+  sed -n "$((E + 1)),\$p" PROJECT.md > tail.expected
+  run bash "$REPO_ROOT/scripts/gen-ai-context.sh" --update
+  [ "$status" -eq 0 ]
+  B2=$(grep -n '^<!-- AUTO-GEN:BEGIN' PROJECT.md | head -1 | cut -d: -f1)
+  E2=$(grep -nxF '<!-- AUTO-GEN:END -->' PROJECT.md | head -1 | cut -d: -f1)
+  sed -n "${B2},${E2}p" PROJECT.md | grep -qF -- '- **Stack:** Node.js'
+  cmp <(sed -n "1,$((B2 - 1))p" PROJECT.md) pre.expected
+  cmp <(sed -n "$((E2 + 1)),\$p" PROJECT.md) tail.expected
+  cp PROJECT.md P2
+  run bash "$REPO_ROOT/scripts/gen-ai-context.sh" --update
+  [ "$status" -eq 0 ]
+  cmp P2 PROJECT.md
+}
+
+@test "W-INIT-SCAN-WARN: init-path map-scan failure warns on stderr only" {
+  if [ "$(id -u)" = "0" ]; then skip "running as root — chmod 000 stays readable"; fi
+  mkdir -p locked
+  echo 'x=1' > locked/a.py
+  chmod 000 locked
+  bash "$REPO_ROOT/scripts/gen-ai-context.sh" --init >stdout.log 2>stderr.log
+  [ -f PROJECT.md ]
+  grep -q "could not scan 'locked/'" stderr.log
+  ! grep -q "could not scan 'locked/'" stdout.log
+}
+
 # ─── Invariant W (r4 of #245): every warning reaches stderr ───
 
 @test "W1: missing-section warning is on stderr, not stdout" {
-  run bash "$REPO_ROOT/scripts/gen-ai-context.sh" --init
-  [ "$status" -eq 0 ]
+  init_ok
   sed -i '/^## Key Decisions$/d' PROJECT.md
   bash "$REPO_ROOT/scripts/gen-ai-context.sh" --check >stdout.log 2>stderr.log && rc=0 || rc=$?
   [ "$rc" -eq 0 ]
@@ -416,8 +555,7 @@ EOF
 }
 
 @test "W2: --quiet emits no warning on either stream" {
-  run bash "$REPO_ROOT/scripts/gen-ai-context.sh" --init
-  [ "$status" -eq 0 ]
+  init_ok
   sed -i '/^## Key Decisions$/d' PROJECT.md
   bash "$REPO_ROOT/scripts/gen-ai-context.sh" --check --quiet >stdout.log 2>stderr.log && rc=0 || rc=$?
   [ "$rc" -eq 0 ]
