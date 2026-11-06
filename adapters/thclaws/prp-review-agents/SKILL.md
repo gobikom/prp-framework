@@ -1138,7 +1138,7 @@ WARNING: {agent-type} agent failed/timed out. {aspect} review incomplete.
 Consider running /prp-review {NUMBER} {aspect} for a single-session {aspect} review.
 ```
 
-**CRITICAL**: If any **core agent** (code-reviewer, security-reviewer, silent-failure-hunter) fails, the final verdict MUST be at minimum NEEDS FIXES with caveat: "Review incomplete — {agent-type} did not complete. Verdict may be optimistic." A READY TO MERGE verdict is never valid when a core agent is missing. (At `TIER=trivial` the one core agent is `code-reviewer`.)
+**CRITICAL**: If any **core agent** (code-reviewer, security-reviewer, silent-failure-hunter) fails, the final verdict MUST be at minimum NEEDS FIXES with caveat: "Review incomplete — {agent-type} did not complete. Verdict may be optimistic." A READY TO MERGE verdict is never valid when a core agent is missing. A core pass whose body is void because it hit the pass deadline (2.2.0) counts as a missing core agent, with or without `--l2-comments`. (At `TIER=trivial` the one core agent is `code-reviewer`.)
 
 ---
 
@@ -1233,7 +1233,7 @@ After deduplication, categorize all findings:
 
 | Condition | Verdict |
 |-----------|---------|
-| No critical/important issues AND all validation passes | READY TO MERGE |
+| No critical/important issues AND all validation passes AND every core pass completed (none missing or void) | READY TO MERGE |
 | Important issues OR validation warnings (fixable) | NEEDS FIXES |
 | Critical issues OR validation failures | CRITICAL ISSUES |
 
@@ -1438,7 +1438,7 @@ Emit for **every** verdict (READY / NEEDS FIXES / CRITICAL) — `safe-merge` mus
 Field rules:
 - `verdict` — map the aggregated verdict: `READY TO MERGE`→`READY_TO_MERGE`, `NEEDS FIXES`→`NEEDS_FIXES`, `CRITICAL ISSUES`→`CRITICAL_ISSUES`. **The verdict field is authoritative for block/pass:** `safe-merge` blocks on `NEEDS_FIXES`/`CRITICAL_ISSUES` regardless of counts (so a `CRITICAL_ISSUES` caused by a validation/build failure with zero agent-critical findings — see the Verdict Decision Logic — is legitimately `critical=0` and still blocks).
 - `critical` / `important` — MUST equal the integers in the body headings `### Critical Issues (N found)` / `### Important Issues (N found)`. `safe-merge` recomputes them from the body and BLOCKS on mismatch. Only enforced invariant: `READY_TO_MERGE` ⟹ `critical=0` AND `important=0`. (No `critical>0` requirement for `CRITICAL_ISSUES` — a blocking verdict already blocks.)
-- `agents` — comma-separated `[a-z0-9-]` tokens, no spaces. **Do NOT emit `verdict=READY_TO_MERGE` unless all three core agents (`code-reviewer`, `security-reviewer`, `silent-failure-hunter`) are present in the aggregation** — mirrors the Phase 3 rule "READY TO MERGE is never valid when a core agent is missing." If a core agent is missing, the verdict is at least `NEEDS_FIXES`.
+- `agents` — comma-separated `[a-z0-9-]` tokens, no spaces. **Do NOT emit `verdict=READY_TO_MERGE` unless all three core agents (`code-reviewer`, `security-reviewer`, `silent-failure-hunter`) are present in the aggregation** — mirrors the Phase 3 rule "READY TO MERGE is never valid when a core agent is missing." If a core agent is missing, the verdict is at least `NEEDS_FIXES`; a core pass that is void because it hit the pass deadline counts as missing.
 - `head` — use **`$MARKER_HEAD` derived below** (never a fresh `gh pr view`). Default is `$REVIEWED_HEAD_SHA` captured in Phase 2.0 before the agents start, so a push during review invalidates the marker. The ONLY sanctioned exception is the artifacts-commit re-bind in "Commit artifacts BEFORE the marker" below — a docs-only advance of HEAD by this workflow's own artifact commit, mechanically verified.
 
 #### Commit artifacts BEFORE the marker (head re-bind, prp-framework#121)
