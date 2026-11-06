@@ -60,12 +60,20 @@ Every major version release MUST include a `docs/migration/vX.0-to-vY.0.md` file
   matching lives in exactly two helpers — `autogen_span FILE` (first block's BEGIN/END line
   numbers; rc 1 no BEGIN, rc 2 BEGIN without END, rc 3 cannot read — the I/O-error class,
   fatal in both modes, never the marker-less branch) and `autogen_begin_count FILE` (same
-  rc-3 arm) — and no other `grep`/`sed`/`awk` matches AUTO-GEN (M0). `do_update`/`do_check`
+  rc-3 arm) — and no other `grep`/`sed`/`awk` matches AUTO-GEN (M0). rc 3 also covers ANY
+  NUL byte in the file, decided by an explicit whole-file probe (`tr -d '\0' | cmp -s`)
+  before any grep — independent of grep's read buffer, past which (~50–100KB observed on
+  ugrep 7.8.4) the BEGIN match flushes as a normal text line before the NUL is detected and
+  the rc-0-with-unusable-output arm never fired (#250 R3 High; supersedes the old
+  marker-less-NUL rc-1 decision — any NUL-bearing PROJECT.md, marker-ful or not, refuses in
+  both modes). `do_update`/`do_check`
   slice the file by those line numbers, so quoted markers, indented/prose BEGINs,
-  mid-line/early/CRLF ENDs, empty or NUL-bearing marker-less files (decided: the rc-1 issue
-  path) and duplicate blocks can no longer open or extend the block; a dangling BEGIN refuses
+  mid-line/early/CRLF ENDs, empty files (the rc-1 issue path) and NUL-bearing files
+  (rc-3 refusal) and duplicate blocks can no longer open or extend the block; a dangling
+  BEGIN refuses
   the update and reads stale, and an unexpanded `*/` glob is skipped instead of marking the
-  repo STALE (M1–M8, M-CRLF, M-EMPTY-NUL, M-BEGIN1). Every `log_warn` call lands on stderr
+  repo STALE (M1–M8, M-CRLF, M-EMPTY-NUL, M-NUL-MARKERFUL, M-NUL-44K-END, M-NUL-1M,
+  M-NO-NUL-1M, M-BEGIN1). Every `log_warn` call lands on stderr
   (W1/W2); fatal refusals go through the new `log_fatal` — unconditional stderr, visible
   under `--quiet` (M-UNREADABLE); the reverse Context-Map scan and the write contract are
   pinned arm by arm (R-BACKUP-*, W-CONTRACT). The Java-scan fix (S-J4 find shim) and the

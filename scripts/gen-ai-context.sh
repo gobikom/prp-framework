@@ -67,12 +67,24 @@ autogen_span() { # FILE -> prints "B E" (1-based line numbers of the first block
     # (an END only before the BEGIN, mid-line, or with trailing spaces is NOT an END);
     # 3 = cannot read (EACCES/EIO/read races, I-1 of #250 R1) — grep runs unpiped so
     # its rc survives (pipefail would mask it), and never aliases to the rc-1
-    # "no markers" branch. R2 High (Invariant M): grep rc 0 with UNUSABLE output —
-    # the binary/NUL shape, where grep matched but captured stdout is empty or
-    # "Binary file …" — is also rc 3: a marker-ful NUL-bearing file must refuse,
-    # not no-op green through the rc-1 branch. The marker-LESS NUL shape stays
-    # rc 1 (grep finds nothing there; M-EMPTY-NUL decision unchanged).
+    # "no markers" branch. R3/R4 design fix (Invariant M, นุด option C 2026-11-06):
+    # binary-ness is decided by an EXPLICIT whole-file NUL probe BEFORE any grep —
+    # past grep's read buffer (~50–100KB observed on ugrep 7.8.4) the BEGIN match
+    # flushes as a normal text line before the NUL is detected, so grep exits 0
+    # with usable output and the R2 output-shape arm (rc 0 + empty captured stdout
+    # / "Binary file …" → rc 3) never fired. ANY NUL anywhere in the file is now
+    # rc 3, marker-ful or not — this supersedes the M-EMPTY-NUL marker-less-NUL
+    # decision: a NUL-bearing PROJECT.md refuses in both modes instead of
+    # no-op-greening through the rc-1 branch. An empty or clean marker-less file
+    # still reads as rc 1.
     local file="$1" b e grc tail_out
+    # tr strips NULs to stdout; cmp -s re-reads the original: streams differ ⇒ a
+    # NUL is present ⇒ rc 3. Under pipefail a tr/cmp read failure (the same
+    # EACCES/EIO/race class as the grep rc-2 arm) is also non-zero — every
+    # non-zero outcome refuses, fail-closed, at any file size.
+    if ! tr -d '\0' < "$file" | cmp -s - "$file"; then
+        return 3
+    fi
     grc=0; b=$(grep -n '^<!-- AUTO-GEN:BEGIN' "$file") || grc=$?
     if [ "$grc" -eq 2 ]; then return 3; fi
     b=${b%%$'\n'*}; b=${b%%:*}

@@ -450,7 +450,7 @@ init_ok() { run bash "$REPO_ROOT/scripts/gen-ai-context.sh" --init; [ "$status" 
   grep -q 'END missing' <<< "$output"
 }
 
-@test "M-EMPTY-NUL: empty and NUL-bearing marker-less files are the rc-1 issue path, not fatal (decision: no readable BEGIN line reads as marker-less; never aliases to rc 3)" {
+@test "M-EMPTY-NUL: an EMPTY file is the rc-1 issue path; any NUL-bearing file refuses rc 3 (option C: the whole-file probe supersedes the old marker-less-NUL rc-1 decision)" {
   : > PROJECT.md
   run bash "$REPO_ROOT/scripts/gen-ai-context.sh" --update
   [ "$status" -eq 0 ]
@@ -460,9 +460,12 @@ init_ok() { run bash "$REPO_ROOT/scripts/gen-ai-context.sh" --init; [ "$status" 
   [ "$status" -eq 0 ]
   grep -q 'markers missing' <<< "$output"
   printf 'x' > PROJECT.md; head -c 1 /dev/zero >> PROJECT.md; printf 'y\n' >> PROJECT.md
+  cp PROJECT.md PROJECT.md.copy
   run bash "$REPO_ROOT/scripts/gen-ai-context.sh" --update
-  [ "$status" -eq 0 ]
-  grep -q 'No AUTO-GEN markers' <<< "$output"
+  [ "$status" -eq 1 ]
+  grep -q 'cannot read' <<< "$output"
+  ! grep -q 'Skipping update' <<< "$output"
+  cmp PROJECT.md PROJECT.md.copy
 }
 
 @test "M-NUL-MARKERFUL: a NUL-bearing PROJECT.md WITH markers is rc 3 cannot-read — never the rc-1 marker-less branch (R2 High, Invariant M)" {
@@ -484,6 +487,62 @@ init_ok() { run bash "$REPO_ROOT/scripts/gen-ai-context.sh" --init; [ "$status" 
   [ "$status" -eq 1 ]
   grep -q 'cannot read' <<< "$output"
   ! grep -q 'up-to-date' <<< "$output"
+}
+
+@test "M-NUL-44K-END: a 44KB marker-ful file with a trailing NUL refuses rc 3 in both modes (psak's reproduced boundary shape; option C probe is buffer-independent)" {
+  { m_body
+    printf '%s\n' '<!-- AUTO-GEN:END -->'
+    yes 'filler line padding PROJECT.md past the grep read buffer boundary test' | head -n 683
+  } > PROJECT.md
+  head -c 1 /dev/zero >> PROJECT.md
+  cp PROJECT.md PROJECT.md.copy
+  run bash "$REPO_ROOT/scripts/gen-ai-context.sh" --update
+  [ "$status" -eq 1 ]
+  grep -q 'cannot read' <<< "$output"
+  ! grep -q 'Skipping update' <<< "$output"
+  cmp PROJECT.md PROJECT.md.copy
+  run bash "$REPO_ROOT/scripts/gen-ai-context.sh" --check
+  [ "$status" -eq 1 ]
+  grep -q 'cannot read' <<< "$output"
+  ! grep -q 'up-to-date' <<< "$output"
+}
+
+@test "M-NUL-1M: a 1MB marker-ful file refuses rc 3 with NUL at EOF or as the first byte (far past grep's read buffer — the R3 High shape the old output-shape arm never caught)" {
+  { m_body
+    printf '%s\n' '<!-- AUTO-GEN:END -->'
+    yes 'filler line padding PROJECT.md past the grep read buffer boundary test' | head -n 15884
+  } > PROJECT.md
+  head -c 1 /dev/zero >> PROJECT.md
+  cp PROJECT.md PROJECT.md.copy
+  run bash "$REPO_ROOT/scripts/gen-ai-context.sh" --update
+  [ "$status" -eq 1 ]
+  grep -q 'cannot read' <<< "$output"
+  cmp PROJECT.md PROJECT.md.copy
+  run bash "$REPO_ROOT/scripts/gen-ai-context.sh" --check
+  [ "$status" -eq 1 ]
+  grep -q 'cannot read' <<< "$output"
+  ! grep -q 'up-to-date' <<< "$output"
+  # NUL BEFORE the BEGIN line — the probe covers the whole file, not the tail only
+  { head -c 1 /dev/zero; cat PROJECT.md.copy; } > PROJECT.md
+  run bash "$REPO_ROOT/scripts/gen-ai-context.sh" --update
+  [ "$status" -eq 1 ]
+  grep -q 'cannot read' <<< "$output"
+  ! grep -q 'Skipping update' <<< "$output"
+}
+
+@test "M-NO-NUL-1M: a 1MB clean marker-ful file updates and checks normally — the probe never false-positives at scale" {
+  { m_body
+    printf '%s\n' '<!-- AUTO-GEN:END -->'
+    yes 'filler line padding PROJECT.md past the grep read buffer boundary test' | head -n 15884
+    printf '%s\n' 'tail body line'
+  } > PROJECT.md
+  run bash "$REPO_ROOT/scripts/gen-ai-context.sh" --update
+  [ "$status" -eq 0 ]
+  grep -q 'tail body line' PROJECT.md
+  [ "$(grep -c '^<!-- AUTO-GEN:BEGIN' PROJECT.md)" = 1 ]
+  run bash "$REPO_ROOT/scripts/gen-ai-context.sh" --check
+  [ "$status" -eq 0 ]
+  grep -q 'up-to-date' <<< "$output"
 }
 
 @test "M-BEGIN1: BEGIN at line 1 updates, converges to a stable shape, never loses the tail" {
