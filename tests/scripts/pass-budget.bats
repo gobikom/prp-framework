@@ -175,29 +175,26 @@ body() { printf 'Reviewed head: x\n\n### Could not verify\n%b\n\nGenerated-by: y
   [ "$status" -eq 0 ]
 }
 
-@test "check-body passes a timeboxed body with a follow-up issue link" {
-  body 'Pass timeboxed: 2 probes not completed: bats, build\nFollow-up: https://github.com/gobikom/prp-framework/issues/200'
-  run bash "$P" check-body b.md
-  [ "$status" -eq 0 ]
-}
-
-@test "check-body refuses a timeboxed body without a link" {
+@test "check-body refuses a timeboxed body: the pass is void" {
   body 'Pass timeboxed: 1 probe not completed: bats'
   run bash "$P" check-body b.md
   [ "$status" -eq 1 ]
-  [[ "$output" == *"Follow-up"* ]]
+  [[ "$output" == *"void"* ]]
+  [[ "$output" == *"re-run"* ]]
 }
 
-@test "check-body refuses malformed follow-up links" {
-  for link in 'Follow-up: http://github.com/o/r/issues/1' 'Follow-up: https://github.com/o/r/pull/1' 'Follow-up: https://github.com/o/r/issues/1 extra' 'Follow-up: https://example.com/o/r/issues/1' 'Follow-up: https://github.com/o/r/issues/'; do
-    body "Pass timeboxed: 1 probe\n$link"
+# The old escape hatch: a Follow-up issue link no longer makes a timeboxed body postable (SO#1508).
+@test "check-body refuses a timeboxed body even with a valid follow-up issue link" {
+  for link in 'Follow-up: https://github.com/gobikom/prp-framework/issues/200' 'Follow-up: https://github.com/o/r/issues/5\r' \
+              'Follow-up: http://github.com/o/r/issues/1' 'Follow-up: https://github.com/o/r/pull/1'; do
+    body "Pass timeboxed: 2 probes not completed: bats, build\n$link"
     run bash "$P" check-body b.md
-    [ "$status" -eq 1 ]
+    [ "$status" -eq 1 ] || { echo "posted with a link: $link"; false; }
   done
 }
 
-# Invariant: a body that mentions a timebox in any form needs a Follow-up link (no line-shape matching).
-@test "check-body refuses every timebox mention without a link" {
+# Invariant: a body that mentions a timebox in any form is never postable, with or without a link (no line-shape matching).
+@test "check-body refuses every timebox mention, with or without a link" {
   for m in '## Pass timeboxed' '### **Pass timeboxed**' '1. Pass timeboxed' '**Pass** timeboxed' 'Pass: timeboxed' \
            'Pass\xc2\xa0timeboxed' 'time\xc2\xa0boxed' 'Pass time\xe2\x80\x8bboxed' 'Pass time\xef\xbb\xbfboxed' \
            'time-boxed' 'time boxed' 'the review was TIMEBOXED here' 'PASS-TIMEBOXED: 1 probe' 'Pass timeboxed\r' \
@@ -207,12 +204,12 @@ body() { printf 'Reviewed head: x\n\n### Could not verify\n%b\n\nGenerated-by: y
     [ "$status" -eq 1 ] || { echo "passed without a link: $m"; false; }
     body "$m\nFollow-up: https://github.com/o/r/issues/5"
     run bash "$P" check-body b.md
-    [ "$status" -eq 0 ] || { echo "refused with a link: $m"; false; }
+    [ "$status" -eq 1 ] || { echo "passed with a link: $m"; false; }
   done
 }
 
-@test "check-body accepts a link line that ends in CRLF" {
-  body 'Pass timeboxed\nFollow-up: https://github.com/o/r/issues/5\r'
+@test "check-body passes a follow-up line that does not mention a timebox" {
+  body 'One probe was inconclusive: bats.\nFollow-up: https://github.com/o/r/issues/5'
   run bash "$P" check-body b.md
   [ "$status" -eq 0 ]
 }

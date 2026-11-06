@@ -3,15 +3,15 @@
 #
 # Invariant: a probe started through `run` never outlives its deadline (it is killed at the
 # deadline, and not started at all after it), and a pass body that mentions a timebox in any form is
-# only postable with a `Follow-up:` issue link (`check-body`). The deadline is an absolute epoch
+# never postable (`check-body`): a timeboxed pass is void and is re-run. The deadline is an absolute epoch
 # minted once per round by `deadline`; there is no state file, and agents cannot widen it.
 # Unknown inputs refuse (exit 2): nothing here ever runs a command it could not bound.
 #
 # usage: pass-budget.sh deadline                 print epoch = now + ${PRP_PASS_BUDGET_SECS:-1200}
 #        pass-budget.sh remaining <epoch>        print seconds left; exit 1 when expired
 #        pass-budget.sh run <epoch> -- cmd...    bounded run; exit 124 = cut/not started (PASS-TIMEBOXED)
-#        pass-budget.sh check-body <file>        exit 1 if the body mentions a timebox without
-#                                                a `Follow-up: https://github.com/<o>/<r>/issues/<n>` line
+#        pass-budget.sh check-body <file>        exit 1 if the body mentions a timebox in any form
+#                                                (the pass is void: re-run it; nothing is posted)
 # exit 2 = usage error / bad value / no `timeout` command / body over the size cap / not valid UTF-8.
 # Note: exit 124 from `run` also covers a command that itself exits 124.
 set -euo pipefail
@@ -101,7 +101,7 @@ case "$SUB" in
     size=$(wc -c < "$f") || die "check-body could not stat $f"
     (( size <= CHECK_BODY_MAX_BYTES )) \
       || die "check-body body is $size bytes, over the $CHECK_BODY_MAX_BYTES-byte cap — refusing to normalise"
-    # Invariant: any mention of a timebox needs the Follow-up link. Normalise (NFKC, no CR, Unicode spaces
+    # Invariant: any mention of a timebox makes the pass void, so it is never posted. Normalise (NFKC, no CR, Unicode spaces
     # to ASCII space, zero-width removed, lowercase) and look for the word anywhere: never at line shape.
     command -v perl >/dev/null 2>&1 || die "check-body needs perl to normalise the body"
     verdict=$(perl -MEncode -MUnicode::Normalize -e '
@@ -120,8 +120,8 @@ case "$SUB" in
       CLEAN) ;;
       BADUTF8) die "check-body body is not valid UTF-8 — refusing to normalise" ;;
       MENTIONS)
-        tr -d '\r' < "$f" | grep -qxE 'Follow-up: https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/issues/[0-9]+' \
-          || { echo "pass mentions a timebox but has no 'Follow-up: https://github.com/<owner>/<repo>/issues/<n>' line" >&2; exit 1; } ;;
+        echo "pass timeboxed: the pass is void, re-run it with a fresh deadline (a timeboxed body is never posted)" >&2
+        exit 1 ;;
       *) die "check-body got an unexpected verdict '$verdict'" ;;
     esac
     ;;
