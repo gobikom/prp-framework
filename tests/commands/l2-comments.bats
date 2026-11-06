@@ -838,7 +838,7 @@ trivial_run() { printf 'trivial\n' > .prp-output/reviews/pr-7-tier; export FAKE_
   [ "$status" -ne 0 ]; [[ "$output" == *"not a valid run file"* ]]
 }
 
-# --- pass timebox (prp-framework#151 AC2): Step C refuses a timeboxed body without a follow-up link ---
+# --- pass timebox (prp-framework#151 AC2, SO#1508): a timeboxed body is void, Step C posts nothing ---
 
 timeboxed() { # timeboxed <pass> [link]: rewrite one body so its Could not verify says the pass was timeboxed
   local f=".prp-output/reviews/pr-7-l2-$1.md" link="${2:-}"
@@ -846,12 +846,33 @@ timeboxed() { # timeboxed <pass> [link]: rewrite one body so its Could not verif
     printf '\n'; tail -n1 "$f"; } > t.md && mv t.md "$f"
 }
 
-@test "a timeboxed body without a follow-up link posts nothing" {
+@test "a timeboxed body posts nothing and leaves the run file for the re-run" {
   start; write_all; timeboxed security-reviewer
   post
   [ "$status" -ne 0 ]
-  [[ "$output" == *"timebox without a Follow-up issue link"* ]]
-  [[ "$output" == *"pass mentions a timebox"* ]]
+  [[ "$output" == *"timeboxed pass, void: re-run only this pass once"* ]]
+  [[ "$output" == *"pass timeboxed: the pass is void"* ]]
+  [ ! -s "$WORK_LOG" ]
+  [ -f .prp-output/reviews/pr-7-l2-run.env ]
+}
+
+@test "two void passes are both named in one FATAL, and the run file is kept" {
+  start; write_all; timeboxed security-reviewer; timeboxed silent-failure-hunter
+  post
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"bad pass(es): security-reviewer silent-failure-hunter"* ]]
+  [ ! -s "$WORK_LOG" ]
+  [ -f .prp-output/reviews/pr-7-l2-run.env ]
+}
+
+@test "a check-body error (exit 2) is not reported as a void pass to re-run" {
+  start; write_all
+  f=".prp-output/reviews/pr-7-l2-code-reviewer.md"
+  { sed -n '1,/^### Could not verify$/p' "$f"; printf 'bad \xff byte\n\n'; tail -n1 "$f"; } > t.md && mv t.md "$f"
+  post
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"check-body error, fix the body or the environment, do not re-run blindly"* ]]
+  [[ "$output" != *"void: re-run only this pass once"* ]]
   [ ! -s "$WORK_LOG" ]
 }
 
@@ -864,11 +885,12 @@ timeboxed() { # timeboxed <pass> [link]: rewrite one body so its Could not verif
   [ ! -s "$WORK_LOG" ]
 }
 
-@test "a timeboxed body with a follow-up issue link is posted with the other passes" {
+@test "a timeboxed body with a follow-up issue link still posts nothing" {
   start; write_all; timeboxed security-reviewer https://github.com/o/r/issues/12
   post
-  [ "$status" -eq 0 ]
-  [ "$(wc -l < "$WORK_LOG")" -eq 3 ]
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"timeboxed pass, void: re-run only this pass once"* ]]
+  [ ! -s "$WORK_LOG" ]
 }
 
 @test "Step C posts nothing when the installed framework scripts cannot be found" {

@@ -33,6 +33,11 @@ Every major version release MUST include a `docs/migration/vX.0-to-vY.0.md` file
 
 ## [Unreleased]
 
+### Changed
+- prp-review-agents: a timeboxed pass is void. `pass-budget.sh check-body` now refuses any body that mentions a timebox, even when it carries a `Follow-up:` issue link. Step C posts nothing, and the caller re-runs that pass with a fresh deadline.
+  - No follow-up issue is filed for a timebox any more (soul-orchestra#1508, the 2026-10-31 follow-up rule). The old rule made 7 issues in 5 days.
+  - A timeboxed pass can no longer be counted toward a clean round, so the gate is stricter, not weaker.
+
 ### Fixed
 - `gen-ai-context.sh` excludes `.sandbox-home` / `.sandbox-tmp` / `.sandbox-root` (and `.sandbox-*` glob)
   from every scan site — `detect_stack` EXCL and `detect_exports` EXCL via grep `--exclude-dir`
