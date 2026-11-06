@@ -33,6 +33,53 @@ Every major version release MUST include a `docs/migration/vX.0-to-vY.0.md` file
 
 ## [Unreleased]
 
+### Fixed
+- `gen-ai-context.sh` excludes `.sandbox-home` / `.sandbox-tmp` / `.sandbox-root` (and `.sandbox-*` glob)
+  from every scan site — `detect_stack` EXCL and `detect_exports` EXCL via grep `--exclude-dir`
+  (matches at any depth), the Context Map generate loop and the `--check` forward scan via a
+  `find \( -type d -name '.sandbox-*' -prune \)` at depth (a nested `foo/.sandbox-*/x.py` no longer
+  marks `foo/` as a code dir or reports it missing from the Context Map), and the
+  `detect_entry_points` Java find via the same prune (`src/main/java/.sandbox-*/Application.java`
+  never becomes an Entry point). The top-level `.sandbox-*` case arms stay as defense-in-depth
+  against `dotglob`. `--check` reads only the FIRST AUTO-GEN block (anchored `<!-- AUTO-GEN:` markers):
+  the Stack is up to date only on an exact whole-line `- **Stack:** <detect_stack>` match there, so a
+  duplicate block or marker text quoted in the body no longer satisfies it (extra blocks warn in
+  `--update` and make `--check` stale). A failed `find` in the map/check scans is visible
+  (`could not scan '<dir>/'`, plus stale=1 in `--check`), never read as "nothing found". Agent
+  harnesses (chela) that spawn sessions with a sandboxed HOME inside the working repo previously
+  leaked plugin junk into PROJECT.md auto-gen sections: `sqlite3` matches in sandbox `.py` files
+  produced a false `Stack: SQLite`, and the Express-route grep matched `app.getHostCapabilities()`
+  (an `app.get` prefix collision) as fake API endpoints. Same failure class as #72/#73
+  (backup-dir skip; PR #133/#245).
+- `gen-ai-context.sh` `detect_entry_points` Java scan is fail-visible too (r3 of #245): the
+  `find src/main/java` no longer silences its errors (`2>/dev/null | head -1 || true` is gone) —
+  it mirrors the map-site pattern (`-print -quit`, `log_warn "could not scan 'src/main/java/'"`),
+  so a failed scan warns on stderr and reads as no entry, never as "nothing found" (Invariant S
+  visibility clause; pinned by S-J1/S-J3/S-J4).
+- `gen-ai-context.sh` marker and warning hardening (re-route of #249 and #245): AUTO-GEN marker
+  matching lives in exactly two helpers — `autogen_span FILE` (first block's BEGIN/END line
+  numbers; rc 1 no BEGIN, rc 2 BEGIN without END, rc 3 cannot read — the I/O-error class,
+  fatal in both modes, never the marker-less branch) and `autogen_begin_count FILE` (same
+  rc-3 arm) — and no other `grep`/`sed`/`awk` matches AUTO-GEN (M0). rc 3 also covers ANY
+  NUL byte in the file, decided by an explicit whole-file probe (`tr -d '\0' | cmp -s`)
+  before any grep — independent of grep's read buffer, past which (~50–100KB observed on
+  ugrep 7.8.4) the BEGIN match flushes as a normal text line before the NUL is detected and
+  the rc-0-with-unusable-output arm never fired (#250 R3 High; supersedes the old
+  marker-less-NUL rc-1 decision — any NUL-bearing PROJECT.md, marker-ful or not, refuses in
+  both modes). `do_update`/`do_check`
+  slice the file by those line numbers, so quoted markers, indented/prose BEGINs,
+  mid-line/early/CRLF ENDs, empty files (the rc-1 issue path) and NUL-bearing files
+  (rc-3 refusal) and duplicate blocks can no longer open or extend the block; a dangling
+  BEGIN refuses
+  the update and reads stale, and an unexpanded `*/` glob is skipped instead of marking the
+  repo STALE (M1–M8, M-CRLF, M-EMPTY-NUL, M-NUL-MARKERFUL, M-NUL-44K-END, M-NUL-1M,
+  M-NO-NUL-1M, M-BEGIN1). Every `log_warn` call lands on stderr
+  (W1/W2); fatal refusals go through the new `log_fatal` — unconditional stderr, visible
+  under `--quiet` (M-UNREADABLE); the reverse Context-Map scan and the write contract are
+  pinned arm by arm (R-BACKUP-*, W-CONTRACT). The Java-scan fix (S-J4 find shim) and the
+  sandbox-prune tests carry over from the r3 tree, S-J3 now also pinning its stream.
+
+
 ## [2.14.0] — 2026-11-02
 
 **Review diet + per-pass L2 comments** — `prp-review-agents --l2-comments` posts one comment per core pass with a provenance footer, dispatches every pass of a round in one wake, runs conditional agents in round 1 only, decides full/incremental mode and risk tier, and refuses a new round at an unchanged head or a byte-identical tree. Plans carry a threat model and PR stack; `generate-adapters.py` fails loud; `install.sh` leaves generator-owned `AGENTS.md` alone. Everything below was merged under [Unreleased] since 2.13.0 (2026-07-09).

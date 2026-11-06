@@ -47,8 +47,64 @@ NC='\033[0m'
 
 log() { $QUIET || echo -e "$@"; }
 log_ok() { log "  ${GREEN}✓${NC} $1"; }
-log_warn() { log "  ${YELLOW}⚠${NC} $1"; }
+# Invariant W (r4 of #245): every warning reaches stderr because log_warn itself
+# writes there — no call site adds its own redirect. Fatal refusals (log_fatal)
+# write stderr unconditionally: a refusal stays visible under --quiet too.
+log_warn() { $QUIET || echo -e "  ${YELLOW}⚠${NC} $1" >&2; }
 log_err() { log "  ${RED}✗${NC} $1"; }
+log_fatal() { echo -e "  ${RED}✗${NC} $1" >&2; }
+
+# ─────────────────────────────────────────────────
+# AUTO-GEN marker predicate (Invariant M, r4 of #245): the ONLY place marker
+# text is matched. Every decision about marker presence, count or position
+# goes through these two helpers, and the extractors use their line numbers.
+# No other text-matching command in this script may match AUTO-GEN (test M0).
+#   BEGIN = a line starting with '<!-- AUTO-GEN:BEGIN' (anchored at column 1)
+#   END   = the first line AFTER that BEGIN that is exactly '<!-- AUTO-GEN:END -->'
+# ─────────────────────────────────────────────────
+autogen_span() { # FILE -> prints "B E" (1-based line numbers of the first block)
+    # rc 0 = BEGIN with an END after it; 1 = no BEGIN; 2 = BEGIN but no END after it
+    # (an END only before the BEGIN, mid-line, or with trailing spaces is NOT an END);
+    # 3 = cannot read (EACCES/EIO/read races, I-1 of #250 R1) — grep runs unpiped so
+    # its rc survives (pipefail would mask it), and never aliases to the rc-1
+    # "no markers" branch. R3/R4 design fix (Invariant M, นุด option C 2026-11-06):
+    # binary-ness is decided by an EXPLICIT whole-file NUL probe BEFORE any grep —
+    # past grep's read buffer (~50–100KB observed on ugrep 7.8.4) the BEGIN match
+    # flushes as a normal text line before the NUL is detected, so grep exits 0
+    # with usable output and the R2 output-shape arm (rc 0 + empty captured stdout
+    # / "Binary file …" → rc 3) never fired. ANY NUL anywhere in the file is now
+    # rc 3, marker-ful or not — this supersedes the M-EMPTY-NUL marker-less-NUL
+    # decision: a NUL-bearing PROJECT.md refuses in both modes instead of
+    # no-op-greening through the rc-1 branch. An empty or clean marker-less file
+    # still reads as rc 1.
+    local file="$1" b e grc tail_out
+    # tr strips NULs to stdout; cmp -s re-reads the original: streams differ ⇒ a
+    # NUL is present ⇒ rc 3. Under pipefail a tr/cmp read failure (the same
+    # EACCES/EIO/race class as the grep rc-2 arm) is also non-zero — every
+    # non-zero outcome refuses, fail-closed, at any file size.
+    if ! tr -d '\0' < "$file" | cmp -s - "$file"; then
+        return 3
+    fi
+    grc=0; b=$(grep -n '^<!-- AUTO-GEN:BEGIN' "$file") || grc=$?
+    if [ "$grc" -eq 2 ]; then return 3; fi
+    b=${b%%$'\n'*}; b=${b%%:*}
+    case "$b" in ''|*[!0-9]*)
+        if [ "$grc" -eq 0 ]; then return 3; fi
+        return 1 ;;
+    esac
+    tail_out=$(tail -n +"$((b + 1))" "$file") || return 3
+    e=$(grep -nxF -- '<!-- AUTO-GEN:END -->' <<< "$tail_out") || true
+    e=${e%%$'\n'*}; e=${e%%:*}
+    case "$e" in ''|*[!0-9]*) return 2 ;; esac
+    echo "$b $((b + e))"
+}
+
+autogen_begin_count() { # FILE -> count of anchored BEGIN lines; rc 3 = cannot read
+    local n grc
+    grc=0; n=$(grep -c '^<!-- AUTO-GEN:BEGIN' "$1") || grc=$?
+    if [ "$grc" -eq 2 ]; then return 3; fi
+    printf '%s\n' "$n"
+}
 
 # ─────────────────────────────────────────────────
 # Auto-detect: Stack
@@ -56,7 +112,7 @@ log_err() { log "  ${RED}✗${NC} $1"; }
 detect_stack() {
     local stack=()
     # Common exclude dirs for recursive grep (avoid scanning vendored/generated code)
-    local EXCL="--exclude-dir=node_modules --exclude-dir=.venv --exclude-dir=venv --exclude-dir=dist --exclude-dir=build --exclude-dir=__pycache__"
+    local EXCL="--exclude-dir=node_modules --exclude-dir=.venv --exclude-dir=venv --exclude-dir=dist --exclude-dir=build --exclude-dir=__pycache__ --exclude-dir=.sandbox-*"
 
     [ -f "package.json" ] && stack+=("Node.js $(jq -r '.engines.node // ""' package.json 2>/dev/null | head -1)")
     if [ -f "requirements.txt" ] || [ -f "pyproject.toml" ] || [ -f "setup.py" ] || ls requirements*.txt 1>/dev/null 2>&1; then
@@ -140,10 +196,16 @@ detect_entry_points() {
     for f in src/bin/*.rs; do
         [ -f "$f" ] && entries+=("$f")
     done
-    # Java/Kotlin: Application.java or Main.java in Maven/Gradle layout
+    # Java/Kotlin: Application.java or Main.java in Maven/Gradle layout.
+    # Fail-visible (Invariant S, r3 of #245): a failed scan warns on stderr and
+    # reads as no entry — never as "nothing found" through a silenced pipe.
+    # Mirrors the Context Map scan pattern below (find … -prune … -print -quit).
     local java_entry=""
     if [ -d "src/main/java" ]; then
-        java_entry=$(find src/main/java -maxdepth 6 \( -name "Application.java" -o -name "Main.java" \) -print 2>/dev/null | head -1 || true)
+        if ! java_entry=$(find src/main/java -maxdepth 6 \( -type d -name '.sandbox-*' -prune \) -o \( -type f \( -name "Application.java" -o -name "Main.java" \) -print -quit \)); then
+            log_warn "could not scan 'src/main/java/' (find failed)"
+            java_entry=""
+        fi
     fi
     [ -n "$java_entry" ] && entries+=("$java_entry")
     [ -d "bin" ] && {
@@ -227,15 +289,23 @@ generate_context_map() {
 
     # Project-specific directories (any top-level dir with code)
     for dir in */; do
+        [ -d "$dir" ] || continue   # unexpanded glob (no non-hidden dirs) is not a dir — never a scan failure
         dir="${dir%/}"
         # Skip common non-code dirs
         case "$dir" in
             node_modules|.git|.prp|.prp-output|.claude|.codex|.opencode|.gemini|.agents|dist|build|__pycache__|.venv|venv|.env|coverage|.nyc_output|logs|output|tmp|temp|backup|old) continue ;;
             src|test|tests|docs|scripts|bin|deploy|config|conf|prisma|public|static|assets) continue ;;  # already handled above
+            .sandbox-home|.sandbox-tmp|.sandbox-root|.sandbox-*) continue ;;  # agent sandboxes (chela); defense-in-depth vs dotglob — find below prunes them at depth
             *.backup|*.backup.*|*.bak|*.old|*.orig|*~|*-backup) continue ;;  # backup/stale dir conventions (#72)
         esac
-        # Only include if it has code files
-        if find "$dir" -maxdepth 2 \( -name "*.py" -o -name "*.ts" -o -name "*.js" -o -name "*.go" -o -name "*.rs" -o -name "*.java" -o -name "*.yaml" -o -name "*.yml" -o -name "*.sh" \) -print -quit 2>/dev/null | grep -q .; then
+        # Only include if it has code files; a failed scan is visible (stderr),
+        # never read as "nothing found"
+        local dir_scan
+        if ! dir_scan=$(find "$dir" -maxdepth 2 \( -type d -name '.sandbox-*' -prune \) -o \( -type f \( -name "*.py" -o -name "*.ts" -o -name "*.js" -o -name "*.go" -o -name "*.rs" -o -name "*.java" -o -name "*.yaml" -o -name "*.yml" -o -name "*.sh" \) -print -quit \)); then
+            log_warn "could not scan '${dir}/' (find failed)"
+            continue
+        fi
+        if [ -n "$dir_scan" ]; then
             echo "| ${dir} | \`${dir}/\` |"
         fi
     done
@@ -246,7 +316,7 @@ generate_context_map() {
 # ─────────────────────────────────────────────────
 detect_exports() {
     local found=false
-    local EXCL="--exclude-dir=node_modules --exclude-dir=.venv --exclude-dir=venv --exclude-dir=dist --exclude-dir=build --exclude-dir=__pycache__"
+    local EXCL="--exclude-dir=node_modules --exclude-dir=.venv --exclude-dir=venv --exclude-dir=dist --exclude-dir=build --exclude-dir=__pycache__ --exclude-dir=.sandbox-*"
 
     # FastAPI routes
     local fastapi_routes
@@ -343,25 +413,44 @@ do_init() {
 # ─────────────────────────────────────────────────
 do_update() {
     if [ ! -f "$PROJECT_MD" ]; then
-        log "${RED}PROJECT.md not found. Use --init to create it first.${NC}"
+        log_fatal "PROJECT.md not found. Use --init to create it first."
         exit 1
     fi
 
-    # Check markers exist before attempting update
-    if ! grep -q "AUTO-GEN:BEGIN" "$PROJECT_MD"; then
+    # Invariant M: marker presence and position come only from autogen_span —
+    # marker text in prose cannot pass or fail these gates; rc 3 (cannot read) is fatal — never the no-markers branch
+    local span rc begin end nblocks
+    rc=0; span=$(autogen_span "$PROJECT_MD") || rc=$?
+    if [ "$rc" -eq 3 ]; then
+        log_fatal "cannot read $PROJECT_MD — refusing to update"
+        exit 1
+    fi
+    if [ "$rc" -eq 1 ]; then
         log "${YELLOW}No AUTO-GEN markers found in PROJECT.md. Skipping update.${NC}"
         exit 0
     fi
-
-    if ! grep -q "AUTO-GEN:END" "$PROJECT_MD"; then
-        log "${RED}AUTO-GEN:BEGIN found but AUTO-GEN:END missing — refusing to update (would lose content)${NC}"
+    if [ "$rc" -eq 2 ]; then
+        log_fatal "AUTO-GEN:BEGIN found but AUTO-GEN:END missing — refusing to update (would lose content)"
         exit 1
     fi
+    read -r begin end <<< "$span"
 
-    # Extract content before and after AUTO-GEN markers
+    # Only the first AUTO-GEN block is maintained; extra ones survive in $after — say so
+    nblocks=$(autogen_begin_count "$PROJECT_MD") || { log_fatal "cannot read $PROJECT_MD — refusing to update"; exit 1; }
+    if [ "$nblocks" -gt 1 ]; then
+        log_warn "extra AUTO-GEN block(s) found; only the first is maintained"
+    fi
+
+    # Extract by the helper's line numbers: before = 1..B-1 (empty when B=1),
+    # after = E+1..$ — body content below the block can never be lost to a
+    # pattern match.
     local before after
-    before=$(sed '/<!-- AUTO-GEN:BEGIN/,$d' "$PROJECT_MD")
-    after=$(sed -n '/<!-- AUTO-GEN:END -->/,$p' "$PROJECT_MD" | tail -n +2)
+    if [ "$begin" -gt 1 ]; then
+        before=$(sed -n "1,$((begin - 1))p" "$PROJECT_MD")
+    else
+        before=""
+    fi
+    after=$(sed -n "$((end + 1)),\$p" "$PROJECT_MD")
 
     # Generate new AUTO-GEN content
     local stack entry_points context_map exports
@@ -391,7 +480,7 @@ do_update() {
         echo "<!-- AUTO-GEN:END -->"
         echo "$after"
     } > "$tmp_md" && mv "$tmp_md" "$PROJECT_MD" || {
-        log "${RED}Failed to write PROJECT.md — original preserved${NC}"
+        log_fatal "Failed to write PROJECT.md — original preserved"
         rm -f "$tmp_md"
         exit 1
     }
@@ -411,10 +500,12 @@ do_check() {
 
     # 1. Check PROJECT.md exists
     if [ ! -f "$PROJECT_MD" ]; then
-        log_err "PROJECT.md does not exist (run: gen-ai-context.sh --init)"
+        log_fatal "PROJECT.md does not exist (run: gen-ai-context.sh --init)"
         exit 1
     fi
-    log_ok "PROJECT.md exists ($(wc -l < "$PROJECT_MD") lines)"
+    local md_lines
+    md_lines=$(wc -l < "$PROJECT_MD" 2>/dev/null) || md_lines="?"
+    log_ok "PROJECT.md exists ($md_lines lines)"
 
     # 2. Check required sections
     for section in "What & Why" "Problem" "Requirements" "Key Decisions" "Constraints"; do
@@ -426,8 +517,15 @@ do_check() {
         fi
     done
 
-    # 3. Check AUTO-GEN markers exist
-    if grep -q "AUTO-GEN:BEGIN" "$PROJECT_MD" && grep -q "AUTO-GEN:END" "$PROJECT_MD"; then
+    # 3. Check AUTO-GEN markers exist (Invariant M: only autogen_span decides —
+    # a BEGIN without its END after it is not "present"; rc 3, cannot read, is fatal — never marker-less or up-to-date)
+    local span rc begin end nblocks
+    rc=0; span=$(autogen_span "$PROJECT_MD") || rc=$?
+    if [ "$rc" -eq 3 ]; then
+        log_fatal "cannot read $PROJECT_MD — refusing to check"
+        exit 1
+    fi
+    if [ "$rc" -eq 0 ]; then
         log_ok "AUTO-GEN markers present"
     else
         log_warn "AUTO-GEN markers missing (auto-update won't work)"
@@ -444,45 +542,71 @@ do_check() {
         log_ok "No unfilled {TODO} placeholders"
     fi
 
-    # 5. Staleness check — compare current auto-gen vs what's in file
-    if grep -q "AUTO-GEN:BEGIN" "$PROJECT_MD"; then
-        local current_stack
+    # 5. Staleness check — compare current auto-gen vs what's in file.
+    # (Invariant M: the block is read by autogen_span's line numbers; rc 2 —
+    # BEGIN without an END after it — fails closed as stale, A2's intent now
+    # actually reachable: marker text in prose cannot satisfy any of this.)
+    if [ "$rc" -eq 0 ] || [ "$rc" -eq 2 ]; then
+        local current_stack autogen_block
         current_stack=$(detect_stack)
-        if grep -q "$current_stack" "$PROJECT_MD" 2>/dev/null; then
-            log_ok "Stack is up-to-date"
+        autogen_block=""
+        if [ "$rc" -eq 2 ]; then
+            # A missing END must never read as "up-to-date": do_update refuses
+            # this file (would lose content); do_check marks it stale instead,
+            # so body prose below the dangling BEGIN cannot satisfy the check.
+            log_warn "AUTO-GEN:BEGIN found but AUTO-GEN:END missing"
+            stale=1
         else
-            log_warn "Stack may be outdated (current: $current_stack)"
+            read -r begin end <<< "$span"
+            autogen_block=$(sed -n "${begin},${end}p" "$PROJECT_MD")
+            if grep -qxF -- "- **Stack:** $current_stack" <<< "$autogen_block"; then
+                log_ok "Stack is up-to-date"
+            else
+                log_warn "Stack may be outdated (current: $current_stack)"
+                stale=1
+            fi
+        fi
+        nblocks=$(autogen_begin_count "$PROJECT_MD") || { log_fatal "cannot read $PROJECT_MD — refusing to check"; exit 1; }
+        if [ "$nblocks" -gt 1 ]; then
+            log_warn "extra AUTO-GEN block(s) found; only the first is maintained"
             stale=1
         fi
 
         # Check if new directories appeared that aren't in Context Map
         for dir in */; do
+            [ -d "$dir" ] || continue   # unexpanded glob (no non-hidden dirs) is not a dir — never a scan failure
             dir="${dir%/}"
             case "$dir" in
-                node_modules|.git|.prp|.prp-output|.claude|.codex|.opencode|.gemini|.agents|dist|build|__pycache__|.venv|venv|.env|coverage|.nyc_output|logs|output|tmp|temp|.claude-plugin|public|static|assets|backup|old) continue ;;
+                node_modules|.git|.prp|.prp-output|.claude|.codex|.opencode|.gemini|.agents|dist|build|__pycache__|.venv|venv|.env|coverage|.nyc_output|logs|output|tmp|temp|.claude-plugin|public|static|assets|backup|old|.sandbox-home|.sandbox-tmp|.sandbox-root|.sandbox-*) continue ;;  # .sandbox-* = agent sandboxes (chela), defense-in-depth vs dotglob — find below prunes them at depth
                 *.backup|*.backup.*|*.bak|*.old|*.orig|*~|*-backup) continue ;;  # backup/stale dir conventions (#72)
             esac
-            if find "$dir" -maxdepth 2 \( -name "*.py" -o -name "*.ts" -o -name "*.js" -o -name "*.go" -o -name "*.rs" -o -name "*.sh" -o -name "*.yaml" \) -print -quit 2>/dev/null | grep -q .; then
-                if ! grep -q "\`${dir}/\`\|${dir}/" "$PROJECT_MD" 2>/dev/null; then
-                    log_warn "Directory '$dir/' not in Context Map"
-                    stale=1
-                fi
+            local dir_scan
+            if ! dir_scan=$(find "$dir" -maxdepth 2 \( -type d -name '.sandbox-*' -prune \) -o \( -type f \( -name "*.py" -o -name "*.ts" -o -name "*.js" -o -name "*.go" -o -name "*.rs" -o -name "*.sh" -o -name "*.yaml" \) -print -quit \)); then
+                log_warn "could not scan '${dir}/' (find failed)"
+                stale=1
+                continue
+            fi
+            if [ -n "$dir_scan" ] && ! grep -q "\`${dir}/\`\|${dir}/" "$PROJECT_MD" 2>/dev/null; then
+                log_warn "Directory '$dir/' not in Context Map"
+                stale=1
             fi
         done
 
         # Reverse scan: Context Map entries pointing at backup/stale dirs
-        # Uses process substitution (not pipe) so stale=1 propagates to parent shell
-        while IFS= read -r entry; do
-            local base
-            base=$(basename "$entry")
-            case "$base" in
-                *.backup|*.backup.*|*.bak|*.old|*.orig|*~|*-backup|backup|old)
-                    log_warn "Context Map entry '$entry/' matches backup-dir skip pattern — run --update to remove"
-                    stale=1
-                    ;;
-            esac
-        done < <(sed -n '/AUTO-GEN:BEGIN/,/AUTO-GEN:END/p' "$PROJECT_MD" \
-                 | grep -oE '`[^`]+/`' | tr -d '`' | sed 's|/$||')
+        # Uses process substitution (not pipe) so stale=1 propagates to parent
+        # shell; reads the first block by the helper's line numbers (rc 0 only).
+        if [ "$rc" -eq 0 ]; then
+            while IFS= read -r entry; do
+                local base
+                base=$(basename "$entry")
+                case "$base" in
+                    *.backup|*.backup.*|*.bak|*.old|*.orig|*~|*-backup|backup|old)
+                        log_warn "Context Map entry '$entry/' matches backup-dir skip pattern — run --update to remove"
+                        stale=1
+                        ;;
+                esac
+            done < <(printf '%s\n' "$autogen_block" | grep -oE '`[^`]+/`' | tr -d '`' | sed 's|/$||')
+        fi
     fi
 
     # Summary
