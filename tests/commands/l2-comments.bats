@@ -850,10 +850,30 @@ timeboxed() { # timeboxed <pass> [link]: rewrite one body so its Could not verif
   start; write_all; timeboxed security-reviewer
   post
   [ "$status" -ne 0 ]
-  [[ "$output" == *"timeboxed pass, void: re-run it"* ]]
+  [[ "$output" == *"timeboxed pass, void: re-run only this pass once"* ]]
   [[ "$output" == *"pass timeboxed: the pass is void"* ]]
   [ ! -s "$WORK_LOG" ]
   [ -f .prp-output/reviews/pr-7-l2-run.env ]
+}
+
+@test "two void passes are both named in one FATAL, and the run file is kept" {
+  start; write_all; timeboxed security-reviewer; timeboxed silent-failure-hunter
+  post
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"bad pass(es): security-reviewer silent-failure-hunter"* ]]
+  [ ! -s "$WORK_LOG" ]
+  [ -f .prp-output/reviews/pr-7-l2-run.env ]
+}
+
+@test "a check-body error (exit 2) is not reported as a void pass to re-run" {
+  start; write_all
+  f=".prp-output/reviews/pr-7-l2-code-reviewer.md"
+  { sed -n '1,/^### Could not verify$/p' "$f"; printf 'bad \xff byte\n\n'; tail -n1 "$f"; } > t.md && mv t.md "$f"
+  post
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"check-body error, fix the body or the environment, do not re-run blindly"* ]]
+  [[ "$output" != *"void: re-run only this pass once"* ]]
+  [ ! -s "$WORK_LOG" ]
 }
 
 @test "a timebox mention in any markup posts nothing without a link" {
@@ -869,7 +889,7 @@ timeboxed() { # timeboxed <pass> [link]: rewrite one body so its Could not verif
   start; write_all; timeboxed security-reviewer https://github.com/o/r/issues/12
   post
   [ "$status" -ne 0 ]
-  [[ "$output" == *"timeboxed pass, void: re-run it"* ]]
+  [[ "$output" == *"timeboxed pass, void: re-run only this pass once"* ]]
   [ ! -s "$WORK_LOG" ]
 }
 

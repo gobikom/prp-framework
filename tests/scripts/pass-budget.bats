@@ -198,7 +198,9 @@ body() { printf 'Reviewed head: x\n\n### Could not verify\n%b\n\nGenerated-by: y
   for m in '## Pass timeboxed' '### **Pass timeboxed**' '1. Pass timeboxed' '**Pass** timeboxed' 'Pass: timeboxed' \
            'Pass\xc2\xa0timeboxed' 'time\xc2\xa0boxed' 'Pass time\xe2\x80\x8bboxed' 'Pass time\xef\xbb\xbfboxed' \
            'time-boxed' 'time boxed' 'the review was TIMEBOXED here' 'PASS-TIMEBOXED: 1 probe' 'Pass timeboxed\r' \
-           '`Pass timeboxed`' '- [ ] Pass timeboxed' 'time\xe2\x80\x91boxed' 'time\xe1\x9a\x80boxed' '\xef\xbd\x94\xef\xbd\x89\xef\xbd\x8d\xef\xbd\x85\xef\xbd\x82\xef\xbd\x8f\xef\xbd\x98\xef\xbd\x85\xef\xbd\x84'; do
+           '`Pass timeboxed`' '- [ ] Pass timeboxed' 'time\xe2\x80\x91boxed' 'time\xe1\x9a\x80boxed' \
+           'time\xe2\x80\xa8boxed' 'time\xc2\x85boxed' 'time\x0bboxed' 'time_boxed' 'time.boxed' 'time/boxed' \
+           'time\xcd\x8fboxed' 'time\xe1\xa0\x8eboxed' 't\xc4\xb1mebox' 'ti\xcc\x81mebox' '\xef\xbd\x94\xef\xbd\x89\xef\xbd\x8d\xef\xbd\x85\xef\xbd\x82\xef\xbd\x8f\xef\xbd\x98\xef\xbd\x85\xef\xbd\x84'; do
     body "$m"
     run bash "$P" check-body b.md
     [ "$status" -eq 1 ] || { echo "passed without a link: $m"; false; }

@@ -721,9 +721,9 @@ PASS_DEADLINE=$(bash "$PRP_DIR/scripts/review/pass-budget.sh" deadline) \
 echo "PASS_DEADLINE=$PASS_DEADLINE PRP_DIR=$PRP_DIR"
 ```
 
-If this block prints FATAL, STOP: spawn no agent and post nothing. Otherwise the `echo` is the only place the minted values reach the transcript — shell state does not persist between tool calls, so read `{PASS_DEADLINE}` and `{PRP_DIR}` below from that printed line, never by re-running `deadline` or inventing a value.
+If this block prints FATAL, STOP: spawn no agent and post nothing. Otherwise the `echo` is the only place the minted values reach the transcript — shell state does not persist between tool calls, so read `{PASS_DEADLINE}` and `{PRP_DIR}` below from that printed line, never by re-running `deadline` or inventing a value. The one exception is the single re-run of a void pass (below): it runs this block again and uses the newly printed value for that re-run pass only.
 
-`$PASS_DEADLINE` is `{PASS_DEADLINE}` and `$PRP_DIR` is `{PRP_DIR}` in the prompts below, as printed by the `echo` above (the default budget is 20 minutes; `PRP_PASS_BUDGET_SECS` overrides it for tests). A command run through `pass-budget.sh run` is killed at the deadline and not started after it; nothing else extends a pass. When a pass reports `Pass timeboxed`, its `### Could not verify` lists the unfinished probes and the pass is void: Step C posts nothing for a body that mentions a timebox, and no follow-up issue is filed (SO#1508). Re-run that pass with a fresh deadline from `pass-budget.sh deadline`, narrowing the probes to what fits (a long suite belongs to CI, which must be green at the head anyway); only a body with no timebox mention is posted. The inconclusive probes stay fail-closed: they are Could not verify, never a clean pass.
+`$PASS_DEADLINE` is `{PASS_DEADLINE}` and `$PRP_DIR` is `{PRP_DIR}` in the prompts below, as printed by the `echo` above (the default budget is 20 minutes; `PRP_PASS_BUDGET_SECS` overrides it for tests). A command run through `pass-budget.sh run` is killed at the deadline and not started after it; nothing else extends a pass. When a pass reports `Pass timeboxed`, its `### Could not verify` lists the unfinished probes and the pass is void: Step C posts nothing for a body that mentions a timebox, and no follow-up issue is filed (SO#1508). Re-run that pass ONCE, under a fresh deadline minted by running the block above again, narrowing the probes to what fits (a long suite belongs to CI, which must be green at the head anyway); only a body with no timebox mention is posted. If the re-run is void too, STOP: the round is incomplete — post nothing, emit no L2 marker, and escalate with the unfinished probes. Never edit a void body to remove the word: a pass that ran out of time says so. In a run without `--l2-comments` (aggregated review, no Step C), a void pass caps the verdict at NEEDS FIXES and its unfinished probes are listed as Could not verify. The inconclusive probes stay fail-closed: they are Could not verify, never a clean pass.
 
 ### 2.2 Core Agents (Always — Spawn ALL in Parallel)
 
@@ -1631,7 +1631,7 @@ cat "$D/pr-{NUMBER}-l2-run.env"
 
 **Step B — write the bodies** to `.prp-output/reviews/pr-{NUMBER}-l2-<pass>.md`, using the values Step A printed, in the format above: three at `TIER=standard`, only `code-reviewer` (footer ending ` tier=trivial`) at `TIER=trivial`. Line 3 of every body is exactly `Review-mode: full` when Step A's `MODE=full`, or exactly `Review-mode: delta $BASE_SHA..$REVIEWED_HEAD_SHA` when `MODE=delta` — copy it from Step A's printed values, never compose it by hand. At `MODE=delta`, the previous reviewed head for the incremental note in `### Could not verify` is `$BASE_SHA`.
 
-A pass whose body mentions a timebox in any form (2.2.0: `Pass timeboxed`, `time-boxed`, ...) is void: Step C refuses the round, with or without any link line. Re-run that pass with a fresh deadline before Step C.
+A pass whose body mentions a timebox in any form (2.2.0: `Pass timeboxed`, `time-boxed`, ...) is void: Step C refuses the round, with or without any link line. Re-run only that pass, once, with a fresh deadline (2.2.0), keeping the run file, the RUN_ID and the other passes' bodies; rewrite its body and run Step C again. A second void result ends the round as incomplete (2.2.0).
 
 **Step C — check all three, then post all three** (nothing is posted unless every body passes; the run file is consumed before the first post, so a replay cannot post a run twice):
 
@@ -1663,6 +1663,7 @@ if [ "$TIER" = trivial ]; then
     || { echo "FATAL: pr-risk-tier no longer says trivial at $REVIEWED_HEAD_SHA — re-run the review from 2.0b (three passes), nothing posted" >&2; exit 1; }
   PASSES="code-reviewer"; SUFFIX=" tier=trivial"
 fi
+BAD=""
 for PASS in $PASSES; do
   F="$D/pr-{NUMBER}-l2-$PASS.md"
   [ -s "$F" ] || { echo "FATAL: $F missing — nothing posted" >&2; exit 1; }
@@ -1677,9 +1678,15 @@ for PASS in $PASSES; do
   [ "$(grep -ciE '^[[:space:]]*#+[[:space:]]*(critical|important)[[:space:]]+issues' "$F")" = 2 ] || why="$why extra severity heading"
   ! grep -qi 'safe-merge-review' "$F" || why="$why safe-merge-review text"
   [ "$(tail -n1 "$F")" = "Generated-by: prp-review-agents v$PRP_VERSION run=$RUN_ID pass=$PASS$SUFFIX" ] || why="$why footer"
-  CB=$(bash "$PRP_DIR/scripts/review/pass-budget.sh" check-body "$F" 2>&1) || why="$why timeboxed pass, void: re-run it ($CB)"
-  [ -z "$why" ] || { echo "FATAL: $F is not in the L2 format ($why) — nothing posted" >&2; exit 1; }
+  CB=$(bash "$PRP_DIR/scripts/review/pass-budget.sh" check-body "$F" 2>&1) && CBRC=0 || CBRC=$?
+  case "$CBRC" in
+    0) ;;
+    1) why="$why timeboxed pass, void: re-run only this pass once ($CB)" ;;
+    *) why="$why check-body error, fix the body or the environment, do not re-run blindly ($CB)" ;;
+  esac
+  [ -z "$why" ] || { echo "FATAL: $F is not in the L2 format ($why)" >&2; BAD="$BAD $PASS"; }
 done
+[ -z "$BAD" ] || { echo "FATAL: nothing posted; bad pass(es):$BAD — the other bodies and the run file are kept" >&2; exit 1; }
 TRUSTED_LOGIN=$(gh api user --jq '.login') && [ -n "$TRUSTED_LOGIN" ] || { echo "FATAL: cannot read the trusted login; nothing posted" >&2; exit 1; }
 RID_DIR=$(mktemp -d) || { echo "FATAL: mktemp failed; nothing posted" >&2; exit 1; }
 gh api "repos/{owner}/{repo}/pulls/{NUMBER}/commits" --paginate --jq '.[].sha' > "$RID_DIR/shas" || { echo "FATAL: cannot list PR commits; nothing posted" >&2; exit 1; }

@@ -101,8 +101,10 @@ case "$SUB" in
     size=$(wc -c < "$f") || die "check-body could not stat $f"
     (( size <= CHECK_BODY_MAX_BYTES )) \
       || die "check-body body is $size bytes, over the $CHECK_BODY_MAX_BYTES-byte cap — refusing to normalise"
-    # Invariant: any mention of a timebox makes the pass void, so it is never posted. Normalise (NFKC, no CR, Unicode spaces
-    # to ASCII space, zero-width removed, lowercase) and look for the word anywhere: never at line shape.
+    # Invariant: any mention of a timebox makes the pass void, so it is never posted. Normalise (NFKD, combining
+    # marks removed, dotless i folded, lowercase), then drop EVERY non-letter and look for "timebox" in what is
+    # left: no separator (space, U+2028, NEL, VT, _, ., format character) can split the word. Never at line shape.
+    # Fail-closed trade-off: "...time. Box..." also matches; the writer paraphrases.
     command -v perl >/dev/null 2>&1 || die "check-body needs perl to normalise the body"
     verdict=$(perl -MEncode -MUnicode::Normalize -e '
       local $/;
@@ -111,16 +113,16 @@ case "$SUB" in
       close $fh;
       my $text = eval { decode("UTF-8", $bytes, Encode::FB_CROAK) };
       if (!defined $text) { print "BADUTF8"; exit 0 }
-      $text = NFKC($text);
-      $text =~ s/\r//g; $text =~ s/[\x{200B}-\x{200D}\x{2060}\x{FEFF}\x{00AD}]//g;
-      $text =~ s/\p{Zs}/ /g; $text =~ s/[\p{Pd}\x{2212}]/-/g; $text = lc($text);
-      print(($text =~ /time[ \t\n-]*box/) ? "MENTIONS" : "CLEAN");' "$f") \
+      $text = NFKD($text);
+      $text =~ s/\p{M}//g; $text =~ s/\x{0131}/i/g; $text = lc($text);
+      $text =~ s/\P{L}//g;
+      print(($text =~ /timebox/) ? "MENTIONS" : "CLEAN");' "$f") \
       || die "check-body could not normalise $f"
     case "$verdict" in
       CLEAN) ;;
       BADUTF8) die "check-body body is not valid UTF-8 — refusing to normalise" ;;
       MENTIONS)
-        echo "pass timeboxed: the pass is void, re-run it with a fresh deadline (a timeboxed body is never posted)" >&2
+        echo "pass timeboxed: the pass is void, re-run it once with a fresh deadline (a timeboxed body is never posted)" >&2
         exit 1 ;;
       *) die "check-body got an unexpected verdict '$verdict'" ;;
     esac
