@@ -88,7 +88,7 @@ Main installation script. Sets up all PRP Framework adapters in a consumer proje
 6. **Gitignore configuration** -- Appends PRP-specific rules to `.gitignore`:
    - Ignores all adapter directories (`.claude/`, `.codex/`, `.opencode/`, etc.)
    - Keeps `.prp-output/` visible but ignores runtime state (`.prp-output/state/`, `debug/`, `ralph-archives/`, `reviews/review-metrics.jsonl`)
-   - Ignores the per-round prp-review-agents scratch files under `.prp-output/reviews/` (the `# PRP review scratch (v3)` block: aggregate review, PR context, `--l2-comments` bodies and run file, round/head/mode/tier state). The rest of `reviews/` (gate evidence, fix summaries) is not ignored. An unreadable or unwritable `.gitignore` is a warning, not an aborted install
+   - Ignores the per-round prp-review-agents scratch files under `.prp-output/reviews/` (the `# PRP review scratch (v3)` block: aggregate review, PR context, `--l2-comments` bodies and run file, round/head/mode/tier state). The rest of `reviews/` (gate evidence, fix summaries) is not ignored. An unreadable or unwritable `.gitignore` is a warning (repeated in the final summary), not an aborted install: every `.gitignore` write is skipped and the file is left unchanged
    - If the framework is a local clone (not a git submodule), also ignores `.prp/`
 
 ### Examples

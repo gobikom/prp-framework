@@ -38,9 +38,9 @@ Every major version release MUST include a `docs/migration/vX.0-to-vY.0.md` file
   - No follow-up issue is filed for a timebox any more (soul-orchestra#1508, the 2026-10-31 follow-up rule). The old rule made 7 issues in 5 days.
   - A timeboxed pass can no longer be counted toward a clean round, so the gate is stricter, not weaker.
 - install.sh appends a `# PRP review scratch (v3)` block to `.gitignore`, once, on fresh, v1 and v2 installs. Roll it out with `prp-install-all`.
-  - It ignores only the per-round prp-review-agents files under `.prp-output/reviews/`: `pr-*-agents-review*.md`, `pr-context-*.md`, `pr-*-l2-*` (bodies and run file), `pr-*-reviewed-head`, `pr-*-round*`, `pr-*-mode`, `pr-*-tier*`. A `--l2-comments` round now leaves `git status --porcelain` clean.
+  - It ignores only the per-round prp-review-agents files under `.prp-output/reviews/`: `pr-*-agents-review*.md`, `pr-context-*.md` and `pr-context-*/` (a branch with `/` writes `pr-context-fix/x.md`), `pr-*-l2-*` (bodies and run file), `pr-*-reviewed-head`, `pr-*-round*`, `pr-*-mode`, `pr-*-tier*`. A `--l2-comments` round now leaves `git status --porcelain` clean.
   - Gate evidence (`prod-gate-audit-v*`, `plan-walk-v*`), fix summaries and verify reports stay visible.
-  - A `.gitignore` the step cannot read or write prints a warning; the install no longer aborts there.
+  - A `.gitignore` the step cannot read or write is never fatal: one precheck skips every `.gitignore` write (v1 migration, v2/fresh, v3, `.prp/`) and leaves the file unchanged; a write that still fails is caught too. The warning is printed and repeated in the final summary.
   - The opt-in review-artifact commit and the cleanup archive step stage these files with `git add -f`. run-all commits no review artifact (its gate reads the file on disk).
 
 ### Fixed

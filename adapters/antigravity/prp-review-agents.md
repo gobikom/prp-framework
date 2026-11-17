@@ -1402,8 +1402,10 @@ if [ "${NO_COMMIT:-0}" != "1" ] && [ "${PRP_RUN_ALL:-0}" != "1" ]; then
   # per-round scratch files (so --l2-comments runs leave worktrees clean); this opt-in
   # commit mode still commits them on purpose. review-metrics.jsonl is NOT staged: it has
   # been ignored as runtime state since the v2 rules.
-  # A file that exists but cannot be staged is a warning, never "nothing to commit".
+  # A file that exists but cannot be staged is a warning, never "nothing to commit"; so is a
+  # missing aggregate review (this step runs after it was written — absent means it was not).
   STAGE_FAILED=""
+  [ -f "$REVIEW_FILE" ] || { echo "WARNING: $REVIEW_FILE does not exist — the review artifact was never written" >&2; STAGE_FAILED=" $REVIEW_FILE (missing)"; }
   for f in "$REVIEW_FILE" ${BRANCH_NOW:+".prp-output/reviews/pr-context-${BRANCH_NOW}.md"}; do
     [ -f "$f" ] || continue
     git add -f -- "$f" || STAGE_FAILED="$STAGE_FAILED $f"
@@ -1413,9 +1415,13 @@ if [ "${NO_COMMIT:-0}" != "1" ] && [ "${PRP_RUN_ALL:-0}" != "1" ]; then
   # Only commit if there are staged changes
   if ! git diff --cached --quiet; then
     if git commit -m "docs: add review artifact for PR #{NUMBER}" && git push; then
-      echo "Review artifact committed and pushed to PR branch."
+      if [ -z "$STAGE_FAILED" ]; then
+        echo "Review artifact committed and pushed to PR branch."
+      else
+        echo "WARNING: review artifact only PARTIALLY committed and pushed (missing:$STAGE_FAILED)" >&2
+      fi
     else
-      echo "WARNING: review artifact commit or push FAILED — the PR branch does not carry it" >&2
+      echo "WARNING: review artifact commit or push FAILED — the PR branch does not carry it; push it before emitting the safe-merge marker (the marker binds to the pushed head)" >&2
     fi
   elif [ -z "$STAGE_FAILED" ]; then
     echo "NOTE: No new review artifacts to commit (already committed or unchanged)."

@@ -141,7 +141,10 @@ teardown() {
 v3_status_after_files() {  # creates the files under $SANDBOX/.prp-output/reviews, prints porcelain
     git -C "$SANDBOX" init -q 2>/dev/null
     mkdir -p "$SANDBOX/.prp-output/reviews"
-    for f in "$@"; do : > "$SANDBOX/.prp-output/reviews/$f"; done
+    for f in "$@"; do
+        mkdir -p "$(dirname "$SANDBOX/.prp-output/reviews/$f")"
+        : > "$SANDBOX/.prp-output/reviews/$f"
+    done
     git -C "$SANDBOX" status --porcelain --untracked-files=all -- .prp-output/reviews
 }
 
@@ -154,35 +157,74 @@ v3_status_after_files() {  # creates the files under $SANDBOX/.prp-output/review
     [ -z "$out" ]
 }
 
-# Drift guard (PR #253 review R1): the per-round file set is DERIVED from the prompt, so a
-# new `pr-{NUMBER}-<x>` file written by prp-review-agents fails here until install.sh's v3
-# block covers it. Placeholders: {NUMBER}/${NUMBER}/$NUMBER -> 12, $PASS and * -> a pass
-# name, a trailing '-' (`pr-{NUMBER}-l2-<pass>.md` cut at '<') -> a pass body name.
-@test "v3: every per-round file named in prompts/review-agents.md is ignored" {
+# Drift guard, Invariant A of the PR #253 re-plan: the per-round file set is DERIVED from the
+# prompt, so a new `pr-{NUMBER}-<x>` or `pr-context-<branch>` file written by prp-review-agents
+# fails here until install.sh's v3 block covers it. Placeholders: {NUMBER}/${NUMBER}/$NUMBER ->
+# 12, $PASS and * -> a pass name, a trailing '-' (`pr-{NUMBER}-l2-<pass>.md` cut at '<') -> a
+# pass body name. Branch placeholders take every boundary case: no '/', one '/', several '/'
+# with a dot, and the empty name of a detached HEAD.
+@test "v3: every per-round file named in prompts/review-agents.md is ignored, for every branch shape" {
     bash "$INSTALL_SCRIPT" >/dev/null 2>&1
-    names=$(grep -oE 'pr-(\{NUMBER\}|\$\{NUMBER\}|\$NUMBER)-[A-Za-z0-9_.$*-]*' \
-            "$REAL_FRAMEWORK_DIR/prompts/review-agents.md" | sort -u \
+    prompt="$REAL_FRAMEWORK_DIR/prompts/review-agents.md"
+    names=$(grep -oE 'pr-(\{NUMBER\}|\$\{NUMBER\}|\$NUMBER)-[A-Za-z0-9_.$*-]*' "$prompt" | sort -u \
         | sed -E 's/\{NUMBER\}|\$\{NUMBER\}|\$NUMBER/12/; s/\$PASS|\*/code-reviewer/g; s/-$/-code-reviewer.md/')
+    ctx=$(grep -oE 'pr-context-(\{BRANCH\}|\$\{BRANCH[A-Z_]*\}|\*)\.md' "$prompt" | sort -u)
     # the derivation must not go vacuous if the prompt's path spelling changes
     [ "$(printf '%s\n' "$names" | grep -c .)" -ge 10 ]
     printf '%s\n' "$names" | grep -qx 'pr-12-l2-run.env'
-    # shellcheck disable=SC2086 # one file name per word, by construction
-    out=$(v3_status_after_files $names pr-context-feat-x.md)
+    [ "$(printf '%s\n' "$ctx" | grep -c .)" -ge 2 ]
+    files=()
+    while IFS= read -r n; do files+=("$n"); done <<< "$names"
+    for branch in feat-x fix/x fix/a/b.c ''; do
+        while IFS= read -r c; do
+            files+=("$(printf '%s' "$c" | sed -E "s#\\{BRANCH\\}|\\\$\\{BRANCH[A-Z_]*\\}|\\*#${branch}#")")
+        done <<< "$ctx"
+    done
+    printf '%s\n' "${files[@]}" | grep -qx 'pr-context-fix/a/b.c.md'
+    printf '%s\n' "${files[@]}" | grep -qx 'pr-context-.md'
+    out=$(v3_status_after_files "${files[@]}")
     echo "not ignored: $out"
     [ -z "$out" ]
 }
 
-@test "v3: an unwritable .gitignore warns and the install still completes" {
+# Invariant B of the PR #253 re-plan: a .gitignore install.sh cannot read or write is never
+# fatal, whatever arm of the .gitignore section it reaches. One case per arm; each asserts exit
+# 0, the warning, the summary line, a later step reached, and the file byte-identical.
+gitignore_blocked_case() {  # $1 = chmod mode, rest = .gitignore lines
     [ "$(id -u)" -ne 0 ] || skip "root ignores file permissions"
-    printf '%s\n' '# PRP artifacts — runtime state ignored' '.prp-output/state/' '.prp/' > "$SANDBOX/.gitignore"
-    chmod 444 "$SANDBOX/.gitignore"
+    mode=$1; shift
+    printf '%s\n' "$@" > "$SANDBOX/.gitignore"
+    before=$(sha256sum < "$SANDBOX/.gitignore")
+    chmod "$mode" "$SANDBOX/.gitignore"
     run bash "$INSTALL_SCRIPT"
     chmod 644 "$SANDBOX/.gitignore"
+    echo "$output"
     [ "$status" -eq 0 ]
-    echo "$output" | grep -q 'Could not append the v3 review-scratch rules'
-    # the steps after the v3 block still ran
+    echo "$output" | grep -q '.gitignore not updated:'
+    echo "$output" | grep -q '.gitignore was NOT fully configured'
     echo "$output" | grep -q 'Installed preset:'
-    ! grep -q '^# PRP review scratch (v3)$' "$SANDBOX/.gitignore"
+    [ "$(sha256sum < "$SANDBOX/.gitignore")" = "$before" ]
+}
+
+@test "gitignore blocked: read-only, no PRP marker (fresh arm)" {
+    gitignore_blocked_case 444 'node_modules/'
+}
+
+@test "gitignore blocked: read-only, v1 marker (migration arm)" {
+    gitignore_blocked_case 444 '# PRP Framework - artifacts' '.prp-output/'
+}
+
+@test "gitignore blocked: read-only, v2 marker, no v3, no .prp/ (R2 reproduction)" {
+    gitignore_blocked_case 444 '# PRP artifacts — runtime state ignored' '.prp-output/state/'
+}
+
+@test "gitignore blocked: read-only, v2 + v3, no .prp/ (.prp/ arm alone)" {
+    gitignore_blocked_case 444 '# PRP artifacts — runtime state ignored' '.prp-output/state/' \
+        '# PRP review scratch (v3)'
+}
+
+@test "gitignore blocked: unreadable" {
+    gitignore_blocked_case 000 '# PRP artifacts — runtime state ignored' '.prp-output/state/'
 }
 
 @test "v3: a marker string inside another comment does not suppress the block" {
