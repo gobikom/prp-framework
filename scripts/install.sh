@@ -590,19 +590,44 @@ fi
 # Deliberately NOT the whole reviews/ dir: gate evidence (prod-gate-audit-v*.md,
 # plan-walk-v*.md, Warden artifacts) lives there and must stay committable without -f.
 # Appended once to every install (v1/v2/fresh) — files already tracked stay tracked.
+# Every file prp-review-agents writes per round under .prp-output/reviews/ is listed here;
+# tests/e2e/install-sandbox.bats derives that set from prompts/review-agents.md and fails
+# when a new per-round file is not covered. Other reviews/ files (gate evidence, fix
+# summaries, verify reports) are deliberately NOT matched.
+# A .gitignore this step cannot read or write is a warning, never an aborted install:
+# the rest of the install (the .prp/ entry, CLAUDE.md/AGENTS.md) still runs.
 PRP_REVIEW_SCRATCH_MARKER="# PRP review scratch (v3)"
-if ! grep -qF "$PRP_REVIEW_SCRATCH_MARKER" "$GITIGNORE_FILE" 2>/dev/null; then
-    cat >> "$GITIGNORE_FILE" << 'GITIGNORE_REVIEW_SCRATCH'
+_v3_rc=0
+if [ -e "$GITIGNORE_FILE" ]; then
+    grep -qxF "$PRP_REVIEW_SCRATCH_MARKER" "$GITIGNORE_FILE" 2>/dev/null || _v3_rc=$?
+else
+    _v3_rc=1
+fi
+if [ "$_v3_rc" -eq 1 ]; then
+    if cat >> "$GITIGNORE_FILE" 2>/dev/null << 'GITIGNORE_REVIEW_SCRATCH'
 
-# PRP review scratch (v3) — per-round prp-review-agents output; the PR comments are the record
+# PRP review scratch (v3)
+# per-round prp-review-agents output; the PR comments are the record
 .prp-output/reviews/pr-*-agents-review*.md
 .prp-output/reviews/pr-context-*.md
 .prp-output/reviews/pr-*-l2-*.md
+.prp-output/reviews/pr-*-l2-run.env
+.prp-output/reviews/pr-*-l2-run.env.used
 .prp-output/reviews/pr-*-reviewed-head
 .prp-output/reviews/pr-*-round
 .prp-output/reviews/pr-*-round-invariants
+.prp-output/reviews/pr-*-mode
+.prp-output/reviews/pr-*-tier
+.prp-output/reviews/pr-*-tier.err
+.prp-output/reviews/pr-*-rounds.err
 GITIGNORE_REVIEW_SCRATCH
-    echo -e "${GREEN}  ✅ Added v3 review-scratch rules to .gitignore${NC}"
+    then
+        echo -e "${GREEN}  ✅ Added v3 review-scratch rules to .gitignore${NC}"
+    else
+        echo -e "${YELLOW}  ⚠️  Could not append the v3 review-scratch rules to $GITIGNORE_FILE — review scratch files will show as untracked; add the '# PRP review scratch (v3)' block by hand (see scripts/install.sh)${NC}" >&2
+    fi
+elif [ "$_v3_rc" -ne 0 ]; then
+    echo -e "${YELLOW}  ⚠️  Could not read $GITIGNORE_FILE (grep exit $_v3_rc) — v3 review-scratch rules not checked or added${NC}" >&2
 fi
 
 # If .prp is NOT a submodule (local clone), also gitignore it

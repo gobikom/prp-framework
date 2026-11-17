@@ -149,8 +149,47 @@ v3_status_after_files() {  # creates the files under $SANDBOX/.prp-output/review
     bash "$INSTALL_SCRIPT" >/dev/null 2>&1
     out=$(v3_status_after_files pr-12-agents-review.md pr-12-agents-review-r2.md pr-context-feat-x.md \
         pr-12-l2-code-reviewer.md pr-12-l2-security-reviewer.md pr-12-reviewed-head pr-12-round \
-        pr-12-round-invariants review-metrics.jsonl)
+        pr-12-round-invariants review-metrics.jsonl pr-12-l2-run.env pr-12-l2-run.env.used \
+        pr-12-mode pr-12-tier pr-12-tier.err pr-12-rounds.err)
     [ -z "$out" ]
+}
+
+# Drift guard (PR #253 review R1): the per-round file set is DERIVED from the prompt, so a
+# new `pr-{NUMBER}-<x>` file written by prp-review-agents fails here until install.sh's v3
+# block covers it. Placeholders: {NUMBER}/${NUMBER}/$NUMBER -> 12, $PASS and * -> a pass
+# name, a trailing '-' (`pr-{NUMBER}-l2-<pass>.md` cut at '<') -> a pass body name.
+@test "v3: every per-round file named in prompts/review-agents.md is ignored" {
+    bash "$INSTALL_SCRIPT" >/dev/null 2>&1
+    names=$(grep -oE 'pr-(\{NUMBER\}|\$\{NUMBER\}|\$NUMBER)-[A-Za-z0-9_.$*-]*' \
+            "$REAL_FRAMEWORK_DIR/prompts/review-agents.md" | sort -u \
+        | sed -E 's/\{NUMBER\}|\$\{NUMBER\}|\$NUMBER/12/; s/\$PASS|\*/code-reviewer/g; s/-$/-code-reviewer.md/')
+    # the derivation must not go vacuous if the prompt's path spelling changes
+    [ "$(printf '%s\n' "$names" | grep -c .)" -ge 10 ]
+    printf '%s\n' "$names" | grep -qx 'pr-12-l2-run.env'
+    # shellcheck disable=SC2086 # one file name per word, by construction
+    out=$(v3_status_after_files $names pr-context-feat-x.md)
+    echo "not ignored: $out"
+    [ -z "$out" ]
+}
+
+@test "v3: an unwritable .gitignore warns and the install still completes" {
+    [ "$(id -u)" -ne 0 ] || skip "root ignores file permissions"
+    printf '%s\n' '# PRP artifacts — runtime state ignored' '.prp-output/state/' '.prp/' > "$SANDBOX/.gitignore"
+    chmod 444 "$SANDBOX/.gitignore"
+    run bash "$INSTALL_SCRIPT"
+    chmod 644 "$SANDBOX/.gitignore"
+    [ "$status" -eq 0 ]
+    echo "$output" | grep -q 'Could not append the v3 review-scratch rules'
+    # the steps after the v3 block still ran
+    echo "$output" | grep -q 'Installed preset:'
+    ! grep -q '^# PRP review scratch (v3)$' "$SANDBOX/.gitignore"
+}
+
+@test "v3: a marker string inside another comment does not suppress the block" {
+    printf '%s\n' '# PRP artifacts — runtime state ignored' '.prp-output/state/' \
+        '# note: see # PRP review scratch (v3) upstream' > "$SANDBOX/.gitignore"
+    bash "$INSTALL_SCRIPT" >/dev/null 2>&1
+    [ "$(grep -cx '# PRP review scratch (v3)' "$SANDBOX/.gitignore")" -eq 1 ]
 }
 
 @test "v3: gate evidence in reviews/ stays visible (not ignored)" {

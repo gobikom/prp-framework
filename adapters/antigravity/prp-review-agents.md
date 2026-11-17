@@ -1390,28 +1390,34 @@ mkdir -p .prp-output/reviews
 
 **Skip with `--no-commit`** (also implied by `--l2-comments`, which sets `NO_COMMIT=1`): Pass `--no-commit` to skip this step (useful when running review-agents inside a flow that handles artifact commits separately, e.g., `/prp-run-all`).
 
-**Detect run-all context**: If the environment variable `PRP_RUN_ALL=1` is set (injected by `/prp-run-all`), skip auto-commit — run-all commits all artifacts together in its own step. Treat this the same as `--no-commit`.
+**Detect run-all context**: If the environment variable `PRP_RUN_ALL=1` is set (injected by `/prp-run-all`), skip auto-commit. Treat this the same as `--no-commit`. run-all does not commit review artifacts: its review gate (Step 6.2.0, `verify-review-artifact.sh`) reads the artifact on disk, and install.sh's v3 gitignore rules keep these per-round files out of every bulk `git add -A` / `git ls-files --others --exclude-standard` sweep on purpose.
 
 ```bash
 # Auto-commit review artifact to PR branch (unless --no-commit or PRP_RUN_ALL)
 if [ "${NO_COMMIT:-0}" != "1" ] && [ "${PRP_RUN_ALL:-0}" != "1" ]; then
   REVIEW_FILE=".prp-output/reviews/pr-{NUMBER}-agents-review.md"
-  CONTEXT_FILE=".prp-output/reviews/pr-context-$(git branch --show-current).md"
-  METRICS_FILE=".prp-output/reviews/review-metrics.jsonl"
+  BRANCH_NOW=$(git branch --show-current)
 
   # Stage review artifacts that exist. -f: install.sh's v3 gitignore rules ignore these
   # per-round scratch files (so --l2-comments runs leave worktrees clean); this opt-in
-  # commit mode still commits them on purpose.
-  git add -f "$REVIEW_FILE" 2>/dev/null
-  git add -f "$CONTEXT_FILE" 2>/dev/null
-  git add "$METRICS_FILE" 2>/dev/null
+  # commit mode still commits them on purpose. review-metrics.jsonl is NOT staged: it has
+  # been ignored as runtime state since the v2 rules.
+  # A file that exists but cannot be staged is a warning, never "nothing to commit".
+  STAGE_FAILED=""
+  for f in "$REVIEW_FILE" ${BRANCH_NOW:+".prp-output/reviews/pr-context-${BRANCH_NOW}.md"}; do
+    [ -f "$f" ] || continue
+    git add -f -- "$f" || STAGE_FAILED="$STAGE_FAILED $f"
+  done
+  [ -z "$STAGE_FAILED" ] || echo "WARNING: could not stage:$STAGE_FAILED — review artifact NOT committed in full" >&2
 
   # Only commit if there are staged changes
-  if ! git diff --cached --quiet 2>/dev/null; then
-    git commit -m "docs: add review artifact for PR #{NUMBER}"
-    git push
-    echo "Review artifact committed and pushed to PR branch."
-  else
+  if ! git diff --cached --quiet; then
+    if git commit -m "docs: add review artifact for PR #{NUMBER}" && git push; then
+      echo "Review artifact committed and pushed to PR branch."
+    else
+      echo "WARNING: review artifact commit or push FAILED — the PR branch does not carry it" >&2
+    fi
+  elif [ -z "$STAGE_FAILED" ]; then
     echo "NOTE: No new review artifacts to commit (already committed or unchanged)."
   fi
 else
@@ -1442,7 +1448,7 @@ Field rules:
 
 #### Commit artifacts BEFORE the marker (head re-bind, prp-framework#121)
 
-`safe-merge` matches the GitHub-side marker's `head=` against the PR HEAD **at merge time**. Flows that commit review artifacts to the PR branch (run-all, ARTIFACT-REPORT) advance HEAD past `$REVIEWED_HEAD_SHA` with that very commit — a marker bound to the pre-artifacts SHA is then guaranteed to block, and the tempting escape (`--skip-review-check`) defeats the gate.
+`safe-merge` matches the GitHub-side marker's `head=` against the PR HEAD **at merge time**. Flows that commit review artifacts to the PR branch (the opt-in commit step above) advance HEAD past `$REVIEWED_HEAD_SHA` with that very commit — a marker bound to the pre-artifacts SHA is then guaranteed to block, and the tempting escape (`--skip-review-check`) defeats the gate.
 
 **A second, independent reason the ordering matters: `dismiss_stale_reviews`.**
 When branch protection has it enabled, ANY push to the PR branch — including a
@@ -1473,7 +1479,7 @@ choice, not a default.
 Fixed ordering:
 
 1. Write the review artifact (verdict + counts final; **no marker line yet**).
-2. Commit artifacts to the PR branch → the "Commit Review Artifact to PR Branch" step above handles `git add`/`commit`/`push` automatically (unless `--no-commit` or `PRP_RUN_ALL`). For run-all / ARTIFACT-REPORT flows, they commit all artifacts together in their own step.
+2. Commit artifacts to the PR branch → the "Commit Review Artifact to PR Branch" step above handles `git add`/`commit`/`push` automatically (unless `--no-commit` or `PRP_RUN_ALL`). run-all commits no review artifact (its gate reads the file on disk), so its marker head stays `$REVIEWED_HEAD_SHA`.
 3. Derive the marker head with the docs-only guard:
 
 ```bash

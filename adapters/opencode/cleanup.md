@@ -149,7 +149,10 @@ ls .prp-output/issues/issue-*.md 2>/dev/null
 ### 3.3 Stage & Commit Artifacts
 
 ```bash
-git add {collected artifacts}
+# -f: the archive is an explicit, named list. install.sh's v3 gitignore rules ignore the
+# per-round review files (pr-N-agents-review*.md, pr-context-*.md, pr-N-l2-*.md), and a
+# plain `git add` of a named ignored path stages nothing for it and exits 1.
+git add -f -- {collected artifacts} || { echo "ERROR: could not stage the archive artifacts — nothing committed" >&2; exit 1; }
 git commit -m "chore: archive artifacts for PR #${NUMBER} (${BRANCH})"
 ```
 
