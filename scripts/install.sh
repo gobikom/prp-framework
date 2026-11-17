@@ -539,11 +539,13 @@ fi
 
 # Add gitignore rules to consumer project
 #
-# A .gitignore this step cannot read or write is never fatal (PR #253 re-plan, Invariant B):
-# one precheck runs before the first access, and every write below is guarded as well, so a
-# failure (including ENOSPC or a race after the precheck) leaves .gitignore unchanged by the
-# failed write, is printed to stderr, and is repeated in the final summary — the install
-# itself (CLAUDE.md inject, summary) always continues.
+# A .gitignore that is not readable and writable is never fatal (PR #253, Invariant B): one
+# precheck runs before the first access; when it fails, every .gitignore block below is
+# skipped, the file is left byte-identical, and the reason is printed to stderr and repeated
+# in the final summary — the install itself (CLAUDE.md inject, summary) continues. The new
+# appends (fresh, v3, .prp/) are also guarded, so a failing append is reported, not fatal.
+# Out of scope here: atomic writes (an append that fails part-way, e.g. ENOSPC, can leave a
+# partial block), mktemp/TMPDIR failure in the v1 migration, and symlinked .gitignore files.
 echo ""
 echo "📝 Configuring .gitignore..."
 GITIGNORE_FILE="$PROJECT_DIR/.gitignore"
@@ -571,10 +573,11 @@ elif [ -f "$GITIGNORE_FILE" ] && grep -q "$PRP_MARKER" "$GITIGNORE_FILE"; then
     # Migrate old artifact rules → new trackable artifact rules
     # Remove ALL old prp-output lines: blanket ignores (with/without trailing slash),
     # !-unignores, and related comments. Uses temp file for macOS (BSD sed) compatibility.
+    # Unchanged from before the v3 rules (PR #253 cut its I/O hardening to its own issue):
+    # reached only after the precheck passed, so the file is readable and writable here.
     _TMP=$(mktemp)
-    if sed '/# \.prp-output/d; /^!\.prp-output/d; /# PRP Framework - artifacts/d; /# PRP output artifacts/d; /^\.prp-output\/?$/d; /^\.prp-output\/\*\*/d' "$GITIGNORE_FILE" > "$_TMP" \
-        && cat "$_TMP" > "$GITIGNORE_FILE" 2>/dev/null \
-        && cat >> "$GITIGNORE_FILE" 2>/dev/null << 'GITIGNORE_ARTIFACTS'
+    sed '/# \.prp-output/d; /^!\.prp-output/d; /# PRP Framework - artifacts/d; /# PRP output artifacts/d; /^\.prp-output\/?$/d; /^\.prp-output\/\*\*/d' "$GITIGNORE_FILE" > "$_TMP" && mv "$_TMP" "$GITIGNORE_FILE"
+    cat >> "$GITIGNORE_FILE" << 'GITIGNORE_ARTIFACTS'
 
 # PRP artifacts — runtime state ignored, everything else trackable for GitHub links
 .prp-output/state/
@@ -582,12 +585,7 @@ elif [ -f "$GITIGNORE_FILE" ] && grep -q "$PRP_MARKER" "$GITIGNORE_FILE"; then
 .prp-output/ralph-archives/
 .prp-output/reviews/review-metrics.jsonl
 GITIGNORE_ARTIFACTS
-    then
-        echo -e "${GREEN}  ✅ Migrated .gitignore to v2 artifact rules${NC}"
-    else
-        _gitignore_fail "v1 → v2 artifact-rule migration failed while writing $GITIGNORE_FILE"
-    fi
-    rm -f "$_TMP"
+    echo -e "${GREEN}  ✅ Migrated .gitignore to v2 artifact rules${NC}"
 elif cat >> "$GITIGNORE_FILE" 2>/dev/null << 'GITIGNORE'
 
 # PRP Framework - generated adapters (recreate with: cd .prp && ./scripts/install.sh)
