@@ -538,6 +538,14 @@ else
 fi
 
 # Add gitignore rules to consumer project
+#
+# A .gitignore that is not readable and writable is never fatal (PR #253, Invariant B): one
+# precheck runs before the first access; when it fails, every .gitignore block below is
+# skipped, the file is left byte-identical, and the reason is printed to stderr and repeated
+# in the final summary — the install itself (CLAUDE.md inject, summary) continues. The new
+# appends (fresh, v3, .prp/) are also guarded, so a failing append is reported, not fatal.
+# Out of scope here: atomic writes (an append that fails part-way, e.g. ENOSPC, can leave a
+# partial block), mktemp/TMPDIR failure in the v1 migration, and symlinked .gitignore files.
 echo ""
 echo "📝 Configuring .gitignore..."
 GITIGNORE_FILE="$PROJECT_DIR/.gitignore"
@@ -545,12 +553,28 @@ PRP_MARKER="# PRP Framework"
 
 PRP_ARTIFACT_MARKER="# PRP artifacts"
 
-if [ -f "$GITIGNORE_FILE" ] && grep -q "$PRP_ARTIFACT_MARKER" "$GITIGNORE_FILE"; then
+_GITIGNORE_WARN=""
+_gitignore_fail() {  # record + print one .gitignore failure; the install continues
+    _GITIGNORE_WARN="${_GITIGNORE_WARN:+$_GITIGNORE_WARN; }$1"
+    echo -e "${YELLOW}  ⚠️  .gitignore not updated: $1${NC}" >&2
+}
+if [ -e "$GITIGNORE_FILE" ]; then
+    { [ -r "$GITIGNORE_FILE" ] && [ -w "$GITIGNORE_FILE" ]; } || \
+        _gitignore_fail "$GITIGNORE_FILE is not readable and writable — no PRP rules checked or added"
+elif [ ! -w "$PROJECT_DIR" ]; then
+    _gitignore_fail "cannot create $GITIGNORE_FILE ($PROJECT_DIR is not writable)"
+fi
+
+if [ -n "$_GITIGNORE_WARN" ]; then
+    : # precheck failed — every .gitignore block below is skipped
+elif [ -f "$GITIGNORE_FILE" ] && grep -q "$PRP_ARTIFACT_MARKER" "$GITIGNORE_FILE"; then
     echo -e "${GREEN}  ✅ .gitignore already configured (v2 artifact rules)${NC}"
 elif [ -f "$GITIGNORE_FILE" ] && grep -q "$PRP_MARKER" "$GITIGNORE_FILE"; then
     # Migrate old artifact rules → new trackable artifact rules
     # Remove ALL old prp-output lines: blanket ignores (with/without trailing slash),
     # !-unignores, and related comments. Uses temp file for macOS (BSD sed) compatibility.
+    # Unchanged from before the v3 rules (PR #253 cut its I/O hardening to its own issue):
+    # reached only after the precheck passed, so the file is readable and writable here.
     _TMP=$(mktemp)
     sed '/# \.prp-output/d; /^!\.prp-output/d; /# PRP Framework - artifacts/d; /# PRP output artifacts/d; /^\.prp-output\/?$/d; /^\.prp-output\/\*\*/d' "$GITIGNORE_FILE" > "$_TMP" && mv "$_TMP" "$GITIGNORE_FILE"
     cat >> "$GITIGNORE_FILE" << 'GITIGNORE_ARTIFACTS'
@@ -562,8 +586,7 @@ elif [ -f "$GITIGNORE_FILE" ] && grep -q "$PRP_MARKER" "$GITIGNORE_FILE"; then
 .prp-output/reviews/review-metrics.jsonl
 GITIGNORE_ARTIFACTS
     echo -e "${GREEN}  ✅ Migrated .gitignore to v2 artifact rules${NC}"
-else
-    cat >> "$GITIGNORE_FILE" << 'GITIGNORE'
+elif cat >> "$GITIGNORE_FILE" 2>/dev/null << 'GITIGNORE'
 
 # PRP Framework - generated adapters (recreate with: cd .prp && ./scripts/install.sh)
 .claude/
@@ -580,19 +603,67 @@ AGENTS.md
 .prp-output/ralph-archives/
 .prp-output/reviews/review-metrics.jsonl
 GITIGNORE
+then
     echo -e "${GREEN}  ✅ Added PRP rules to .gitignore${NC}"
+else
+    _gitignore_fail "could not append the PRP rules to $GITIGNORE_FILE"
+fi
+
+# v3: ignore the per-round scratch files prp-review-agents writes (aggregate review, PR
+# context, --l2-comments pass bodies and run file, round/head/mode/tier state). With
+# --l2-comments the PR comments are the record and these files are never committed; left
+# untracked they dirty `git status --porcelain`, which blocks worktree removal and branch
+# hand-offs. Deliberately NOT the whole reviews/ dir: gate evidence (prod-gate-audit-v*.md,
+# plan-walk-v*.md, Warden artifacts), fix summaries and verify reports live there and must
+# stay committable without -f. Appended once to every install (v1/v2/fresh) — files already
+# tracked stay tracked.
+# Every per-round file is listed here (Invariant A); tests/e2e/install-sandbox.bats derives
+# that set from prompts/review-agents.md and fails when one is not covered. The context file
+# is named from the raw branch, so a branch with '/' (fix/x) writes pr-context-fix/x.md —
+# hence the directory pattern next to pr-context-*.md.
+PRP_REVIEW_SCRATCH_MARKER="# PRP review scratch (v3)"
+if [ -z "$_GITIGNORE_WARN" ] && ! grep -qxF "$PRP_REVIEW_SCRATCH_MARKER" "$GITIGNORE_FILE" 2>/dev/null; then
+    if cat >> "$GITIGNORE_FILE" 2>/dev/null << 'GITIGNORE_REVIEW_SCRATCH'
+
+# PRP review scratch (v3)
+# per-round prp-review-agents output; the PR comments are the record
+.prp-output/reviews/pr-*-agents-review*.md
+.prp-output/reviews/pr-context-*.md
+.prp-output/reviews/pr-context-*/
+.prp-output/reviews/pr-*-l2-*.md
+.prp-output/reviews/pr-*-l2-run.env
+.prp-output/reviews/pr-*-l2-run.env.used
+.prp-output/reviews/pr-*-reviewed-head
+.prp-output/reviews/pr-*-round
+.prp-output/reviews/pr-*-round-invariants
+.prp-output/reviews/pr-*-mode
+.prp-output/reviews/pr-*-tier
+.prp-output/reviews/pr-*-tier.err
+.prp-output/reviews/pr-*-rounds.err
+GITIGNORE_REVIEW_SCRATCH
+    then
+        echo -e "${GREEN}  ✅ Added v3 review-scratch rules to .gitignore${NC}"
+    else
+        _gitignore_fail "could not append the '# PRP review scratch (v3)' block to $GITIGNORE_FILE — add it by hand (see scripts/install.sh)"
+    fi
 fi
 
 # If .prp is NOT a submodule (local clone), also gitignore it
-if [ -f "$PROJECT_DIR/.gitmodules" ] && grep -q '\.prp' "$PROJECT_DIR/.gitmodules" 2>/dev/null; then
+if [ -n "$_GITIGNORE_WARN" ]; then
+    :
+elif [ -f "$PROJECT_DIR/.gitmodules" ] && grep -q '\.prp' "$PROJECT_DIR/.gitmodules" 2>/dev/null; then
     : # Submodule — don't gitignore .prp/
 elif ! grep -q '^\.prp/$' "$GITIGNORE_FILE" 2>/dev/null; then
-    cat >> "$GITIGNORE_FILE" << 'GITIGNORE2'
+    if cat >> "$GITIGNORE_FILE" 2>/dev/null << 'GITIGNORE2'
 
 # PRP Framework - local clone (not a submodule)
 .prp/
 GITIGNORE2
-    echo -e "${GREEN}  ✅ Added .prp/ to .gitignore (local clone detected)${NC}"
+    then
+        echo -e "${GREEN}  ✅ Added .prp/ to .gitignore (local clone detected)${NC}"
+    else
+        _gitignore_fail "could not append .prp/ to $GITIGNORE_FILE"
+    fi
 fi
 
 # Inject PRP section into CLAUDE.md
@@ -627,6 +698,11 @@ elif $USED_COPY; then
     echo "  cd .prp && git pull && ./scripts/sync.sh"
 fi
 
+if [ -n "$_GITIGNORE_WARN" ]; then
+    echo ""
+    echo -e "${YELLOW}⚠️  .gitignore was NOT fully configured: $_GITIGNORE_WARN${NC}"
+    echo -e "${YELLOW}   Fix the file's permissions and re-run install.sh, or add the PRP blocks by hand (see scripts/install.sh).${NC}"
+fi
 echo ""
 echo "Installed preset: $PRESET ($CORE_COUNT core commands)"
 echo "  Change: install.sh <project> --minimal|--standard|--full"
