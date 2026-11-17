@@ -136,6 +136,54 @@ teardown() {
     grep -q "PRP Framework" "$SANDBOX/.gitignore"
 }
 
+# v3 review-scratch rules: per-round prp-review-agents files are ignored (a --l2-comments run
+# leaves `git status --porcelain` empty), gate evidence in the same dir stays visible.
+v3_status_after_files() {  # creates the files under $SANDBOX/.prp-output/reviews, prints porcelain
+    git -C "$SANDBOX" init -q 2>/dev/null
+    mkdir -p "$SANDBOX/.prp-output/reviews"
+    for f in "$@"; do : > "$SANDBOX/.prp-output/reviews/$f"; done
+    git -C "$SANDBOX" status --porcelain --untracked-files=all -- .prp-output/reviews
+}
+
+@test "v3: review scratch files leave git status clean on a fresh install" {
+    bash "$INSTALL_SCRIPT" >/dev/null 2>&1
+    out=$(v3_status_after_files pr-12-agents-review.md pr-12-agents-review-r2.md pr-context-feat-x.md \
+        pr-12-l2-code-reviewer.md pr-12-l2-security-reviewer.md pr-12-reviewed-head pr-12-round \
+        pr-12-round-invariants review-metrics.jsonl)
+    [ -z "$out" ]
+}
+
+@test "v3: gate evidence in reviews/ stays visible (not ignored)" {
+    bash "$INSTALL_SCRIPT" >/dev/null 2>&1
+    out=$(v3_status_after_files prod-gate-audit-v1.2.3.md plan-walk-v1.2.3.md pr-12-fix-summary-20261117.md)
+    echo "$out" | grep -q 'prod-gate-audit-v1.2.3.md'
+    echo "$out" | grep -q 'plan-walk-v1.2.3.md'
+    echo "$out" | grep -q 'pr-12-fix-summary-20261117.md'
+}
+
+@test "v3: an existing v2 .gitignore gets the v3 block appended once" {
+    printf '%s\n' '# PRP Framework - generated adapters' '.claude/' '' \
+        '# PRP artifacts — runtime state ignored, everything else trackable for GitHub links' \
+        '.prp-output/state/' > "$SANDBOX/.gitignore"
+    bash "$INSTALL_SCRIPT" >/dev/null 2>&1
+    bash "$INSTALL_SCRIPT" >/dev/null 2>&1
+    [ "$(grep -c '^# PRP review scratch (v3)' "$SANDBOX/.gitignore")" -eq 1 ]
+    [ "$(grep -c '^# PRP artifacts' "$SANDBOX/.gitignore")" -eq 1 ]
+    out=$(v3_status_after_files pr-7-agents-review.md pr-7-round)
+    [ -z "$out" ]
+}
+
+@test "v3: an already-tracked review file stays tracked (rules only affect new files)" {
+    bash "$INSTALL_SCRIPT" >/dev/null 2>&1
+    git -C "$SANDBOX" init -q
+    mkdir -p "$SANDBOX/.prp-output/reviews"
+    echo a > "$SANDBOX/.prp-output/reviews/pr-3-agents-review.md"
+    git -C "$SANDBOX" add -f .prp-output/reviews/pr-3-agents-review.md
+    git -C "$SANDBOX" -c user.email=t@t -c user.name=t commit -q -m t
+    echo b > "$SANDBOX/.prp-output/reviews/pr-3-agents-review.md"
+    git -C "$SANDBOX" status --porcelain -- .prp-output/reviews | grep -q 'pr-3-agents-review.md'
+}
+
 # ─────────────────────────────────────────────
 # AGENTS.md ownership guard (agent-devops#1337)
 # ─────────────────────────────────────────────

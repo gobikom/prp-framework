@@ -1411,9 +1411,11 @@ if [ "${NO_COMMIT:-0}" != "1" ] && [ "${PRP_RUN_ALL:-0}" != "1" ]; then
   CONTEXT_FILE=".prp-output/reviews/pr-context-$(git branch --show-current).md"
   METRICS_FILE=".prp-output/reviews/review-metrics.jsonl"
 
-  # Stage review artifacts that exist
-  git add "$REVIEW_FILE" 2>/dev/null
-  git add "$CONTEXT_FILE" 2>/dev/null
+  # Stage review artifacts that exist. -f: install.sh's v3 gitignore rules ignore these
+  # per-round scratch files (so --l2-comments runs leave worktrees clean); this opt-in
+  # commit mode still commits them on purpose.
+  git add -f "$REVIEW_FILE" 2>/dev/null
+  git add -f "$CONTEXT_FILE" 2>/dev/null
   git add "$METRICS_FILE" 2>/dev/null
 
   # Only commit if there are staged changes

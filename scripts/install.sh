@@ -583,6 +583,28 @@ GITIGNORE
     echo -e "${GREEN}  ✅ Added PRP rules to .gitignore${NC}"
 fi
 
+# v3: ignore the per-round scratch files prp-review-agents writes (aggregate review, PR
+# context, --l2-comments pass bodies, round/head state). With --l2-comments the PR comments
+# are the record and these files are never committed; left untracked they dirty
+# `git status --porcelain`, which blocks worktree removal and branch hand-offs.
+# Deliberately NOT the whole reviews/ dir: gate evidence (prod-gate-audit-v*.md,
+# plan-walk-v*.md, Warden artifacts) lives there and must stay committable without -f.
+# Appended once to every install (v1/v2/fresh) — files already tracked stay tracked.
+PRP_REVIEW_SCRATCH_MARKER="# PRP review scratch (v3)"
+if ! grep -qF "$PRP_REVIEW_SCRATCH_MARKER" "$GITIGNORE_FILE" 2>/dev/null; then
+    cat >> "$GITIGNORE_FILE" << 'GITIGNORE_REVIEW_SCRATCH'
+
+# PRP review scratch (v3) — per-round prp-review-agents output; the PR comments are the record
+.prp-output/reviews/pr-*-agents-review*.md
+.prp-output/reviews/pr-context-*.md
+.prp-output/reviews/pr-*-l2-*.md
+.prp-output/reviews/pr-*-reviewed-head
+.prp-output/reviews/pr-*-round
+.prp-output/reviews/pr-*-round-invariants
+GITIGNORE_REVIEW_SCRATCH
+    echo -e "${GREEN}  ✅ Added v3 review-scratch rules to .gitignore${NC}"
+fi
+
 # If .prp is NOT a submodule (local clone), also gitignore it
 if [ -f "$PROJECT_DIR/.gitmodules" ] && grep -q '\.prp' "$PROJECT_DIR/.gitmodules" 2>/dev/null; then
     : # Submodule — don't gitignore .prp/
