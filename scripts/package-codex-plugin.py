@@ -10,6 +10,8 @@ import sys
 import tempfile
 from pathlib import Path
 
+import yaml
+
 
 ROOT = Path(__file__).resolve().parent.parent
 MARKETPLACE = ROOT / "adapters" / "claude-code-plugin"
@@ -18,6 +20,7 @@ PLUGIN = "prp-core"
 MANIFEST_PATH = Path(".codex-plugin/plugin.json")
 MARKETPLACE_SOURCE = MARKETPLACE.relative_to(ROOT) / "marketplace.json"
 PLUGIN_SOURCE = MARKETPLACE.relative_to(ROOT) / "plugins" / PLUGIN / MANIFEST_PATH
+ADAPTER_CONFIG = Path("adapters.yml")
 CATALOG_PATH = Path(".agents/plugins/marketplace.json")
 PACKAGE_PATH = Path(".agents/plugins/packages") / PLUGIN
 VERSION = re.compile(r"[0-9]+\.[0-9]+\.[0-9]+")
@@ -28,16 +31,16 @@ def committed_inputs():
     git_env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
 
     def git(*args):
-        return subprocess.run(["git", *args], cwd=ROOT, env=git_env,
+        return subprocess.run(["git", "--no-replace-objects", *args], cwd=ROOT, env=git_env,
                               stdout=subprocess.PIPE, check=True).stdout
 
     tree = git("rev-parse", "--verify", "HEAD").decode().strip()
     skill_root = SKILLS.relative_to(ROOT)
-    expected = {MARKETPLACE_SOURCE, PLUGIN_SOURCE}
+    expected = {MARKETPLACE_SOURCE, PLUGIN_SOURCE, ADAPTER_CONFIG}
     metadata = {}
     skills = {}
     entries = git("ls-tree", "-r", "-z", tree, "--", str(skill_root),
-                  str(MARKETPLACE_SOURCE), str(PLUGIN_SOURCE))
+                  *(str(path) for path in sorted(expected)))
     for entry in entries.split(b"\0"):
         if not entry:
             continue
@@ -55,8 +58,22 @@ def committed_inputs():
             skills[path.parent.name] = git("cat-file", "blob", oid)
         else:
             metadata[path] = git("cat-file", "blob", oid)
-    if metadata.keys() != expected or "prp-review-agents" not in skills:
-        raise ValueError("the committed marketplace, plugin manifest or review skill is missing")
+    if metadata.keys() != expected:
+        raise ValueError("committed marketplace, plugin manifest or adapters.yml is missing")
+    config = yaml.safe_load(metadata[ADAPTER_CONFIG])
+    if config["adapters"]["codex"]["file_pattern"] != "prp-{name}/SKILL.md":
+        raise ValueError("unsupported Codex adapter path layout in adapters.yml")
+    commands = config["commands"]
+    if not isinstance(commands, dict) or not commands:
+        raise ValueError("adapters.yml must contain a nonempty command map")
+    required = {f"prp-{command}" for command in commands}
+    if "prp-review-agents" not in required or any(not SKILL_NAME.fullmatch(name) for name in required):
+        raise ValueError("adapters.yml contains an invalid Codex command inventory")
+    missing = required - skills.keys()
+    unexpected = skills.keys() - required
+    if missing or unexpected:
+        raise ValueError(f"Codex skills differ from adapters.yml; missing: {sorted(missing)}; "
+                         f"unexpected: {sorted(unexpected)}")
     return metadata, skills
 
 
@@ -167,7 +184,8 @@ def main():
     args = parser.parse_args()
     try:
         package(args.output)
-    except (OSError, subprocess.CalledProcessError, ValueError, KeyError, TypeError, IndexError) as exc:
+    except (OSError, subprocess.CalledProcessError, ValueError, KeyError, TypeError,
+            IndexError, yaml.YAMLError) as exc:
         print(f"package-codex-plugin: {exc}", file=sys.stderr)
         return 1
     return 0

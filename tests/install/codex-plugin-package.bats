@@ -61,6 +61,8 @@ seed_fixture() {
     cp "$packager" "$fixture/scripts/"
     cp "$manifest" "$fixture/adapters/claude-code-plugin/plugins/prp-core/.codex-plugin/plugin.json"
     cp "$framework/adapters/claude-code-plugin/marketplace.json" "$fixture/adapters/claude-code-plugin/"
+    printf '%s\n' 'adapters:' '  codex:' '    file_pattern: "prp-{name}/SKILL.md"' \
+        'commands:' '  plan: {}' '  review-agents: {}' > "$fixture/adapters.yml"
     for name in prp-plan prp-review-agents; do
         mkdir -p "$fixture/adapters/codex/$name"
         cp "$framework/adapters/codex/$name/SKILL.md" "$fixture/adapters/codex/$name/"
@@ -68,6 +70,40 @@ seed_fixture() {
     fixture_git init -q
     fixture_git add .
     fixture_git commit -qm seed
+}
+
+@test "a missing declared skill directory prevents publication" {
+    seed_fixture
+    fixture_git rm -q adapters/codex/prp-plan/SKILL.md
+    fixture_git commit -qm 'remove required skill'
+    run python3 "$fixture/scripts/package-codex-plugin.py" --output "$market_root"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *'Codex skills differ from adapters.yml; missing:'*prp-plan* ]]
+    [ ! -e "$catalog" ]
+    [ ! -e "$plugin" ]
+}
+
+@test "a committed directory symlink cannot satisfy a declared skill" {
+    seed_fixture
+    fixture_git rm -q adapters/codex/prp-plan/SKILL.md
+    ln -s prp-review-agents "$fixture/adapters/codex/prp-plan"
+    fixture_git add adapters/codex/prp-plan
+    fixture_git commit -qm 'track directory symlink'
+    run python3 "$fixture/scripts/package-codex-plugin.py" --output "$market_root"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *'Codex skills differ from adapters.yml; missing:'*prp-plan* ]]
+    [ ! -e "$catalog" ]
+    [ ! -e "$plugin" ]
+}
+
+@test "local Git replacement refs cannot alter a packaged skill" {
+    seed_fixture
+    original=$(fixture_git rev-parse HEAD:adapters/codex/prp-plan/SKILL.md)
+    replacement=$(printf 'replacement sentinel\n' | fixture_git hash-object -w --stdin)
+    fixture_git replace "$original" "$replacement"
+    [ "$(fixture_git cat-file blob "$original")" = 'replacement sentinel' ]
+    python3 "$fixture/scripts/package-codex-plugin.py" --output "$market_root"
+    cmp "$framework/adapters/codex/prp-plan/SKILL.md" "$plugin/skills/prp-plan/SKILL.md"
 }
 
 @test "working-tree gaps and symlinks do not change the committed package" {

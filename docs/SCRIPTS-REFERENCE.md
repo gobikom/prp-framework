@@ -117,7 +117,7 @@ PROJECT_DIR=/home/user/projects/my-app ./scripts/install.sh
 
 ## package-codex-plugin.py
 
-Run the packager from the PRP Git checkout you want to publish. It reads the generated Codex skills and metadata from that checkout's committed `HEAD`, builds a versioned package, and writes a native catalog under `adapters/claude-code-plugin/.agents/plugins/`. This is the same marketplace root used by existing local installations.
+Run the packager from the PRP Git checkout you want to publish. It uses Python 3 with PyYAML, the same dependency as the adapter generator. The packager reads the command inventory, generated Codex skills and metadata from the checkout's committed `HEAD`, builds a versioned package, and writes a native catalog under `adapters/claude-code-plugin/.agents/plugins/`. This is the same marketplace root used by existing local installations.
 
 ```bash
 python3 scripts/package-codex-plugin.py
@@ -127,7 +127,7 @@ codex plugin add prp-core@prp-marketplace
 
 Register `adapters/claude-code-plugin` with `codex plugin marketplace add ./adapters/claude-code-plugin` if the marketplace is new to your installation. The package carries regular skill files. Codex CLI versions that skip symlinks during installation can load those files from the cache. The `.prp` link created by the project installer still supplies the review scripts used by `--l2-comments`.
 
-Use `--output PATH` to build a disposable marketplace. A package version may be rebuilt with identical contents. Bump the tracked plugin manifest version when publishing different skill bytes.
+Use `--output PATH` to build a disposable marketplace. Run one publisher per catalog directory. A package version may be rebuilt with identical contents. Bump the tracked plugin manifest version when publishing different skill bytes.
 
 ---
 
