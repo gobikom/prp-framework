@@ -159,7 +159,7 @@ Build the map with `/prp-core:verify <pr> --init`, re-prove it with `--sync`; th
 /prp-core:done 87                                          # Close issue after all gates pass (merged, reviewed, verified, QA)
 /prp-core:done 87 --skip-vera --reason="no UI changes"     # Close issue bypassing Vera QA gate (audit-logged)
 /prp-core:review-agents 25                                 # Multi-agent PR review
-/prp-core:review-fix 25                                    # Fix all — LOOP mode default (re-review + re-fix until 0 issues or MAX_ROUNDS=5)
+/prp-core:review-fix 25                                    # Count the initial review in the two-round limit
 /prp-core:review-fix 25 --single-pass                      # Fix once, exit (pre-2026-04-17 behavior)
 /prp-core:review-fix 25 --severity critical,high           # Narrow severity (implicitly single-pass)
 /prp-core:commit                                           # Smart commit
