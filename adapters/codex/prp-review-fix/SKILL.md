@@ -704,18 +704,17 @@ Track which issues review-fix just skipped vs actually fixed, and choose the re-
 
 | Fix outcome | `PENDING_SKIPPED` | Re-review mode |
 |-------------|-------------------|----------------|
-| All issues actually fixed | `false` | `$prp-review {NUMBER} --since-last-review` (incremental, cheap) |
-| Some issues skipped | `true`, `SKIPPED_COUNT = N` | `$prp-review {NUMBER} --context` (FULL review — skipped items need to re-surface, incremental would miss them) |
-| All issues skipped (no code change) | `true`, `ALL_SKIPPED = true` | `$prp-review {NUMBER} --context` (FULL review), then evaluate Escalation Guard below |
+| A required fix changed the head | Verify the available budget and consume R2 before dispatch | `$prp-review-agents {NUMBER} --l2-comments` |
+| No changed head or no budget | Stop and report the reason | No review |
 
 ### 10.2 Invoke Re-review
 
 If ROUND already meets MAX_ROUNDS, go to Phase 10.4 without invoking a review. Otherwise increment ROUND before invoking the review. The first review that produced the input artifact consumed R1.
 
-Run the chosen review command. Wait for completion. Capture the new artifact path.
+Set `L2_FULL_DIFF=1` for gate-tier or uncertain classification and a qualifying delta otherwise. Run the chosen L2 review command once. Capture the fresh agents artifact and its per-pass evidence. If the invocation or artifact fails, stop and report without fallback.
 
 **DO NOT**: Read the code and review it yourself, skip the skill.
-**CHECKPOINT**: Did you invoke `$prp-review`? If not → STOP → invoke it.
+**CHECKPOINT**: Did you invoke the L2 review once and receive the exact-head artifact? If not, stop and report.
 
 ### 10.3 Evaluate Result
 

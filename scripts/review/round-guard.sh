@@ -21,7 +21,7 @@
 #   durable ledger (#213) — that is a different gap than an outside account's forgery, which the
 #   caller's filter now closes.
 #
-# usage: round-guard.sh [--cap N] < footer-lines
+# usage: round-guard.sh [--cap N] < footer-lines; legacy caps above two clamp to two
 #   stdin: one line per PR comment = that comment's LAST line (the caller extracts it).
 #   exit 0 = allowed (prints "rounds so far: R of N; this is round R+1")
 #   exit 3 = refused: cap reached
@@ -38,6 +38,9 @@ done
 printf '%s' "$CAP" | grep -qxE '[0-9]{1,3}' && [[ "$CAP" =~ ^[0-9]+$ ]] && (( 10#$CAP >= 1 )) \
   || { echo "error: --cap must be a number from 1 to 999" >&2; exit 2; }
 CAP=$((10#$CAP))
+if (( CAP > 2 )); then
+  CAP=2
+fi
 
 # A review round is one distinct run id. Every run id token anywhere in the input counts, whatever the rest
 # of its line looks like, so no footer shape can hide a round. Ids are compared lower-cased.

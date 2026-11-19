@@ -31,6 +31,8 @@ Format: `<pr-number> [aspects: comments|tests|errors|types|code|security|deps|do
 
 Flags set shell variables used below: `--no-commit` → `NO_COMMIT=1`; `--l2-comments` → `L2_COMMENTS=1` and `NO_COMMIT=1`.
 
+For a gate-tier or uncertain classification by effect, set `L2_FULL_DIFF=1` when running Phase 2.0a to require full-diff evidence. This setting can only strengthen mode selection.
+
 `--l2-comments` (prp-framework#142): post one PR comment per core pass in the L2 format instead of the aggregated review, and never commit review artifacts (it implies `--no-commit`). See "Per-pass L2 comments" under Output.
 
 ## Mission
@@ -477,7 +479,7 @@ Invariant: the head this run reviews is captured **once, here, before any agent 
 
 Also decided here, before the round cap: whether the review stop rule is already met at this head — the latest round is a valid clean FULL-DIFF round at this head (0 Critical, 0 Important, valid line 1–3 headers and footer per pass, `Review-mode: full`; merger-policy `review_evidence` is the binding text). `UNCHANGED-HEAD: refused` is final for this exact head — nothing needs to be fixed, there is nothing to review; wait for a new commit, or escalate if the PR is believed done. `UNCHANGED-TREE: refused` is the same verdict for a head whose TREE equals that clean head's tree (an empty re-queue commit, a rebase or amend that changes no file): the agents would read byte-identical files, so the clean round already covers them and a new round is only a token cost; the two commits' trees are compared with `git rev-parse <sha>^{tree}` (the clean head fetched by SHA when the checkout lacks it), and any lookup failure fails open (the review runs). A merger that requires the round at the exact head is then handed the clean round at the same-tree head as the evidence, or the operator's bypass — never a re-run. A valid clean `delta` round at this head does NOT trigger the refusal — at gate tier only a FULL-DIFF clean round satisfies the stop rule, and the guard has no reliable tier input, so this is fail-open by design (at worst one extra round runs). The round number (`ROUND`, 1 for the first run on this PR, 2+ after) is captured here too, for 2.2/2.3's core-vs-conditional gating and 2.0a's mode decision — both read it from the file this step saves, never recompute it.
 
-If this block prints FATAL, STOP: start no agent and post nothing. To recover, sync the checkout to the PR head (or push it) and re-run the review from Phase 2.0, including every agent after it. A `ROUND-CAP: refused` FATAL is final for this PR: do not start round 7 (the cap is the review stop rule — fix open Critical/Important findings or re-route, name any open Medium in the L2 report; Low and Suggestions need no issue, escalate).
+If this block prints FATAL, STOP: start no agent and post nothing. To recover, sync the checkout to the PR head (or push it) and re-run the review from Phase 2.0, including every agent after it. A `ROUND-CAP: refused` FATAL is final for this PR: do not start round 3 (the cap is the review stop rule — fix open Critical/Important findings or re-route, name any open Medium in the L2 report; Low and Suggestions need no issue, escalate).
 
 ```bash
 D=.prp-output/reviews; mkdir -p "$D" || { echo "FATAL: cannot create $D" >&2; exit 1; }
@@ -582,7 +584,7 @@ fi
 # cap early and (new in this plan) make 2.3 skip conditional agents on what is really the PR's first
 # round. Refuse when the trusted login is unavailable, because the cap cannot be proven.
 if [ -n "$TRUSTED_LOGIN" ]; then
-  FOOTERS=$(gh api "repos/{owner}/{repo}/issues/{NUMBER}/comments" --paginate --jq '.[] | select(.user.login == env.TRUSTED_LOGIN) | .body | rtrimstr("\n") | split("\n") | last') \
+  FOOTERS=$(bash "$PRP_DIR/scripts/review/round-snapshot.sh" "{owner}/{repo}" "{NUMBER}" "$TRUSTED_LOGIN") \
     || { echo "FATAL: cannot read the PR comments (gh failed) — round cap not checkable, no agents started" >&2; exit 1; }
 else
   echo "FATAL: trusted GitHub identity unavailable — round cap not checkable, no agents started" >&2
@@ -600,9 +602,9 @@ echo "REVIEWED_HEAD_SHA=$REVIEWED_HEAD_SHA ROUND=$ROUND"
 
 ### 2.0a Review Mode Decision (`--l2-comments` only, review-diet plan PR-3 v1.3)
 
-Invariant: whether this round reviews the full diff or a delta is decided **here, by the tool**, never by agent prose and never by whether `--since-last-review` was passed — `--since-last-review` is no longer required under `--l2-comments` (incremental is automatic from R2 on, subject to the guards below) and has no additional effect when passed. Mode is `full` unless every guard below allows `delta`:
+Invariant: whether this round reviews the full diff or a delta is decided **here, by the tool**, never by agent prose and never by whether `--since-last-review` was passed — `--since-last-review` is no longer required under `--l2-comments` (incremental is automatic from R2 on, subject to the guards below) and has no additional effect when passed. Mode is `full` unless the saved round is 2 and every guard below allows `delta`:
 
-- **G1 (base + ancestor)**: `PREV` is the `Reviewed head:` of the most recently posted round (the last such line across the PR's comments). `delta` requires `PREV` to exist, differ from this round's head, and be an ancestor of it (`git merge-base --is-ancestor`). A rebase or force-push (not an ancestor) forces `full`.
+- **G1 (provenance, base and ancestor)**: `PREV` is the `Reviewed head:` of the most recently posted round (the last such line across the PR's comments). `delta` requires `PREV` to exist, differ from this round's head, and be an ancestor of it (`git merge-base --is-ancestor`). A rebase or force-push (not an ancestor) forces `full`.
 - **G2 (40% size fallback)**: `delta` additionally requires a prior round whose own comment said `Review-mode: full` (`LAST_FULL`, read the same way as `PREV`), itself an ancestor of this head, and the cumulative changed-line count from `LAST_FULL` to this head (`git diff --numstat`, additions+deletions) to be at most 40% of the PR's total changed lines (`gh pr view --json additions,deletions`). No findable `LAST_FULL`, or over 40%, forces `full`.
 - **Gate tier**: `pr-risk-tier --rounds {NUMBER}` printing `2`, or the tool missing/failing, forces `full` (fail-safe) before G1/G2 are even checked — a gate-tier clean round is always full.
 
@@ -613,21 +615,22 @@ D=.prp-output/reviews
 REVIEWED_HEAD_SHA=$(cat "$D/pr-{NUMBER}-reviewed-head" 2>/dev/null) || REVIEWED_HEAD_SHA=""
 printf '%s' "$REVIEWED_HEAD_SHA" | grep -qxE '[0-9a-f]{40}' || { echo "FATAL: run Phase 2.0 first — no agents started" >&2; exit 1; }
 MODE=full; BASE_SHA=""
+ROUND=$(cat "$D/pr-{NUMBER}-round" 2>/dev/null) || ROUND=""
 GATE2=1
 if command -v pr-risk-tier >/dev/null 2>&1; then
-  RT=$(env -u PR_RISK_TIER_GH pr-risk-tier --rounds {NUMBER} 2>/dev/null) && [ "$RT" != 2 ] && GATE2=0
+  RT=$(env -u PR_RISK_TIER_GH pr-risk-tier --rounds --head "$REVIEWED_HEAD_SHA" {NUMBER} 2>/dev/null) && [ "$RT" = 1 ] && GATE2=0
 fi
 # Same comment-trust rule as Phase 2.0's CLEAN_ROWS (prp-framework#228): PREV/LAST_FULL drive the
 # posted Review-mode line and must come only from this session's own GitHub identity, never an
 # outside commenter forging a "Reviewed head: <ancestor sha>" line. Fail OPEN to MODE=full (never
 # refuse, never skip the round) when the login lookup itself fails.
 TRUSTED_LOGIN=$(gh api user --jq '.login' 2>/dev/null) || TRUSTED_LOGIN=""
-if [ "$GATE2" -eq 0 ] && [ -n "$TRUSTED_LOGIN" ]; then
+if [ "$ROUND" = 2 ] && [ "$GATE2" -eq 0 ] && [ -n "$TRUSTED_LOGIN" ] && [ "${L2_FULL_DIFF:-0}" != 1 ]; then
   export TRUSTED_LOGIN
-  if HEADS=$(gh api "repos/{owner}/{repo}/issues/{NUMBER}/comments" --paginate --jq '.[] | select(.user.login == env.TRUSTED_LOGIN) | .body | select(startswith("Reviewed head: ")) | split("\n")[0] | ltrimstr("Reviewed head: ")'); then
+  if HEADS=$(gh api "repos/{owner}/{repo}/issues/{NUMBER}/comments" --paginate --jq '.[] | select(.user.login == env.TRUSTED_LOGIN) | .body | select(startswith("Reviewed head: ")) | select(rtrimstr("\n") | split("\n") | last | test("^Generated-by: prp-review-agents v[^ ]+ run=[0-9]{8}T[0-9]{6}Z-[0-9a-f]{8} pass=[a-z-]+( tier=trivial)?$")) | split("\n")[0] | ltrimstr("Reviewed head: ")'); then
     PREV=$(printf '%s\n' "$HEADS" | grep -xE '[0-9a-f]{40}' | tail -n1)
     if [ -n "$PREV" ] && [ "$PREV" != "$REVIEWED_HEAD_SHA" ] && git merge-base --is-ancestor "$PREV" "$REVIEWED_HEAD_SHA" 2>/dev/null; then
-      FULLS=$(gh api "repos/{owner}/{repo}/issues/{NUMBER}/comments" --paginate --jq '.[] | select(.user.login == env.TRUSTED_LOGIN) | .body | select(startswith("Reviewed head: ")) | select((split("\n")[2]) == "Review-mode: full") | split("\n")[0] | ltrimstr("Reviewed head: ")' 2>/dev/null) || FULLS=""
+      FULLS=$(gh api "repos/{owner}/{repo}/issues/{NUMBER}/comments" --paginate --jq '.[] | select(.user.login == env.TRUSTED_LOGIN) | .body | select(startswith("Reviewed head: ")) | select(rtrimstr("\n") | split("\n") | last | test("^Generated-by: prp-review-agents v[^ ]+ run=[0-9]{8}T[0-9]{6}Z-[0-9a-f]{8} pass=[a-z-]+( tier=trivial)?$")) | select((split("\n")[2]) == "Review-mode: full") | split("\n")[0] | ltrimstr("Reviewed head: ")' 2>/dev/null) || FULLS=""
       LAST_FULL=$(printf '%s\n' "$FULLS" | grep -xE '[0-9a-f]{40}' | tail -n1)
       if [ -n "$LAST_FULL" ] && git merge-base --is-ancestor "$LAST_FULL" "$REVIEWED_HEAD_SHA" 2>/dev/null \
          && TOTAL=$(gh pr view {NUMBER} --json additions,deletions -q '.additions + .deletions' 2>/dev/null) \
@@ -1255,7 +1258,7 @@ Run it in every run, after the verdict and before anything is posted (so the new
 Before running it, write `.prp-output/reviews/pr-{NUMBER}-round-invariants`: line 1 is `head ` plus the reviewed head saved in 2.0, then one line per Important with its `Invariant:` name without the prefix (`unstated` when it has none). Put this round's Important count, from this run's own aggregation, in place of `{ROUND_IMPORTANT}`.
 
 - **Re-route (C):** the line is exactly one of: `Re-route: n/a (this round has 0 Important)`; `RE-ROUTE REQUIRED: <invariant>`, when a tag of this round's Importants is also on an Important row of the previous run's per-pass comments (the newest run id on the PR) — the same finding family in 2 rounds means stop patching and revisit the design (re-plan with the invariant, or cut scope to a new issue); or `Re-route: check by hand (<why>)` in every other case: unreadable comments, a footer that is not a valid last line, no earlier run, a previous run that is not exactly the three core passes (a one-pass trivial run, or 1–2 passes posted — even when a tag matches), an invariants file not written for this head, or no shared tag found (`unstated` never matches). It never prints that there is no re-route.
-- **Next step (H):** `pr-risk-tier --rounds` (from the installed ops checkout, the same way 2.0b runs the tier) gives the clean rounds the stop rule needs at the reviewed head: `1` for the normal tier, `2` for the gate tier. A missing tool, a failure or any output other than `1` means 2, and the line says why. A normal-tier round is still a full round (all three core passes, `--l2-comments`); only the number of clean rounds differs, and it has nothing to do with the one-pass trivial run of 2.0b. The line does not count clean rounds: count them from the per-pass comments by hand.
+- **Next step (H):** One qualifying clean exact-head round can satisfy the stop rule. Use the path and by-effect classifications to choose mode. At gate tier, use full-diff evidence. Report the actual number of rounds consumed and the fixed ceiling of two.
 
 ```bash
 D=.prp-output/reviews; INV_F="$D/pr-{NUMBER}-round-invariants"; RI={ROUND_IMPORTANT}

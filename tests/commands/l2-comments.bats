@@ -48,6 +48,26 @@ if [ "$1" = "api" ] && [ "$2" = "repos/{owner}/{repo}/pulls/7/commits" ]; then  
   printf '%s\n' "${FAKE_COMMITS:-$FAKE_HEAD}"
   exit 0
 fi
+if [ "$1" = "api" ] && [[ "$2" == repos/*/issues/* ]] && { [ "$3" = "--slurp" ] || [ "$4" = "--slurp" ] || [ "$4" = ".comments" ]; }; then
+  [ -n "${API_FAIL:-}" ] && exit 1
+  if [ -n "${FAKE_COMMENTS_JSON:-}" ]; then
+    pages=$(jq -cs . "$FAKE_COMMENTS_JSON") || exit 1
+  elif [ -n "${FAKE_COMMENTS:-}" ]; then
+    pages=$(jq -R -s --arg login "${FAKE_LOGIN:-bot}" '[split("\n")[:-1] | map({user:{login:$login},body:.})]' "$FAKE_COMMENTS") || exit 1
+  else
+    pages='[[]]'
+  fi
+  if [[ "$2" == */comments ]]; then
+    jq -c '(add // []) | [to_entries | map(.value + {id:(.value.id // (.key + 1))})]' <<<"$pages"
+  else
+    if [ -n "${FAKE_COMMENT_TOTAL:-}" ]; then
+      printf '%s\n' "$FAKE_COMMENT_TOTAL"
+    else
+      jq 'map(length) | add // 0' <<<"$pages"
+    fi
+  fi
+  exit
+fi
 if [ "$1" = "api" ]; then   # the round-cap read (Phase 2.0): last lines of the PR comments
   [ -n "${API_FAIL:-}" ] && exit 1
   # apply the REAL --jq filter from the prompt to comment JSON, as `gh api --paginate --jq` does per page
@@ -81,7 +101,11 @@ EOF
 printf '%s\n' "$*" >> "$WORK/tier.calls"
 [ -n "${PR_RISK_TIER_GH:-}" ] && { echo standard; exit 0; }
 [ -n "${TIER_FAIL:-}" ] && { echo trivial; exit 1; }
-echo "${FAKE_TIER:-standard}"
+if [[ " $* " == *" --rounds "* ]]; then
+  echo "${FAKE_TIER:-1}"
+else
+  echo "${FAKE_TIER:-standard}"
+fi
 EOF
   chmod +x bin/pr-risk-tier
   export PATH="$WORK/bin:$PATH" WORK_LOG="$WORK/posted.log" FAKE_HEAD="$HEAD_SHA" WORK
@@ -350,6 +374,19 @@ runs() { local i p; for ((i = 1; i <= $1; i++)); do for p in code-reviewer secur
   FAKE_COMMENTS_JSON="$PWD/c.json" run env -u REVIEWED_HEAD_SHA bash p20.sh
   [ "$status" -eq 0 ]
   [ "$(cat .prp-output/reviews/pr-7-reviewed-head)" = "$FAKE_HEAD" ]
+}
+
+@test "Phase 2.0 refuses successful short or duplicated comment listings" {
+  phase20 > p20.sh; repo_here
+  runs 1 > c.txt
+  FAKE_COMMENT_TOTAL=6 FAKE_COMMENTS="$PWD/c.txt" run env -u REVIEWED_HEAD_SHA bash p20.sh
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"listing incomplete or invalid"* ]]
+  printf '%s\n' '[{"id":7,"user":{"login":"bot"},"body":"first"},{"id":7,"user":{"login":"bot"},"body":"second"}]' > c.json
+  FAKE_COMMENTS_JSON="$PWD/c.json" run env -u REVIEWED_HEAD_SHA bash p20.sh
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"listing incomplete or invalid"* ]]
+  [ ! -e .prp-output/reviews/pr-7-reviewed-head ]
 }
 
 @test "Phase 2.0 refuses on a comment with a null body" {
@@ -981,11 +1018,14 @@ Review-mode: $modeline
 
 ### Could not verify
 Nothing.
+
+Generated-by: prp-review-agents v9.9.9 run=20261021T000001Z-00000001 pass=code-reviewer
 " --arg login "${FAKE_LOGIN:-bot}" '[{user: {login: $login}, body: $b}]' > "$WORK/comments.json"
   export FAKE_COMMENTS_JSON="$WORK/comments.json"
 }
 
 run_20a() { # run 2.0a in $WORK with REVIEWED_HEAD_SHA already saved to pr-7-reviewed-head
+  printf '%s\n' "${MODE_ROUND:-2}" > .prp-output/reviews/pr-7-round
   phase20a > p20a.sh
   run env -u REVIEWED_HEAD_SHA bash p20a.sh
 }
@@ -1001,6 +1041,21 @@ run_20a() { # run 2.0a in $WORK with REVIEWED_HEAD_SHA already saved to pr-7-rev
   [ "$status" -eq 0 ]
   [ "$(sed -n 1p .prp-output/reviews/pr-7-mode)" = delta ]
   [ "$(sed -n 2p .prp-output/reviews/pr-7-mode)" = "$SHA0" ]
+}
+
+@test "2.0a requires R2 and a provenance footer even with a small ancestral diff" {
+  repo_here
+  SHA0="$FAKE_HEAD"
+  printf 'line\n' > f.txt; git add f.txt; git commit -q -m c1
+  git rev-parse HEAD > .prp-output/reviews/pr-7-reviewed-head
+  fake_mode_comment "$SHA0" full
+  FAKE_TOTAL=100 MODE_ROUND=1 run_20a
+  [ "$status" -eq 0 ]
+  [ "$(sed -n 1p .prp-output/reviews/pr-7-mode)" = full ]
+  jq '.[0].body |= sub("\\nGenerated-by:[^\\n]*";"")' "$WORK/comments.json" > short.json
+  FAKE_COMMENTS_JSON="$PWD/short.json" FAKE_TOTAL=100 run_20a
+  [ "$status" -eq 0 ]
+  [ "$(sed -n 1p .prp-output/reviews/pr-7-mode)" = full ]
 }
 
 @test "a rebase (base not an ancestor) is forced to full" {
@@ -1055,7 +1110,7 @@ run_20a() { # run 2.0a in $WORK with REVIEWED_HEAD_SHA already saved to pr-7-rev
   TIER_FAIL=1 FAKE_TOTAL=100 run_20a
   [ "$status" -eq 0 ]
   [ "$(sed -n 1p .prp-output/reviews/pr-7-mode)" = full ]
-  grep -q -- '--rounds 7' "$WORK/tier.calls"
+  grep -Fq -- "--rounds --head $SHA1 7" "$WORK/tier.calls"
 }
 
 @test "B11: a missing Review-mode line is refused" {

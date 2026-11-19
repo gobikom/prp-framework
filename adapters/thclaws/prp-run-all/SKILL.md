@@ -474,7 +474,7 @@ If ISSUE_NUMBER is set: ensure the PR body includes `Fixes #{ISSUE_NUMBER}` so t
 
 ### Step 6: REVIEW & FIX (skip if SKIP_REVIEW or NO_PR or RESUME_FROM > 6)
 
-Set: `REVIEW_CYCLE = {from validated state file if --resume, otherwise 1}`. Before dispatch, stop if the upcoming round exceeds MAX_CYCLES or the PR's existing review history has already consumed that round. Refuse inconsistent histories.
+Set REVIEW_CYCLE from validated resume state or start at 1. Clamp a restored MAX_CYCLES above 2 before any dispatch. Every invocation, including resume and retries, uses the same pre-dispatch guard: stop if the saved consumed count or the trusted PR round history leaves no budget. Save consumption before dispatch. An incomplete artifact causes a stop with diagnostics rather than another invocation.
 
 #### 6.1 Run Review
 
@@ -488,7 +488,7 @@ REVIEW_STARTED_AT=$(date +%s)
 
 | REVIEW_SINGLE_AGENT | Command | Description |
 |---------------------|---------|-------------|
-| false (default) | `/prp-review-agents` | Multi-agent review (specialized agents in parallel) |
+| false (default) | `/prp-review-agents --l2-comments` | Multi-agent review (specialized agents in parallel) |
 | true | `/prp-review` | Single-agent review (faster, saves tokens) |
 
 Pass PR_NUMBER to the chosen command. If `.prp-output/reviews/pr-context-{BRANCH}.md` exists, pass `--context` flag for token optimization.
@@ -511,11 +511,8 @@ reported "review=0-issues" with no artifact three times in one day; the forced
 reviews then found real criticals):
 
 ```bash
-# Round 1 enforces the agents tier (unless --review-single-agent was an
-# explicit caller choice). Re-verify rounds (REVIEW_CYCLE > 1) intentionally
-# use single-agent review, so the gate accepts any tier and picks the NEWEST
-# artifact — the freshness check still rejects stale round-1 leftovers.
-if [ "{REVIEW_CYCLE}" -gt 1 ] || [ "{REVIEW_SINGLE_AGENT}" = "true" ]; then
+# Standard and gate PRs require the agents tier in either round.
+if [ "{REVIEW_SINGLE_AGENT}" = "true" ] && [ "{REVIEW_CYCLE}" -eq 1 ]; then
   TIER_FLAG=""
 else
   TIER_FLAG="--require-tier agents"
@@ -529,23 +526,23 @@ fi
 | Gate exit | Meaning | Action |
 |-----------|---------|--------|
 | 0 | artifact exists, fresh, tier-correct, verdict 0-issues | `review_miss_count = 0`. Set REVIEW_VERDICT = "0_issues" **from the gate output**, → continue 6.2 |
-| 1 | artifact missing | `review_miss_count += 1` (state file). The review did NOT run. Check pwd (cross-repo cwd resets write artifacts to the wrong repo — see known PRP issue). If `review_miss_count >= 2` → workflow status = "Needs Manual Fixes", NEVER "Complete". Else re-run 6.1 |
-| 2 | artifact stale (predates this run) | Same as exit 1 — counts as a miss, re-run 6.1 |
-| 3 | wrong tier (single-agent on logic change) | Re-run 6.1 with `/prp-review-agents` |
+| 1 | artifact missing | `review_miss_count += 1` (state file). The review did NOT run. Check pwd (cross-repo cwd resets write artifacts to the wrong repo — see known PRP issue). If `review_miss_count >= 2` → workflow status = "Needs Manual Fixes", NEVER "Complete". Stop and report the missing artifact |
+| 2 | artifact stale (predates this run) | Same as exit 1 — counts as a miss; stop and report |
+| 3 | wrong tier (single-agent on logic change) | Stop and report the wrong artifact tier |
 | 4 | verdict in FILE is not 0-issues | → Step 6.3 (fix loop) using the artifact's actual findings |
 
 **DO NOT**: set REVIEW_VERDICT from what the review sub-skill *said* in conversation — only from the gate script's output. A claim without an on-disk artifact is not a review.
 
 #### 6.2 Evaluate Results
 
-Evaluate from the ARTIFACT FILE (gated in 6.2.0). Check for issues matching `FIX_SEVERITY` (default: all levels):
+Evaluate from the ARTIFACT FILE (gated in 6.2.0). Determine Critical and Important findings before routing any severity to a fix:
 
 | Result | Action |
 |--------|--------|
 | 0 issues (all severities) | Set REVIEW_VERDICT = "0_issues". → Step 7 ✓ (or Step 8 if AUTO_MERGE) |
 | Critical or Important found + `REVIEW_CYCLE < MAX_CYCLES` | Re-plan before the fix if R1 findings share a family or the change affects security, filesystem handling, or a parser. Then Step 6.3. |
 | Critical or Important found + `REVIEW_CYCLE >= MAX_CYCLES` | Report remaining findings and close/re-scope or escalate, or apply the human-approved new-family Important exception through Merger. Never start another round. |
-| Medium/Low only | Report findings and continue to the existing merge gates without another review round. |
+| Medium/Low only | Report findings, set REVIEW_VERDICT to `0_issues` for the zero-blocking-findings state, and continue to the existing merge gates without another review round. |
 
 #### 6.3 Fix Issues
 
@@ -568,20 +565,8 @@ This will: detect toolchain, load artifact directly, fix issues by severity, val
 
 #### 6.4 Re-verify
 
-Increment: `REVIEW_CYCLE += 1`
+Stop unless the fix actually changed the head and one review round remains. Revalidate restored state and the trusted PR review history, set REVIEW_CYCLE to 2, and persist its consumption before dispatch. Invoke `/prp-review-agents {PR_NUMBER} --l2-comments` once. Set `L2_FULL_DIFF=1` for gate-tier or uncertain classification and a qualifying delta otherwise. If the invocation fails or the artifact is missing, stop and report. There is no fallback invocation.
 
-Re-run review to confirm fixes resolved issues and no regressions introduced.
-
-**Re-verify always uses single-agent review** (`/prp-review`) regardless of `REVIEW_SINGLE_AGENT` setting — multi-agent re-verify is wasteful for incremental changes.
-
-**Re-verify mode depends on `PENDING_SKIPPED`:**
-
-| PENDING_SKIPPED | Re-verify command | Why |
-|-----------------|-------------------|-----|
-| `false` (all fixed) | `/prp-review {PR_NUMBER} --since-last-review` (incremental) | Only new code changed — delta review saves tokens |
-| `true` (some/all skipped) | `/prp-review {PR_NUMBER} --context` (FULL review) | Skipped items did NOT change code but STILL need to re-surface — incremental delta would miss them and produce false "0 issues" |
-
-If `--since-last-review` not supported or fails, fall back to full review with `--context` flag. Display: `"WARN: --since-last-review not supported — falling back to full review (higher token cost)."`
 
 **Recapture `REVIEW_STARTED_AT=$(date +%s)` before invoking the re-verify review** (the artifact gate checks freshness per round).
 
@@ -643,7 +628,7 @@ Generate final report (state cleanup deferred to after Step 8).
 | Review Fix | /prp-review-fix | {N fixed, N skipped or "not needed"} |
 | Re-verify | /prp-review | {final verdict or "not needed"} ({REVIEW_CYCLE}/{MAX_CYCLES} rounds) |
 | Verify | /prp-verify | {PASS/FAIL/PARTIAL or "skipped (no --verify)"} |
-| Merge | gh pr merge --squash | {pending (Step 8) or "skipped (no --merge)"} |
+| Merge | safe-merge --squash | {pending (Step 8) or "skipped (no --merge)"} |
 | Cleanup | /prp-cleanup | {pending (Step 8) or "skipped"} |
 | QA Delegate | /prp-qa --delegate | {dispatched to {QA_DELEGATE} or "skipped (no --qa-delegate)"} |
 | Done | /prp-done | {closed #{ISSUE_NUMBER} or "skipped" or "pending QA"} |
@@ -751,7 +736,7 @@ If the artifact is missing, unparsable, or fails any of these → go back to Ste
 safe-merge {PR_NUMBER} --squash
 ```
 
-`safe-merge` wraps `gh pr merge` with CI-green gate and review-artifact gate. If `safe-merge` is not in `$PATH`, fall back to `gh pr merge {PR_NUMBER} --squash --delete-branch`.
+Use safe-merge for the real merge. If it is unavailable or rejects CI, exact-head L2 evidence or Merger approval, stop and report the blocker.
 
 | Result | Action |
 |--------|--------|
