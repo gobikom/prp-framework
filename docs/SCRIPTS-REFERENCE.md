@@ -117,11 +117,11 @@ PROJECT_DIR=/home/user/projects/my-app ./scripts/install.sh
 
 ## package-codex-plugin.py
 
-Run the packager from the PRP checkout you want to publish. It copies the generated Codex skills into a versioned package and writes a native catalog under `adapters/claude-code-plugin/.agents/plugins/`. This is the same marketplace root used by existing local installations.
+Run the packager from the PRP Git checkout you want to publish. It reads the generated Codex skills and metadata from that checkout's committed `HEAD`, builds a versioned package, and writes a native catalog under `adapters/claude-code-plugin/.agents/plugins/`. This is the same marketplace root used by existing local installations.
 
 ```bash
 python3 scripts/package-codex-plugin.py
-codex plugin list --available --marketplace prp-marketplace
+codex plugin list --json --available --marketplace prp-marketplace
 codex plugin add prp-core@prp-marketplace
 ```
 
