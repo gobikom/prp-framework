@@ -580,15 +580,15 @@ fi
 # Same comment-trust rule as CLEAN_ROWS above (prp-framework#228): an untrusted commenter can post a
 # run-id-shaped line with no footer formatting at all, which would otherwise both exhaust the round
 # cap early and (new in this plan) make 2.3 skip conditional agents on what is really the PR's first
-# round. Fail OPEN to an empty FOOTERS (round 1, cap never tripped) when the login lookup failed —
-# under-counting is the safe direction here, same as the unchanged-head check.
+# round. Refuse when the trusted login is unavailable, because the cap cannot be proven.
 if [ -n "$TRUSTED_LOGIN" ]; then
   FOOTERS=$(gh api "repos/{owner}/{repo}/issues/{NUMBER}/comments" --paginate --jq '.[] | select(.user.login == env.TRUSTED_LOGIN) | .body | rtrimstr("\n") | split("\n") | last') \
     || { echo "FATAL: cannot read the PR comments (gh failed) — round cap not checkable, no agents started" >&2; exit 1; }
 else
-  FOOTERS=""
+  echo "FATAL: trusted GitHub identity unavailable — round cap not checkable, no agents started" >&2
+  exit 1
 fi
-ROUND_GUARD_OUT=$(printf '%s\n' "$FOOTERS" | bash "$PRP_DIR/scripts/review/round-guard.sh" --cap 6) \
+ROUND_GUARD_OUT=$(printf '%s\n' "$FOOTERS" | bash "$PRP_DIR/scripts/review/round-guard.sh" --cap 2) \
   || { echo "FATAL: round cap — no agents started" >&2; exit 1; }
 echo "$ROUND_GUARD_OUT"
 ROUND=$(printf '%s\n' "$ROUND_GUARD_OUT" | grep -oE 'this is round [0-9]+$' | grep -oE '[0-9]+$')

@@ -37,22 +37,22 @@ boundary_footers() {
   [[ "$output" == *"this is round 1"* ]]
 }
 
-@test "five runs allow round 6 (default cap is 6, review-diet plan PR-3)" {
-  run bash -c "$(declare -f runs_footers); runs_footers 5 | bash '$G'"
+@test "one prior run allows round 2" {
+  run bash -c "$(declare -f runs_footers); runs_footers 1 | bash '$G'"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"rounds so far: 5 of 6; this is round 6"* ]]
+  [[ "$output" == *"rounds so far: 1 of 2; this is round 2"* ]]
 }
 
-@test "six runs refuse round 7 with a clear message (default cap is 6)" {
-  run bash -c "$(declare -f runs_footers); runs_footers 6 | bash '$G'"
+@test "two runs refuse round 3 with a clear message" {
+  run bash -c "$(declare -f runs_footers); runs_footers 2 | bash '$G'"
   [ "$status" -eq 3 ]
   [[ "$output" == *"ROUND-CAP: refused"* ]]
-  [[ "$output" == *"6 review runs (cap 6)"* ]]
+  [[ "$output" == *"2 review runs (cap 2)"* ]]
   [[ "$output" == *"stop rule"* ]]
 }
 
-@test "seven runs are refused (default cap is 6)" {
-  run bash -c "$(declare -f runs_footers); runs_footers 7 | bash '$G'"
+@test "three prior runs remain refused" {
+  run bash -c "$(declare -f runs_footers); runs_footers 3 | bash '$G'"
   [ "$status" -eq 3 ]
 }
 

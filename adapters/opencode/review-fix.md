@@ -33,7 +33,7 @@ Format: `<pr-number|review-artifact-path> [--severity critical,high,medium,sugge
 | No `--severity`, no `--single-pass` | **LOOP (default)** | Fix all severities, then auto-invoke `/prp:review`, loop until 0 issues or MAX_ROUNDS. Matches `prp-run-all` Step 6 semantics. |
 | `--severity <levels>` explicit | SINGLE-PASS | Fix only the named severities, exit after Phase 6. User knows what they want — no loop. |
 | `--single-pass` explicit | SINGLE-PASS | Explicit opt-out of loop even when no severity given. Equivalent to running the pre-2026-04-17 behavior. |
-| `--max-rounds N` | LOOP with N cap | Override default MAX_ROUNDS=6. Only meaningful in loop mode. |
+| `--max-rounds N` | LOOP with a lower limit | Accept 1 or 2 (default). Refuse any larger value. |
 
 **Why default is LOOP**: agents and humans consistently forgot to run re-review after a single-pass fix, leaving suggestion-severity issues unresolved in merged PRs. Making LOOP the default satisfies the `~/.claude/CLAUDE.md` Post-Implement Hard Rule ("0 issues all severities before merge") without requiring the caller to remember the orchestration steps.
 
@@ -194,7 +194,7 @@ Run `/prp:review {NUMBER}` first to generate the review.
 --severity all               -> fix all (equivalent to omitting the flag)
 ```
 
-**Default severity**: Fix all (Critical -> High -> Medium -> Suggestion)
+**Default severity**: Fix Critical and Important findings. Medium or Low can be addressed in the same commit when a Critical or Important finding already requires one.
 
 **Determine loop mode:**
 
@@ -202,9 +202,11 @@ Run `/prp:review {NUMBER}` first to generate the review.
 SEVERITY_EXPLICIT   = true if --severity flag was present in input
 SINGLE_PASS_EXPLICIT = true if --single-pass flag was present in input
 LOOP_MODE           = NOT (SEVERITY_EXPLICIT OR SINGLE_PASS_EXPLICIT)
-MAX_ROUNDS          = {from --max-rounds N, default 6}
-ROUND               = {from --resume state if present, else 1}
+MAX_ROUNDS          = {from --max-rounds N (1 or 2), default 2}
+ROUND               = {round that produced the artifact, validated against prior PR reviews and resume state}
 ```
+
+Stop before fixing if the round cannot be established or already meets MAX_ROUNDS. If R1 has no Critical or Important finding, report its Medium/Low findings without a fix or re-review. With R1 Critical/Important findings, re-plan before the one fix commit if two share a defect family or the change affects security, filesystem handling, or a parser.
 
 **Display to user**:
 - If LOOP_MODE: `"Loop mode: after fix, will auto re-review and loop until 0 issues (MAX_ROUNDS={MAX_ROUNDS}). Pass --single-pass to disable."`
@@ -706,6 +708,8 @@ Track which issues review-fix just skipped vs actually fixed, and choose the re-
 
 ### 10.2 Invoke Re-review
 
+If ROUND already meets MAX_ROUNDS, go to Phase 10.4 without invoking a review. Otherwise increment ROUND before invoking the review. The first review that produced the input artifact consumed R1.
+
 Run the chosen review command. Wait for completion. Capture the new artifact path.
 
 **DO NOT**: Read the code and review it yourself, skip the skill.
@@ -713,12 +717,12 @@ Run the chosen review command. Wait for completion. Capture the new artifact pat
 
 ### 10.3 Evaluate Result
 
-Parse the new artifact for issues at the full default severity set (`critical,high,medium,suggestion` — the LOOP_MODE default; no user-provided filter applies here since LOOP_MODE implies no `--severity`):
+Parse the new artifact for Critical and Important findings. Account for Medium and Low in the report.
 
 | Result | Action |
 |--------|--------|
-| 0 issues (all severities) | Set `LOOP_VERDICT = "0_issues"`. Display `"All {ROUND} rounds converged on 0 issues — done."`. EXIT ✓. |
-| Issues found AND `ROUND < MAX_ROUNDS` | Increment `ROUND += 1`. Set ARTIFACT to the new path. **Return to Phase 1** with the new artifact, reusing `LOOP_MODE = true` and current `ROUND` value. |
+| 0 Critical and 0 Important | Set `LOOP_VERDICT = "0_issues"`. Display `"All {ROUND} rounds converged on 0 issues — done."`. EXIT ✓. |
+| Critical or Important found AND `ROUND < MAX_ROUNDS` | Set ARTIFACT to the new path. Return to Phase 1 with the updated round value. |
 | Issues found AND `ROUND >= MAX_ROUNDS` | Go to 10.4 Escalation. |
 
 ### 10.4 Escalation Guard
@@ -753,7 +757,7 @@ On trigger:
 - Phase 10 only runs after Phase 6 (commit) succeeds. If commit fails, the loop does not start. (Phases 7–9 — PUSH/REPORT/OUTPUT — run whether or not the loop triggers.)
 - Each loop iteration runs Phases 1 → 6 in full for the new artifact. This is the existing single-pass pipeline, re-entered with a fresh artifact.
 - `ROUND` counts distinct (review, fix) pairs. Round 1 is the initial review-fix invocation; round 2 is the first re-review + fix; etc.
-- `MAX_ROUNDS` defaults to 6 (via `--max-rounds`). The escalation-after-2-all-skipped guard is narrower and catches the "review-fix cannot make progress" case earlier.
+- `MAX_ROUNDS` is at most 2. R2 Critical or repeated-family Important findings require closing and re-scoping or escalation. A new-family Important may use the existing Merger exception with a tracked follow-up. Medium and Low findings never cause a new round. Report the round count.
 
 **Why this design**: matches `run-all` Step 6 behavior exactly (PR gobikom/prp-framework#59), so review-fix used standalone produces the same zero-issues guarantee as review-fix inside run-all. No divergence.
 
@@ -815,7 +819,7 @@ Note: passing `--severity` implicitly disables LOOP_MODE (see Input → Flag sem
 /prp:review-fix 163                                    # LOOP mode — fix all + re-review until 0 issues
 /prp:review-fix 163 --severity critical,high           # SINGLE-PASS — only critical and high
 /prp:review-fix 163 --single-pass                      # SINGLE-PASS explicit — fix all once, exit
-/prp:review-fix 163 --max-rounds 3                     # LOOP mode with custom cap (default 6)
+/prp:review-fix 163 --max-rounds 1                     # Stop before a second review
 /prp:review-fix                                        # Current branch's PR, LOOP mode
 /prp:review-fix .prp-output/reviews/pr-42-review-opencode.md  # By artifact path, LOOP mode
 ```

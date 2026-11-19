@@ -46,7 +46,7 @@ Execute the complete PRP workflow end-to-end autonomously. Each step delegates t
 | `--package <name>` | Scope to a specific monorepo package. Passed through to plan and implement steps. |
 | `--issue <N>` | Fetch GitHub issue #N context. Set ISSUE_NUMBER = N. Extracts title + body as FEATURE. |
 | `--merge` | Auto squash-merge PR after review passes (0 issues). Set AUTO_MERGE = true. |
-| `--max-review-rounds <N>` | Override max review-fix cycles (default: 6). |
+| `--max-review-rounds <N>` | Set the review limit to 1 or 2 (default). Refuse any larger value. |
 | `--verify` | Run $prp-verify before merge to check requirements traceability (Step 7.5). Set VERIFY = true. (automatic when the PR head has .prp-verify/feature-map.yaml — forced in Step 1/resume/Step 8; no flag can turn it off) |
 | `--qa-delegate=<agent>` | Delegate QA to agent after merge via $prp-qa --delegate (Step 8.5). Set QA_DELEGATE = agent. |
 | `--done` | Run $prp-done after QA delegation to close issue when all gates pass (Step 9). Set DONE = true. Requires --issue. |
@@ -74,14 +74,14 @@ RALPH_MAX_ITER = {N, default 10}
 SKIP_REVIEW = {true if --skip-review or --no-pr}
 REVIEW_SINGLE_AGENT = {true if --review-single-agent}
 NO_PR = {true if --no-pr}
-FIX_SEVERITY = "{from --fix-severity, default 'critical,high,medium,suggestion'}"
+FIX_SEVERITY = "{from --fix-severity, default 'critical,high'}"
 FAST_PLAN = {true if --fast} (ignored if PLAN_PATH already set)
 NO_INTERACT = {true if --no-interact}
 MONOREPO_PACKAGE = "{from --package, or empty}"
 DRY_RUN = {true if --dry-run}
 ISSUE_NUMBER = "{from --issue, or empty}"
 AUTO_MERGE = {true if --merge}
-MAX_CYCLES = {from --max-review-rounds, default 6}
+MAX_CYCLES = {from --max-review-rounds (1 or 2), default 2}
 VERIFY = {true if --verify}
 QA_DELEGATE = "{from --qa-delegate, or empty}"
 DONE = {true if --done}
@@ -474,7 +474,7 @@ If ISSUE_NUMBER is set: ensure the PR body includes `Fixes #{ISSUE_NUMBER}` so t
 
 ### Step 6: REVIEW & FIX (skip if SKIP_REVIEW or NO_PR or RESUME_FROM > 6)
 
-Set: `REVIEW_CYCLE = {from state file if --resume, otherwise 1}` (MAX_CYCLES already set from Step 0 — default 6)
+Set: `REVIEW_CYCLE = {from validated state file if --resume, otherwise 1}`. Before dispatch, stop if the upcoming round exceeds MAX_CYCLES or the PR's existing review history has already consumed that round. Refuse inconsistent histories.
 
 #### 6.1 Run Review
 
@@ -543,8 +543,9 @@ Evaluate from the ARTIFACT FILE (gated in 6.2.0). Check for issues matching `FIX
 | Result | Action |
 |--------|--------|
 | 0 issues (all severities) | Set REVIEW_VERDICT = "0_issues". → Step 7 ✓ (or Step 8 if AUTO_MERGE) |
-| Issues found + `REVIEW_CYCLE <= MAX_CYCLES` | → Step 6.3 |
-| Issues found + `REVIEW_CYCLE > MAX_CYCLES` | Report remaining issues → Step 7 (NEEDS MANUAL FIXES) |
+| Critical or Important found + `REVIEW_CYCLE < MAX_CYCLES` | Re-plan before the fix if R1 findings share a family or the change affects security, filesystem handling, or a parser. Then Step 6.3. |
+| Critical or Important found + `REVIEW_CYCLE >= MAX_CYCLES` | Report remaining findings and close/re-scope or escalate, or apply the human-approved new-family Important exception through Merger. Never start another round. |
+| Medium/Low only | Report findings and continue to the existing merge gates without another review round. |
 
 #### 6.3 Fix Issues
 
@@ -837,7 +838,7 @@ This will: check all completion gates (PR merged, review artifact, verify artifa
 4. **Pass context forward** — information flows from earlier to later steps. Pass `--context` to review.
 5. **No extra validation** — each skill validates its own output. Adding more wastes tokens.
 6. **One commit per implementation** — review fixes committed separately by `$prp-review-fix`.
-7. **Max review cycles** — configurable via `--max-review-rounds` (default 6). Target is 0 issues all severities. STOP and report if exceeded.
+7. **Hard cap of 2 review rounds** — `--max-review-rounds` may reduce this to 1. Report the round count.
 8. **Re-verify after fix** — always re-run `$prp-review` after fix. Use `--since-last-review` for token optimization.
 9. **No-interact means ZERO questions** — when `NO_INTERACT = true`: NEVER ask user questions. Make autonomous decisions, pick defaults. Pass `--no-interact` to sub-commands.
 10. **State management** — update state file after every step. Delete on completion. Support `--resume`.
@@ -893,7 +894,7 @@ $prp-run-all Add JWT auth --no-interact               # Fully autonomous
 $prp-run-all Add JWT auth --dry-run                   # Preview without executing
 $prp-run-all --resume                                 # Resume from last failure
 $prp-run-all Add JWT auth --fix-severity critical,high # Fix only blocking issues
-$prp-run-all --issue 55 --max-review-rounds 3 --merge # Custom review rounds
+$prp-run-all --issue 55 --max-review-rounds 1 --merge # One review round
 $prp-run-all --issue 87 --merge --verify              # Full workflow + requirements verification before merge
 $prp-run-all --issue 87 --merge --verify --qa-delegate=vera --done  # Full autonomous lifecycle with QA + issue closure
 ```
