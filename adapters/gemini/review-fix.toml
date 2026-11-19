@@ -702,7 +702,7 @@ Track which issues review-fix just skipped vs actually fixed, and choose the re-
 |-------------|-------------------|----------------|
 | All issues actually fixed | `false` | `/review {NUMBER} --since-last-review` (incremental, cheap) |
 | Some issues skipped | `true`, `SKIPPED_COUNT = N` | `/review {NUMBER} --context` (FULL review — skipped items need to re-surface, incremental would miss them) |
-| All issues skipped (no code change) | `true`, `ALL_SKIPPED = true` | `/review {NUMBER} --context` (FULL review), then evaluate Escalation Guard below |
+| All issues skipped (no code change) | `true`, `ALL_SKIPPED = true` | Stop without another review; report skipped findings |
 
 ### 10.2 Invoke Re-review
 
@@ -750,11 +750,11 @@ On trigger:
 ### 10.5 Loop Invariants
 
 - Phase 10 only runs after Phase 6 (commit) succeeds. If commit fails, the loop does not start. (Phases 7–9 — PUSH/REPORT/OUTPUT — run whether or not the loop triggers.)
-- Each loop iteration runs Phases 1 → 6 in full for the new artifact. This is the existing single-pass pipeline, re-entered with a fresh artifact.
+- After the possible re-review, report the outcome and stop.
 - `ROUND` includes the input review and the one possible subsequent review.
 - `MAX_ROUNDS` cannot exceed 2. Stop or re-scope after the last round.
 
-**Why this design**: matches `run-all` Step 6 behavior exactly (PR gobikom/prp-framework#59), so review-fix used standalone produces the same zero-issues guarantee as review-fix inside run-all. No divergence.
+These instructions set the standalone review-fix limit.
 
 ---
 

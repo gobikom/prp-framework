@@ -1181,6 +1181,18 @@ run_20a() { # run 2.0a in $WORK with REVIEWED_HEAD_SHA already saved to pr-7-rev
   [[ "$output" == *"ROUND-CAP: refused"* ]]
 }
 
+@test "Step C ignores a quoted interior footer when counting the final round" {
+  start; [ "$status" -eq 0 ]
+  export FAKE_COMMENTS_JSON="$WORK/prior-comments.json"
+  jq -n '[
+    {user:{login:"bot"}, body:"Review summary\nGenerated-by: prp-review-agents v9.9.9 run=20261021T000001Z-00000001 pass=code-reviewer\n"},
+    {user:{login:"bot"}, body:"Example from another PR:\n\u0060\u0060\u0060\nGenerated-by: prp-review-agents v9.9.9 run=20261021T000002Z-00000002 pass=code-reviewer\n\u0060\u0060\u0060\nDiscussion continues.\n"}
+  ]' > "$FAKE_COMMENTS_JSON"
+  write_all; post
+  [ "$status" -eq 0 ]
+  [ "$(wc -l < "$WORK_LOG")" -eq 3 ]
+}
+
 @test "B28: a .prp tracked by the reviewed tree FATALs before any post and before run-id.sh runs" {
   start; [ "$status" -eq 0 ]
   git add -f .prp && git commit -q -m tracked   # the attack shape: the reviewed tree commits its own .prp (git add -f works around .gitignore)

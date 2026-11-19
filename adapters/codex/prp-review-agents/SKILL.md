@@ -1696,12 +1696,13 @@ TRUSTED_LOGIN=$(gh api user --jq '.login') && [ -n "$TRUSTED_LOGIN" ] || { echo 
 RID_DIR=$(mktemp -d) || { echo "FATAL: mktemp failed; nothing posted" >&2; exit 1; }
 gh api "repos/{owner}/{repo}/pulls/{NUMBER}/commits" --paginate --jq '.[].sha' > "$RID_DIR/shas" || { echo "FATAL: cannot list PR commits; nothing posted" >&2; exit 1; }
 printf '%s\n' "$NOW_HEAD" >> "$RID_DIR/shas"
-TRUSTED_LOGIN="$TRUSTED_LOGIN" gh api "repos/{owner}/{repo}/issues/{NUMBER}/comments" --paginate --jq '.[] | select(.user.login == env.TRUSTED_LOGIN) | .body' > "$RID_DIR/prior" || { echo "FATAL: cannot read PR comments; nothing posted" >&2; exit 1; }
-bash "$PRP_DIR/scripts/review/run-id.sh" check --id "$RUN_ID" --shas-file "$RID_DIR/shas" --prior-file "$RID_DIR/prior" || { echo "FATAL: run id refused; nothing posted" >&2; exit 1; }
-# A partial earlier post already spends its run ID. Recheck at the posting boundary.
-PRIOR_FOOTERS=$(awk '/^Generated-by: prp-review-agents /' "$RID_DIR/prior") \
+TRUSTED_LOGIN="$TRUSTED_LOGIN" gh api "repos/{owner}/{repo}/issues/{NUMBER}/comments" --paginate --jq '.[] | select(.user.login == env.TRUSTED_LOGIN) | {body, footer: (.body | rtrimstr("\n") | split("\n") | last)} | @json' > "$RID_DIR/prior-comments" || { echo "FATAL: cannot read PR comments; nothing posted" >&2; exit 1; }
+jq -r '.body' "$RID_DIR/prior-comments" > "$RID_DIR/prior" \
+  && jq -r '.footer' "$RID_DIR/prior-comments" > "$RID_DIR/prior-footers" \
   || { echo "FATAL: cannot read prior review footers; nothing posted" >&2; exit 1; }
-printf '%s\n' "$PRIOR_FOOTERS" | bash "$PRP_DIR/scripts/review/round-guard.sh" --cap 2 \
+bash "$PRP_DIR/scripts/review/run-id.sh" check --id "$RUN_ID" --shas-file "$RID_DIR/shas" --prior-file "$RID_DIR/prior" || { echo "FATAL: run id refused; nothing posted" >&2; exit 1; }
+# A partial earlier post already spends its run ID. Match Phase 2.0's final-line count.
+bash "$PRP_DIR/scripts/review/round-guard.sh" --cap 2 < "$RID_DIR/prior-footers" \
   || { echo "FATAL: round cap — nothing posted" >&2; exit 1; }
 mv "$ENV_F" "$ENV_F.used" || { echo "FATAL: cannot consume the run file — nothing posted" >&2; exit 1; }
 POSTED=""
@@ -1939,7 +1940,7 @@ $prp-review-agents 163 --l2-comments          # One L2-format comment per core p
 - METRICS_COLLECTED: Review metrics appended to JSONL with review_type="agents"
 - RECOMMENDATION_CLEAR: Verdict with rationale
 - FALLBACK_AVAILABLE: Graceful fallback to $prp-review when Agent tool unavailable
-- ROUND_CAP_ENFORCED: Phase 2.0 counts the PR's review runs with `round-guard.sh` and starts no agent at the cap of 6 (prp-framework#151, cap lowered 10→6 per review-diet plan PR-3)
+- ROUND_CAP_ENFORCED: Phase 2.0 counts the PR's review runs with `round-guard.sh` and starts no agent at the cap of 2; Step C rechecks the same final-line count before posting
 - PASS_TIMEBOXED_PARTIAL: probes run under one round deadline; a timeboxed pass is void and re-run, never posted (prp-framework#151, SO#1508)
 - ONE_WAKE_PER_ROUND: All passes dispatched in one message; no caller turn between dispatch and completion; no idle status pings (prp-framework#151)
 
