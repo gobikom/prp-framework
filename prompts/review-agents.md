@@ -469,7 +469,7 @@ Invariant: the head this run reviews is captured **once, here, before any agent 
 
 Also decided here, before the round cap: whether the review stop rule is already met at this head — the latest round is a valid clean FULL-DIFF round at this head (0 Critical, 0 Important, valid line 1–3 headers and footer per pass, `Review-mode: full`; merger-policy `review_evidence` is the binding text). `UNCHANGED-HEAD: refused` is final for this exact head — nothing needs to be fixed, there is nothing to review; wait for a new commit, or escalate if the PR is believed done. `UNCHANGED-TREE: refused` is the same verdict for a head whose TREE equals that clean head's tree (an empty re-queue commit, a rebase or amend that changes no file): the agents would read byte-identical files, so the clean round already covers them and a new round is only a token cost; the two commits' trees are compared with `git rev-parse <sha>^{tree}` (the clean head fetched by SHA when the checkout lacks it), and any lookup failure fails open (the review runs). A merger that requires the round at the exact head is then handed the clean round at the same-tree head as the evidence, or the operator's bypass — never a re-run. A valid clean `delta` round at this head does NOT trigger the refusal — at gate tier only a FULL-DIFF clean round satisfies the stop rule, and the guard has no reliable tier input, so this is fail-open by design (at worst one extra round runs). The round number (`ROUND`, 1 for the first run on this PR, 2+ after) is captured here too, for 2.2/2.3's core-vs-conditional gating and 2.0a's mode decision — both read it from the file this step saves, never recompute it.
 
-If this block prints FATAL, STOP: start no agent and post nothing. To recover, sync the checkout to the PR head (or push it) and re-run the review from Phase 2.0, including every agent after it. A `ROUND-CAP: refused` FATAL is final for this PR: do not start round 7 (the cap is the review stop rule — fix open Critical/Important findings or re-route, name any open Medium in the L2 report; Low and Suggestions need no issue, escalate).
+If this block prints FATAL, STOP: start no agent and post nothing. To recover, sync the checkout to the PR head (or push it) and re-run the review from Phase 2.0, including every agent after it. A `ROUND-CAP: refused` FATAL is final for this PR: do not start round 3. Report unresolved blockers, and follow the review stop rule.
 
 ```bash
 D=.prp-output/reviews; mkdir -p "$D" || { echo "FATAL: cannot create $D" >&2; exit 1; }
@@ -572,15 +572,15 @@ fi
 # Same comment-trust rule as CLEAN_ROWS above (prp-framework#228): an untrusted commenter can post a
 # run-id-shaped line with no footer formatting at all, which would otherwise both exhaust the round
 # cap early and (new in this plan) make 2.3 skip conditional agents on what is really the PR's first
-# round. Fail OPEN to an empty FOOTERS (round 1, cap never tripped) when the login lookup failed —
-# under-counting is the safe direction here, same as the unchanged-head check.
+# round. Refuse when the trusted login is unavailable, because the cap cannot be proven.
 if [ -n "$TRUSTED_LOGIN" ]; then
   FOOTERS=$(gh api "repos/{owner}/{repo}/issues/{NUMBER}/comments" --paginate --jq '.[] | select(.user.login == env.TRUSTED_LOGIN) | .body | rtrimstr("\n") | split("\n") | last') \
     || { echo "FATAL: cannot read the PR comments (gh failed) — round cap not checkable, no agents started" >&2; exit 1; }
 else
-  FOOTERS=""
+  echo "FATAL: trusted GitHub identity unavailable — round cap not checkable, no agents started" >&2
+  exit 1
 fi
-ROUND_GUARD_OUT=$(printf '%s\n' "$FOOTERS" | bash "$PRP_DIR/scripts/review/round-guard.sh" --cap 6) \
+ROUND_GUARD_OUT=$(printf '%s\n' "$FOOTERS" | bash "$PRP_DIR/scripts/review/round-guard.sh" --cap 2) \
   || { echo "FATAL: round cap — no agents started" >&2; exit 1; }
 echo "$ROUND_GUARD_OUT"
 ROUND=$(printf '%s\n' "$ROUND_GUARD_OUT" | grep -oE 'this is round [0-9]+$' | grep -oE '[0-9]+$')
@@ -1636,7 +1636,7 @@ D=.prp-output/reviews
 ENV_F="$D/pr-{NUMBER}-l2-run.env"
 [ -L .prp ] && PRP_DIR=$(readlink -f .prp) && [ -r "$PRP_DIR/scripts/review/pass-budget.sh" ] || { echo "FATAL: cannot find the installed prp-framework scripts via .prp — nothing posted" >&2; exit 1; }
 TRACKED=$(git ls-files -- .prp) || { echo "FATAL: cannot check whether .prp is tracked — nothing posted" >&2; exit 1; }; [ -z "$TRACKED" ] || { echo "FATAL: .prp is tracked by the reviewed tree — refusing to run its scripts" >&2; exit 1; }
-[ -s "$ENV_F" ] || { echo "FATAL: $ENV_F missing — run Step A (a run file is used once; after a failed post, start a new run)" >&2; exit 1; }
+[ -s "$ENV_F" ] || { echo "FATAL: $ENV_F missing — run Step A (a run file is used once; after a failed post, report the incomplete round)" >&2; exit 1; }
 # parse, never execute: exactly six known keys with validated values
 REVIEWED_HEAD_SHA=$(sed -n 's/^REVIEWED_HEAD_SHA=//p' "$ENV_F"); PRP_VERSION=$(sed -n 's/^PRP_VERSION=//p' "$ENV_F"); RUN_ID=$(sed -n 's/^RUN_ID=//p' "$ENV_F"); TIER=$(sed -n 's/^TIER=//p' "$ENV_F")
 MODE=$(sed -n 's/^MODE=//p' "$ENV_F"); BASE_SHA=$(sed -n 's/^BASE_SHA=//p' "$ENV_F")
@@ -1687,19 +1687,25 @@ TRUSTED_LOGIN=$(gh api user --jq '.login') && [ -n "$TRUSTED_LOGIN" ] || { echo 
 RID_DIR=$(mktemp -d) || { echo "FATAL: mktemp failed; nothing posted" >&2; exit 1; }
 gh api "repos/{owner}/{repo}/pulls/{NUMBER}/commits" --paginate --jq '.[].sha' > "$RID_DIR/shas" || { echo "FATAL: cannot list PR commits; nothing posted" >&2; exit 1; }
 printf '%s\n' "$NOW_HEAD" >> "$RID_DIR/shas"
-TRUSTED_LOGIN="$TRUSTED_LOGIN" gh api "repos/{owner}/{repo}/issues/{NUMBER}/comments" --paginate --jq '.[] | select(.user.login == env.TRUSTED_LOGIN) | .body' > "$RID_DIR/prior" || { echo "FATAL: cannot read PR comments; nothing posted" >&2; exit 1; }
+TRUSTED_LOGIN="$TRUSTED_LOGIN" gh api "repos/{owner}/{repo}/issues/{NUMBER}/comments" --paginate --jq '.[] | select(.user.login == env.TRUSTED_LOGIN) | {body, footer: (.body | rtrimstr("\n") | split("\n") | last)} | @json' > "$RID_DIR/prior-comments" || { echo "FATAL: cannot read PR comments; nothing posted" >&2; exit 1; }
+jq -r '.body' "$RID_DIR/prior-comments" > "$RID_DIR/prior" \
+  && jq -r '.footer' "$RID_DIR/prior-comments" > "$RID_DIR/prior-footers" \
+  || { echo "FATAL: cannot read prior review footers; nothing posted" >&2; exit 1; }
 bash "$PRP_DIR/scripts/review/run-id.sh" check --id "$RUN_ID" --shas-file "$RID_DIR/shas" --prior-file "$RID_DIR/prior" || { echo "FATAL: run id refused; nothing posted" >&2; exit 1; }
+# A partial earlier post already spends its run ID. Match Phase 2.0's final-line count.
+bash "$PRP_DIR/scripts/review/round-guard.sh" --cap 2 < "$RID_DIR/prior-footers" \
+  || { echo "FATAL: round cap — nothing posted" >&2; exit 1; }
 mv "$ENV_F" "$ENV_F.used" || { echo "FATAL: cannot consume the run file — nothing posted" >&2; exit 1; }
 POSTED=""
 for PASS in $PASSES; do
   URL=$(gh pr comment {NUMBER} --body-file "$D/pr-{NUMBER}-l2-$PASS.md") \
-    || { echo "FATAL: posting the $PASS comment failed — run $RUN_ID is abandoned (already posted: ${POSTED:-none}); post one plain comment saying so and start a new run (Step A)" >&2; exit 1; }
+    || { echo "FATAL: posting the $PASS comment failed — run $RUN_ID is abandoned (already posted: ${POSTED:-none}); post one plain comment saying so and stop" >&2; exit 1; }
   POSTED="$POSTED $URL"
   echo "$PASS: $URL"
 done
 ```
 
-Report the posted URLs (they are what the L2 report links, one per pass: three, or one at the trivial tier). If a post fails after an earlier one succeeded, the round is incomplete: say so on the PR (one plain comment naming the abandoned `RUN_ID`) and re-run the review with a new `RUN_ID`, since the verifier requires one run id across all three.
+Report the posted URLs (they are what the L2 report links, one per pass: three, or one at the trivial tier). If a post fails after an earlier one succeeded, the round is incomplete: say so on the PR (one plain comment naming the abandoned `RUN_ID`) and stop. A later authorized review must re-enter Phase 2.0 and pass the cap guard before dispatch.
 
 ### Post to GitHub
 
@@ -1925,7 +1931,7 @@ If implementation report references a Source PRD:
 - METRICS_COLLECTED: Review metrics appended to JSONL with review_type="agents"
 - RECOMMENDATION_CLEAR: Verdict with rationale
 - FALLBACK_AVAILABLE: Graceful fallback to {TOOL}:review when Agent tool unavailable
-- ROUND_CAP_ENFORCED: Phase 2.0 counts the PR's review runs with `round-guard.sh` and starts no agent at the cap of 6 (prp-framework#151, cap lowered 10→6 per review-diet plan PR-3)
+- ROUND_CAP_ENFORCED: Phase 2.0 counts the PR's review runs with `round-guard.sh` and starts no agent at the cap of 2; Step C rechecks the same final-line count before posting
 - PASS_TIMEBOXED_PARTIAL: probes run under one round deadline; a timeboxed pass is void and re-run, never posted (prp-framework#151, SO#1508)
 - ONE_WAKE_PER_ROUND: All passes dispatched in one message; no caller turn between dispatch and completion; no idle status pings (prp-framework#151)
 

@@ -29,7 +29,7 @@ Format: `<pr-number|review-artifact-path> [--severity critical,high,medium,sugge
 | No `--severity`, no `--single-pass` | **LOOP (default)** | Fix all severities, then auto-invoke `{TOOL}:review`, loop until 0 issues or MAX_ROUNDS. Matches `prp-run-all` Step 6 semantics. |
 | `--severity <levels>` explicit | SINGLE-PASS | Fix only the named severities, exit after Phase 6. User knows what they want — no loop. |
 | `--single-pass` explicit | SINGLE-PASS | Explicit opt-out of loop even when no severity given. Equivalent to running the pre-2026-04-17 behavior. |
-| `--max-rounds N` | LOOP with N cap | Override default MAX_ROUNDS=6. Only meaningful in loop mode. |
+| `--max-rounds N` | LOOP with N cap | Default 2; allowed values 1 and 2. The initial review counts toward the limit. |
 
 **Why default is LOOP**: agents and humans consistently forgot to run re-review after a single-pass fix, leaving suggestion-severity issues unresolved in merged PRs. Making LOOP the default satisfies the `~/.claude/CLAUDE.md` Post-Implement Hard Rule ("0 issues all severities before merge") without requiring the caller to remember the orchestration steps.
 
@@ -198,9 +198,11 @@ Run `{TOOL}:review {NUMBER}` first to generate the review.
 SEVERITY_EXPLICIT   = true if --severity flag was present in input
 SINGLE_PASS_EXPLICIT = true if --single-pass flag was present in input
 LOOP_MODE           = NOT (SEVERITY_EXPLICIT OR SINGLE_PASS_EXPLICIT)
-MAX_ROUNDS          = {from --max-rounds N, default 6}
-ROUND               = {from --resume state if present, else 1}
+MAX_ROUNDS          = {from --max-rounds N, default 2; allowed 1 or 2}
+ROUND               = {verified consumed invocation count, including the input review}
 ```
+
+Reject a value outside 1–2 or an unknown consumed count. In LOOP mode, stop before a fix if the budget is exhausted, or if the input has no Critical or Important findings.
 
 **Display to user**:
 - If LOOP_MODE: `"Loop mode: after fix, will auto re-review and loop until 0 issues (MAX_ROUNDS={MAX_ROUNDS}). Pass --single-pass to disable."`
@@ -698,11 +700,11 @@ Track which issues review-fix just skipped vs actually fixed, and choose the re-
 |-------------|-------------------|----------------|
 | All issues actually fixed | `false` | `{TOOL}:review {NUMBER} --since-last-review` (incremental, cheap) |
 | Some issues skipped | `true`, `SKIPPED_COUNT = N` | `{TOOL}:review {NUMBER} --context` (FULL review — skipped items need to re-surface, incremental would miss them) |
-| All issues skipped (no code change) | `true`, `ALL_SKIPPED = true` | `{TOOL}:review {NUMBER} --context` (FULL review), then evaluate Escalation Guard below |
+| All issues skipped (no code change) | `true`, `ALL_SKIPPED = true` | Stop without another review; report skipped findings |
 
 ### 10.2 Invoke Re-review
 
-Run the chosen review command. Wait for completion. Capture the new artifact path.
+Before dispatch, require a changed head and verify `ROUND < MAX_ROUNDS`; increment and persist ROUND first. Run the chosen command once. On an ambiguous, missing, or failed result, stop without retrying.
 
 **DO NOT**: Read the code and review it yourself, skip the skill.
 **CHECKPOINT**: Did you invoke `{TOOL}:review`? If not → STOP → invoke it.
@@ -714,7 +716,6 @@ Parse the new artifact for issues at the full default severity set (`critical,hi
 | Result | Action |
 |--------|--------|
 | 0 issues (all severities) | Set `LOOP_VERDICT = "0_issues"`. Display `"All {ROUND} rounds converged on 0 issues — done."`. EXIT ✓. |
-| Issues found AND `ROUND < MAX_ROUNDS` | Increment `ROUND += 1`. Set ARTIFACT to the new path. **Return to Phase 1** with the new artifact, reusing `LOOP_MODE = true` and current `ROUND` value. |
 | Issues found AND `ROUND >= MAX_ROUNDS` | Go to 10.4 Escalation. |
 
 ### 10.4 Escalation Guard
@@ -747,11 +748,11 @@ On trigger:
 ### 10.5 Loop Invariants
 
 - Phase 10 only runs after Phase 6 (commit) succeeds. If commit fails, the loop does not start. (Phases 7–9 — PUSH/REPORT/OUTPUT — run whether or not the loop triggers.)
-- Each loop iteration runs Phases 1 → 6 in full for the new artifact. This is the existing single-pass pipeline, re-entered with a fresh artifact.
-- `ROUND` counts distinct (review, fix) pairs. Round 1 is the initial review-fix invocation; round 2 is the first re-review + fix; etc.
-- `MAX_ROUNDS` defaults to 6 (via `--max-rounds`). The escalation-after-2-all-skipped guard is narrower and catches the "review-fix cannot make progress" case earlier.
+- After the possible re-review, report the outcome and stop.
+- `ROUND` includes the input review and the one possible subsequent review.
+- `MAX_ROUNDS` cannot exceed 2. Stop or re-scope after the last round.
 
-**Why this design**: matches `run-all` Step 6 behavior exactly (PR gobikom/prp-framework#59), so review-fix used standalone produces the same zero-issues guarantee as review-fix inside run-all. No divergence.
+These instructions set the standalone review-fix limit.
 
 ---
 
@@ -811,7 +812,7 @@ Note: passing `--severity` implicitly disables LOOP_MODE (see Input → Flag sem
 {TOOL}:review-fix 163                                    # LOOP mode — fix all + re-review until 0 issues
 {TOOL}:review-fix 163 --severity critical,high           # SINGLE-PASS — only critical and high
 {TOOL}:review-fix 163 --single-pass                      # SINGLE-PASS explicit — fix all once, exit
-{TOOL}:review-fix 163 --max-rounds 3                     # LOOP mode with custom cap (default 6)
+{TOOL}:review-fix 163 --max-rounds 1                     # keep only the input round
 {TOOL}:review-fix                                        # Current branch's PR, LOOP mode
 {TOOL}:review-fix .prp-output/reviews/pr-42-review-{TOOL}.md  # By artifact path, LOOP mode
 ```
