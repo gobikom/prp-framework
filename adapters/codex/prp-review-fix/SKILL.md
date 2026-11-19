@@ -32,25 +32,25 @@ Format: `<pr-number|review-artifact-path> [--severity critical,high,medium,sugge
 
 | Flag combination | Mode | Description |
 |------------------|------|-------------|
-| No `--severity`, no `--single-pass` | **LOOP (default)** | Fix all severities, then auto-invoke `$prp-review`, loop until 0 issues or MAX_ROUNDS. Matches `prp-run-all` Step 6 semantics. |
+| No `--severity`, no `--single-pass` | **LOOP (default)** | Fix Critical and Important findings. If the fix changes the head and a round remains, run one qualifying L2 R2. |
 | `--severity <levels>` explicit | SINGLE-PASS | Fix only the named severities, exit after Phase 6. User knows what they want — no loop. |
-| `--single-pass` explicit | SINGLE-PASS | Explicit opt-out of loop even when no severity given. Equivalent to running the pre-2026-04-17 behavior. |
+| `--single-pass` explicit | SINGLE-PASS | Explicit opt-out of loop even when no severity given. Apply the selected fixes once, under the same round and severity rules. |
 | `--max-rounds N` | LOOP with a lower limit | Accept 1 or 2 (default). Refuse any larger value. |
 
-**Why default is LOOP**: agents and humans consistently forgot to run re-review after a single-pass fix, leaving suggestion-severity issues unresolved in merged PRs. Making LOOP the default satisfies the `~/.claude/CLAUDE.md` Post-Implement Hard Rule ("0 issues all severities before merge") without requiring the caller to remember the orchestration steps.
+Loop mode verifies a required fix once at the new PR head.
 
 ## Mission
 
-Apply fixes for all issues found by `prp-review` or `prp-review-agents`:
+Apply blocking review fixes from the recorded R1 artifact:
 
 1. Load the review artifact and parse issues by severity
 2. Detect project toolchain and validation commands
 3. Checkout the PR branch (or use it if already on it)
-4. Fix issues in priority order: Critical → High → Medium → Suggestion
+4. Fix Critical then Important findings. Medium and Low may share an already-needed fix commit.
 5. Run validation after each severity batch
 6. Commit and push fixes to the PR branch
 7. Post a summary comment on the PR
-8. **(Loop mode only)** Re-review → if issues remain, loop back to step 1 with the new artifact; if 0 issues, exit; if MAX_ROUNDS exceeded OR ALL_SKIPPED for 2 rounds, escalate.
+8. **(Loop mode only)** If the required fix changed the head and a round remains, run L2 R2 once and report its blocker counts.
 
 **Golden Rule**: Fix what the review found, plus same-pattern siblings across all files changed in this PR. Don't refactor unrelated code. If a fix is unclear or risky, skip and note it.
 
@@ -183,7 +183,7 @@ Default: most recently modified. To skip prompt: pass artifact path directly.
 ```
 No review artifact found for PR #{NUMBER}.
 
-Run `$prp-review {NUMBER}` first to generate the review.
+Use the existing L2 artifact. If the PR has no round and the guard allows it, invoke `$prp-review-agents {NUMBER} --l2-comments`.
 ```
 
 ### 1.4 Parse Severity Filter + Loop Mode
@@ -193,7 +193,7 @@ Run `$prp-review {NUMBER}` first to generate the review.
 ```
 --severity critical          -> fix only Critical
 --severity critical,high     -> fix Critical and High
---severity all               -> fix all (equivalent to omitting the flag)
+--severity all               -> include Medium and Low in an already-needed Critical or Important fix
 ```
 
 **Default severity**: Fix Critical and Important findings. Medium or Low can be addressed in the same commit when a Critical or Important finding already requires one.
@@ -211,8 +211,8 @@ ROUND               = {round that produced the artifact, validated against prior
 Stop before fixing if the round cannot be established or already meets MAX_ROUNDS. If R1 has no Critical or Important finding, report its Medium/Low findings without a fix or re-review. With R1 Critical/Important findings, re-plan before the one fix commit if two share a defect family or the change affects security, filesystem handling, or a parser.
 
 **Display to user**:
-- If LOOP_MODE: `"Loop mode: after fix, will auto re-review and loop until 0 issues (MAX_ROUNDS={MAX_ROUNDS}). Pass --single-pass to disable."`
-- If SINGLE_PASS: `"Single-pass mode: will exit after Phase 6. Re-verify manually with $prp-review {NUMBER} or enable loop by omitting --severity."`
+- If LOOP_MODE: A required fix that changes the head can trigger one L2 R2 (round {ROUND}/{MAX_ROUNDS}).
+- If SINGLE_PASS: After the fix report, the caller can use the remaining L2 round if the guard permits.
 
 ### 1.5 Parse Issues from Artifact
 
@@ -684,7 +684,7 @@ Append a "Fix Outcome" section to the review artifact:
 ### Next Steps
 
 {If LOOP_MODE and all critical/high fixed:} "Entering Phase 10 re-review loop (round {ROUND}/{MAX_ROUNDS})..."
-{If SINGLE_PASS and all critical/high fixed:} "Ready for re-review. Run `$prp-review {NUMBER}` to verify."
+{If SINGLE_PASS and all critical/high fixed:} "The changed head is ready for the remaining qualifying L2 round if its budget and preconditions hold."
 {If critical still open:} "{N} critical issues require manual attention before merge."
 ```
 
@@ -757,10 +757,10 @@ On trigger:
 
 - Phase 10 only runs after Phase 6 (commit) succeeds. If commit fails, the loop does not start. (Phases 7–9 — PUSH/REPORT/OUTPUT — run whether or not the loop triggers.)
 - Each loop iteration runs Phases 1 → 6 in full for the new artifact. This is the existing single-pass pipeline, re-entered with a fresh artifact.
-- `ROUND` counts distinct (review, fix) pairs. Round 1 is the initial review-fix invocation; round 2 is the first re-review + fix; etc.
+- `ROUND` counts distinct reviews. The input review consumed R1. R2 is the only possible re-review.
 - `MAX_ROUNDS` is at most 2. R2 Critical or repeated-family Important findings require closing and re-scoping or escalation. A new-family Important may use the existing Merger exception with a tracked follow-up. Medium and Low findings never cause a new round. Report the round count.
 
-**Why this design**: matches `run-all` Step 6 behavior exactly (PR gobikom/prp-framework#59), so review-fix used standalone produces the same zero-issues guarantee as review-fix inside run-all. No divergence.
+Both standalone and run-all use the same round budget and blocking severity thresholds.
 
 ---
 
@@ -768,7 +768,7 @@ On trigger:
 
 ### No review artifact exists
 
-Stop and tell user to run `$prp-review {NUMBER}` first.
+Stop and report the missing L2 artifact. If the PR has no round and the guard allows it, invoke `$prp-review-agents {NUMBER} --l2-comments`.
 
 ### PR branch has conflicts
 
@@ -817,9 +817,9 @@ Note: passing `--severity` implicitly disables LOOP_MODE (see Input → Flag sem
 ## Usage Examples
 
 ```
-$prp-review-fix 163                                    # LOOP mode — fix all + re-review until 0 issues
+$prp-review-fix 163                                    # LOOP mode — fix blocking findings and verify within two rounds
 $prp-review-fix 163 --severity critical,high           # SINGLE-PASS — only critical and high
-$prp-review-fix 163 --single-pass                      # SINGLE-PASS explicit — fix all once, exit
+$prp-review-fix 163 --single-pass                      # SINGLE-PASS explicit — apply required fixes once
 $prp-review-fix 163 --max-rounds 1                     # Stop before a second review
 $prp-review-fix                                        # Current branch's PR, LOOP mode
 $prp-review-fix .prp-output/reviews/pr-42-review-codex.md  # By artifact path, LOOP mode

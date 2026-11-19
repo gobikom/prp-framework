@@ -114,6 +114,13 @@ PROMPTS_DIR="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)/prompts"
     grep -qi "review.fix\|fix.*severity\|REVIEW_CYCLE\|review cycle" "$PROMPTS_DIR/run-all.md"
 }
 
+@test "review-fix and run-all describe one L2 re-review for blocking fixes" {
+    grep -Fq 'run one qualifying L2 R2' "$PROMPTS_DIR/review-fix.md"
+    grep -Fq 'invoke the L2 producer once' "$PROMPTS_DIR/run-all.md"
+    ! grep -Ei 'all severities before merge|always re-run.*review.*after fix' \
+        "$PROMPTS_DIR/review-fix.md" "$PROMPTS_DIR/run-all.md"
+}
+
 # ─────────────────────────────────────────────
 # 4. review-fix.md structure
 # ─────────────────────────────────────────────

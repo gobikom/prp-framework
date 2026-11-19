@@ -45,7 +45,7 @@ Execute the complete PRP workflow end-to-end autonomously. Each step delegates t
 | `--no-interact` | Never ask user questions — use best judgment, pick defaults |
 | `--package <name>` | Scope to a specific monorepo package. Passed through to plan and implement steps. |
 | `--issue <N>` | Fetch GitHub issue #N context. Set ISSUE_NUMBER = N. Extracts title + body as FEATURE. |
-| `--merge` | Auto squash-merge PR after review passes (0 issues). Set AUTO_MERGE = true. |
+| `--merge` | Auto squash-merge through safe-merge after a qualifying review with 0 Critical / 0 Important. Set AUTO_MERGE = true. |
 | `--max-review-rounds <N>` | Set the review limit to 1 or 2 (default). Refuse any larger value. |
 | `--verify` | Run $prp-verify before merge to check requirements traceability (Step 7.5). Set VERIFY = true. (automatic when the PR head has .prp-verify/feature-map.yaml — forced in Step 1/resume/Step 8; no flag can turn it off) |
 | `--qa-delegate=<agent>` | Delegate QA to agent after merge via $prp-qa --delegate (Step 8.5). Set QA_DELEGATE = agent. |
@@ -114,7 +114,7 @@ Steps that would run:
   Step 3: Implement            -> {$prp-ralph (loop up to N iter) | $prp-implement (single pass)}
   Step 4: Commit               -> conventional commit on feature branch
   Step 5: Create PR            -> {skipped (--no-pr) | PR to main, Fixes #N if --issue}
-  Step 6: Review & Fix         -> {skipped (--skip-review) | review-fix loop (max {MAX_CYCLES} rounds, target: 0 issues)}
+  Step 6: Review & Fix         -> {skipped (--skip-review) | review-fix loop (max {MAX_CYCLES} rounds, target: 0 Critical / 0 Important)}
   Step 7: Summary              -> final report
   Step 7.5: Verify             -> {skipped (no --verify) | $prp-verify --pr {PR_NUMBER} --issue {ISSUE_NUMBER}}
   Step 8: Merge & Cleanup      -> {skipped (no --merge) | squash merge + cleanup}
@@ -539,7 +539,7 @@ Evaluate from the ARTIFACT FILE (gated in 6.2.0). Determine Critical and Importa
 
 | Result | Action |
 |--------|--------|
-| 0 issues (all severities) | Set REVIEW_VERDICT = "0_issues". → Step 7 ✓ (or Step 8 if AUTO_MERGE) |
+| No findings | Set REVIEW_VERDICT = "0_issues". → Step 7 ✓ (or Step 8 if AUTO_MERGE) |
 | Critical or Important found + `REVIEW_CYCLE < MAX_CYCLES` | Re-plan before the fix if R1 findings share a family or the change affects security, filesystem handling, or a parser. Then Step 6.3. |
 | Critical or Important found + `REVIEW_CYCLE >= MAX_CYCLES` | Report remaining findings and close/re-scope or escalate, or apply the human-approved new-family Important exception through Merger. Never start another round. |
 | Medium/Low only | Report findings, set REVIEW_VERDICT to `0_issues` for the zero-blocking-findings state, and continue to the existing merge gates without another review round. |
@@ -824,7 +824,7 @@ This will: check all completion gates (PR merged, review artifact, verify artifa
 5. **No extra validation** — each skill validates its own output. Adding more wastes tokens.
 6. **One commit per implementation** — review fixes committed separately by `$prp-review-fix`.
 7. **Hard cap of 2 review rounds** — `--max-review-rounds` may reduce this to 1. Report the round count.
-8. **Re-verify after fix** — always re-run `$prp-review` after fix. Use `--since-last-review` for token optimization.
+8. **Re-verify after a required fix** — if it changed the head and budget remains, invoke the L2 producer once as specified in Step 6.4.
 9. **No-interact means ZERO questions** — when `NO_INTERACT = true`: NEVER ask user questions. Make autonomous decisions, pick defaults. Pass `--no-interact` to sub-commands.
 10. **State management** — update state file after every step. Delete on completion. Support `--resume`.
 
@@ -924,10 +924,10 @@ $prp-run-all --issue 87 --merge --verify --qa-delegate=vera --done  # Full auton
 - COMMITTED: Clean commit on feature branch
 - PR_CREATED: PR exists (unless --no-pr)
 - REVIEWED: Review posted with verdict (unless --skip-review)
-- INCREMENTAL_REVIEW: Re-verify uses `--since-last-review` for token optimization
-- ZERO_ISSUES_TARGET: Review-fix loop continues until 0 issues (all severities in `FIX_SEVERITY`) or MAX_CYCLES reached. **Skipped issues count as remaining** — they are deferred, not resolved. Re-verify uses FULL review (not incremental) when any issues were skipped in the prior round, so skipped items re-surface in the next evaluation.
+- RE_VERIFY: The single R2 uses the qualifying mode in Step 6.4.
+- REVIEW_TARGET: 0 Critical and 0 Important. Report Medium and Low in the review. For the only possible re-review, select full or qualifying delta by Step 6.4.
 - NO_SILENT_MERGE: `--merge` only executes when `REVIEW_VERDICT = "0_issues"`. `needs_manual_fix` (MAX_CYCLES hit OR 2 rounds all-skipped) blocks merge; escalation GH issue is created instead.
-- MERGED: PR squash-merged if --merge and 0 issues (unless --no-pr or --skip-review)
+- MERGED: The PR is squash-merged through safe-merge when its review verdict and merge gates qualify.
 - VERIFIED: Verify artifact exists and PASS/PARTIAL verdict recorded if --verify (FAIL blocks merge)
 - QA_DELEGATED: QA task dispatched to target agent if --qa-delegate (async, does not block merge)
 - ISSUE_CLOSED: Issue closed via $prp-done if --done and all gates pass; PENDING blocks without error
