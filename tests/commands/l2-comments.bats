@@ -312,15 +312,15 @@ repo_here() { git init -q . && git commit -q --allow-empty -m pr; FAKE_HEAD=$(gi
 runs() { local i p; for ((i = 1; i <= $1; i++)); do for p in code-reviewer security-reviewer silent-failure-hunter; do
   printf 'Generated-by: prp-review-agents v9.9.9 run=20261021T%06dZ-%08x pass=%s\n' "$i" "$i" "$p"; done; done; }
 
-@test "Phase 2.0 allows round 6 (five runs on the PR) and saves the head" {
-  phase20 > p20.sh; repo_here; runs 5 > c.txt
+@test "Phase 2.0 allows round 2 (one run on the PR) and saves the head" {
+  phase20 > p20.sh; repo_here; runs 1 > c.txt
   FAKE_COMMENTS="$PWD/c.txt" run env -u REVIEWED_HEAD_SHA bash p20.sh
   [ "$status" -eq 0 ]
   [ "$(cat .prp-output/reviews/pr-7-reviewed-head)" = "$FAKE_HEAD" ]
 }
 
-@test "Phase 2.0 refuses round 7 (six runs) before any head file or agent (default cap is 6)" {
-  phase20 > p20.sh; repo_here; runs 6 > c.txt
+@test "Phase 2.0 refuses round 3 before writing the head or dispatching agents" {
+  phase20 > p20.sh; repo_here; runs 2 > c.txt
   FAKE_COMMENTS="$PWD/c.txt" run env -u REVIEWED_HEAD_SHA bash p20.sh
   [ "$status" -ne 0 ]
   [[ "$output" == *"ROUND-CAP: refused"* ]]
@@ -331,22 +331,22 @@ runs() { local i p; for ((i = 1; i <= $1; i++)); do for p in code-reviewer secur
 @test "Phase 2.0 runs the real jq filter over paginated comment JSON" {
   phase20 > p20.sh; repo_here
   # two pages (gh --paginate applies --jq per page): a multi-line body, a plain comment and a CRLF-free footer
-  # page1 = runs 1-3 (ids1-3), page2 keeps runs 4-6 (tail skips the 9 lines of ids1-3) -> 6 unique = at cap (default cap is 6)
+  # A distinct run on each page reaches the fixed cap.
   # tagged with the default trusted login ("bot") so Phase 2.0's TRUSTED_LOGIN filter
   # (FOOTERS, same as CLEAN_ROWS) keeps these rows instead of silently dropping them
-  { runs 3 | jq -R -s 'split("\n")[:-1] | map({user: {login: "bot"}, body: ("review text\nmore\n" + . + "\n")})'
-    runs 6 | tail -n +10 | jq -R -s 'split("\n")[:-1] | map({user: {login: "bot"}, body: ("other\n" + . + "\n")}) + [{user: {login: "bot"}, body: "LGTM"}]'; } > c.json
+  { runs 1 | jq -R -s 'split("\n")[:-1] | map({user: {login: "bot"}, body: ("review text\nmore\n" + . + "\n")})'
+    runs 2 | tail -n +4 | jq -R -s 'split("\n")[:-1] | map({user: {login: "bot"}, body: ("other\n" + . + "\n")}) + [{user: {login: "bot"}, body: "LGTM"}]'; } > c.json
   FAKE_COMMENTS_JSON="$PWD/c.json" run env -u REVIEWED_HEAD_SHA bash p20.sh
   [ "$status" -ne 0 ]
   [[ "$output" == *"ROUND-CAP: refused"* ]]
 }
 
-@test "Phase 2.0 allows round 6 over paginated comment JSON with ordinary comments" {
+@test "Phase 2.0 allows round 2 with a repeated run across pages and ordinary comments" {
   phase20 > p20.sh; repo_here
-  # page1 = runs 1-2 (ids1-2), page2 keeps runs 3-5 (tail skips the 6 lines of ids1-2) -> 5 unique = one under cap (default cap is 6)
+  # Both pages list the same run ID, which counts once.
   # tagged with the default trusted login ("bot"), same reason as the test above
-  { runs 2 | jq -R -s 'split("\n")[:-1] | map({user: {login: "bot"}, body: ("text\n" + . + "\n")}) + [{user: {login: "bot"}, body: "LGTM"}, {user: {login: "bot"}, body: "a\nb\nc"}]'
-    runs 5 | tail -n +7 | jq -R -s 'split("\n")[:-1] | map({user: {login: "bot"}, body: ("text\n" + . + "\n")})'; } > c.json
+  { runs 1 | jq -R -s 'split("\n")[:-1] | map({user: {login: "bot"}, body: ("text\n" + . + "\n")}) + [{user: {login: "bot"}, body: "LGTM"}, {user: {login: "bot"}, body: "a\nb\nc"}]'
+    runs 1 | jq -R -s 'split("\n")[:-1] | map({user: {login: "bot"}, body: ("text\n" + . + "\n")})'; } > c.json
   FAKE_COMMENTS_JSON="$PWD/c.json" run env -u REVIEWED_HEAD_SHA bash p20.sh
   [ "$status" -eq 0 ]
   [ "$(cat .prp-output/reviews/pr-7-reviewed-head)" = "$FAKE_HEAD" ]
@@ -378,9 +378,9 @@ runs() { local i p; for ((i = 1; i <= $1; i++)); do for p in code-reviewer secur
   [ "$(cat .prp-output/reviews/pr-7-reviewed-head)" = "$FAKE_HEAD" ]
 }
 
-@test "Phase 2.0 still refuses round 7 when a malformed footer sits among six runs (it cannot lower R; default cap is 6)" {
+@test "Phase 2.0 still refuses round 3 when a malformed footer sits among two runs" {
   phase20 > p20.sh; repo_here
-  { runs 6; printf 'Generated-by: prp-review-agents v1 run=oops pass=x\n'; } > c.txt
+  { runs 2; printf 'Generated-by: prp-review-agents v1 run=oops pass=x\n'; } > c.txt
   FAKE_COMMENTS="$PWD/c.txt" run env -u REVIEWED_HEAD_SHA bash p20.sh
   [ "$status" -ne 0 ]
   [[ "$output" == *"ROUND-CAP: refused"* ]]
@@ -559,13 +559,14 @@ delta_run_json() { # delta_run_json <login> <run> <head> -> 3 passes with valid 
   expect_runs
 }
 
-@test "B8: latest at head dirty, earlier round clean at head → runs" {
+@test "B8: two rounds at head with a dirty latest round still block a third" {
   phase20 > p20.sh; repo_here
   clean_run_json bot 20261021T000001Z-00000001 "$FAKE_HEAD" 3 > a.json
   dirty_run_json bot 20261021T000002Z-00000002 "$FAKE_HEAD" > b.json
   rounds_json a.json b.json > c.json
   FAKE_LOGIN=bot FAKE_COMMENTS_JSON="$PWD/c.json" run env -u REVIEWED_HEAD_SHA bash p20.sh
-  expect_runs
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"ROUND-CAP: refused"* ]]
 }
 
 @test "B9: latest clean FULL at an older head → runs" {
@@ -665,7 +666,7 @@ expect_refused_tree() { [ "$status" -ne 0 ]; [[ "$output" == *"UNCHANGED-TREE: r
   expect_runs
 }
 
-@test "B17: same tree but the latest round is dirty → runs (the tree rule only extends a met stop rule)" {
+@test "B17: same tree and a dirty latest round hits the cap, not the unchanged-tree rule" {
   phase20 > p20.sh; repo_here
   CLEAN_HEAD="$FAKE_HEAD"
   git commit -q --allow-empty -m requeue; FAKE_HEAD=$(git rev-parse HEAD); export FAKE_HEAD
@@ -673,26 +674,29 @@ expect_refused_tree() { [ "$status" -ne 0 ]; [[ "$output" == *"UNCHANGED-TREE: r
   dirty_run_json bot 20261021T000002Z-00000002 "$CLEAN_HEAD" > b.json
   rounds_json a.json b.json > c.json
   FAKE_LOGIN=bot FAKE_COMMENTS_JSON="$PWD/c.json" run env -u REVIEWED_HEAD_SHA bash p20.sh
-  expect_runs
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"ROUND-CAP: refused"* ]]
 }
 
 # ---- additional guard tests (kept from #228/#233, adapted to one-clean-round rule) ----
 
-@test "Phase 2.0 fails open (does not refuse) when the trusted-login lookup itself fails" {
+@test "Phase 2.0 fails closed at the cap check when the trusted-login lookup fails" {
   phase20 > p20.sh; repo_here
   clean_run_json bot 20261021T000001Z-00000001 "$FAKE_HEAD" 3 > c.json
   FAKE_LOGIN=bot USER_API_FAIL=1 FAKE_COMMENTS_JSON="$PWD/c.json" run env -u REVIEWED_HEAD_SHA bash p20.sh
-  expect_runs
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"round cap not checkable"* ]]
 }
 
-@test "Phase 2.0 orders rounds by run id, not by comment order (latest dirty → runs)" {
+@test "Phase 2.0 orders rounds by run ID before deciding which refusal applies" {
   phase20 > p20.sh; repo_here
   clean_run_json bot 20261021T000001Z-00000001 "$FAKE_HEAD" 3 > a.json
   clean_run_json bot 20261021T000002Z-00000002 "$FAKE_HEAD" 3 > b.json
   dirty_run_json bot 20261021T000003Z-00000003 "$FAKE_HEAD" > d.json
   rounds_json d.json a.json b.json > c.json
   FAKE_LOGIN=bot FAKE_COMMENTS_JSON="$PWD/c.json" run env -u REVIEWED_HEAD_SHA bash p20.sh
-  expect_runs
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"ROUND-CAP: refused"* ]]
 }
 
 @test "Phase 2.0 runs when the latest round's passes name different heads" {
@@ -952,7 +956,7 @@ timeboxed() { # timeboxed <pass> [link]: rewrite one body so its Could not verif
   # grep match on gemini's raw .toml is byte-identical to the decoded prompt
   # text for both patterns below (the TOML escaping only affects embedded
   # backslash-newline continuations, not the matched substrings themselves).
-  g=$(grep -n 'round-guard.sh" --cap 6' "$ADAPTER" | head -1 | cut -d: -f1)
+  g=$(grep -n 'round-guard.sh" --cap 2' "$ADAPTER" | head -1 | cut -d: -f1)
   h=$(grep -n "> \"\$D/pr-{NUMBER}-reviewed-head\"" "$ADAPTER" | head -1 | cut -d: -f1)
   [ -n "$g" ] && [ -n "$h" ] && [ "$g" -lt "$h" ]
 }
@@ -1165,6 +1169,16 @@ run_20a() { # run 2.0a in $WORK with REVIEWED_HEAD_SHA already saved to pr-7-rev
   [ "$status" -ne 0 ]
   [ "$(wc -l < "$WORK_LOG")" -eq 0 ]
   [[ "$output" == *"cannot read PR comments"* ]]
+}
+
+@test "Step C refuses a new run after R1 and a partial R2 were posted" {
+  start; [ "$status" -eq 0 ]
+  { runs 1; runs 2 | tail -3 | head -1; } > "$WORK/rounds.txt"
+  export FAKE_COMMENTS="$WORK/rounds.txt"
+  write_all; post
+  [ "$status" -ne 0 ]
+  [ "$(wc -l < "$WORK_LOG")" -eq 0 ]
+  [[ "$output" == *"ROUND-CAP: refused"* ]]
 }
 
 @test "B28: a .prp tracked by the reviewed tree FATALs before any post and before run-id.sh runs" {

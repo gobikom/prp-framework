@@ -37,40 +37,40 @@ boundary_footers() {
   [[ "$output" == *"this is round 1"* ]]
 }
 
-@test "five runs allow round 6 (default cap is 6, review-diet plan PR-3)" {
-  run bash -c "$(declare -f runs_footers); runs_footers 5 | bash '$G'"
+@test "one prior run allows round 2" {
+  run bash -c "$(declare -f runs_footers); runs_footers 1 | bash '$G'"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"rounds so far: 5 of 6; this is round 6"* ]]
+  [[ "$output" == *"rounds so far: 1 of 2; this is round 2"* ]]
 }
 
-@test "six runs refuse round 7 with a clear message (default cap is 6)" {
-  run bash -c "$(declare -f runs_footers); runs_footers 6 | bash '$G'"
+@test "two runs refuse round 3 with a clear message" {
+  run bash -c "$(declare -f runs_footers); runs_footers 2 | bash '$G'"
   [ "$status" -eq 3 ]
   [[ "$output" == *"ROUND-CAP: refused"* ]]
-  [[ "$output" == *"6 review runs (cap 6)"* ]]
+  [[ "$output" == *"2 review runs (cap 2)"* ]]
   [[ "$output" == *"stop rule"* ]]
 }
 
-@test "seven runs are refused (default cap is 6)" {
-  run bash -c "$(declare -f runs_footers); runs_footers 7 | bash '$G'"
+@test "three prior runs remain refused" {
+  run bash -c "$(declare -f runs_footers); runs_footers 3 | bash '$G'"
   [ "$status" -eq 3 ]
 }
 
-@test "nine runs allow round 10 at an explicit cap of 10" {
-  run bash -c "$(declare -f runs_footers); runs_footers 9 | bash '$G' --cap 10"
-  [ "$status" -eq 0 ]
-  [[ "$output" == *"rounds so far: 9 of 10; this is round 10"* ]]
+@test "a stale explicit cap of 6 refuses a third round" {
+  run bash -c "$(declare -f runs_footers); runs_footers 2 | bash '$G' --cap 6"
+  [ "$status" -eq 3 ]
+  [[ "$output" == *"2 review runs (cap 2)"* ]]
 }
 
-@test "ten runs refuse round 11 with a clear message at an explicit cap of 10" {
+@test "ten prior runs remain refused with their true count" {
   run bash -c "$(declare -f runs_footers); runs_footers 10 | bash '$G' --cap 10"
   [ "$status" -eq 3 ]
   [[ "$output" == *"ROUND-CAP: refused"* ]]
-  [[ "$output" == *"10 review runs (cap 10)"* ]]
+  [[ "$output" == *"10 review runs (cap 2)"* ]]
   [[ "$output" == *"stop rule"* ]]
 }
 
-@test "eleven runs are refused at an explicit cap of 10" {
+@test "eleven runs remain refused even with a legacy flag" {
   run bash -c "$(declare -f runs_footers); runs_footers 11 | bash '$G' --cap 10"
   [ "$status" -eq 3 ]
 }
@@ -81,8 +81,8 @@ boundary_footers() {
     printf 'Generated-by: prp-review-agents v2.12.0 run=20261022T000000Z-aaaaaaaa pass=code-reviewer tier=trivial\n'
   } > in.txt
   run bash "$G" --cap 10 < in.txt
-  [ "$status" -eq 0 ]
-  [[ "$output" == *"rounds so far: 2 of 10"* ]]
+  [ "$status" -eq 3 ]
+  [[ "$output" == *"2 review runs (cap 2)"* ]]
 }
 
 @test "the same ten run ids repeated still count ten" {
@@ -95,7 +95,7 @@ boundary_footers() {
   printf 'Generated-by: prp-review-agents v2 run=BAD pass=x\n' > in.txt
   run bash "$G" --cap 10 < in.txt
   [ "$status" -eq 0 ]
-  [[ "$output" == *"0 of 10"* ]]
+  [[ "$output" == *"0 of 2"* ]]
   [[ "$output" != *"unreadable"* ]]
 }
 
@@ -103,7 +103,7 @@ boundary_footers() {
   printf 'Generated-by: prp-review-agents v2.12.0 run=20261021T000001Z-00000001\n' > in.txt
   run bash "$G" --cap 10 < in.txt
   [ "$status" -eq 0 ]
-  [[ "$output" == *"rounds so far: 1 of 10"* ]]
+  [[ "$output" == *"rounds so far: 1 of 2"* ]]
 }
 
 @test "ordinary last lines, null and blanks are ignored" {
@@ -117,7 +117,7 @@ boundary_footers() {
   printf 'Generated-by: prp-review-agents v2.12.0 run=20261021T000001Z-00000001 pass=code-reviewer' > in.txt
   run bash "$G" --cap 10 < in.txt
   [ "$status" -eq 0 ]
-  [[ "$output" == *"rounds so far: 1 of 10"* ]]
+  [[ "$output" == *"rounds so far: 1 of 2"* ]]
 }
 
 @test "a lower cap is honoured" {
@@ -133,10 +133,10 @@ boundary_footers() {
   [ ! -e PWNED ]
 }
 
-@test "a leading zero cap is a decimal number not octal" {
-  run bash -c "$(declare -f runs_footers); runs_footers 7 | bash '$G' --cap 08"
+@test "a leading-zero lower cap is decimal and an old oversized cap is clamped" {
+  run bash -c "$(declare -f runs_footers); runs_footers 0 | bash '$G' --cap 01"
   [ "$status" -eq 0 ]
-  run bash -c "$(declare -f runs_footers); runs_footers 8 | bash '$G' --cap 08"
+  run bash -c "$(declare -f runs_footers); runs_footers 2 | bash '$G' --cap 08"
   [ "$status" -eq 3 ]
 }
 
@@ -157,42 +157,42 @@ boundary_footers() {
   { boundary_footers; printf ' Generated-by: prp-review-agents v1 run=20261024T000000Z-0000000a pass=code-reviewer\n'; } > in.txt
   run bash "$G" --cap 10 < in.txt
   [ "$status" -eq 3 ]
-  [[ "$output" == *"ROUND-CAP"* ]]
+  [[ "$output" == *"10 review runs (cap 2)"* ]]
 }
 
 @test "a 10th footer with a leading tab still counts (hits the cap)" {
   { boundary_footers; printf '\tGenerated-by: prp-review-agents v1 run=20261024T000000Z-0000000a pass=code-reviewer\n'; } > in.txt
   run bash "$G" --cap 10 < in.txt
   [ "$status" -eq 3 ]
-  [[ "$output" == *"ROUND-CAP"* ]]
+  [[ "$output" == *"10 review runs (cap 2)"* ]]
 }
 
 @test "a 10th footer with a trailing CR still counts (hits the cap)" {
   { boundary_footers; printf 'Generated-by: prp-review-agents v1 run=20261024T000000Z-0000000a pass=code-reviewer\r\n'; } > in.txt
   run bash "$G" --cap 10 < in.txt
   [ "$status" -eq 3 ]
-  [[ "$output" == *"ROUND-CAP"* ]]
+  [[ "$output" == *"10 review runs (cap 2)"* ]]
 }
 
 @test "a 10th footer in lower case still counts (hits the cap)" {
   { boundary_footers; printf 'generated-by: prp-review-agents v1 run=20261024T000000Z-0000000a pass=code-reviewer\n'; } > in.txt
   run bash "$G" --cap 10 < in.txt
   [ "$status" -eq 3 ]
-  [[ "$output" == *"ROUND-CAP"* ]]
+  [[ "$output" == *"10 review runs (cap 2)"* ]]
 }
 
 @test "a 10th footer quoted mid-line still counts (hits the cap)" {
   { boundary_footers; printf 'see "Generated-by: prp-review-agents v1 run=20261024T000000Z-0000000a pass=code-reviewer"\n'; } > in.txt
   run bash "$G" --cap 10 < in.txt
   [ "$status" -eq 3 ]
-  [[ "$output" == *"ROUND-CAP"* ]]
+  [[ "$output" == *"10 review runs (cap 2)"* ]]
 }
 
 @test "a 10th line that is genuinely unrelated is ignored" {
   { boundary_footers; printf 'LGTM\n'; } > in.txt
   run bash "$G" --cap 10 < in.txt
-  [ "$status" -eq 0 ]
-  [[ "$output" == *"rounds so far: 9 of 10"* ]]
+  [ "$status" -eq 3 ]
+  [[ "$output" == *"9 review runs (cap 2)"* ]]
 }
 
 # R2 (brief 20261024-2110-b211) added near-footer-shape rows to refuse these shapes. Superseded by
@@ -206,63 +206,63 @@ boundary_footers() {
   { boundary_footers; printf 'prp-review-agents Generated-by: v1 run=20261024T000000Z-0000000a pass=code-reviewer\n'; } > in.txt
   run bash "$G" --cap 10 < in.txt
   [ "$status" -eq 3 ]
-  [[ "$output" == *"ROUND-CAP"* ]]
+  [[ "$output" == *"10 review runs (cap 2)"* ]]
 }
 
 @test "a 10th footer missing the colon still counts (hits the cap)" {
   { boundary_footers; printf 'Generated-by prp-review-agents v1 run=20261024T000000Z-0000000a pass=code-reviewer\n'; } > in.txt
   run bash "$G" --cap 10 < in.txt
   [ "$status" -eq 3 ]
-  [[ "$output" == *"ROUND-CAP"* ]]
+  [[ "$output" == *"10 review runs (cap 2)"* ]]
 }
 
 @test "a 10th footer with a space instead of a hyphen still counts (hits the cap)" {
   { boundary_footers; printf 'Generated by: prp-review-agents v1 run=20261024T000000Z-0000000a pass=code-reviewer\n'; } > in.txt
   run bash "$G" --cap 10 < in.txt
   [ "$status" -eq 3 ]
-  [[ "$output" == *"ROUND-CAP"* ]]
+  [[ "$output" == *"10 review runs (cap 2)"* ]]
 }
 
 @test "a 10th footer split over two lines (tail only) still counts (hits the cap)" {
   { boundary_footers; printf 'prp-review-agents v1 run=20261024T000000Z-0000000a pass=code-reviewer\n'; } > in.txt
   run bash "$G" --cap 10 < in.txt
   [ "$status" -eq 3 ]
-  [[ "$output" == *"ROUND-CAP"* ]]
+  [[ "$output" == *"10 review runs (cap 2)"* ]]
 }
 
 @test "a 10th line with only the footer's body still counts (hits the cap)" {
   { boundary_footers; printf 'v1 run=20261024T000000Z-0000000a pass=code-reviewer\n'; } > in.txt
   run bash "$G" --cap 10 < in.txt
   [ "$status" -eq 3 ]
-  [[ "$output" == *"ROUND-CAP"* ]]
+  [[ "$output" == *"10 review runs (cap 2)"* ]]
 }
 
 @test "a real 9-hex run id counts (hits the cap)" {
   { boundary_footers; printf 'Generated-by: prp-review-agents v2.12.0 run=20261022T044148Z-312938296 pass=code-reviewer\n'; } > in.txt
   run bash "$G" --cap 10 < in.txt
   [ "$status" -eq 3 ]
-  [[ "$output" == *"ROUND-CAP"* ]]
+  [[ "$output" == *"10 review runs (cap 2)"* ]]
 }
 
 @test "a real L2 marker is ignored, not refused" {
   { boundary_footers; printf '<!-- safe-merge-review: verdict=READY_TO_MERGE critical=0 important=0 agents=code-reviewer tool=prp-review-agents head=feb8536d -->\n'; } > in.txt
   run bash "$G" --cap 10 < in.txt
-  [ "$status" -eq 0 ]
-  [[ "$output" == *"rounds so far: 9 of 10"* ]]
+  [ "$status" -eq 3 ]
+  [[ "$output" == *"9 review runs (cap 2)"* ]]
 }
 
 @test "a prose note citing new run ids counts them" {
   { boundary_footers; printf 'Review stop rule met: round 1 (run 20261017T114850Z-9b35eebc) and round 2 (run 20261017T115125Z-0018cf7b) both had 0 Critical\n'; } > in.txt
   run bash "$G" --cap 10 < in.txt
   [ "$status" -eq 3 ]
-  [[ "$output" == *"ROUND-CAP"* ]]
+  [[ "$output" == *"11 review runs (cap 2)"* ]]
 }
 
 @test "a real prose note citing the skill name is ignored, not refused" {
   { boundary_footers; printf 'The review loop restarts with a real `/prp-core:prp-review-agents 190 --l2-comments` Skill call at the next head.\n'; } > in.txt
   run bash "$G" --cap 10 < in.txt
-  [ "$status" -eq 0 ]
-  [[ "$output" == *"rounds so far: 9 of 10"* ]]
+  [ "$status" -eq 3 ]
+  [[ "$output" == *"9 review runs (cap 2)"* ]]
 }
 
 # R3 re-plan v3 (brief 20261024-2205-c211, plan 211-round-guard-id-count.plan.md): the guard counts
@@ -299,15 +299,15 @@ boundary_footers() {
 @test "an id repeated in another case counts once" {
   { boundary_footers; printf 'run=20261024t000000z-00000009\n'; } > in.txt
   run bash "$G" --cap 10 < in.txt
-  [ "$status" -eq 0 ]
-  [[ "$output" == *"rounds so far: 9 of 10"* ]]
+  [ "$status" -eq 3 ]
+  [[ "$output" == *"9 review runs (cap 2)"* ]]
 }
 
 @test "a prose note citing this PR's own run ids adds nothing" {
   { boundary_footers; printf 'Review stop rule met: round 1 (run 20261024T000000Z-00000001) and round 2 (run 20261024T000000Z-00000002)\n'; } > in.txt
   run bash "$G" --cap 10 < in.txt
-  [ "$status" -eq 0 ]
-  [[ "$output" == *"rounds so far: 9 of 10"* ]]
+  [ "$status" -eq 3 ]
+  [[ "$output" == *"9 review runs (cap 2)"* ]]
 }
 
 @test "a 64KB line is processed in under 2 seconds" {
@@ -321,8 +321,8 @@ boundary_footers() {
 @test "edited footer is counted by its ids only (#213): a run id with altered digits after run=" {
   { boundary_footers; printf 'see run=2026-10-24T00:00:00Z-0000000a for details\n'; } > in.txt
   run bash "$G" --cap 10 < in.txt
-  [ "$status" -eq 0 ]
-  [[ "$output" == *"9 of 10"* ]]
+  [ "$status" -eq 3 ]
+  [[ "$output" == *"9 review runs (cap 2)"* ]]
   [[ "$output" != *"unreadable"* ]]
 }
 
@@ -347,15 +347,15 @@ EOF
 @test "two glued ids count as two" {
   printf 'Generated-by: prp-review-agents v1 run=20261024T000000Z-0000000a20261024T000000Z-0000000b pass=x\n' > in.txt
   run bash "$G" --cap 10 < in.txt
-  [ "$status" -eq 0 ]
-  [[ "$output" == *"rounds so far: 2 of 10"* ]]
+  [ "$status" -eq 3 ]
+  [[ "$output" == *"2 review runs (cap 2)"* ]]
 }
 
 @test "edited footer is counted by its ids only (#213): a foreign footer with an unreadable run=" {
   printf 'Generated-by: someone-else v1 run=x\n' > in.txt
   run bash "$G" --cap 10 < in.txt
   [ "$status" -eq 0 ]
-  [[ "$output" == *"0 of 10"* ]]
+  [[ "$output" == *"0 of 2"* ]]
   [[ "$output" != *"unreadable"* ]]
 }
 
@@ -363,7 +363,7 @@ EOF
   printf 'prp-review-agents v1 run=2026-10-24T000000Z-0000000a pass=x\n' > in.txt
   run bash "$G" --cap 10 < in.txt
   [ "$status" -eq 0 ]
-  [[ "$output" == *"0 of 10"* ]]
+  [[ "$output" == *"0 of 2"* ]]
   [[ "$output" != *"unreadable"* ]]
 }
 
@@ -371,7 +371,7 @@ EOF
   printf 'prp-review-agents v1 run = 2026-10-24T000000Z-0000000a pass=x\n' > in.txt
   run bash "$G" --cap 10 < in.txt
   [ "$status" -eq 0 ]
-  [[ "$output" == *"0 of 10"* ]]
+  [[ "$output" == *"0 of 2"* ]]
   [[ "$output" != *"unreadable"* ]]
 }
 
@@ -379,14 +379,14 @@ EOF
   printf 'prp-review-agents v1 run = 20261024T000000Z-0000000a pass=x\n' > in.txt
   run bash "$G" --cap 10 < in.txt
   [ "$status" -eq 0 ]
-  [[ "$output" == *"rounds so far: 1 of 10"* ]]
+  [[ "$output" == *"rounds so far: 1 of 2"* ]]
 }
 
 @test "edited footer is counted by its ids only (#213): a second bad run= on a line with a good id" {
   printf 'Generated-by: prp-review-agents v1 run=20261024T000000Z-0000000a run=BAD\n' > in.txt
   run bash "$G" --cap 10 < in.txt
   [ "$status" -eq 0 ]
-  [[ "$output" == *"1 of 10"* ]]
+  [[ "$output" == *"1 of 2"* ]]
   [[ "$output" != *"unreadable"* ]]
 }
 
@@ -394,7 +394,7 @@ EOF
   printf 'Generated by prp-review-agents v1\n' > in.txt
   run bash "$G" --cap 10 < in.txt
   [ "$status" -eq 0 ]
-  [[ "$output" == *"0 of 10"* ]]
+  [[ "$output" == *"0 of 2"* ]]
   [[ "$output" != *"unreadable"* ]]
 }
 
@@ -402,7 +402,7 @@ EOF
   printf 'Generated-by: prp-review-agents v1 run=20261024T000000Z- pass=code-reviewer\n' > in.txt
   run bash "$G" --cap 10 < in.txt
   [ "$status" -eq 0 ]
-  [[ "$output" == *"0 of 10"* ]]
+  [[ "$output" == *"0 of 2"* ]]
   [[ "$output" != *"unreadable"* ]]
 }
 
@@ -410,7 +410,7 @@ EOF
   { printf 'Generated-by: prp-review-agents v1 run=20261024T00\n'; printf '0000Z-0000000a pass=x\n'; } > in.txt
   run bash "$G" --cap 10 < in.txt
   [ "$status" -eq 0 ]
-  [[ "$output" == *"0 of 10"* ]]
+  [[ "$output" == *"0 of 2"* ]]
   [[ "$output" != *"unreadable"* ]]
 }
 
@@ -418,21 +418,21 @@ EOF
   { printf 'Deploy UAT did not run: it triggers only on workflow_run from main\n'; printf 'rerun=yes; workflow_run=3\n'; } > in.txt
   run bash "$G" --cap 10 < in.txt
   [ "$status" -eq 0 ]
-  [[ "$output" == *"rounds so far: 0 of 10"* ]]
+  [[ "$output" == *"rounds so far: 0 of 2"* ]]
 }
 
 @test "an L2 marker is not a footer" {
   printf '<!-- safe-merge-review: verdict=READY_TO_MERGE critical=0 important=0 agents=a tool=prp-review-agents head=abc -->\n' > in.txt
   run bash "$G" --cap 10 < in.txt
   [ "$status" -eq 0 ]
-  [[ "$output" == *"rounds so far: 0 of 10"* ]]
+  [[ "$output" == *"rounds so far: 0 of 2"* ]]
 }
 
 @test "a 9-hex id counts as its 8-hex prefix (stated boundary)" {
   { printf 'Generated-by: prp-review-agents v1 run=20261022T044148Z-312938296 pass=x\n'; printf 'Generated-by: prp-review-agents v1 run=20261022T044148Z-312938297 pass=x\n'; } > in.txt
   run bash "$G" --cap 10 < in.txt
   [ "$status" -eq 0 ]
-  [[ "$output" == *"rounds so far: 1 of 10"* ]]
+  [[ "$output" == *"rounds so far: 1 of 2"* ]]
 }
 
 @test "edited footer is counted by its ids only (#213): a 64KB line ending in a bare run=" {
@@ -440,7 +440,7 @@ EOF
   SECONDS=0
   run bash "$G" --cap 10 < in.txt
   [ "$status" -eq 0 ]
-  [[ "$output" == *"1 of 10"* ]]
+  [[ "$output" == *"1 of 2"* ]]
   [[ "$output" != *"unreadable"* ]]
   [ "$SECONDS" -lt 2 ]
 }
@@ -449,7 +449,7 @@ EOF
   printf 'Generated  by prp-review-agents, run corrupted, no id available\n' > in.txt
   run bash "$G" --cap 10 < in.txt
   [ "$status" -eq 0 ]
-  [[ "$output" == *"0 of 10"* ]]
+  [[ "$output" == *"0 of 2"* ]]
   [[ "$output" != *"unreadable"* ]]
 }
 
@@ -457,7 +457,7 @@ EOF
   printf 'Generated\t\tby prp-review-agents v1\n' > in.txt
   run bash "$G" --cap 10 < in.txt
   [ "$status" -eq 0 ]
-  [[ "$output" == *"0 of 10"* ]]
+  [[ "$output" == *"0 of 2"* ]]
   [[ "$output" != *"unreadable"* ]]
 }
 
@@ -467,20 +467,20 @@ EOF
     printf '%s\n' "$line" > in.txt
     run bash "$G" --cap 10 < in.txt
     [ "$status" -eq 0 ]
-    [[ "$output" == *"0 of 10"* ]]
+    [[ "$output" == *"0 of 2"* ]]
 
     { boundary_footers; printf '%s\n' "$line"; } > in.txt
     run bash "$G" --cap 10 < in.txt
-    [ "$status" -eq 0 ]
-    [[ "$output" == *"9 of 10"* ]]
+    [ "$status" -eq 3 ]
+    [[ "$output" == *"9 review runs (cap 2)"* ]]
   done
 }
 
 @test "three glued ids count as three" {
   printf 'Generated-by: prp-review-agents v1 run=20261024T000000Z-0000000a20261024T000000Z-0000000b20261024T000000Z-0000000c pass=x\n' > in.txt
   run bash "$G" --cap 10 < in.txt
-  [ "$status" -eq 0 ]
-  [[ "$output" == *"rounds so far: 3 of 10"* ]]
+  [ "$status" -eq 3 ]
+  [[ "$output" == *"3 review runs (cap 2)"* ]]
 }
 
 @test "text can only raise R, never lower it (R6)" {
@@ -494,8 +494,8 @@ EOF
     printf 'Generated by Jenkins. prp-review-agents mentioned\n'
   } > in.txt
   run bash "$G" --cap 10 < in.txt
-  [ "$status" -eq 0 ]
-  [[ "$output" == *"9 of 10"* ]]
+  [ "$status" -eq 3 ]
+  [[ "$output" == *"9 review runs (cap 2)"* ]]
   [[ "$output" != *"unreadable"* ]]
 }
 
