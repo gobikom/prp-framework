@@ -1,6 +1,6 @@
 {
   "name": "prp-core",
-  "version": "2.9.0",
+  "version": "2.14.0",
   "description": "PRP (Prompt-Run-Perfect) workflow automation — plan, implement, review, commit, PR with orchestration.",
   "author": {
     "name": "Wirasm",
