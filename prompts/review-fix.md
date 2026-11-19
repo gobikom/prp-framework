@@ -177,7 +177,7 @@ Default: most recently modified. To skip prompt: pass artifact path directly.
 ```
 No review artifact found for PR #{NUMBER}.
 
-Run `{TOOL}:review {NUMBER}` first to generate the review.
+Use an existing eligible review artifact. A new formal review uses `{TOOL}:review-agents {NUMBER} --l2-comments` with the remaining budget.
 ```
 
 ### 1.4 Parse Severity Filter + Loop Mode
@@ -187,7 +187,7 @@ Run `{TOOL}:review {NUMBER}` first to generate the review.
 ```
 --severity critical          -> fix only Critical
 --severity critical,high     -> fix Critical and High
---severity all               -> fix all (equivalent to omitting the flag)
+--severity all               -> select all severities in explicit single-pass mode
 ```
 
 **Default severity**: Fix Critical or Important findings. Include Medium and Low only in an already-required fix commit.
@@ -199,10 +199,12 @@ SEVERITY_EXPLICIT   = true if --severity flag was present in input
 SINGLE_PASS_EXPLICIT = true if --single-pass flag was present in input
 LOOP_MODE           = NOT (SEVERITY_EXPLICIT OR SINGLE_PASS_EXPLICIT)
 MAX_ROUNDS          = {from --max-rounds N, default 2, permitted 1 or 2}
-ROUND               = {validated count from resume state if present, otherwise 1 for the input review}
+ROUND               = {the one established input L2 review, cross-checked against the PR history and any saved state}
 ```
 
-Reject an invalid cap or resume count before making changes. In LOOP mode, stop before a fix if ROUND is already at the cap or the input has no Critical or Important findings. Stop when the existing PR history consumes the entire budget.
+Reject an invalid cap or ambiguous consumed state before making changes. Stop before any fix if the artifact reports failed validation or a missing or void required pass.
+
+For LOOP mode, verify the PR's live head, the existing producer's saved `pr-{NUMBER}-reviewed-head` file, and the input artifact's producer validation and pass results. Require a complete exact-head R1 from the guarded L2 producer with completed validation and no missing or void pass. The authenticated per-pass comments must identify one unedited run matching that head and the saved producer evidence. If the round is absent, ambiguous, already at the cap, or has no Critical or Important finding, stop before fixing. Stop if resume state is incomplete or has already consumed an attempt.
 
 **Display to user**:
 - If LOOP_MODE: `"Loop mode: after fix, can run one remaining review after a required fix (round {ROUND}/{MAX_ROUNDS}). Pass --single-pass to disable."`
@@ -694,20 +696,15 @@ Append a "Fix Outcome" section to the review artifact:
 
 ### 10.1 Decide Re-review Mode
 
-Track which issues review-fix just skipped vs actually fixed, and choose the re-review command accordingly (mirrors `run-all` Step 6.4, post PR #59):
+Recheck the exact PR head and review history. The existing `{TOOL}:review-agents {NUMBER} --l2-comments` producer checks the cap before dispatch. Use it as the only repeat producer in LOOP mode.
 
-| Fix outcome | `PENDING_SKIPPED` | Re-review mode |
-|-------------|-------------------|----------------|
-| All issues actually fixed | `false` | `{TOOL}:review {NUMBER} --since-last-review` (incremental, cheap) |
-| Some issues skipped | `true`, `SKIPPED_COUNT = N` | `{TOOL}:review {NUMBER} --context` (FULL review — skipped items need to re-surface, incremental would miss them) |
-| All issues skipped (no code change) | `true`, `ALL_SKIPPED = true` | `{TOOL}:review {NUMBER} --context` (FULL review), then evaluate Escalation Guard below |
 
 ### 10.2 Invoke Re-review
 
-Require a changed head, a verified remaining budget and a required Critical or Important fix. Consume the next round by incrementing and recording ROUND before invoking the chosen review command. Run it once. If the command fails or the result is absent, stop and report. Capture the fresh artifact path.
+Require a changed head, a verified remaining budget and a required Critical or Important fix. Consume the next round by incrementing and recording ROUND before invoking the chosen review command. Run `{TOOL}:review-agents {NUMBER} --l2-comments` once. If the command fails or the result is absent, stop and report. Capture the fresh artifact and saved reviewed head from that invocation. Require current CI or producer validation at the exact new head, completed required passes, and the new run's per-pass comments at that same SHA.
 
 **DO NOT**: Read the code and review it yourself, skip the skill.
-**CHECKPOINT**: Did you invoke `{TOOL}:review`? If not → STOP → invoke it.
+**CHECKPOINT**: Continue only after the guarded L2 invocation produced fresh evidence for the new head. Report a failed or incomplete invocation without retrying.
 
 ### 10.3 Evaluate Result
 
@@ -760,7 +757,7 @@ On trigger:
 
 ### No review artifact exists
 
-Stop and tell user to run `{TOOL}:review {NUMBER}` first.
+Stop and report the missing artifact. An eligible formal review uses the guarded L2 producer with the remaining budget.
 
 ### PR branch has conflicts
 
