@@ -1,12 +1,13 @@
 # Scripts Reference
 
-The PRP (Prompt-Run-Perfect) Framework ships with five utility scripts in the `scripts/` directory. These handle installation, syncing, migration, state management, and artifact cleanup.
+The PRP (Prompt-Run-Perfect) Framework provides scripts for installation, plugin packaging, syncing, migration, state management, and artifact cleanup.
 
 ## Quick Reference
 
 | Script | Purpose | Usage |
 |--------|---------|-------|
 | `install.sh` | Install adapters into a project via symlinks (with copy fallback) | `./scripts/install.sh [PROJECT_DIR]` |
+| `package-codex-plugin.py` | Build the local Codex marketplace catalog and plugin package | `python3 scripts/package-codex-plugin.py [--output PATH]` |
 | `sync.sh` | Re-sync hard-copied adapters from the framework source | `cd .prp && ./scripts/sync.sh` |
 | `migrate-artifacts.sh` | Migrate artifacts from legacy paths to `.prp-output/` | `./scripts/migrate-artifacts.sh` |
 | `prp-run-all-state.sh` | State management for the `run-all` workflow | `./scripts/prp-run-all-state.sh <command> [args]` |
@@ -15,6 +16,7 @@ The PRP (Prompt-Run-Perfect) Framework ships with five utility scripts in the `s
 ## Table of Contents
 
 - [install.sh](#installsh)
+- [package-codex-plugin.py](#package-codex-pluginpy)
 - [sync.sh](#syncsh)
 - [migrate-artifacts.sh](#migrate-artifactssh)
 - [prp-run-all-state.sh](#prp-run-all-statesh)
@@ -110,6 +112,22 @@ PROJECT_DIR=/home/user/projects/my-app ./scripts/install.sh
 - The script is **idempotent**. Running it again skips symlinks that are already correct.
 - When migrating from an old whole-directory symlink to per-file symlinks (for agents and hooks), the script automatically removes the old directory symlink and creates individual file symlinks instead.
 - Requires `jq` for automatic hook registration. Without `jq`, everything else still works -- you just need to register the hook manually.
+
+---
+
+## package-codex-plugin.py
+
+Run the packager from the PRP Git checkout you want to publish. It uses Python 3 with PyYAML, the same dependency as the adapter generator. The packager reads the command inventory, generated Codex skills and metadata from the checkout's committed `HEAD`, builds a versioned package, and writes a native catalog under `adapters/claude-code-plugin/.agents/plugins/`. This is the same marketplace root used by existing local installations.
+
+```bash
+python3 scripts/package-codex-plugin.py
+codex plugin list --json --available --marketplace prp-marketplace
+codex plugin add prp-core@prp-marketplace
+```
+
+Register `adapters/claude-code-plugin` with `codex plugin marketplace add ./adapters/claude-code-plugin` if the marketplace is new to your installation. The package carries regular skill files. Codex CLI versions that skip symlinks during installation can load those files from the cache. The `.prp` link created by the project installer still supplies the review scripts used by `--l2-comments`.
+
+Use `--output PATH` to build a disposable marketplace. Run one publisher per catalog directory. A package version may be rebuilt with identical contents. Bump the tracked plugin manifest version when publishing different skill bytes.
 
 ---
 
