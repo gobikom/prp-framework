@@ -42,7 +42,7 @@ Execute the complete PRP workflow end-to-end autonomously. Each step delegates t
 | `--package <name>` | Scope to a specific monorepo package. Passed through to plan and implement steps. |
 | `--issue <N>` | Fetch GitHub issue #N context. Set ISSUE_NUMBER = N. Extracts title + body as FEATURE. |
 | `--merge` | Auto squash-merge PR after review passes (0 issues). Set AUTO_MERGE = true. |
-| `--max-review-rounds <N>` | Override max review-fix cycles (default: 6). |
+| `--max-review-rounds <N>` | Set a maximum of 1 or 2 total reviews (default 2). |
 | `--verify` | Run /verify before merge to check requirements traceability (Step 7.5). Set VERIFY = true. (automatic when the PR head has .prp-verify/feature-map.yaml — forced in Step 1/resume/Step 8; no flag can turn it off) |
 | `--qa-delegate=<agent>` | Delegate QA to agent after merge via /qa --delegate (Step 8.5). Set QA_DELEGATE = agent. |
 | `--done` | Run /done after QA delegation to close issue when all gates pass (Step 9). Set DONE = true. Requires --issue. |
@@ -77,7 +77,7 @@ MONOREPO_PACKAGE = "{from --package, or empty}"
 DRY_RUN = {true if --dry-run}
 ISSUE_NUMBER = "{from --issue, or empty}"
 AUTO_MERGE = {true if --merge}
-MAX_CYCLES = {from --max-review-rounds, default 6}
+MAX_CYCLES = {from --max-review-rounds, default 2, permitted 1 or 2}
 VERIFY = {true if --verify}
 QA_DELEGATE = "{from --qa-delegate, or empty}"
 DONE = {true if --done}
@@ -470,7 +470,7 @@ If ISSUE_NUMBER is set: ensure the PR body includes `Fixes #{ISSUE_NUMBER}` so t
 
 ### Step 6: REVIEW & FIX (skip if SKIP_REVIEW or NO_PR or RESUME_FROM > 6)
 
-Set: `REVIEW_CYCLE = {from state file if --resume, otherwise 1}` (MAX_CYCLES already set from Step 0 — default 6)
+Set `REVIEW_CYCLE` from validated resume state or to 1 for the input round. Reject an invalid cap and stop before any dispatch beyond the cap, including resume. A missing or failed review must not trigger another dispatch.
 
 #### 6.1 Run Review
 
@@ -525,24 +525,27 @@ fi
 | Gate exit | Meaning | Action |
 |-----------|---------|--------|
 | 0 | artifact exists, fresh, tier-correct, verdict 0-issues | `review_miss_count = 0`. Set REVIEW_VERDICT = "0_issues" **from the gate output**, → continue 6.2 |
-| 1 | artifact missing | `review_miss_count += 1` (state file). The review did NOT run. Check pwd (cross-repo cwd resets write artifacts to the wrong repo — see known PRP issue). If `review_miss_count >= 2` → workflow status = "Needs Manual Fixes", NEVER "Complete". Else re-run 6.1 |
-| 2 | artifact stale (predates this run) | Same as exit 1 — counts as a miss, re-run 6.1 |
-| 3 | wrong tier (single-agent on logic change) | Re-run 6.1 with `/review-agents` |
-| 4 | verdict in FILE is not 0-issues | → Step 6.3 (fix loop) using the artifact's actual findings |
+| 1 | artifact missing | `review_miss_count += 1` (state file). The review did NOT run. Check pwd (cross-repo cwd resets write artifacts to the wrong repo — see known PRP issue). If `review_miss_count >= 2` → workflow status = "Needs Manual Fixes", NEVER "Complete". Stop and report. Do not dispatch a repeat for a missing artifact |
+| 2 | artifact stale (predates this run) | Same as exit 1. Stop and report. |
+| 3 | wrong tier (single-agent on logic change) | Stop and report the wrong review tier. |
+| 4 | verdict in FILE is not 0-issues | → Step 6.2. Evaluate the artifact, round budget, and producer validation before any fix. |
 
 **DO NOT**: set REVIEW_VERDICT from what the review sub-skill *said* in conversation — only from the gate script's output. A claim without an on-disk artifact is not a review.
 
 #### 6.2 Evaluate Results
 
-Evaluate from the ARTIFACT FILE (gated in 6.2.0). Check for issues matching `FIX_SEVERITY` (default: all levels):
+Evaluate from the ARTIFACT FILE (gated in 6.2.0). Check producer validation and count Critical and Important separately from other findings:
 
 | Result | Action |
 |--------|--------|
-| 0 issues (all severities) | Set REVIEW_VERDICT = "0_issues". → Step 7 ✓ (or Step 8 if AUTO_MERGE) |
-| Issues found + `REVIEW_CYCLE <= MAX_CYCLES` | → Step 6.3 |
-| Issues found + `REVIEW_CYCLE > MAX_CYCLES` | Report remaining issues → Step 7 (NEEDS MANUAL FIXES) |
+| Successful review with 0 Critical and 0 Important | Report Medium and Low findings, set REVIEW_VERDICT to `0_issues`, and continue to Step 7. |
+| Failed validation or missing required pass | Stop and report blocked, even if no findings were recorded. |
+| Critical or Important found + `REVIEW_CYCLE < MAX_CYCLES` | Re-plan if required, then Step 6.3. |
+| Critical or Important found + `REVIEW_CYCLE >= MAX_CYCLES` | Report remaining blockers → Step 7 (NEEDS MANUAL FIXES). |
 
 #### 6.3 Fix Issues
+
+Only enter this step when Step 6.2 permits a Critical or Important fix and a review round remains. On a resumed run, re-check both conditions before making a change.
 
 Use `/review-fix` with `{REVIEW_ARTIFACT} --severity {FIX_SEVERITY}`.
 
@@ -563,7 +566,7 @@ This will: detect toolchain, load artifact directly, fix issues by severity, val
 
 #### 6.4 Re-verify
 
-Increment: `REVIEW_CYCLE += 1`
+Require a changed head and remaining round budget. Increment and persist `REVIEW_CYCLE` before dispatch. Run one re-review.
 
 Re-run review to confirm fixes resolved issues and no regressions introduced.
 
@@ -576,7 +579,7 @@ Re-run review to confirm fixes resolved issues and no regressions introduced.
 | `false` (all fixed) | `/review {PR_NUMBER} --since-last-review` (incremental) | Only new code changed — delta review saves tokens |
 | `true` (some/all skipped) | `/review {PR_NUMBER} --context` (FULL review) | Skipped items did NOT change code but STILL need to re-surface — incremental delta would miss them and produce false "0 issues" |
 
-If `--since-last-review` not supported or fails, fall back to full review with `--context` flag. Display: `"WARN: --since-last-review not supported — falling back to full review (higher token cost)."`
+If the command is unsupported, fails, or yields no fresh artifact, stop and report.
 
 **Recapture `REVIEW_STARTED_AT=$(date +%s)` before invoking the re-verify review** (the artifact gate checks freshness per round).
 
@@ -833,7 +836,7 @@ This will: check all completion gates (PR merged, review artifact, verify artifa
 4. **Pass context forward** — information flows from earlier to later steps. Pass `--context` to review.
 5. **No extra validation** — each skill validates its own output. Adding more wastes tokens.
 6. **One commit per implementation** — review fixes committed separately by `/review-fix`.
-7. **Max review cycles** — configurable via `--max-review-rounds` (default 6). Target is 0 issues all severities. STOP and report if exceeded.
+7. **Max review cycles** — configurable via `--max-review-rounds` (default 2, maximum 2). Count the first review in the limit and stop before dispatch once the budget is exhausted.
 8. **Re-verify after fix** — always re-run `/review` after fix. Use `--since-last-review` for token optimization.
 9. **No-interact means ZERO questions** — when `NO_INTERACT = true`: NEVER ask user questions. Make autonomous decisions, pick defaults. Pass `--no-interact` to sub-commands.
 10. **State management** — update state file after every step. Delete on completion. Support `--resume`.
@@ -935,7 +938,7 @@ This will: check all completion gates (PR merged, review artifact, verify artifa
 - PR_CREATED: PR exists (unless --no-pr)
 - REVIEWED: Review posted with verdict (unless --skip-review)
 - INCREMENTAL_REVIEW: Re-verify uses `--since-last-review` for token optimization
-- ZERO_ISSUES_TARGET: Review-fix loop continues until 0 issues (all severities in `FIX_SEVERITY`) or MAX_CYCLES reached. **Skipped issues count as remaining** — they are deferred, not resolved. Re-verify uses FULL review (not incremental) when any issues were skipped in the prior round, so skipped items re-surface in the next evaluation.
+- REVIEW_TARGET: Successful review with no Critical or Important findings. Report Medium and Low. The first review and the only permitted re-review share the same budget.
 - NO_SILENT_MERGE: `--merge` only executes when `REVIEW_VERDICT = "0_issues"`. `needs_manual_fix` (MAX_CYCLES hit OR 2 rounds all-skipped) blocks merge; escalation GH issue is created instead.
 - MERGED: PR squash-merged if --merge and 0 issues (unless --no-pr or --skip-review)
 - VERIFIED: Verify artifact exists and PASS/PARTIAL verdict recorded if --verify (FAIL blocks merge)
