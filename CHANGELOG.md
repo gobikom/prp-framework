@@ -34,6 +34,7 @@ Every major version release MUST include a `docs/migration/vX.0-to-vY.0.md` file
 ## [Unreleased]
 
 ### Changed
+- PRP skills now push once at the final head, allow review alongside CI without weakening the merge gate, and support batch PRs within strict theme, size, path and hunk-mapping limits (นุด's 2026-11-21 order; companion PR-A updates soul-orchestra's `protocol.md` and `merger-policy.yaml`).
 - prp-review-agents: a timeboxed pass is void. `pass-budget.sh check-body` now refuses any body that mentions a timebox, even when it carries a `Follow-up:` issue link. Step C posts nothing, and the caller re-runs that pass with a fresh deadline.
   - No follow-up issue is filed for a timebox any more (soul-orchestra#1508, the 2026-10-31 follow-up rule). The old rule made 7 issues in 5 days.
   - A timeboxed pass can no longer be counted toward a clean round, so the gate is stricter, not weaker.

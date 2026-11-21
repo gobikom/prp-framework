@@ -841,3 +841,40 @@ CLEANUP_FILE="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)/adapters/cla
     printf '%s\n' "$sect" | grep -qF '${PR_HEAD_SHA}^{commit}'
     printf '%s\n' "$sect" | grep -qF 'PR head not present after fetch'
 }
+
+# ship-faster
+@test "ship-faster B1: a push leaves the round void for the new head" {
+    grep -qF 'bound to the old head by `REVIEWED_HEAD_SHA`, so the round is void for the new head' "$PROMPTS_DIR/review-agents.md"
+}
+
+@test "ship-faster B2: review may start while CI is pending" {
+    grep -qF 'The round may start while CI is pending' "$PROMPTS_DIR/review-agents.md"
+}
+
+@test "ship-faster B3: a clean round cannot substitute for green CI" {
+    grep -qF 'Merge readiness requires CI green and a clean linked round, both at the same head' "$PROMPTS_DIR/review-agents.md"
+}
+
+@test "ship-faster B4: batch mode stops on an unmapped hunk" {
+    grep -qF 'Every hunk maps to exactly one listed issue; name any unmapped or ambiguous hunk.' "$PROMPTS_DIR/pr.md"
+    grep -qF '`--no-interact` STOPs and names the failed condition' "$PROMPTS_DIR/pr.md"
+}
+
+@test "ship-faster B5: batch mode excludes gate, security, parser and policy changes" {
+    grep -qF 'Refuse batch mode for any gate/security/parser/policy path: `.github/**`, `scripts/review/**`, `**/merger-policy.yaml`, gate rules, parsers/validators/scanners, or anything `pr-risk-tier` rates gate.' "$PROMPTS_DIR/pr.md"
+}
+
+@test "ship-faster B6: generated adapters have no drift" {
+    local root="${PROMPTS_DIR%/prompts}" tree="$BATS_TEST_TMPDIR/repo"
+    # --diff writes on drift; validate a copy so a failed test cannot repair the checkout.
+    mkdir -p "$tree"
+    cp -R "$root"/{adapters,adapters.yml,prompts,scripts} "$tree/"
+    cd "$tree"
+    run python3 scripts/generate-adapters.py --diff
+    [ "$status" -eq 0 ]
+    ! grep -q '^@@' <<< "$output"
+    grep -qF 'Results: 0 generated,' <<< "$output"
+    grep -qF '0 errors' <<< "$output"
+    grep -qF 'Refuse batch mode' adapters/codex/prp-pr/SKILL.md
+    grep -qF 'The round may start while CI is pending' adapters/claude-code/prp-review-agents.md
+}

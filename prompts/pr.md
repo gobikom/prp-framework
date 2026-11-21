@@ -35,7 +35,7 @@ Extract from `{ARGS}`:
 **Autonomous mode (`--no-interact`)**: NEVER ask user questions. Auto-resolve decisions:
 - Uncommitted changes → WARN only, PROCEED (don't stop)
 - Existing PR found → reuse it (set PR_NUMBER/URL, skip to Phase 5)
-- Push fails → auto `git push --force-with-lease`
+- Push fails → STOP with error; do not retry automatically.
 - Multiple templates → auto-select default
 - Pre-condition errors (on main, no commits) still STOP.
 
@@ -74,8 +74,8 @@ gh pr list --head $(git branch --show-current) --json number,url
 
 **If PR exists + `NO_INTERACT`:**
 - Reuse the existing PR — set `PR_NUMBER` and `PR_URL` from the result.
-- Skip directly to **Phase 5: VERIFY** (push new commits first if needed).
-- Do NOT stop or ask.
+- Before **Phase 5: VERIFY**, apply Phase 2.5a for any batch candidate and push new commits first if needed (that push is the final head; see Phase 3 PUSH-ONCE).
+- Do not ask; the STOP conditions in Phase 2.5a and Phase 3 still apply.
 
 **If PR exists + interactive:**
 ```
@@ -159,6 +159,20 @@ From commit messages, find patterns like:
 
 Include these in the PR body under "Related Issues".
 
+### 2.5a Batch PR
+
+If the commits refer to more than one distinct issue with `Fixes #N` or `Closes #N`, use batch mode only if all conditions hold:
+
+- Every listed issue is in this PR's repository.
+- The issues share one theme, named in the PR title.
+- The diff is at most 400 counted lines: use `pr-risk-tier --size` when a PR exists; before creating it, sum added and deleted lines with `git diff --numstat` against the merge base, using the tool's exclusions if available.
+- Refuse batch mode for any gate/security/parser/policy path: `.github/**`, `scripts/review/**`, `**/merger-policy.yaml`, gate rules, parsers/validators/scanners, or anything `pr-risk-tier` rates gate.
+- Every hunk maps to exactly one listed issue; name any unmapped or ambiguous hunk.
+
+If a condition fails, ask for a split; `--no-interact` STOPs and names the failed condition. Never fall back to single-issue mode while retaining multiple closing references. Existing size caps and tier rules are unchanged.
+
+In the PR body, use one `Fixes #N` line and one `### #N — <title>` section per issue, plus a `## Hunk → issue map` table mapping each `file:line-range` to `#N`.
+
 ### 2.6 Load Implementation Report (optional enrichment)
 
 ```bash
@@ -186,24 +200,19 @@ ls -t .prp-output/reports/*-report*.md 2>/dev/null | head -1
 
 ## Phase 3: PUSH — Ensure Branch is Remote
 
+**PUSH-ONCE:** Push once, at the final head. Finish every commit (code, docs, CHANGELOG, plan archive) before pushing. If the remote branch already points to this head, skip the push. A later push starts a new head; a round running on the old head is void for the new head because the marker binds to the reviewed head.
+
 ### 3.1 Push to Origin
 
 ```bash
-# Push with upstream tracking
+# Push with upstream tracking if the final head is not already on origin
 git push -u origin HEAD
 ```
 
-**If push fails + `NO_INTERACT`:**
-- Automatically try `git push --force-with-lease -u origin HEAD` (safe force push).
-- If that also fails → STOP with error message. Do NOT ask.
-
-**If push fails + interactive:**
-- Check for remote branch conflicts
-- May need `--force-with-lease` if rebased (warn user first)
+If the push fails, report the error and stop; do not automatically force-push.
 
 **PHASE_3_CHECKPOINT:**
-- [ ] Branch pushed to origin
-- [ ] Upstream tracking set
+- [ ] Origin branch points to the final head
 
 ---
 
@@ -216,6 +225,8 @@ Read the template and fill in each section based on:
 - Changed files
 - Implementation report (if loaded in Phase 2.6)
 - Any linked issues (look for `#123` or `Fixes #123` in commits)
+
+For a batch PR, include all Phase 2.5a sections regardless of the template.
 
 ### 4.2 If No Template — Use Default Format
 
@@ -262,7 +273,7 @@ gh pr create \
 
 ## Related Issues
 
-{Any linked issues from commit messages, or "None"}
+{For a batch PR: use the closing lines, issue sections and hunk map from Phase 2.5a. Otherwise: any linked issues from commits, or "None".}
 EOF
 )"
 ```
@@ -333,7 +344,7 @@ gh pr checks
 
 ### Next Steps
 
-- Wait for CI checks to pass
+- Start `{TOOL}:review-agents {PR_NUMBER} --l2-comments` now; it may run while CI is pending. Merge needs CI green and a clean linked round at the same head.
 - Request review if needed: `gh pr edit --add-reviewer @username`
 - View PR: `gh pr view --web`
 - Merge: `safe-merge {PR_NUMBER} --squash` (preferred — CI + review gates). Fallback: `gh pr merge --squash`
@@ -347,13 +358,7 @@ gh pr checks
 
 ### Branch has diverged from main
 
-```bash
-# Suggest rebasing first
-git fetch origin
-git rebase origin/main
-# Then push with lease
-git push --force-with-lease
-```
+Rebase before the final push: `git fetch origin` then `git rebase origin/main`. Once the branch is ready, follow Phase 3; do not push here.
 
 ### PR template has required sections
 

@@ -27,6 +27,8 @@ All other phases (implementation, validation loops, reporting) run unchanged.
 
 Path to plan file: `$ARGUMENTS`
 
+Dev briefs invoke this as `/prp-core:prp-implement <plan path>`; the plan path also goes in the PR body.
+
 ## Mission
 
 Execute the plan end-to-end with rigorous self-validation. You are autonomous.
@@ -812,9 +814,10 @@ To continue: `/prp-plan {prd-path}`
 ### Next Steps
 
 1. Review the report (especially if deviations noted)
-2. Create PR: `gh pr create` or `/prp-pr`
-3. Merge: `safe-merge {PR_NUMBER} --squash` (fallback: `gh pr merge --squash`)
-{If more phases: "4. Continue with next phase: `/prp-plan {prd-path}`"}
+2. Do not push here; prp-pr pushes once at the final head.
+3. Create PR: `gh pr create` or `/prp-pr`
+4. Merge: `safe-merge {PR_NUMBER} --squash` (fallback: `gh pr merge --squash`)
+{If more phases: "5. Continue with next phase: `/prp-plan {prd-path}`"}
 ```
 
 > **Note for orchestrators**: The "Next Steps" above are for standalone usage only. If this command was invoked as part of run-all, the orchestrator should ignore these suggestions and proceed to its next step (Step 3.1: verify artifacts, then Step 4: commit).
