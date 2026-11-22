@@ -54,6 +54,12 @@ if [ "$1" = "api" ]; then   # the round-cap read (Phase 2.0): last lines of the 
   filter=""; while [ $# -gt 0 ]; do [ "$1" = "--jq" ] && filter="$2"; shift; done
   [ -n "$filter" ] || exit 1
   # FAKE_RAW_LINES: serve these lines verbatim for Step C's base64 listing (malformed-listing tests)
+  if [[ "$filter" == *@base64* ]]; then
+    case "${LISTING_FAULT:-}" in
+      missing) rm -- "$RID/prior-comments"; exit $? ;;
+      unreadable) chmod 000 "$RID/prior-comments"; exit $? ;;
+    esac
+  fi
   if [ -n "${FAKE_RAW_LINES:-}" ]; then case "$filter" in *@base64*) cat "$FAKE_RAW_LINES"; exit 0 ;; esac; fi
   if [ -n "${FAKE_COMMENTS_JSON:-}" ]; then "$REAL_JQ" -r "$filter" "$FAKE_COMMENTS_JSON" || exit 1; exit 0; fi
   # FAKE_COMMENTS = one footer line per comment; wrap each as a multi-line body with a trailing newline
@@ -1317,6 +1323,60 @@ post_nojq() { run env PATH="$WORK/nojq:$PATH" bash stepC.sh; }
   [ -s got-prior ]
 }
 
+listing_setup() {
+  export RID="$WORK/rid" FAKE_RAW_LINES="$WORK/raw.txt"
+  mkdir "$RID"
+  printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$RID"\n' > bin/mktemp
+  chmod +x bin/mktemp
+  start; [ "$status" -eq 0 ]; write_all
+}
+
+no_posts() {
+  [ "$status" -ne 0 ]
+  [ ! -s "$WORK_LOG" ]
+  [ -s .prp-output/reviews/pr-7-l2-run.env ]
+}
+
+@test "T9: a missing or unreadable listing aborts without posting" {
+  listing_setup
+  export LISTING_FAULT=missing; post; no_posts
+  [[ "$output" == *'FATAL: cannot read PR comments'* ]]
+  if [ "$EUID" -ne 0 ]; then
+    LISTING_FAULT=unreadable; post; no_posts
+    [[ "$output" == *'FATAL: cannot read PR comments'* ]]
+  fi
+}
+
+@test "T10: checked output initialization and listing count fail closed" {
+  listing_setup
+  printf 'YQ==\tYQ==\n' > "$FAKE_RAW_LINES"
+  mkdir "$RID/prior-footers"
+  post; no_posts
+  [[ "$output" == *'FATAL: cannot read prior review footers'* ]]
+  rmdir "$RID/prior-footers"
+  # Simulate an independent record count ahead of what the decoder read.
+  export REAL_WC="$(command -v wc)"
+  cat > bin/wc <<'EOF'
+#!/usr/bin/env bash
+if [[ "$*" == -l && "$(readlink "/proc/$$/fd/0")" == "$RID/prior-comments" ]]; then echo 2; exit 0; fi
+exec "$REAL_WC" "$@"
+EOF
+  chmod +x bin/wc
+  post; no_posts
+  [[ "$output" == *'FATAL: cannot read prior review footers'* ]]
+}
+
+@test "T11: an empty readable Step C listing posts three comments" {
+  listing_setup; : > "$FAKE_RAW_LINES"
+  post; [ "$status" -eq 0 ]; [ "$(wc -l < "$WORK_LOG")" -eq 3 ]
+}
+
+@test "T12: an empty footer on an unterminated record still counts" {
+  listing_setup; printf 'YQ==\t' > "$FAKE_RAW_LINES"
+  post; [ "$status" -eq 0 ]; [ "$(wc -l < "$WORK_LOG")" -eq 3 ]
+  printf '\n' | cmp - "$RID/prior-footers"
+}
+
 @test "T5: the post-agent block removes the clone when it aborts on a modified author worktree" {
   phase20 > p20.sh; clone211 > c211.sh; repo_here
   fence "$ADAPTER" "### 3.0 Verify Author Worktree Integrity" > c30.sh
@@ -1348,21 +1408,80 @@ EOF
   ! "$REAL_GIT" worktree list --porcelain | grep -q 'prp-review-clone-'
 }
 
-@test "T7: the stale sweep removes only this repo's own clones older than 48 h" {
+sweep_setup() {
   phase20 > p20.sh; clone211 > c211.sh; repo_here
   run env -u REVIEWED_HEAD_SHA bash p20.sh; [ "$status" -eq 0 ]
-  PFX="$(git rev-parse --path-format=absolute --git-common-dir | sha1sum | cut -c1-12)"
-  mkdir -p s keep-target
-  mkdir "s/prp-review-clone-$PFX-pr-3" "s/prp-review-clone-$PFX-pr-4" "s/prp-review-clone-aaaaaaaaaaaa-pr-5" "s/prp-review-clone-r4-777"
-  ln -s "$PWD/keep-target" "s/prp-review-clone-$PFX-pr-9"
-  touch -d '49 hours ago' "s/prp-review-clone-$PFX-pr-3" "s/prp-review-clone-aaaaaaaaaaaa-pr-5" "s/prp-review-clone-r4-777" keep-target
-  touch -h -d '49 hours ago' "s/prp-review-clone-$PFX-pr-9"
-  touch -d '1 hour ago' "s/prp-review-clone-$PFX-pr-4"
-  run env SCRATCHPAD="$PWD/s" bash c211.sh; [ "$status" -eq 0 ]
-  [ ! -e "s/prp-review-clone-$PFX-pr-3" ]                 # same repo, 49 h: swept
-  [ -d "s/prp-review-clone-$PFX-pr-4" ]                   # same repo, 1 h: kept
-  [ -d "s/prp-review-clone-aaaaaaaaaaaa-pr-5" ]           # another repo's prefix: kept
-  [ -d "s/prp-review-clone-r4-777" ]                      # hand-built name: kept
-  [ -L "s/prp-review-clone-$PFX-pr-9" ] && [ -d keep-target ]   # symlink is not followed or removed
-  [ -d "s/prp-review-clone-$PFX-pr-7" ]                   # this PR's fresh clone exists
+  S="$PWD/s"; mkdir "$S"
+  P="$S/prp-review-clone-$(git rev-parse --path-format=absolute --git-common-dir | sha1sum | cut -c1-12)-pr"
+}
+
+create_clone() { run env SCRATCHPAD="$S" bash c211.sh; }
+registered() { "$REAL_GIT" worktree list --porcelain | grep -Fx -- "worktree $1"; }
+stale() { touch -d '49 hours ago' "$@"; }
+
+@test "T7: the stale sweep removes only this repo's own clones older than 48 h" {
+  sweep_setup
+  git worktree add -q --detach "$P-3" HEAD
+  git worktree add -q --detach "$P-4" HEAD
+  mkdir "$S/prp-review-clone-aaaaaaaaaaaa-pr-5" "$S/prp-review-clone-r4-777" keep-target
+  ln -s "$PWD/keep-target" "$P-9"
+  stale "$P-3" "$S/prp-review-clone-aaaaaaaaaaaa-pr-5" "$S/prp-review-clone-r4-777" keep-target
+  touch -h -d '49 hours ago' "$P-9"
+  ln -s "$S" alias; S="$PWD/alias" # Git reports the canonical path
+  create_clone; [ "$status" -eq 0 ]
+  [ ! -e "$P-3" ]; ! registered "$P-3"
+  [ -d "$P-4" ]; registered "$P-4"
+  [ -d "$S/prp-review-clone-aaaaaaaaaaaa-pr-5" ]
+  [ -d "$S/prp-review-clone-r4-777" ]
+  [ -L "$P-9" ] && [ -d keep-target ]
+  [ -d "$P-7" ]
+}
+
+@test "T13: an old but unregistered numeric path is kept with a warning" {
+  sweep_setup; mkdir "$P-13"; stale "$P-13"
+  create_clone; [ "$status" -eq 0 ]; [ -d "$P-13" ]
+  [[ "$output" == *"WARNING: $P-13 is not a worktree of this repo"* ]]
+}
+
+@test "T14: a nonnumeric or empty suffix is not a sweep candidate" {
+  sweep_setup; mkdir "$P-12x" "$P-"; stale "$P-12x" "$P-"
+  create_clone; [ "$status" -eq 0 ]; [ -d "$P-12x" ]; [ -d "$P-" ]
+  [[ "$output" != *WARNING:* ]]
+}
+
+@test "T15: the sweep never splits a newline path into an unrelated fresh worktree" {
+  sweep_setup
+  local odd="$P-4"$'\nextra'
+  git worktree add -q --detach "$P-3" HEAD
+  git worktree add -q --detach "$P-4" HEAD
+  mkdir "$odd"; stale "$P-3" "$odd"
+  create_clone; [ "$status" -eq 0 ]; [ ! -e "$P-3" ]; [ -d "$odd" ]; [ -d "$P-4" ]
+}
+
+@test "T16: Git refusal keeps the stale clone and does not block the new clone" {
+  sweep_setup; git worktree add -q --detach "$P-16" HEAD; stale "$P-16"
+  git worktree lock "$P-16"
+  create_clone; [ "$status" -eq 0 ]; [ -d "$P-16" ]; registered "$P-16"; [ -d "$P-7" ]
+  [[ "$output" == *"WARNING: git refused to remove $P-16"* ]]
+}
+
+@test "T17: a failed Git common-dir lookup is fatal before creating a clone" {
+  sweep_setup
+  cat > bin/git <<'EOF'
+#!/usr/bin/env bash
+[[ "$*" != *--git-common-dir* ]] || exit 1
+exec "$REAL_GIT" "$@"
+EOF
+  chmod +x bin/git
+  create_clone; [ "$status" -ne 0 ]; [ -z "$(ls -A "$S")" ]
+  [[ "$output" == *'FATAL: cannot compute the review clone prefix'* ]]
+}
+
+@test "T18: a post-checkout hook failure cleans up the partially added clone" {
+  sweep_setup
+  git config core.hooksPath "$WORK/hooks"; mkdir hooks
+  printf '#!/bin/sh\nexit 1\n' > hooks/post-checkout; chmod +x hooks/post-checkout
+  create_clone; [ "$status" -ne 0 ]
+  [[ "$output" == *'FATAL: cannot create the review clone'* ]]
+  [ ! -e "$P-7" ]; ! registered "$P-7"
 }

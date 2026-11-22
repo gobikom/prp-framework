@@ -682,6 +682,8 @@ CHANGED_FILES = {list from context file}
 clone at the PR head so agents cannot contaminate the working tree (prp-framework#129:
 a reviewer removed the worktree, another staged 6001 junk files).
 
+Run the deadline block in 2.2.0 before this block, so a deadline failure cannot leave a clone behind.
+
 ```bash
 # Record author worktree state BEFORE agents run
 AUTHOR_WORKTREE="$(pwd)"
@@ -693,28 +695,60 @@ AUTHOR_HEAD=$(git -C "$AUTHOR_WORKTREE" rev-parse HEAD)
 SAVED_HEAD=$(cat .prp-output/reviews/pr-{NUMBER}-reviewed-head 2>/dev/null) || SAVED_HEAD=""
 [ ${#SAVED_HEAD} -eq 40 ] && printf '%s' "$SAVED_HEAD" | grep -qxE '[0-9a-f]{40}' \
   || { echo "FATAL: no reviewed head saved by Phase 2.0 — run Phase 2.0 first, no agents started" >&2; exit 1; }
-CLONE_PFX="$(git rev-parse --path-format=absolute --git-common-dir | sha1sum | cut -c1-12)"
+COMMON_DIR=$(git rev-parse --path-format=absolute --git-common-dir) && [ -n "$COMMON_DIR" ] \
+  || { echo "FATAL: cannot compute the review clone prefix — no agents started" >&2; exit 1; }
+CLONE_PFX="$(printf '%s\n' "$COMMON_DIR" | sha1sum | cut -c1-12)"
 [[ "$CLONE_PFX" =~ ^[0-9a-f]{12}$ ]] || { echo "FATAL: cannot compute the review clone prefix — no agents started" >&2; exit 1; }
-REVIEW_CLONE="${SCRATCHPAD:-/tmp}/prp-review-clone-$CLONE_PFX-pr-{NUMBER}"
-# sweep THIS repo's own stale clones (a session that died never reached its cleanup). Only directories
-# (find does not follow symlinks) that match this repo's 12-hex prefix, one level deep, older than 48 h;
-# another repo's prefix and hand-built names do not match. A failed removal warns and never aborts.
-while IFS= read -r OLD_CLONE; do
-  case "$OLD_CLONE" in "${SCRATCHPAD:-/tmp}/prp-review-clone-$CLONE_PFX-pr-"?*) ;; *) continue ;; esac
-  git worktree remove --force "$OLD_CLONE" 2>/dev/null || true
-  rm -rf -- "${OLD_CLONE:?}" || echo "WARNING: could not remove the stale review clone $OLD_CLONE" >&2
-  [ ! -e "$OLD_CLONE" ] || echo "WARNING: the stale review clone $OLD_CLONE is still there" >&2
-done < <(find "${SCRATCHPAD:-/tmp}" -maxdepth 1 -type d -name "prp-review-clone-$CLONE_PFX-pr-*" -mmin +2880 2>/dev/null)
+SCRATCH_ROOT=$(realpath -e -- "${SCRATCHPAD:-/tmp}") \
+  || { echo "FATAL: cannot resolve the review scratchpad — no agents started" >&2; exit 1; }
+REVIEW_CLONE="${SCRATCH_ROOT%/}/prp-review-clone-$CLONE_PFX-pr-{NUMBER}"
+# Both enumerators use NUL framing. Match complete worktree fields from this repo's registry.
+registry_has_path() {
+  local field
+  while IFS= read -r -d '' field; do
+    [ "$field" != "worktree $1" ] || return 0
+  done
+  return 1
+}
+if SCAN=$(mktemp -d); then
+  if git worktree list --porcelain -z > "$SCAN/registered"; then
+    if find "$SCRATCH_ROOT" -mindepth 1 -maxdepth 1 -type d -name "prp-review-clone-$CLONE_PFX-pr-*" -mmin +2880 -print0 > "$SCAN/stale"; then
+      while IFS= read -r -d '' OLD_CLONE; do
+        [[ "${OLD_CLONE##*/}" =~ ^prp-review-clone-${CLONE_PFX}-pr-[0-9]+$ ]] || continue
+        [ "$OLD_CLONE" != "$REVIEW_CLONE" ] || continue
+        if ! registry_has_path "$OLD_CLONE" < "$SCAN/registered"; then
+          echo "WARNING: $OLD_CLONE is not a worktree of this repo — kept" >&2
+          continue
+        fi
+        git worktree remove --force -- "$OLD_CLONE" || echo "WARNING: git refused to remove $OLD_CLONE — kept" >&2
+      done < "$SCAN/stale"
+    else
+      echo "WARNING: stale clone scan failed in $SCRATCH_ROOT — sweep skipped" >&2
+    fi
+  else
+    echo "WARNING: cannot list worktrees — stale clone sweep skipped" >&2
+  fi
+  rm -f -- "$SCAN/registered" "$SCAN/stale"; rmdir -- "$SCAN"
+else
+  echo "WARNING: cannot create stale clone scan files — sweep skipped" >&2
+fi
 # The clone path is ONLY the computed $REVIEW_CLONE; never create prp-review-clone-* by hand.
-# clear an earlier round's clone of THIS repo (the path is per repo and PR) — its directory AND its worktree
-# registration, which `remove --force` clears even when the directory is gone (3.0's cleanup may not have
-# run). No `git worktree prune`: it would also deregister unrelated worktrees whose directories are missing.
-git worktree remove --force "$REVIEW_CLONE" 2>/dev/null || true
-rm -rf -- "${REVIEW_CLONE:?}" || { echo "FATAL: cannot remove the old review clone $REVIEW_CLONE — no agents started" >&2; exit 1; }
+remove_current_clone() {
+  git worktree remove --force -- "$REVIEW_CLONE" 2>/dev/null && return 0
+  # Only the current path has a filesystem fallback, and only if Git confirms it is unregistered.
+  local registry result=1
+  registry=$(mktemp) || return 1
+  if git worktree list --porcelain -z > "$registry" && ! registry_has_path "$REVIEW_CLONE" < "$registry"; then
+    rm -rf -- "${REVIEW_CLONE:?}" && result=0
+  fi
+  rm -f -- "$registry"
+  return "$result"
+}
+remove_current_clone || { echo "FATAL: cannot remove the old review clone $REVIEW_CLONE — no agents started" >&2; exit 1; }
 git worktree add --detach "$REVIEW_CLONE" "$SAVED_HEAD" \
-  || { echo "FATAL: cannot create the review clone at $SAVED_HEAD (see git's message above; 'git worktree list' shows stale entries) — no agents started" >&2; exit 1; }
+  || { remove_current_clone || echo "WARNING: could not clean up $REVIEW_CLONE" >&2; echo "FATAL: cannot create the review clone at $SAVED_HEAD — no agents started" >&2; exit 1; }
 [ "$(git -C "$REVIEW_CLONE" rev-parse HEAD)" = "$SAVED_HEAD" ] \
-  || { git worktree remove --force "$REVIEW_CLONE" 2>/dev/null || rm -rf -- "${REVIEW_CLONE:?}"; echo "FATAL: the review clone is not at $SAVED_HEAD — no agents started" >&2; exit 1; }
+  || { remove_current_clone || echo "WARNING: could not clean up $REVIEW_CLONE" >&2; echo "FATAL: the review clone is not at $SAVED_HEAD — no agents started" >&2; exit 1; }
 ```
 
 If this block prints FATAL, STOP: spawn no agent and post nothing.
@@ -1117,8 +1151,15 @@ Before collecting results, verify the author's worktree was not contaminated:
 
 ```bash
 # Clean up the clone FIRST so every exit below removes it (path recomputed: this may be a fresh shell)
-REVIEW_CLONE="${SCRATCHPAD:-/tmp}/prp-review-clone-$(git rev-parse --path-format=absolute --git-common-dir | sha1sum | cut -c1-12)-pr-{NUMBER}"
-git worktree remove --force "$REVIEW_CLONE" 2>/dev/null || rm -rf -- "${REVIEW_CLONE:?}"
+COMMON_DIR=$(git rev-parse --path-format=absolute --git-common-dir) && [ -n "$COMMON_DIR" ] \
+  || { echo "REVIEW ABORT: cannot compute the review clone prefix" >&2; exit 1; }
+CLONE_PFX="$(printf '%s\n' "$COMMON_DIR" | sha1sum | cut -c1-12)"
+[[ "$CLONE_PFX" =~ ^[0-9a-f]{12}$ ]] || { echo "REVIEW ABORT: cannot compute the review clone prefix" >&2; exit 1; }
+SCRATCH_ROOT=$(realpath -e -- "${SCRATCHPAD:-/tmp}") \
+  || { echo "REVIEW ABORT: cannot resolve the review scratchpad" >&2; exit 1; }
+REVIEW_CLONE="${SCRATCH_ROOT%/}/prp-review-clone-$CLONE_PFX-pr-{NUMBER}"
+git worktree remove --force -- "$REVIEW_CLONE" \
+  || echo "WARNING: could not remove review clone $REVIEW_CLONE" >&2
 
 AUTHOR_STATUS_AFTER=$(git -C "$AUTHOR_WORKTREE" status --porcelain)
 AUTHOR_HEAD_AFTER=$(git -C "$AUTHOR_WORKTREE" rev-parse HEAD)
@@ -1714,14 +1755,28 @@ TRUSTED_LOGIN="$TRUSTED_LOGIN" gh api "repos/{owner}/{repo}/issues/{NUMBER}/comm
 # No standalone jq (prp-framework#260): each line is `<base64 body><TAB><base64 last line>`. Split it by
 # parameter expansion, not `read` field splitting, so an empty field survives (tab is IFS whitespace and
 # `read` would drop it); require exactly one tab; decode with coreutils; end every value with a newline.
-: > "$RID_DIR/prior"; : > "$RID_DIR/prior-footers"; BADC=0
+LISTING="$RID_DIR/prior-comments"
+[ -f "$LISTING" ] && [ -r "$LISTING" ] || { echo "FATAL: cannot read PR comments; nothing posted" >&2; exit 1; }
+bad_footers() { echo "FATAL: cannot read prior review footers; nothing posted" >&2; exit 1; }
+: > "$RID_DIR/prior" && : > "$RID_DIR/prior-footers" || bad_footers
+N=0; BADC=0
 while IFS= read -r LINE || [ -n "$LINE" ]; do
-  TABS="${LINE//[!$'\t']/}"
-  [ "${#TABS}" -eq 1 ] || { BADC=1; break; }
-  { printf '%s' "${LINE%%$'\t'*}" | base64 --decode && echo; } >> "$RID_DIR/prior" || { BADC=1; break; }
-  { printf '%s' "${LINE#*$'\t'}" | base64 --decode && echo; } >> "$RID_DIR/prior-footers" || { BADC=1; break; }
-done < "$RID_DIR/prior-comments"
-[ "$BADC" -eq 0 ] || { echo "FATAL: cannot read prior review footers; nothing posted" >&2; exit 1; }
+  [[ "$LINE" == *$'\t'* ]] || { BADC=1; break; }
+  FOOTER="${LINE#*$'\t'}"
+  [[ "$FOOTER" != *$'\t'* ]] || { BADC=1; break; }
+  ( set -o pipefail; printf '%s' "${LINE%%$'\t'*}" | base64 --decode && printf '\n' ) >> "$RID_DIR/prior" || { BADC=1; break; }
+  ( set -o pipefail; printf '%s' "$FOOTER" | base64 --decode && printf '\n' ) >> "$RID_DIR/prior-footers" || { BADC=1; break; }
+  N=$((N+1))
+done < "$LISTING" || BADC=1
+[ "$BADC" -eq 0 ] || bad_footers
+L=$(wc -l < "$LISTING") && F=$(wc -l < "$RID_DIR/prior-footers") || bad_footers
+if [ -s "$LISTING" ]; then
+  LAST=$(set -o pipefail; tail -c1 -- "$LISTING" | od -An -tx1) || bad_footers
+  [[ -n "$LAST" ]] || bad_footers
+  [[ "$LAST" == *0a ]] || L=$((L+1))
+fi
+[ "$N" -eq "$L" ] || bad_footers
+[ "$N" -eq "$F" ] || bad_footers
 bash "$PRP_DIR/scripts/review/run-id.sh" check --id "$RUN_ID" --shas-file "$RID_DIR/shas" --prior-file "$RID_DIR/prior" || { echo "FATAL: run id refused; nothing posted" >&2; exit 1; }
 # A partial earlier post already spends its run ID. Match Phase 2.0's final-line count.
 bash "$PRP_DIR/scripts/review/round-guard.sh" --cap 2 < "$RID_DIR/prior-footers" \
