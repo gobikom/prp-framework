@@ -689,7 +689,19 @@ AUTHOR_HEAD=$(git -C "$AUTHOR_WORKTREE" rev-parse HEAD)
 SAVED_HEAD=$(cat .prp-output/reviews/pr-{NUMBER}-reviewed-head 2>/dev/null) || SAVED_HEAD=""
 [ ${#SAVED_HEAD} -eq 40 ] && printf '%s' "$SAVED_HEAD" | grep -qxE '[0-9a-f]{40}' \\
   || { echo "FATAL: no reviewed head saved by Phase 2.0 — run Phase 2.0 first, no agents started" >&2; exit 1; }
-REVIEW_CLONE="${SCRATCHPAD:-/tmp}/prp-review-clone-$(git rev-parse --path-format=absolute --git-common-dir | sha1sum | cut -c1-12)-pr-{NUMBER}"
+CLONE_PFX="$(git rev-parse --path-format=absolute --git-common-dir | sha1sum | cut -c1-12)"
+[[ "$CLONE_PFX" =~ ^[0-9a-f]{12}$ ]] || { echo "FATAL: cannot compute the review clone prefix — no agents started" >&2; exit 1; }
+REVIEW_CLONE="${SCRATCHPAD:-/tmp}/prp-review-clone-$CLONE_PFX-pr-{NUMBER}"
+# sweep THIS repo's own stale clones (a session that died never reached its cleanup). Only directories
+# (find does not follow symlinks) that match this repo's 12-hex prefix, one level deep, older than 48 h;
+# another repo's prefix and hand-built names do not match. A failed removal warns and never aborts.
+while IFS= read -r OLD_CLONE; do
+  case "$OLD_CLONE" in "${SCRATCHPAD:-/tmp}/prp-review-clone-$CLONE_PFX-pr-"?*) ;; *) continue ;; esac
+  git worktree remove --force "$OLD_CLONE" 2>/dev/null || true
+  rm -rf -- "${OLD_CLONE:?}" || echo "WARNING: could not remove the stale review clone $OLD_CLONE" >&2
+  [ ! -e "$OLD_CLONE" ] || echo "WARNING: the stale review clone $OLD_CLONE is still there" >&2
+done < <(find "${SCRATCHPAD:-/tmp}" -maxdepth 1 -type d -name "prp-review-clone-$CLONE_PFX-pr-*" -mmin +2880 2>/dev/null)
+# The clone path is ONLY the computed $REVIEW_CLONE; never create prp-review-clone-* by hand.
 # clear an earlier round's clone of THIS repo (the path is per repo and PR) — its directory AND its worktree
 # registration, which `remove --force` clears even when the directory is gone (3.0's cleanup may not have
 # run). No `git worktree prune`: it would also deregister unrelated worktrees whose directories are missing.
@@ -698,7 +710,7 @@ rm -rf -- "${REVIEW_CLONE:?}" || { echo "FATAL: cannot remove the old review clo
 git worktree add --detach "$REVIEW_CLONE" "$SAVED_HEAD" \\
   || { echo "FATAL: cannot create the review clone at $SAVED_HEAD (see git's message above; 'git worktree list' shows stale entries) — no agents started" >&2; exit 1; }
 [ "$(git -C "$REVIEW_CLONE" rev-parse HEAD)" = "$SAVED_HEAD" ] \\
-  || { echo "FATAL: the review clone is not at $SAVED_HEAD — no agents started" >&2; exit 1; }
+  || { git worktree remove --force "$REVIEW_CLONE" 2>/dev/null || rm -rf -- "${REVIEW_CLONE:?}"; echo "FATAL: the review clone is not at $SAVED_HEAD — no agents started" >&2; exit 1; }
 ```
 
 If this block prints FATAL, STOP: spawn no agent and post nothing.
@@ -1100,6 +1112,10 @@ Running: /review {NUMBER}
 Before collecting results, verify the author's worktree was not contaminated:
 
 ```bash
+# Clean up the clone FIRST so every exit below removes it (path recomputed: this may be a fresh shell)
+REVIEW_CLONE="${SCRATCHPAD:-/tmp}/prp-review-clone-$(git rev-parse --path-format=absolute --git-common-dir | sha1sum | cut -c1-12)-pr-{NUMBER}"
+git worktree remove --force "$REVIEW_CLONE" 2>/dev/null || rm -rf -- "${REVIEW_CLONE:?}"
+
 AUTHOR_STATUS_AFTER=$(git -C "$AUTHOR_WORKTREE" status --porcelain)
 AUTHOR_HEAD_AFTER=$(git -C "$AUTHOR_WORKTREE" rev-parse HEAD)
 
@@ -1112,10 +1128,6 @@ if [ "$AUTHOR_STATUS_BEFORE" != "$AUTHOR_STATUS_AFTER" ]; then
   diff <(echo "$AUTHOR_STATUS_BEFORE") <(echo "$AUTHOR_STATUS_AFTER") || true
   exit 1
 fi
-
-# Clean up clone (path recomputed: this may be a fresh shell)
-REVIEW_CLONE="${SCRATCHPAD:-/tmp}/prp-review-clone-$(git rev-parse --path-format=absolute --git-common-dir | sha1sum | cut -c1-12)-pr-{NUMBER}"
-git worktree remove --force "$REVIEW_CLONE" 2>/dev/null || rm -rf -- "${REVIEW_CLONE:?}"
 ```
 
 If the check fails, abort the review and report — an agent escaped the clone.
@@ -1694,10 +1706,18 @@ TRUSTED_LOGIN=$(gh api user --jq '.login') && [ -n "$TRUSTED_LOGIN" ] || { echo 
 RID_DIR=$(mktemp -d) || { echo "FATAL: mktemp failed; nothing posted" >&2; exit 1; }
 gh api "repos/{owner}/{repo}/pulls/{NUMBER}/commits" --paginate --jq '.[].sha' > "$RID_DIR/shas" || { echo "FATAL: cannot list PR commits; nothing posted" >&2; exit 1; }
 printf '%s\\n' "$NOW_HEAD" >> "$RID_DIR/shas"
-TRUSTED_LOGIN="$TRUSTED_LOGIN" gh api "repos/{owner}/{repo}/issues/{NUMBER}/comments" --paginate --jq '.[] | select(.user.login == env.TRUSTED_LOGIN) | {body, footer: (.body | rtrimstr("\\n") | split("\\n") | last)} | @json' > "$RID_DIR/prior-comments" || { echo "FATAL: cannot read PR comments; nothing posted" >&2; exit 1; }
-jq -r '.body' "$RID_DIR/prior-comments" > "$RID_DIR/prior" \\
-  && jq -r '.footer' "$RID_DIR/prior-comments" > "$RID_DIR/prior-footers" \\
-  || { echo "FATAL: cannot read prior review footers; nothing posted" >&2; exit 1; }
+TRUSTED_LOGIN="$TRUSTED_LOGIN" gh api "repos/{owner}/{repo}/issues/{NUMBER}/comments" --paginate --jq '.[] | select(.user.login == env.TRUSTED_LOGIN) | "\\(.body | @base64)\\t\\(.body | rtrimstr("\\n") | split("\\n") | last | @base64)"' > "$RID_DIR/prior-comments" || { echo "FATAL: cannot read PR comments; nothing posted" >&2; exit 1; }
+# No standalone jq (prp-framework#260): each line is `<base64 body><TAB><base64 last line>`. Split it by
+# parameter expansion, not `read` field splitting, so an empty field survives (tab is IFS whitespace and
+# `read` would drop it); require exactly one tab; decode with coreutils; end every value with a newline.
+: > "$RID_DIR/prior"; : > "$RID_DIR/prior-footers"; BADC=0
+while IFS= read -r LINE || [ -n "$LINE" ]; do
+  TABS="${LINE//[!$'\\t']/}"
+  [ "${#TABS}" -eq 1 ] || { BADC=1; break; }
+  { printf '%s' "${LINE%%$'\\t'*}" | base64 --decode && echo; } >> "$RID_DIR/prior" || { BADC=1; break; }
+  { printf '%s' "${LINE#*$'\\t'}" | base64 --decode && echo; } >> "$RID_DIR/prior-footers" || { BADC=1; break; }
+done < "$RID_DIR/prior-comments"
+[ "$BADC" -eq 0 ] || { echo "FATAL: cannot read prior review footers; nothing posted" >&2; exit 1; }
 bash "$PRP_DIR/scripts/review/run-id.sh" check --id "$RUN_ID" --shas-file "$RID_DIR/shas" --prior-file "$RID_DIR/prior" || { echo "FATAL: run id refused; nothing posted" >&2; exit 1; }
 # A partial earlier post already spends its run ID. Match Phase 2.0's final-line count.
 bash "$PRP_DIR/scripts/review/round-guard.sh" --cap 2 < "$RID_DIR/prior-footers" \\
