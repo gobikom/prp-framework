@@ -1696,10 +1696,32 @@ TRUSTED_LOGIN=$(gh api user --jq '.login') && [ -n "$TRUSTED_LOGIN" ] || { echo 
 RID_DIR=$(mktemp -d) || { echo "FATAL: mktemp failed; nothing posted" >&2; exit 1; }
 gh api "repos/{owner}/{repo}/pulls/{NUMBER}/commits" --paginate --jq '.[].sha' > "$RID_DIR/shas" || { echo "FATAL: cannot list PR commits; nothing posted" >&2; exit 1; }
 printf '%s\n' "$NOW_HEAD" >> "$RID_DIR/shas"
-TRUSTED_LOGIN="$TRUSTED_LOGIN" gh api "repos/{owner}/{repo}/issues/{NUMBER}/comments" --paginate --jq '.[] | select(.user.login == env.TRUSTED_LOGIN) | {body, footer: (.body | rtrimstr("\n") | split("\n") | last)} | @json' > "$RID_DIR/prior-comments" || { echo "FATAL: cannot read PR comments; nothing posted" >&2; exit 1; }
-jq -r '.body' "$RID_DIR/prior-comments" > "$RID_DIR/prior" \
-  && jq -r '.footer' "$RID_DIR/prior-comments" > "$RID_DIR/prior-footers" \
-  || { echo "FATAL: cannot read prior review footers; nothing posted" >&2; exit 1; }
+TRUSTED_LOGIN="$TRUSTED_LOGIN" gh api "repos/{owner}/{repo}/issues/{NUMBER}/comments" --paginate --jq '.[] | select(.user.login == env.TRUSTED_LOGIN) | "\(.body | @base64)\t\(.body | rtrimstr("\n") | split("\n") | last | @base64)"' > "$RID_DIR/prior-comments" || { echo "FATAL: cannot read PR comments; nothing posted" >&2; exit 1; }
+# No standalone jq (prp-framework#260): each line is `<base64 body><TAB><base64 last line>`. Split it by
+# parameter expansion, not `read` field splitting, so an empty field survives (tab is IFS whitespace and
+# `read` would drop it); require exactly one tab; decode with coreutils; end every value with a newline.
+LISTING="$RID_DIR/prior-comments"
+[ -f "$LISTING" ] && [ -r "$LISTING" ] || { echo "FATAL: cannot read PR comments; nothing posted" >&2; exit 1; }
+bad_footers() { echo "FATAL: cannot read prior review footers; nothing posted" >&2; exit 1; }
+: > "$RID_DIR/prior" && : > "$RID_DIR/prior-footers" || bad_footers
+N=0; BADC=0
+while IFS= read -r LINE || [ -n "$LINE" ]; do
+  [[ "$LINE" == *$'\t'* ]] || { BADC=1; break; }
+  FOOTER="${LINE#*$'\t'}"
+  [[ "$FOOTER" != *$'\t'* ]] || { BADC=1; break; }
+  ( set -o pipefail; printf '%s' "${LINE%%$'\t'*}" | base64 --decode && printf '\n' ) >> "$RID_DIR/prior" || { BADC=1; break; }
+  ( set -o pipefail; printf '%s' "$FOOTER" | base64 --decode && printf '\n' ) >> "$RID_DIR/prior-footers" || { BADC=1; break; }
+  N=$((N+1))
+done < "$LISTING" || BADC=1
+[ "$BADC" -eq 0 ] || bad_footers
+L=$(wc -l < "$LISTING") && F=$(wc -l < "$RID_DIR/prior-footers") || bad_footers
+if [ -s "$LISTING" ]; then
+  LAST=$(set -o pipefail; tail -c1 -- "$LISTING" | od -An -tx1) || bad_footers
+  [[ -n "$LAST" ]] || bad_footers
+  [[ "$LAST" == *0a ]] || L=$((L+1))
+fi
+[ "$N" -eq "$L" ] || bad_footers
+[ "$N" -eq "$F" ] || bad_footers
 bash "$PRP_DIR/scripts/review/run-id.sh" check --id "$RUN_ID" --shas-file "$RID_DIR/shas" --prior-file "$RID_DIR/prior" || { echo "FATAL: run id refused; nothing posted" >&2; exit 1; }
 # A partial earlier post already spends its run ID. Match Phase 2.0's final-line count.
 bash "$PRP_DIR/scripts/review/round-guard.sh" --cap 2 < "$RID_DIR/prior-footers" \

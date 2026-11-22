@@ -40,7 +40,7 @@ if [ "$1 $2" = "pr view" ]; then
 fi
 if [ "$1 $2" = "api user" ]; then   # the trusted-login lookup (Phase 2.0, unchanged-head author check)
   [ -n "${USER_API_FAIL:-}" ] && exit 1
-  printf '{"login":"%s"}\n' "${FAKE_LOGIN:-bot}" | jq -r '.login'
+  printf '{"login":"%s"}\n' "${FAKE_LOGIN:-bot}" | "$REAL_JQ" -r '.login'
   exit 0
 fi
 if [ "$1" = "api" ] && [ "$2" = "repos/{owner}/{repo}/pulls/7/commits" ]; then   # Step C run-id arm (b): the PR's commit SHAs
@@ -53,22 +53,30 @@ if [ "$1" = "api" ]; then   # the round-cap read (Phase 2.0): last lines of the 
   # apply the REAL --jq filter from the prompt to comment JSON, as `gh api --paginate --jq` does per page
   filter=""; while [ $# -gt 0 ]; do [ "$1" = "--jq" ] && filter="$2"; shift; done
   [ -n "$filter" ] || exit 1
-  if [ -n "${FAKE_COMMENTS_JSON:-}" ]; then jq -r "$filter" "$FAKE_COMMENTS_JSON" || exit 1; exit 0; fi
+  # FAKE_RAW_LINES: serve these lines verbatim for Step C's base64 listing (malformed-listing tests)
+  if [[ "$filter" == *@base64* ]]; then
+    case "${LISTING_FAULT:-}" in
+      missing) rm -- "$RID/prior-comments"; exit $? ;;
+      unreadable) chmod 000 "$RID/prior-comments"; exit $? ;;
+    esac
+  fi
+  if [ -n "${FAKE_RAW_LINES:-}" ]; then case "$filter" in *@base64*) cat "$FAKE_RAW_LINES"; exit 0 ;; esac; fi
+  if [ -n "${FAKE_COMMENTS_JSON:-}" ]; then "$REAL_JQ" -r "$filter" "$FAKE_COMMENTS_JSON" || exit 1; exit 0; fi
   # FAKE_COMMENTS = one footer line per comment; wrap each as a multi-line body with a trailing newline
   # user.login matches the "api user" mock's default login ("bot", or $FAKE_LOGIN) so these
   # fixture comments count as trusted by default (prp-framework#228's round-cap/mode-decision
   # author filter); a test exercising the untrusted-author path sets FAKE_COMMENTS_JSON instead.
-  if [ -n "${FAKE_COMMENTS:-}" ]; then jq -R -s --arg login "${FAKE_LOGIN:-bot}" 'split("\n")[:-1] | map({user: {login: $login}, body: ("Reviewed head: x\n\n### Could not verify\nNothing.\n\n" + . + "\n")})' "$FAKE_COMMENTS" | jq -r "$filter"; exit 0; fi
+  if [ -n "${FAKE_COMMENTS:-}" ]; then "$REAL_JQ" -R -s --arg login "${FAKE_LOGIN:-bot}" 'split("\n")[:-1] | map({user: {login: $login}, body: ("Reviewed head: x\n\n### Could not verify\nNothing.\n\n" + . + "\n")})' "$FAKE_COMMENTS" | "$REAL_JQ" -r "$filter"; exit 0; fi
   # no fixture set: serve the bodies posted so far this test, as the trusted login. A real PR
   # returns the just-posted comments on the next listing too — this is what makes a run-id
   # check placed inside the posting loop refuse pass 2 (the W1 pin on check-before-loop, M5).
-  [ -s "$WORK/posted.jsonl" ] && jq -s . "$WORK/posted.jsonl" | jq -r "$filter"
+  [ -s "$WORK/posted.jsonl" ] && "$REAL_JQ" -s . "$WORK/posted.jsonl" | "$REAL_JQ" -r "$filter"
   exit 0
 fi
 if [ "$1 $2" = "pr comment" ]; then
   f=""; while [ $# -gt 0 ]; do [ "$1" = "--body-file" ] && f="$2"; shift; done
   [ -n "${FAIL_POST:-}" ] && grep -q "Passes run: $FAIL_POST" "$f" && exit 1
-  jq -Rs --arg login "${FAKE_LOGIN:-bot}" '{user: {login: $login}, body: .}' "$f" >> "$WORK/posted.jsonl"
+  "$REAL_JQ" -Rs --arg login "${FAKE_LOGIN:-bot}" '{user: {login: $login}, body: .}' "$f" >> "$WORK/posted.jsonl"
   echo "$f" >> "$WORK_LOG"; echo "https://github.com/o/r/pull/7#issuecomment-$(wc -l < "$WORK_LOG")"; exit 0
 fi
 exit 2
@@ -84,7 +92,8 @@ printf '%s\n' "$*" >> "$WORK/tier.calls"
 echo "${FAKE_TIER:-standard}"
 EOF
   chmod +x bin/pr-risk-tier
-  export PATH="$WORK/bin:$PATH" WORK_LOG="$WORK/posted.log" FAKE_HEAD="$HEAD_SHA" WORK
+  REAL_JQ="$(command -v jq)"   # absolute, so the fake gh can bypass the test's jq shim
+  export PATH="$WORK/bin:$PATH" REAL_JQ WORK_LOG="$WORK/posted.log" FAKE_HEAD="$HEAD_SHA" WORK
   : > "$WORK_LOG"
   printf '%s\n' "$HEAD_SHA" > .prp-output/reviews/pr-7-reviewed-head   # what Phase 2.0 saves
   printf 'standard\n' > .prp-output/reviews/pr-7-tier                    # what 2.0b saves (default)
@@ -1232,4 +1241,138 @@ run_20a() { # run 2.0a in $WORK with REVIEWED_HEAD_SHA already saved to pr-7-rev
       return 1
     fi
   done
+}
+
+# --- Step C without a standalone jq binary (#260) ---
+
+# a `jq` that records it was called and fails: Step C must never reach for the standalone binary
+nojq() { mkdir -p nojq; printf '#!/usr/bin/env bash\ntouch "$WORK/jq.called"\nexit 127\n' > nojq/jq; chmod +x nojq/jq; }
+post_nojq() { run env PATH="$WORK/nojq:$PATH" bash stepC.sh; }
+
+@test "T1: Step C posts a valid round with no jq binary, and never calls it" {
+  nojq; start; [ "$status" -eq 0 ]
+  write_all; post_nojq
+  [ "$status" -eq 0 ]
+  [ "$(wc -l < "$WORK_LOG")" -eq 3 ]
+  [ ! -e "$WORK/jq.called" ]
+}
+
+@test "T2: no jq, a quoted interior footer still counts as one round" {
+  nojq; start; [ "$status" -eq 0 ]
+  export FAKE_COMMENTS_JSON="$WORK/prior-comments.json"
+  "$REAL_JQ" -n '[
+    {user:{login:"bot"}, body:"Review summary\nGenerated-by: prp-review-agents v9.9.9 run=20261021T000001Z-00000001 pass=code-reviewer\n"},
+    {user:{login:"bot"}, body:"Example from another PR:\n```\nGenerated-by: prp-review-agents v9.9.9 run=20261021T000002Z-00000002 pass=code-reviewer\n```\nDiscussion continues.\n"}
+  ]' > "$FAKE_COMMENTS_JSON"
+  write_all; post_nojq
+  [ "$status" -eq 0 ]
+  [ "$(wc -l < "$WORK_LOG")" -eq 3 ]
+  [ ! -e "$WORK/jq.called" ]
+}
+
+@test "T3: no jq, R1 plus a partial R2 is still refused by the round cap" {
+  nojq; start; [ "$status" -eq 0 ]
+  { runs 1; runs 2 | tail -3 | head -1; } > "$WORK/rounds.txt"
+  export FAKE_COMMENTS="$WORK/rounds.txt"
+  write_all; post_nojq
+  [ "$status" -ne 0 ]
+  [ "$(wc -l < "$WORK_LOG")" -eq 0 ]
+  [[ "$output" == *"ROUND-CAP: refused"* ]]
+  [ ! -e "$WORK/jq.called" ]
+}
+
+@test "T4: a malformed listing (no tab, two tabs, bad base64) FATALs before anything is posted" {
+  start; [ "$status" -eq 0 ]
+  write_all
+  export FAKE_RAW_LINES="$WORK/raw.txt"
+  local bad
+  for bad in 'QUJD' $'QUJD\tQUJD\tQUJD' $'QUJD\t!!!not-base64!!!' $'!!!not-base64!!!\tQUJD'; do
+    printf 'QUJD\tQUJD\n%s\n' "$bad" > "$FAKE_RAW_LINES"
+    post
+    [ "$status" -ne 0 ]
+    [ "$(wc -l < "$WORK_LOG")" -eq 0 ]
+    [[ "$output" == *"cannot read prior review footers"* ]]
+  done
+}
+
+@test "T8: prior and prior-footers are byte-identical to the old jq path, empty and odd bodies included" {
+  start; [ "$status" -eq 0 ]
+  export FAKE_COMMENTS_JSON="$WORK/prior-comments.json"
+  "$REAL_JQ" -n '[
+    {user:{login:"bot"}, body:"two\nlines\nGenerated-by: x\n"},
+    {user:{login:"bot"}, body:"no trailing newline"},
+    {user:{login:"bot"}, body:"tab\there\n\tleading tab\ttrailing\t\n"},
+    {user:{login:"bot"}, body:"cr\r\nline\r\n"},
+    {user:{login:"bot"}, body:"unicode: üï ☃ 😀\n"},
+    {user:{login:"bot"}, body:""},
+    {user:{login:"bot"}, body:"\n"},
+    {user:{login:"bot"}, body:"\n\n\nlast after blanks\n\n"},
+    {user:{login:"other"}, body:"untrusted\n"}
+  ]' > "$FAKE_COMMENTS_JSON"
+  # expected: the old path, computed with the real jq
+  "$REAL_JQ" -r '.[] | select(.user.login == "bot") | {body, footer: (.body | rtrimstr("\n") | split("\n") | last)} | @json' "$FAKE_COMMENTS_JSON" > old.jsonl
+  "$REAL_JQ" -r '.body' old.jsonl > want-prior
+  "$REAL_JQ" -r '.footer' old.jsonl > want-footers
+  # capture what Step C hands to run-id.sh and round-guard.sh (stand-ins that record and accept)
+  printf '#!/usr/bin/env bash\nwhile [ $# -gt 0 ]; do [ "$1" = --prior-file ] && cp "$2" "$WORK/got-prior"; shift; done\nexit 0\n' > prp/scripts/review/run-id.sh
+  printf '#!/usr/bin/env bash\ncat > "$WORK/got-footers"\nexit 0\n' > prp/scripts/review/round-guard.sh
+  write_all; post_nojq
+  [ "$status" -eq 0 ]
+  cmp want-prior got-prior
+  cmp want-footers got-footers
+  [ -s got-prior ]
+}
+
+listing_setup() {
+  export RID="$WORK/rid" FAKE_RAW_LINES="$WORK/raw.txt"
+  mkdir "$RID"
+  printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$RID"\n' > bin/mktemp
+  chmod +x bin/mktemp
+  start; [ "$status" -eq 0 ]; write_all
+}
+
+no_posts() {
+  [ "$status" -ne 0 ]
+  [ ! -s "$WORK_LOG" ]
+  [ -s .prp-output/reviews/pr-7-l2-run.env ]
+}
+
+@test "T9: a missing or unreadable listing aborts without posting" {
+  listing_setup
+  export LISTING_FAULT=missing; post; no_posts
+  [[ "$output" == *'FATAL: cannot read PR comments'* ]]
+  if [ "$EUID" -ne 0 ]; then
+    LISTING_FAULT=unreadable; post; no_posts
+    [[ "$output" == *'FATAL: cannot read PR comments'* ]]
+  fi
+}
+
+@test "T10: checked output initialization and listing count fail closed" {
+  listing_setup
+  printf 'YQ==\tYQ==\n' > "$FAKE_RAW_LINES"
+  mkdir "$RID/prior-footers"
+  post; no_posts
+  [[ "$output" == *'FATAL: cannot read prior review footers'* ]]
+  rmdir "$RID/prior-footers"
+  # Simulate an independent record count ahead of what the decoder read.
+  export REAL_WC="$(command -v wc)"
+  cat > bin/wc <<'EOF'
+#!/usr/bin/env bash
+if [[ "$*" == -l && "$(readlink "/proc/$$/fd/0")" == "$RID/prior-comments" ]]; then echo 2; exit 0; fi
+exec "$REAL_WC" "$@"
+EOF
+  chmod +x bin/wc
+  post; no_posts
+  [[ "$output" == *'FATAL: cannot read prior review footers'* ]]
+}
+
+@test "T11: an empty readable Step C listing posts three comments" {
+  listing_setup; : > "$FAKE_RAW_LINES"
+  post; [ "$status" -eq 0 ]; [ "$(wc -l < "$WORK_LOG")" -eq 3 ]
+}
+
+@test "T12: an empty footer on an unterminated record still counts" {
+  listing_setup; printf 'YQ==\t' > "$FAKE_RAW_LINES"
+  post; [ "$status" -eq 0 ]; [ "$(wc -l < "$WORK_LOG")" -eq 3 ]
+  printf '\n' | cmp - "$RID/prior-footers"
 }
