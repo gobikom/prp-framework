@@ -1704,26 +1704,28 @@ TRUSTED_LOGIN="$TRUSTED_LOGIN" gh api "repos/{owner}/{repo}/issues/{NUMBER}/comm
 # `read` would drop it); require exactly one tab; decode with coreutils; end every value with a newline.
 LISTING="$RID_DIR/prior-comments"
 [ -f "$LISTING" ] && [ -r "$LISTING" ] || { echo "FATAL: cannot read PR comments; nothing posted" >&2; exit 1; }
-bad_footers() { echo "FATAL: cannot read prior review footers; nothing posted" >&2; exit 1; }
-: > "$RID_DIR/prior" && : > "$RID_DIR/prior-footers" || bad_footers
-N=0; BADC=0
+bad_footers() { printf 'FATAL: cannot read prior review footers: %s; nothing posted\n' "$1" >&2; exit 1; }
+# Bash read drops raw NULs. Reject non-protocol bytes before decoding any record.
+EXTRA=$(set -o pipefail; LC_ALL=C tr -d 'A-Za-z0-9+/=\t\n' < "$LISTING" | wc -c) || bad_footers 'listing byte check failed'
+[ "$EXTRA" -eq 0 ] || bad_footers 'invalid listing bytes'
+: > "$RID_DIR/prior" && : > "$RID_DIR/prior-footers" || bad_footers 'cannot initialize decoded output'
+N=0
 while IFS= read -r LINE || [ -n "$LINE" ]; do
-  [[ "$LINE" == *$'\t'* ]] || { BADC=1; break; }
+  [[ "$LINE" == *$'\t'* ]] || bad_footers "missing separator at record $((N+1))"
   FOOTER="${LINE#*$'\t'}"
-  [[ "$FOOTER" != *$'\t'* ]] || { BADC=1; break; }
-  ( set -o pipefail; printf '%s' "${LINE%%$'\t'*}" | base64 --decode && printf '\n' ) >> "$RID_DIR/prior" || { BADC=1; break; }
-  ( set -o pipefail; printf '%s' "$FOOTER" | base64 --decode && printf '\n' ) >> "$RID_DIR/prior-footers" || { BADC=1; break; }
+  [[ "$FOOTER" != *$'\t'* ]] || bad_footers "extra separator at record $((N+1))"
+  ( set -o pipefail; printf '%s' "${LINE%%$'\t'*}" | base64 --decode && printf '\n' ) >> "$RID_DIR/prior" || bad_footers "cannot decode or write body at record $((N+1))"
+  ( set -o pipefail; printf '%s' "$FOOTER" | base64 --decode && printf '\n' ) >> "$RID_DIR/prior-footers" || bad_footers "cannot decode or write footer at record $((N+1))"
   N=$((N+1))
-done < "$LISTING" || BADC=1
-[ "$BADC" -eq 0 ] || bad_footers
-L=$(wc -l < "$LISTING") && F=$(wc -l < "$RID_DIR/prior-footers") || bad_footers
+done < "$LISTING" || bad_footers 'cannot open listing for decoding'
+L=$(wc -l < "$LISTING") && F=$(wc -l < "$RID_DIR/prior-footers") || bad_footers 'cannot count listing or footer records'
 if [ -s "$LISTING" ]; then
-  LAST=$(set -o pipefail; tail -c1 -- "$LISTING" | od -An -tx1) || bad_footers
-  [[ -n "$LAST" ]] || bad_footers
-  [[ "$LAST" == *0a ]] || L=$((L+1))
+  LAST=$(set -o pipefail; tail -c1 -- "$LISTING" | od -An -tx1) || bad_footers 'cannot read the final listing byte'
+  [[ -n "$LAST" ]] || bad_footers 'missing final listing byte'
+  [[ "$LAST" == *0a ]] || bad_footers 'unterminated final record'
 fi
-[ "$N" -eq "$L" ] || bad_footers
-[ "$N" -eq "$F" ] || bad_footers
+[ "$N" -eq "$L" ] || bad_footers 'listing record count mismatch'
+[ "$N" -eq "$F" ] || bad_footers 'decoded footer count mismatch'
 bash "$PRP_DIR/scripts/review/run-id.sh" check --id "$RUN_ID" --shas-file "$RID_DIR/shas" --prior-file "$RID_DIR/prior" || { echo "FATAL: run id refused; nothing posted" >&2; exit 1; }
 # A partial earlier post already spends its run ID. Match Phase 2.0's final-line count.
 bash "$PRP_DIR/scripts/review/round-guard.sh" --cap 2 < "$RID_DIR/prior-footers" \

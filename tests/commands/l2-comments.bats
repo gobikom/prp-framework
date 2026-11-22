@@ -1326,7 +1326,8 @@ post_nojq() { run env PATH="$WORK/nojq:$PATH" bash stepC.sh; }
 listing_setup() {
   export RID="$WORK/rid" FAKE_RAW_LINES="$WORK/raw.txt"
   mkdir "$RID"
-  printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$RID"\n' > bin/mktemp
+  export REAL_MKTEMP="$(command -v mktemp)"
+  printf '#!/usr/bin/env bash\nif [[ "$*" == -d ]]; then printf "%%s\\n" "$RID"; else exec "$REAL_MKTEMP" "$@"; fi\n' > bin/mktemp
   chmod +x bin/mktemp
   start; [ "$status" -eq 0 ]; write_all
 }
@@ -1352,18 +1353,21 @@ no_posts() {
   printf 'YQ==\tYQ==\n' > "$FAKE_RAW_LINES"
   mkdir "$RID/prior-footers"
   post; no_posts
-  [[ "$output" == *'FATAL: cannot read prior review footers'* ]]
+  [[ "$output" == *'FATAL: cannot read prior review footers: cannot initialize decoded output'* ]]
   rmdir "$RID/prior-footers"
   # Simulate an independent record count ahead of what the decoder read.
   export REAL_WC="$(command -v wc)"
   cat > bin/wc <<'EOF'
 #!/usr/bin/env bash
-if [[ "$*" == -l && "$(readlink "/proc/$$/fd/0")" == "$RID/prior-comments" ]]; then echo 2; exit 0; fi
-exec "$REAL_WC" "$@"
+input=$(mktemp "$WORK/wc.XXXXXX") || exit 1
+trap 'rm -f -- "$input"' EXIT
+cat > "$input" || exit 1
+if [[ "$*" == -l ]] && cmp -s "$input" "$RID/prior-comments"; then echo 2; exit 0; fi
+"$REAL_WC" "$@" < "$input"
 EOF
   chmod +x bin/wc
   post; no_posts
-  [[ "$output" == *'FATAL: cannot read prior review footers'* ]]
+  [[ "$output" == *'FATAL: cannot read prior review footers: listing record count mismatch'* ]]
 }
 
 @test "T11: an empty readable Step C listing posts three comments" {
@@ -1371,8 +1375,20 @@ EOF
   post; [ "$status" -eq 0 ]; [ "$(wc -l < "$WORK_LOG")" -eq 3 ]
 }
 
-@test "T12: an empty footer on an unterminated record still counts" {
-  listing_setup; printf 'YQ==\t' > "$FAKE_RAW_LINES"
+@test "T12: an empty footer on a terminated record still counts" {
+  listing_setup; printf 'YQ==\t\n' > "$FAKE_RAW_LINES"
   post; [ "$status" -eq 0 ]; [ "$(wc -l < "$WORK_LOG")" -eq 3 ]
   printf '\n' | cmp - "$RID/prior-footers"
+}
+
+@test "T13: an unterminated final record is fatal and nothing is posted" {
+  listing_setup; printf 'YQ==\tYQ==\nYQ==\tYQ==' > "$FAKE_RAW_LINES"
+  post; no_posts
+  [[ "$output" == *'FATAL: cannot read prior review footers: unterminated final record'* ]]
+}
+
+@test "T14: a raw NUL in the listing is fatal and nothing is posted" {
+  listing_setup; printf 'YQ==\tYQ==\nYQ\000==\tYQ==\n' > "$FAKE_RAW_LINES"
+  post; no_posts
+  [[ "$output" == *'FATAL: cannot read prior review footers: invalid listing bytes'* ]]
 }
