@@ -26,9 +26,15 @@ make_tree() { # [name]
 # gen — run the generator inside the temp tree, rc into $rc, stderr into $err.
 gen() {
   rc=0
-  (cd "$TREE" && python3 scripts/generate-adapters.py >"$BATS_TEST_TMPDIR/gen.out" 2>"$BATS_TEST_TMPDIR/err") || rc=$?
+  (cd "$TREE" && python3 scripts/generate-adapters.py "$@" >"$BATS_TEST_TMPDIR/gen.out" 2>"$BATS_TEST_TMPDIR/err") || rc=$?
   err="$(cat "$BATS_TEST_TMPDIR/err" 2>/dev/null)"
   out="$(cat "$BATS_TEST_TMPDIR/gen.out" 2>/dev/null)"
+}
+
+no_match() {
+  local status=0
+  grep "$@" || status=$?
+  [ "$status" -eq 1 ]
 }
 
 @test "clean tree: exit 0, 0 skipped, 0 errors (real-tree control)" {
@@ -76,7 +82,7 @@ gen() {
     [ "$(grep -cF 'therefore passes' "$TREE/$f")" -eq 0 ]
   done
   # and nothing anywhere contains a brace token containing BLOCKING
-  ! grep -rE '\{[A-Za-z0-9_]*BLOCKING[A-Za-z0-9_]*\}' "$TREE/adapters"
+  no_match -rE '\{[A-Za-z0-9_]*BLOCKING[A-Za-z0-9_]*\}' "$TREE/adapters"
 }
 
 @test "positive: claude-code adapter has the scoped claim; no generated adapter contains a brace token containing BLOCKING" {
@@ -86,7 +92,7 @@ gen() {
   gen
   [ "$rc" -eq 0 ] || { echo "generator failed: $err" >&2; return 1; }
   grep -qF 'therefore passes' "$TREE/adapters/claude-code/prp-review-agents.md"
-  ! grep -rE '\{[A-Za-z0-9_]*BLOCKING[A-Za-z0-9_]*\}' "$TREE/adapters"
+  no_match -rE '\{[A-Za-z0-9_]*BLOCKING[A-Za-z0-9_]*\}' "$TREE/adapters"
 }
 
 @test "suffix typo {AGENT_BLOCKING_PARAMM}: exit 1, error names the token and the file" {
@@ -183,6 +189,15 @@ gen() {
   gen
   [ "$rc" -eq 1 ] || { echo "missing neutral sentence: expected exit 1, got $rc" >&2; return 1; }
   echo "$err" | grep -qF "'agent_blocking_prose_other'" || { echo "error does not name the key: $err" >&2; return 1; }
+
+  local key
+  for key in agent_blocking_prose_other agent_blocking_prose_claude; do
+    make_tree "empty-$key"
+    sed -i "s/^\([[:space:]]*${key}:\).*/\1 \"\"/" "$TREE/adapters.yml"
+    gen
+    [ "$rc" -eq 1 ]
+    grep -qF "'$key'" <<< "$err"
+  done
 }
 
 @test "canary: changing the top-level neutral prose value appears in all 5 non-claude adapters" {
@@ -202,7 +217,7 @@ gen() {
     grep -q 'CANARYPROSE' "$TREE/$f" || { echo "canary missing from $f — the generator is not reading the top-level key" >&2; return 1; }
   done
   # claude-code keeps the claim, not the neutral canary
-  ! grep -q 'CANARYPROSE' "$TREE/adapters/claude-code/prp-review-agents.md"
+  no_match -q 'CANARYPROSE' "$TREE/adapters/claude-code/prp-review-agents.md"
 }
 
 @test "{agent} (no underscore) is outside the namespace and generates unchanged" {
@@ -855,4 +870,91 @@ PYEOF
   local where
   where=$(awk '/^def /{f=$2; sub(/\(.*/,"",f)} /^[ ]*except Exception/{print f}' "$script" | sort | tr '\n' ' ')
   [ "$where" = "generate_all main " ] || { echo "boundaries in: $where" >&2; return 1; }
+}
+
+@test "B4C L: diff reports stale and missing output without writing" {
+  make_tree
+  gen --adapter codex
+  [ "$rc" -eq 0 ]
+  printf 'stale\n' > "$TREE/adapters/codex/prp-plan/SKILL.md"
+  rm -r "$TREE/adapters/codex/prp-qa"
+  (cd "$TREE" && set -o pipefail && find adapters -type f -print0 | sort -z | xargs -0 sha256sum) > "$BATS_TEST_TMPDIR/before"
+  gen --diff --adapter codex
+  [ "$rc" -eq 0 ]
+  grep -F '[CHANGED]' <<< "$out" | grep -F 'prp-plan/SKILL.md'
+  grep -F '[NEW]' <<< "$out" | grep -F 'prp-qa/SKILL.md'
+  local checked
+  checked=$(( $(wc -l < "$BATS_TEST_TMPDIR/before") + 1 ))
+  grep -Fx "Results: $checked checked, 2 differ — no files written (--diff), 0 skipped, 0 errors" <<< "$out"
+  (cd "$TREE" && set -o pipefail && find adapters -type f -print0 | sort -z | xargs -0 sha256sum) > "$BATS_TEST_TMPDIR/after"
+  cmp "$BATS_TEST_TMPDIR/before" "$BATS_TEST_TMPDIR/after"
+  [ ! -e "$TREE/adapters/codex/prp-qa" ]
+}
+
+@test "B4C B: format mismatch fails before generation" {
+  make_tree
+  sed -i 's/format: toml/format: md/' "$TREE/adapters.yml"
+  gen
+  [ "$rc" -eq 1 ]
+  grep -F "Adapter 'gemini' format" <<< "$err"
+  [ ! -e "$TREE/adapters" ]
+}
+
+@test "B4C C: generated Markdown rejects invalid YAML and descriptions" {
+  python3 - "$ROOT/scripts/generate-adapters.py" <<'PY'
+import runpy
+import sys
+mod = runpy.run_path(sys.argv[1])
+for fields, reason in (
+    ('description: [invalid', 'invalid YAML frontmatter'),
+    ('description: 42', 'non-string description'),
+    ('description: "a\\nb"', 'multiline description'),
+    ('name: missing-description', 'empty description field'),
+):
+    path = 'adapters/claude-code/prp-qa.md'
+    try:
+        mod['validate_generated'](path, f'---\n{fields}\n---\nbody\n')
+    except mod['GenerationError'] as exc:
+        assert path in str(exc) and reason in str(exc), str(exc)
+    else:
+        raise AssertionError(f'accepted {fields!r}')
+PY
+}
+
+@test "B4C D: present blocking parameter must not be blank" {
+  local value
+  for value in '""' '"  "'; do
+    make_tree "param-${#value}"
+    gen
+    [ "$rc" -eq 0 ]
+    # Make a would-be write visible even if generation would otherwise be unchanged.
+    printf 'stale\n' > "$TREE/adapters/codex/prp-plan/SKILL.md"
+    (cd "$TREE" && set -o pipefail && find adapters -type f -print0 | sort -z | xargs -0 sha256sum) > "$BATS_TEST_TMPDIR/before"
+    sed -i "s/^\( *agent_blocking_param:\).*/\1 $value/" "$TREE/adapters.yml"
+    gen
+    [ "$rc" -eq 1 ]
+    [ "$(wc -l < "$BATS_TEST_TMPDIR/err")" -eq 1 ]
+    grep -Fx "Error: adapters.yml adapter 'claude-code' key 'agent_blocking_param' must not be blank" <<< "$err"
+    (cd "$TREE" && set -o pipefail && find adapters -type f -print0 | sort -z | xargs -0 sha256sum) > "$BATS_TEST_TMPDIR/after"
+    cmp "$BATS_TEST_TMPDIR/before" "$BATS_TEST_TMPDIR/after"
+  done
+}
+
+@test "B4C E: non-string shared prose fails before generation" {
+  make_tree
+  sed -i 's/^agent_blocking_prose_other:.*/agent_blocking_prose_other: false/' "$TREE/adapters.yml"
+  gen
+  [ "$rc" -eq 1 ]
+  grep -F "'agent_blocking_prose_other' must be str" <<< "$err"
+  [ ! -e "$TREE/adapters" ]
+}
+
+@test "B4C F: self-referential prose leaves a named error rather than output" {
+  make_tree
+  sed -i 's/^agent_blocking_prose_other:.*/agent_blocking_prose_other: "{AGENT_BLOCKING_PROSE}"/' "$TREE/adapters.yml"
+  gen --adapter gemini
+  [ "$rc" -eq 1 ]
+  grep -F 'left in generated output' <<< "$err"
+  grep -F 'self-referential' <<< "$err"
+  [ ! -e "$TREE/adapters/gemini/review-agents.toml" ]
 }

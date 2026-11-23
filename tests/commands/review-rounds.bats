@@ -194,9 +194,16 @@ all_pos() { # <ERE>
   # not, the adapter must carry the scoped neutral sentence instead — never
   # the unscoped claim. (At f3869af all six adapters carried the claim while
   # five had zero parameters; this test fails on that text.)
+  local prompt_params prompt_prose
+  prompt_params=$(count "$ROOT/prompts/review-agents.md" '\{AGENT_BLOCKING_PARAM\}') || return 1
+  prompt_prose=$(count "$ROOT/prompts/review-agents.md" '\{AGENT_BLOCKING_PROSE\}') || return 1
   local f dispatches params claims
   for f in $ADAPTER_FILES; do
     dispatches=$(count "$ROOT/$f" '^Agent\($') || return 1
+    [ "$prompt_params" -eq "$dispatches" ] || {
+      echo "$f: prompt has $prompt_params parameter placeholders but adapter has $dispatches dispatch blocks" >&2
+      return 1
+    }
     params=$(count "$ROOT/$f" '^  run_in_background=false,$') || return 1
     claims=$(count "$ROOT/$f" 'therefore passes') || return 1
     [ "$dispatches" -ge 10 ] || {
@@ -215,15 +222,6 @@ all_pos() { # <ERE>
       pos "$ROOT/$f" 'In the Claude Code adapter every Agent' || return 1
     fi
   done
-  # the source placeholders match the dispatch set: one {AGENT_BLOCKING_PARAM}
-  # per Agent dispatch block, and exactly one {AGENT_BLOCKING_PROSE} sentence
-  local prompt_params prompt_prose
-  prompt_params=$(count "$ROOT/prompts/review-agents.md" '\{AGENT_BLOCKING_PARAM\}') || return 1
-  prompt_prose=$(count "$ROOT/prompts/review-agents.md" '\{AGENT_BLOCKING_PROSE\}') || return 1
-  [ "$prompt_params" -eq "$dispatches" ] || {
-    echo "prompt has $prompt_params {AGENT_BLOCKING_PARAM} placeholders but the adapters have $dispatches dispatch blocks" >&2
-    return 1
-  }
   [ "$prompt_prose" -eq 1 ] || {
     echo "expected exactly 1 {AGENT_BLOCKING_PROSE} placeholder in the prompt, found: $prompt_prose" >&2
     return 1

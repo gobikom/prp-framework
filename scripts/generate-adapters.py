@@ -8,7 +8,7 @@ Uses adapters.yml config and prompts/overlays/ for tool-specific content.
 Usage:
     python3 scripts/generate-adapters.py              # Generate all adapters
     python3 scripts/generate-adapters.py --dry-run     # Preview without writing
-    python3 scripts/generate-adapters.py --diff        # Generate and show diff
+    python3 scripts/generate-adapters.py --diff        # Show changes without writing
     python3 scripts/generate-adapters.py --adapter X   # Generate only adapter X
 """
 
@@ -147,6 +147,10 @@ def load_config() -> dict:
               f"{type(config).__name__}", file=sys.stderr)
         sys.exit(1)
     missing = REQUIRED_CONFIG_KEYS - set(config.keys())
+    if ("agent_blocking_prose_other" in config
+            and not isinstance(config["agent_blocking_prose_other"], str)):
+        print("Error: adapters.yml key 'agent_blocking_prose_other' must be str", file=sys.stderr)
+        sys.exit(1)
     if missing:
         print(f"Error: Missing top-level keys in adapters.yml: {missing}", file=sys.stderr)
         sys.exit(1)
@@ -251,6 +255,17 @@ def load_config() -> dict:
                   f"{sorted(KNOWN_ADAPTER_KEYS)}", file=sys.stderr)
             sys.exit(1)
         check_value_types("adapter", name, cfg, ADAPTER_VALUE_TYPES)
+        if "agent_blocking_param" in cfg and not cfg["agent_blocking_param"].strip():
+            print(f"Error: {display_path(CONFIG_PATH)} adapter '{name}' key "
+                  "'agent_blocking_param' must not be blank", file=sys.stderr)
+            sys.exit(1)
+
+        fmt = cfg["format"]
+        if fmt not in ("md", "toml") or Path(cfg["file_pattern"]).suffix != f".{fmt}":
+            print(f"Error: Adapter '{name}' format {fmt!r} does not match "
+                  f"file_pattern {cfg['file_pattern']!r} (expected md/.md or toml/.toml)",
+                  file=sys.stderr)
+            sys.exit(1)
 
     # Validate command entries
     for name, cfg in config["commands"].items():
@@ -464,8 +479,8 @@ def substitute_placeholders(content: str, adapter_cfg: dict, cmd_name: str,
     # receive a Claude-Code-only kwarg their tool would reject; absence of the
     # key IS the per-runtime mapping — only claude-code sets it).
     # prp-framework#151 AC1: claude-code maps it to run_in_background=false.
-    blocking_param = adapter_cfg.get("agent_blocking_param")
-    content = content.replace("{AGENT_BLOCKING_PARAM}", blocking_param or "")
+    blocking_param = adapter_cfg.get("agent_blocking_param", "")
+    content = content.replace("{AGENT_BLOCKING_PARAM}", blocking_param)
 
     # {AGENT_BLOCKING_PROSE} → the scoped claim for the adapter that carries
     # the parameter, the shared neutral sentence for every other runtime —
@@ -699,17 +714,22 @@ def validate_generated(rel_path: str, content: str) -> None:
         # Markdown: strip YAML frontmatter, then require a non-empty body.
         # The frontmatter/body boundary comes from split_frontmatter — one
         # parser, shared with read_overlay() (no inline split here).
-        desc, body = split_frontmatter(content, rel_path)
-        desc = desc or ""
+        frontmatter, body = split_frontmatter(content, rel_path)
         if not body.strip():
             raise GenerationError(
                 f"error: {where} has an empty command body after frontmatter")
-        # (b) a description FIELD exists (frontmatter carries one) but is empty
-        if desc:
-            m = re.search(r"^description:\s*(.*)$", desc, re.MULTILINE)
-            if m and not m.group(1).strip().strip('"').strip():
+        if frontmatter is not None:
+            try:
+                fields = yaml.safe_load(frontmatter)
+            except (yaml.YAMLError, ValueError) as exc:
                 raise GenerationError(
-                    f"error: {where} has an empty description field")
+                    f"error: {where} has invalid YAML frontmatter: {exc}") from exc
+            desc = fields.get("description") if isinstance(fields, dict) else None
+            if not isinstance(desc, str) or not desc.strip():
+                raise GenerationError(
+                    f"error: {where} has an empty description field or a non-string description")
+            if desc.splitlines() != [desc]:
+                raise GenerationError(f"error: {where} has a multiline description field")
     else:
         # TOML (gemini): description = "..." then prompt = """...""" — the
         # command body is the INTERIOR of the prompt block, not the leftover
@@ -841,6 +861,8 @@ def generate_unit(adapter_name: str, cmd_name: str, config: dict, ctx: dict,
         if show_diff:
             print(f"  [CHANGED] {out_path}")
 
+    if show_diff:
+        return "generated"
     out_path.parent.mkdir(parents=True, exist_ok=True)
     # encode BEFORE opening: a lone surrogate must not truncate the output
     out_path.write_bytes(content.encode("utf-8"))
@@ -895,7 +917,7 @@ def main():
     )
     parser.add_argument(
         "--diff", action="store_true",
-        help="Show which files would change"
+        help="Show which files would change (writes nothing)"
     )
     parser.add_argument(
         "--adapter", type=str, default=None,
@@ -929,8 +951,13 @@ def run(args, phase: dict) -> int:
     )
 
     print(f"\n{'='*60}")
-    print(f"Results: {stats['generated']} generated, {stats['unchanged']} unchanged, "
-          f"{stats['skipped']} skipped, {stats['errors']} errors")
+    if args.diff and not args.dry_run:
+        checked = stats["generated"] + stats["unchanged"]
+        print(f"Results: {checked} checked, {stats['generated']} differ — no files written (--diff), "
+              f"{stats['skipped']} skipped, {stats['errors']} errors")
+    else:
+        print(f"Results: {stats['generated']} generated, {stats['unchanged']} unchanged, "
+              f"{stats['skipped']} skipped, {stats['errors']} errors")
     print(f"{'='*60}")
 
     if args.dry_run:

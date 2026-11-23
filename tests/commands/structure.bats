@@ -866,14 +866,14 @@ CLEANUP_FILE="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)/adapters/cla
 
 @test "ship-faster B6: generated adapters have no drift" {
     local root="${PROMPTS_DIR%/prompts}" tree="$BATS_TEST_TMPDIR/repo"
-    # --diff writes on drift; validate a copy so a failed test cannot repair the checkout.
+    # Validate a copy so a regression in --diff cannot repair the checkout.
     mkdir -p "$tree"
     cp -R "$root"/{adapters,adapters.yml,prompts,scripts} "$tree/"
     cd "$tree"
     run python3 scripts/generate-adapters.py --diff
     [ "$status" -eq 0 ]
     ! grep -q '^@@' <<< "$output"
-    grep -qF 'Results: 0 generated,' <<< "$output"
+    grep -qE '^Results: [0-9]+ checked, 0 differ — no files written \(--diff\),' <<< "$output"
     grep -qF '0 errors' <<< "$output"
     grep -qF 'Refuse batch mode' adapters/codex/prp-pr/SKILL.md
     grep -qF 'The round may start while CI is pending' adapters/claude-code/prp-review-agents.md
