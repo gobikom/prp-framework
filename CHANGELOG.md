@@ -45,6 +45,7 @@ Every major version release MUST include a `docs/migration/vX.0-to-vY.0.md` file
   - The opt-in review-artifact commit and the cleanup archive step stage these files with `git add -f`. run-all commits no review artifact (its gate reads the file on disk).
 
 ### Fixed
+- #137: install.sh repoints dangling .prp and gen-ai-context.sh symlinks (or reports a foreign or non-directory .prp), and prints ln's error on fallback; prp-cleanup 5.1 warns on dangling or non-executable helpers.
 - #254: install.sh changes .gitignore only by one append (no rewrite, no temp file), refuses a symlinked .gitignore, and rolls back a partial append.
 - `gen-ai-context.sh` excludes `.sandbox-home` / `.sandbox-tmp` / `.sandbox-root` (and `.sandbox-*` glob)
   from every scan site — `detect_stack` EXCL and `detect_exports` EXCL via grep `--exclude-dir`

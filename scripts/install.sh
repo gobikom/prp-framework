@@ -107,16 +107,21 @@ install_directory() {
     fi
 
     # Try symlink first
-    if ln -s "$source" "$target" 2>/dev/null; then
+    if _ln_or_report -s "$source" "$target"; then
         echo -e "${GREEN}  ✅ Symlinked: $name${NC}"
         return 0
     else
         # Fallback to copy
-        echo -e "${YELLOW}  ⚠️  Symlink failed for $name, copying instead${NC}"
+        printf '%b%s%b\n' "${YELLOW}  ⚠️  Symlink failed for " "$name, copying instead ($LN_ERR)" "$NC" >&2
         cp -r "$source" "$target"
         echo -e "${GREEN}  ✅ Copied: $name${NC}"
         return 1
     fi
+}
+
+_ln_or_report() {
+    if LN_ERR=$(ln "$@" 2>&1); then return 0; fi
+    return 1
 }
 
 # Function: Install individual files into a shared directory (preserves non-PRP files)
@@ -149,9 +154,10 @@ install_files_into_dir() {
         # Remove existing (symlink or file) — explicit if to avoid || vs && precedence trap
         if [ -e "$target_file" ] || [ -L "$target_file" ]; then rm -f "$target_file"; fi
 
-        if ln -s "$source_file" "$target_file" 2>/dev/null; then
+        if _ln_or_report -s "$source_file" "$target_file"; then
             : # symlink ok
         else
+            printf '  ⚠️  Symlink failed for %s (%s), copying instead (%s)\n' "$name" "$target_file" "$LN_ERR" >&2
             cp "$source_file" "$target_file"
             used_symlink=false
         fi
@@ -178,13 +184,18 @@ install_file() {
         return 0
     fi
 
+    local old_note=''
+    if [ -L "$target" ]; then
+        if [ -e "$target" ]; then old_note=" (replaced target → $(readlink "$target"))"
+        else old_note=" (was dangling → $(readlink "$target"))"; fi
+    fi
     if [ -e "$target" ] || [ -L "$target" ]; then rm -f "$target"; fi
 
-    if ln -s "$source" "$target" 2>/dev/null; then
-        echo -e "${GREEN}  ✅ Symlinked: $name${NC}"
+    if _ln_or_report -s "$source" "$target"; then
+        printf '%b%s%b\n' "${GREEN}  ✅ Symlinked: " "$name$old_note" "$NC"
         return 0
     else
-        echo -e "${YELLOW}  ⚠️  Symlink failed for $name, copying instead${NC}"
+        printf '%b%s%b\n' "${YELLOW}  ⚠️  Symlink failed for " "$name, copying instead ($LN_ERR)$old_note" "$NC" >&2
         cp "$source" "$target"
         echo -e "${GREEN}  ✅ Copied: $name${NC}"
         return 1
@@ -230,9 +241,10 @@ for cmd in $CORE_CMDS; do
             continue
         fi
         [ -e "$target_file" ] || [ -L "$target_file" ] && rm -f "$target_file"
-        if ln -s "$source_file" "$target_file" 2>/dev/null; then
+        if _ln_or_report -s "$source_file" "$target_file"; then
             USED_SYMLINKS=true
         else
+            printf '  ⚠️  Symlink failed for %s, copying instead (%s)\n' "$target_file" "$LN_ERR" >&2
             cp "$source_file" "$target_file"
             USED_COPY=true
         fi
@@ -522,16 +534,40 @@ echo -e "${GREEN}  ✅ Created .prp-output/ structure${NC}"
 # Install helper scripts (prp-validate, prp-diff, prp-state)
 echo ""
 echo "🔧 Installing helper scripts..."
-PRP_LINK_TARGET=$(readlink -f "$PROJECT_DIR/.prp" 2>/dev/null || true)
-if [ "$PRP_LINK_TARGET" = "$(readlink -f "$FRAMEWORK_DIR")" ]; then
-    echo -e "${GREEN}  ✅ .prp is a symlink to framework — helper scripts already accessible${NC}"
-else
+PRP_PATH="$PROJECT_DIR/.prp"
+INSTALL_HELPERS=true
+if [ -L "$PRP_PATH" ]; then
+    PRP_LINK_TARGET=$(readlink "$PRP_PATH")
+    if [ "$(readlink -f "$PRP_PATH" 2>/dev/null)" = "$(readlink -f "$FRAMEWORK_DIR")" ]; then
+        echo -e "${GREEN}  ✅ .prp is a symlink to framework — helper scripts already accessible${NC}"
+        INSTALL_HELPERS=false
+    elif [ ! -e "$PRP_PATH" ]; then
+        if _ln_or_report -sfn "$FRAMEWORK_DIR" "$PRP_PATH"; then
+            printf '  ✅ Repointed dangling .prp (dead target: %s) → %s\n' "$PRP_LINK_TARGET" "$FRAMEWORK_DIR"
+        else
+            printf '  ⚠️  .prp points to %s — could not repoint it; helper scripts NOT installed (%s)\n' "$PRP_LINK_TARGET" "$LN_ERR" >&2
+        fi
+        INSTALL_HELPERS=false
+    elif [ -d "$PRP_PATH" ]; then
+        printf '  ⚠️  .prp points to %s, not %s — helper scripts installed there\n' "$PRP_LINK_TARGET" "$FRAMEWORK_DIR" >&2
+    else
+        printf '  ⚠️  .prp points to %s, which is not a directory — helper scripts NOT installed\n' "$PRP_LINK_TARGET" >&2
+        INSTALL_HELPERS=false
+    fi
+elif [ -e "$PRP_PATH" ] && [ ! -d "$PRP_PATH" ]; then
+    printf '  ⚠️  .prp is not a directory or symlink — helper scripts NOT installed\n' >&2
+    INSTALL_HELPERS=false
+fi
+if $INSTALL_HELPERS; then
     mkdir -p "$PROJECT_DIR/.prp/scripts"
     for script in prp-validate.sh prp-diff.sh prp-state.sh; do
         if [ -f "$FRAMEWORK_DIR/scripts/$script" ]; then
-            ln -sf "$FRAMEWORK_DIR/scripts/$script" "$PROJECT_DIR/.prp/scripts/$script" 2>/dev/null || \
-            cp "$FRAMEWORK_DIR/scripts/$script" "$PROJECT_DIR/.prp/scripts/$script"
-            [ ! -L "$PROJECT_DIR/.prp/scripts/$script" ] && chmod +x "$PROJECT_DIR/.prp/scripts/$script"
+            if ! _ln_or_report -sfn "$FRAMEWORK_DIR/scripts/$script" "$PROJECT_DIR/.prp/scripts/$script"; then
+                printf '  ⚠️  Symlink failed for .prp/scripts/%s, copying instead (%s)\n' "$script" "$LN_ERR" >&2
+                if [ -L "$PROJECT_DIR/.prp/scripts/$script" ]; then rm -f "$PROJECT_DIR/.prp/scripts/$script"; fi
+                cp "$FRAMEWORK_DIR/scripts/$script" "$PROJECT_DIR/.prp/scripts/$script"
+                chmod +x "$PROJECT_DIR/.prp/scripts/$script"
+            fi
         fi
     done
     echo -e "${GREEN}  ✅ Installed helper scripts to .prp/scripts/${NC}"
