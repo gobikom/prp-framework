@@ -24,8 +24,8 @@ step() { # step <A|C> -> the bash fence after "**Step <X>", {NUMBER} filled in
 setup() {
   WORK="$(mktemp -d)"
   cd "$WORK"
-  export XDG_RUNTIME_DIR="$WORK/runtime"
-  mkdir "$XDG_RUNTIME_DIR"
+  export XDG_CACHE_HOME="$WORK/cache"
+  mkdir "$XDG_CACHE_HOME"
   git init -q . && git commit -q --allow-empty -m w   # the reviewed tree is a repo: the tracked-.prp guard (B28-B30) runs `git ls-files` at cwd
   git init -q prp && git -C prp commit -q --allow-empty -m init && git -C prp tag v9.9.9
   mkdir -p prp/scripts && cp -r "$ROOT/scripts/review" prp/scripts/   # what Phase 2.0 and Step C run from the installed framework
@@ -754,7 +754,7 @@ clone_path() { printf '%s\n' "$output" | sed -n 's/^REVIEW_CLONE=//p'; }
   run bash c211.sh
   [ "$status" -ne 0 ]
   [[ "$output" == *"no reviewed head saved by Phase 2.0"* ]]
-  [ -z "$(ls -A "$XDG_RUNTIME_DIR")" ]
+  [ -z "$(ls -A "$XDG_CACHE_HOME")" ]
 }
 
 @test "--l2-comments implies no artifact commit (documented flag mapping)" {

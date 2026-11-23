@@ -1,9 +1,9 @@
 #!/usr/bin/env bats
 CLONE="$BATS_TEST_DIRNAME/../../scripts/review/review-clone.sh"
 setup() {
-  export XDG_RUNTIME_DIR="$BATS_TEST_TMPDIR/rt"
-  mkdir "$XDG_RUNTIME_DIR" "$BATS_TEST_TMPDIR/repo"
-  base="$XDG_RUNTIME_DIR/prp-review-$(id -u)"
+  export XDG_CACHE_HOME="$BATS_TEST_TMPDIR/cache"
+  mkdir "$XDG_CACHE_HOME" "$BATS_TEST_TMPDIR/repo"
+  base="$XDG_CACHE_HOME/prp-review-$(id -u)"
   cd "$BATS_TEST_TMPDIR/repo"
   git init -q
   git -c user.name=Test -c user.email=test@example.invalid commit -qm initial --allow-empty
@@ -11,6 +11,9 @@ setup() {
   git -c user.name=Test -c user.email=test@example.invalid commit -qm second --allow-empty
 }
 cmd() { bash "$CLONE" "$@"; }
+teardown() {
+  if [[ -n ${cross_cache:-} ]]; then rm -rf -- "$cross_cache"; fi
+}
 create() {
   local result
   result=$(cmd create 7 "$head") || return
@@ -108,10 +111,11 @@ refused() {
   [ "$status" -eq 0 ] && [[ $output == *'removed 0'* ]] && [ ! -e "$base" ]
 }
 @test 'C14 cleanup survives scratch and temp changes' {
-  unset XDG_RUNTIME_DIR
-  export TMPDIR="$BATS_TEST_TMPDIR/rt"
+  export TMPDIR="$XDG_CACHE_HOME"
+  export XDG_CACHE_HOME="$PWD/.git/HEAD"
   create
-  SCRATCHPAD=/does-not-exist TMPDIR=/different cmd remove 7 "$id"
+  [ -d "$root/clone" ]
+  XDG_CACHE_HOME=/different-cache SCRATCHPAD=/does-not-exist TMPDIR=/different cmd remove 7 "$id"
   [ ! -e "$root" ] && [ ! -e "$record" ]
 }
 @test 'C15 late cleanup removes only its own run' {
@@ -126,4 +130,30 @@ refused() {
   create; cp "$record" "$ar"
   run cmd remove 7 "$a"
   [ "$status" -eq 1 ] && [ -d "$root" ] && [ -d "$at" ] && [ -f "$ar" ]
+}
+
+@test 'e: cross-device clone copies loose objects' {
+  [ -d /dev/shm ] || skip '/dev/shm is not available'
+  shm_dev=$(stat -c %d /dev/shm)
+  repo_dev=$(stat -c %d "$BATS_TEST_TMPDIR")
+  [ "$shm_dev" != "$repo_dev" ] || skip '/dev/shm is on the repository device'
+  cross_cache=$(mktemp -d /dev/shm/prp-review-test.XXXXXXXXXX)
+  export XDG_CACHE_HOME="$cross_cache"
+  base="$cross_cache/prp-review-$(id -u)"
+  create
+  [ "$(git -C "$root/clone" rev-parse HEAD)" = "$head" ]
+  [ "$(stat -c %h "$root/clone/.git/objects/${head:0:2}/${head:2}")" -eq 1 ]
+}
+
+@test 'f: same-device clone hard-links loose objects' {
+  create
+  [ "$(stat -c %h "$root/clone/.git/objects/${head:0:2}/${head:2}")" -ge 2 ]
+}
+
+@test 'g: unset cache environment creates and uses HOME/.cache' {
+  unset XDG_CACHE_HOME
+  export HOME="$BATS_TEST_TMPDIR"
+  base="$HOME/.cache/prp-review-$(id -u)"
+  create
+  [ -d "$root/clone" ]
 }

@@ -12,8 +12,10 @@ private_base() {
   [[ -d $1 && ! -L $1 && -O $1 && $(stat -c %a -- "$1") == 700 ]]
 }
 base_path() {
-  local parent
-  parent=$(realpath -e -- "${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}") || return 1
+  local parent cache=${XDG_CACHE_HOME:-$HOME/.cache}
+  if ! { mkdir -p -- "$cache" 2>/dev/null && parent=$(realpath -e -- "$cache") && [[ -d $parent && -w $parent && -x $parent ]]; }; then
+    parent=$(realpath -e -- "${TMPDIR:-/tmp}") && [[ -d $parent ]] || return 1
+  fi
   printf '%s/%s\n' "${parent%/}" "$base_name"
 }
 owned_file() { [[ -f $1 && ! -L $1 && -O $1 ]]; }
@@ -37,7 +39,8 @@ sweep() {
   return "$failed"
 }
 create() {
-  local head=$1 base common nonce id record
+  local head=$1 base common nonce id record common_dev root_dev
+  local -a hl=()
   base=$(base_path) || fatal 'cannot resolve scratch parent — no agents started'
   sweep "$base" >&2 || printf 'review clone: warning: stale-root sweep failed\n' >&2
   if [[ ! -e $base && ! -L $base ]]; then mkdir -m 700 -- "$base" || private_base "$base" || fatal 'cannot create scratch base — no agents started'; fi
@@ -51,7 +54,10 @@ create() {
   nonce=$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n') && [[ $nonce =~ ^[0-9a-f]{32}$ ]] \
     && printf '%s\n' "$nonce" > "$ROOT/$marker" \
     || fatal 'cannot write root marker — no agents started'
-  git -c core.hooksPath=/dev/null clone --local --no-checkout --quiet -- "$common" "$ROOT/clone" \
+  common_dev=$(stat -c %d -- "$common") && root_dev=$(stat -c %d -- "$ROOT") \
+    || fatal 'cannot compare filesystems — no agents started'
+  if [[ $common_dev != "$root_dev" ]]; then hl=(--no-hardlinks); fi
+  git -c core.hooksPath=/dev/null clone --local "${hl[@]}" --no-checkout --quiet -- "$common" "$ROOT/clone" \
     && git -C "$ROOT/clone" -c core.hooksPath=/dev/null checkout --quiet --detach "$head" \
     && [[ $(git -C "$ROOT/clone" rev-parse HEAD) == "$head" ]] \
     || fatal 'cannot clone the reviewed head — no agents started'
