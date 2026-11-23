@@ -883,6 +883,9 @@ PYEOF
   [ "$rc" -eq 0 ]
   grep -F '[CHANGED]' <<< "$out" | grep -F 'prp-plan/SKILL.md'
   grep -F '[NEW]' <<< "$out" | grep -F 'prp-qa/SKILL.md'
+  local checked
+  checked=$(( $(wc -l < "$BATS_TEST_TMPDIR/before") + 1 ))
+  grep -Fx "Results: $checked checked, 2 differ — no files written (--diff), 0 skipped, 0 errors" <<< "$out"
   (cd "$TREE" && set -o pipefail && find adapters -type f -print0 | sort -z | xargs -0 sha256sum) > "$BATS_TEST_TMPDIR/after"
   cmp "$BATS_TEST_TMPDIR/before" "$BATS_TEST_TMPDIR/after"
   [ ! -e "$TREE/adapters/codex/prp-qa" ]
@@ -922,11 +925,18 @@ PY
   local value
   for value in '""' '"  "'; do
     make_tree "param-${#value}"
+    gen
+    [ "$rc" -eq 0 ]
+    # Make a would-be write visible even if generation would otherwise be unchanged.
+    printf 'stale\n' > "$TREE/adapters/codex/prp-plan/SKILL.md"
+    (cd "$TREE" && set -o pipefail && find adapters -type f -print0 | sort -z | xargs -0 sha256sum) > "$BATS_TEST_TMPDIR/before"
     sed -i "s/^\( *agent_blocking_param:\).*/\1 $value/" "$TREE/adapters.yml"
-    gen --adapter claude-code
+    gen
     [ "$rc" -eq 1 ]
-    grep -F "adapter 'claude-code' key 'agent_blocking_param'" <<< "$err"
-    [ ! -e "$TREE/adapters/claude-code/prp-review-agents.md" ]
+    [ "$(wc -l < "$BATS_TEST_TMPDIR/err")" -eq 1 ]
+    grep -Fx "Error: adapters.yml adapter 'claude-code' key 'agent_blocking_param' must not be blank" <<< "$err"
+    (cd "$TREE" && set -o pipefail && find adapters -type f -print0 | sort -z | xargs -0 sha256sum) > "$BATS_TEST_TMPDIR/after"
+    cmp "$BATS_TEST_TMPDIR/before" "$BATS_TEST_TMPDIR/after"
   done
 }
 

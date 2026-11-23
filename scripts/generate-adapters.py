@@ -255,6 +255,11 @@ def load_config() -> dict:
                   f"{sorted(KNOWN_ADAPTER_KEYS)}", file=sys.stderr)
             sys.exit(1)
         check_value_types("adapter", name, cfg, ADAPTER_VALUE_TYPES)
+        if "agent_blocking_param" in cfg and not cfg["agent_blocking_param"].strip():
+            print(f"Error: {display_path(CONFIG_PATH)} adapter '{name}' key "
+                  "'agent_blocking_param' must not be blank", file=sys.stderr)
+            sys.exit(1)
+
         fmt = cfg["format"]
         if fmt not in ("md", "toml") or Path(cfg["file_pattern"]).suffix != f".{fmt}":
             print(f"Error: Adapter '{name}' format {fmt!r} does not match "
@@ -435,7 +440,7 @@ def read_overlay(adapter: str, name: str) -> dict | None:
 # ---------------------------------------------------------------------------
 
 def substitute_placeholders(content: str, adapter_cfg: dict, cmd_name: str,
-                            config: dict, adapter_name: str) -> str:
+                            config: dict) -> str:
     """Replace {ARGS} and {TOOL}:cmd patterns with adapter-specific values."""
 
     # BEFORE substitution: every reserved-namespace token in the prompt must be
@@ -475,9 +480,6 @@ def substitute_placeholders(content: str, adapter_cfg: dict, cmd_name: str,
     # key IS the per-runtime mapping — only claude-code sets it).
     # prp-framework#151 AC1: claude-code maps it to run_in_background=false.
     blocking_param = adapter_cfg.get("agent_blocking_param", "")
-    if "agent_blocking_param" in adapter_cfg and not blocking_param.strip():
-        raise GenerationError(
-            f"error: adapter '{adapter_name}' key 'agent_blocking_param' must not be blank")
     content = content.replace("{AGENT_BLOCKING_PARAM}", blocking_param)
 
     # {AGENT_BLOCKING_PROSE} → the scoped claim for the adapter that carries
@@ -776,7 +778,7 @@ def generate_adapter_file(adapter_name: str, cmd_name: str, config: dict) -> tup
                 f"{display_path(PROMPTS_DIR / f'{cmd_name}.md')}")
 
     # Apply placeholder substitutions
-    body = substitute_placeholders(body, adapter_cfg, cmd_name, config, adapter_name)
+    body = substitute_placeholders(body, adapter_cfg, cmd_name, config)
 
     # Get description
     desc = get_description(adapter_name, cmd_cfg)
@@ -949,8 +951,13 @@ def run(args, phase: dict) -> int:
     )
 
     print(f"\n{'='*60}")
-    print(f"Results: {stats['generated']} generated, {stats['unchanged']} unchanged, "
-          f"{stats['skipped']} skipped, {stats['errors']} errors")
+    if args.diff and not args.dry_run:
+        checked = stats["generated"] + stats["unchanged"]
+        print(f"Results: {checked} checked, {stats['generated']} differ — no files written (--diff), "
+              f"{stats['skipped']} skipped, {stats['errors']} errors")
+    else:
+        print(f"Results: {stats['generated']} generated, {stats['unchanged']} unchanged, "
+              f"{stats['skipped']} skipped, {stats['errors']} errors")
     print(f"{'='*60}")
 
     if args.dry_run:
