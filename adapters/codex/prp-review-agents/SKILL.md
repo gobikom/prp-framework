@@ -1698,10 +1698,34 @@ TRUSTED_LOGIN=$(gh api user --jq '.login') && [ -n "$TRUSTED_LOGIN" ] || { echo 
 RID_DIR=$(mktemp -d) || { echo "FATAL: mktemp failed; nothing posted" >&2; exit 1; }
 gh api "repos/{owner}/{repo}/pulls/{NUMBER}/commits" --paginate --jq '.[].sha' > "$RID_DIR/shas" || { echo "FATAL: cannot list PR commits; nothing posted" >&2; exit 1; }
 printf '%s\n' "$NOW_HEAD" >> "$RID_DIR/shas"
-TRUSTED_LOGIN="$TRUSTED_LOGIN" gh api "repos/{owner}/{repo}/issues/{NUMBER}/comments" --paginate --jq '.[] | select(.user.login == env.TRUSTED_LOGIN) | {body, footer: (.body | rtrimstr("\n") | split("\n") | last)} | @json' > "$RID_DIR/prior-comments" || { echo "FATAL: cannot read PR comments; nothing posted" >&2; exit 1; }
-jq -r '.body' "$RID_DIR/prior-comments" > "$RID_DIR/prior" \
-  && jq -r '.footer' "$RID_DIR/prior-comments" > "$RID_DIR/prior-footers" \
-  || { echo "FATAL: cannot read prior review footers; nothing posted" >&2; exit 1; }
+LISTING="$RID_DIR/prior-comments"
+TRUSTED_LOGIN="$TRUSTED_LOGIN" gh api "repos/{owner}/{repo}/issues/{NUMBER}/comments" --paginate --jq '.[] | select(.user.login == env.TRUSTED_LOGIN) | .body | @base64' > "$LISTING" || { echo "FATAL: cannot read PR comments; nothing posted" >&2; exit 1; }
+bad_footers() { printf 'FATAL: cannot read prior review footers: %s; nothing posted\n' "$1" >&2; exit 1; }
+# Reject non-protocol bytes before Bash read can drop a raw NUL.
+EXTRA=$(set -o pipefail; LC_ALL=C tr -d 'A-Za-z0-9+/=\n' < "$LISTING" | wc -c) || bad_footers 'listing byte check failed'
+[ "$EXTRA" -eq 0 ] || bad_footers 'invalid listing bytes'
+if [ -s "$LISTING" ]; then
+  LAST=$(set -o pipefail; tail -c 1 "$LISTING" | od -An -tx1) || bad_footers 'cannot read the final listing byte'
+  [[ "$LAST" == *' 0a' ]] || bad_footers 'unterminated final record'
+fi
+: > "$RID_DIR/prior" && : > "$RID_DIR/prior-footers" || bad_footers 'cannot initialize decoded output'
+N=0
+while IFS= read -r REC; do
+  BODY=$( (set -o pipefail; printf '%s' "$REC" | base64 -d) && printf x ) || bad_footers "cannot decode body at record $((N+1))"
+  BODY=${BODY%x}  # sentinel preserves all trailing newlines through command substitution
+  DECODED_BYTES=$(set -o pipefail; printf '%s' "$REC" | base64 -d | LC_ALL=C wc -c) || bad_footers "cannot count body at record $((N+1))"
+  BODY_BYTES=$(set -o pipefail; printf '%s' "$BODY" | LC_ALL=C wc -c) || bad_footers "cannot measure body at record $((N+1))"
+  [ "$DECODED_BYTES" -eq "$BODY_BYTES" ] || bad_footers "NUL byte in body at record $((N+1))"
+  printf '%s\n' "$BODY" >> "$RID_DIR/prior" || bad_footers "cannot write body at record $((N+1))"
+  # Match the old footer filter: trim at most one LF, then take the last line.
+  # An empty API body (not accepted by GitHub) yields an empty footer here.
+  T=${BODY%$'\n'}
+  printf '%s\n' "${T##*$'\n'}" >> "$RID_DIR/prior-footers" || bad_footers "cannot write footer at record $((N+1))"
+  N=$((N+1))
+done < "$LISTING" || bad_footers 'cannot open listing for decoding'
+L=$(wc -l < "$LISTING") && F=$(wc -l < "$RID_DIR/prior-footers") || bad_footers 'cannot count listing or footer records'
+[ "$N" -eq "$L" ] || bad_footers 'listing record count mismatch'
+[ "$N" -eq "$F" ] || bad_footers 'decoded footer count mismatch'
 bash "$PRP_DIR/scripts/review/run-id.sh" check --id "$RUN_ID" --shas-file "$RID_DIR/shas" --prior-file "$RID_DIR/prior" || { echo "FATAL: run id refused; nothing posted" >&2; exit 1; }
 # A partial earlier post already spends its run ID. Match Phase 2.0's final-line count.
 bash "$PRP_DIR/scripts/review/round-guard.sh" --cap 2 < "$RID_DIR/prior-footers" \

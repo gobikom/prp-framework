@@ -32,6 +32,7 @@ setup() {
   # gh stub: `pr view` prints $FAKE_HEAD (or fails with GH_FAIL=1); `pr comment` logs the body file, prints a URL
   cat > bin/gh <<'EOF'
 #!/usr/bin/env bash
+set -o pipefail
 if [ "$1 $2" = "pr view" ]; then
   [ -n "${GH_FAIL:-}" ] && exit 1
   shift 2; j=""; while [ $# -gt 0 ]; do [ "$1" = "--json" ] && j="$2"; shift; done
@@ -53,16 +54,20 @@ if [ "$1" = "api" ]; then   # the round-cap read (Phase 2.0): last lines of the 
   # apply the REAL --jq filter from the prompt to comment JSON, as `gh api --paginate --jq` does per page
   filter=""; while [ $# -gt 0 ]; do [ "$1" = "--jq" ] && filter="$2"; shift; done
   [ -n "$filter" ] || exit 1
+  if [ -n "${FAKE_LISTING:-}" ]; then
+    cat -- "$FAKE_LISTING"
+    exit $?
+  fi
   if [ -n "${FAKE_COMMENTS_JSON:-}" ]; then jq -r "$filter" "$FAKE_COMMENTS_JSON" || exit 1; exit 0; fi
   # FAKE_COMMENTS = one footer line per comment; wrap each as a multi-line body with a trailing newline
   # user.login matches the "api user" mock's default login ("bot", or $FAKE_LOGIN) so these
   # fixture comments count as trusted by default (prp-framework#228's round-cap/mode-decision
   # author filter); a test exercising the untrusted-author path sets FAKE_COMMENTS_JSON instead.
-  if [ -n "${FAKE_COMMENTS:-}" ]; then jq -R -s --arg login "${FAKE_LOGIN:-bot}" 'split("\n")[:-1] | map({user: {login: $login}, body: ("Reviewed head: x\n\n### Could not verify\nNothing.\n\n" + . + "\n")})' "$FAKE_COMMENTS" | jq -r "$filter"; exit 0; fi
+  if [ -n "${FAKE_COMMENTS:-}" ]; then jq -R -s --arg login "${FAKE_LOGIN:-bot}" 'split("\n")[:-1] | map({user: {login: $login}, body: ("Reviewed head: x\n\n### Could not verify\nNothing.\n\n" + . + "\n")})' "$FAKE_COMMENTS" | jq -r "$filter"; exit $?; fi
   # no fixture set: serve the bodies posted so far this test, as the trusted login. A real PR
   # returns the just-posted comments on the next listing too — this is what makes a run-id
   # check placed inside the posting loop refuse pass 2 (the W1 pin on check-before-loop, M5).
-  [ -s "$WORK/posted.jsonl" ] && jq -s . "$WORK/posted.jsonl" | jq -r "$filter"
+  if [ -s "$WORK/posted.jsonl" ]; then jq -s . "$WORK/posted.jsonl" | jq -r "$filter"; exit $?; fi
   exit 0
 fi
 if [ "$1 $2" = "pr comment" ]; then
@@ -1231,5 +1236,137 @@ run_20a() { # run 2.0a in $WORK with REVIEWED_HEAD_SHA already saved to pr-7-rev
       echo "od -An -N4 still present in $f — Step A must call run-id.sh new, not draw inline" >&2
       return 1
     fi
+  done
+}
+
+# Expose Step C's scratch outputs without changing the decoder.
+listing_setup() {
+  start; [ "$status" -eq 0 ]; write_all
+  export DECODED="$WORK/decoded" FAKE_LISTING="$WORK/listing"
+  mkdir "$DECODED"
+  printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$DECODED"\n' > bin/mktemp
+  chmod +x bin/mktemp
+}
+
+listing_body() {
+  (set -o pipefail; printf '%s' "$1" | base64 | tr -d '\n') > "$FAKE_LISTING"
+  printf '\n' >> "$FAKE_LISTING"
+}
+
+listing_ok() {
+  post; [ "$status" -eq 0 ]; [ "$(wc -l < "$WORK_LOG")" -eq 3 ]
+}
+
+listing_refused() {
+  post; [ "$status" -ne 0 ]; [ ! -s "$WORK_LOG" ]
+  [[ "$output" == *"$1; nothing posted"* ]]
+}
+
+footer_is() {
+  printf '%s\n' "$1" > "$WORK/footer.want"
+  cmp "$WORK/footer.want" "$DECODED/prior-footers"
+}
+
+@test "B4A3 B1a: multiline body with no trailing LF" {
+  listing_setup; listing_body $'a\nGenerated-by: X'; listing_ok; footer_is 'Generated-by: X'
+}
+
+@test "B4A3 B1b: body with one trailing LF" {
+  listing_setup; listing_body $'a\nGenerated-by: X\n'; listing_ok; footer_is 'Generated-by: X'
+}
+
+@test "B4A3 B1c: body with two trailing LFs has an empty footer" {
+  listing_setup; listing_body $'a\nGenerated-by: X\n\n'; listing_ok; footer_is ''
+  printf 'a\nGenerated-by: X\n\n\n' > "$WORK/body.want"
+  cmp "$WORK/body.want" "$DECODED/prior"
+}
+
+@test "B4A3 B2: single-line body is its own footer" {
+  listing_setup; listing_body 'one line'; listing_ok; footer_is 'one line'
+}
+
+@test "B4A3 B3: CRLF keeps the CR in the footer" {
+  listing_setup; listing_body $'a\r\nb\r\n'; listing_ok; footer_is $'b\r'
+}
+
+@test "B4A3 B4: empty listing starts the first round" {
+  listing_setup; : > "$FAKE_LISTING"; listing_ok
+  [ -f "$DECODED/prior" ] && [ ! -s "$DECODED/prior" ]
+  [ -f "$DECODED/prior-footers" ] && [ ! -s "$DECODED/prior-footers" ]
+}
+
+@test "B4A3 B5: alphabet-only malformed records reach the decoder" {
+  listing_setup
+  # abc= is valid base64; these have invalid length or padding.
+  for invalid in a a=== ab=c; do
+    printf '%s\n' "$invalid" > "$FAKE_LISTING"
+    listing_refused 'cannot decode body at record 1'
+  done
+}
+
+@test "B4A3 B6: a tab-separated second field is rejected" {
+  listing_setup; printf 'YQ==\tYg==\n' > "$FAKE_LISTING"
+  listing_refused 'invalid listing bytes'
+}
+
+@test "B4A3 B7: NUL in decoded body is rejected" {
+  listing_setup; printf 'a\0b' | base64 > "$FAKE_LISTING"
+  listing_refused 'NUL byte in body at record 1'
+}
+
+@test "B4A3 B8: a truncated listing is rejected even after a complete record" {
+  listing_setup; printf 'YQ==\nYg==' > "$FAKE_LISTING"
+  listing_refused 'unterminated final record'
+}
+
+@test "B4A3 B9: fake gh propagates a fixture read error" {
+  listing_setup; listing_refused 'cannot read PR comments'
+}
+
+@test "B4A3 B10: corrupt footer output count blocks posting" {
+  listing_setup; listing_body 'one line'
+  export REAL_WC="$(command -v wc)"
+  cat > bin/wc <<'SH'
+#!/usr/bin/env bash
+if [ "$(readlink /proc/$$/fd/0)" = "$DECODED/prior-footers" ]; then
+  printf '\n' >> "$DECODED/prior-footers" || exit 1
+fi
+exec "$REAL_WC" "$@"
+SH
+  chmod +x bin/wc
+  listing_refused 'decoded footer count mismatch'
+}
+
+@test "B4A3 B11: an empty body emits one empty footer and body line" {
+  listing_setup; listing_body ''; listing_ok; footer_is ''
+  cmp "$WORK/footer.want" "$DECODED/prior"
+}
+
+@test "B4A3 B12: decoded prior and footers match jq over the corpus" {
+  listing_setup; command -v jq; unset FAKE_LISTING
+  export FAKE_COMMENTS_JSON="$WORK/corpus.json"
+  jq -es '["a\nGenerated-by: X", "a\nGenerated-by: X\n", "a\nGenerated-by: X\n\n", "one line", "a\r\nb\r\n", "ภาษาไทย\n🦉"] + . | map({user:{login:"bot"},body:.})' \
+    "$ROOT/tests/fixtures/l2-pr268-bodies.jsonl" > "$FAKE_COMMENTS_JSON"
+  jq -r '.[].body' "$FAKE_COMMENTS_JSON" > "$WORK/prior.want"
+  jq -r '.[].body | rtrimstr("\n") | split("\n") | last' "$FAKE_COMMENTS_JSON" > "$WORK/footer.want"
+  listing_ok
+  cmp "$WORK/prior.want" "$DECODED/prior"
+  cmp "$WORK/footer.want" "$DECODED/prior-footers"
+}
+
+@test "B4A3: Step C requests exactly one base64 body field" {
+  grep -Fq -- "--jq '.[] | select(.user.login == env.TRUSTED_LOGIN) | .body | @base64'" stepC.sh
+}
+
+@test "B4A3: no standalone jq command in Step C for any adapter" {
+  local file rc
+  for file in "$ROOT/prompts/review-agents.md" \
+    "$ROOT"/adapters/{antigravity,claude-code}/prp-review-agents.md \
+    "$ROOT"/adapters/{codex,thclaws}/prp-review-agents/SKILL.md \
+    "$ROOT"/adapters/gemini/review-agents.toml "$ROOT"/adapters/opencode/review-agents.md; do
+    fence "$file" '**Step C' > "$WORK/fence.sh"
+    [ -s "$WORK/fence.sh" ]
+    rc=0; grep -v '^ *#' "$WORK/fence.sh" | grep -nE '(^|[[:space:];|&(/])jq([[:space:];|&)]|$)' || rc=$?
+    [ "$rc" -eq 1 ] || return 1
   done
 }
