@@ -117,11 +117,16 @@ _ledger_add() {
 _ensure_dir() {
     local p=$1 step=$2 err=""
     if [ -L "$p" ]; then
-        if [ -d "$p" ] && [ "${3:-}" = "allow-link-dir" ]; then return 0; fi
+        if [ -d "$p" ] && [ "${3:-}" = "allow-link-dir" ] && _contained "$p"; then
+            _OUTSIDE_OK="${_OUTSIDE_OK:+$_OUTSIDE_OK$'\n'}$p"; return 0
+        fi
         _ledger_add "$p" "$(_path_state "$p")" "$step"; return 1
     fi
     if [ -e "$p" ] && [ ! -d "$p" ]; then
         _ledger_add "$p" "$(_path_state "$p")" "$step"; return 1
+    fi
+    if ! _contained "$p"; then
+        _ledger_add "$p" "parent resolves outside the project" "$step"; return 1
     fi
     if [ ! -d "$p" ]; then
         err=$(mkdir -p -- "$p" 2>&1) || true
@@ -136,6 +141,9 @@ _ensure_dir() {
 _remove_path() {
     local p=$1 step=$2 err=""
     if [ ! -e "$p" ] && [ ! -L "$p" ]; then return 0; fi
+    if ! _contained "$p"; then
+        _ledger_add "$p" "parent resolves outside the project" "$step"; return 1
+    fi
     if [ -d "$p" ] && [ ! -L "$p" ]; then
         if [ "${3:-}" != "dir" ]; then _ledger_add "$p" "is a directory" "$step"; return 1; fi
         err=$(rm -rf -- "$p" 2>&1) || true
@@ -148,10 +156,75 @@ _remove_path() {
     return 0
 }
 
+# Resolved project root, for the parent-containment check below.
+_PROJECT_REAL=$(cd -P -- "$PROJECT_DIR" 2>/dev/null && pwd -P) || _PROJECT_REAL=$PROJECT_DIR
+
+# Directories that a named opt-in (allow-link-dir: .claude, .claude/agents, .claude/hooks, .prp)
+# accepted as symlinks. Paths below them may resolve outside the project on purpose.
+_OUTSIDE_OK=""
+
+# _contained <path>: 0 iff the nearest existing ancestor of <path> resolves inside the project, or
+# <path> lies below a named opt-in. A committed parent symlink must not carry a write or a removal out.
+_contained() {
+    local a o
+    while IFS= read -r o; do
+        [ -n "$o" ] || continue
+        case "$1/" in "$o"/*) return 0 ;; esac
+    done <<<"$_OUTSIDE_OK"
+    a=$(dirname -- "$1")
+    while [ ! -e "$a" ] && [ "$a" != "/" ] && [ "$a" != "." ]; do a=$(dirname -- "$a"); done
+    a=$(cd -P -- "$a" 2>/dev/null && pwd -P) || return 1
+    case "$a/" in "$_PROJECT_REAL"/*) return 0 ;; esac
+    return 1
+}
+
+# _write_file <target> <skipped step>: content on stdin. Runs in the CALLER's shell: never put it
+# on the right of a pipe (a pipeline subshell would lose the ledger). Never follows a symlink leaf:
+# a link (live or dangling) or non-regular leaf is refused and left unchanged. The content goes to
+# a temp file beside the target, is moved over it with mv -T (replaces a link, never follows it) and
+# is verified afterwards with cmp against the exact bytes. The mode of an existing file is kept.
+# Every failure, including a failed temp cleanup, is a ledger entry.
+_write_file() {
+    local t=$1 step=$2 d tmp err="" mode="" content why
+    d=$(dirname -- "$t")
+    content=$(cat; printf x) || content=x
+    content=${content%x}
+    _wf_fail() { # <why>: clean our temp, then ledger the target (and the temp if it could not be removed)
+        if [ -n "$tmp" ] && { [ -e "$tmp" ] || [ -L "$tmp" ]; }; then
+            rm -f -- "$tmp" 2>/dev/null # fs-ok: our own temp file
+            if [ -e "$tmp" ] || [ -L "$tmp" ]; then _ledger_add "$tmp" "temp file left behind" "cleanup of $step"; fi
+        fi
+        _ledger_add "$t" "$(_path_state "$t")${1:+ ($1)}" "$step not written"
+        return 1
+    }
+    if [ -L "$t" ] || { [ -e "$t" ] && [ ! -f "$t" ]; }; then _wf_fail ""; return 1; fi
+    if ! _contained "$t"; then _wf_fail "parent resolves outside the project"; return 1; fi
+    tmp=""
+    if ! tmp=$(mktemp "$d/.prp-tmp.XXXXXX" 2>&1); then why=$tmp; tmp=""; _wf_fail "$why"; return 1; fi
+    if ! err=$(printf '%s' "$content" 2>&1 >"$tmp"); then _wf_fail "$err"; return 1; fi # fs-ok: our own temp file
+    if [ -f "$t" ]; then mode=$(stat -c %a -- "$t" 2>/dev/null || stat -f %Lp -- "$t" 2>/dev/null) || mode=""; fi
+    [ -n "$mode" ] || mode=$(printf '%o' $((0666 & ~$(umask))))
+    if ! err=$(chmod "$mode" -- "$tmp" 2>&1); then _wf_fail "chmod: $err"; return 1; fi
+    if ! err=$(mv -f -T -- "$tmp" "$t" 2>&1); then # fs-ok: atomic temp-and-rename, the leaf was checked above
+        # mv without -T (BSD/macOS): safe only because the leaf is no link and no directory
+        if [ -L "$t" ] || [ -d "$t" ] || ! err=$(mv -f -- "$tmp" "$t" 2>&1); then # fs-ok: same, leaf re-checked
+            _wf_fail "$err"; return 1
+        fi
+    fi
+    tmp=""
+    if [ -L "$t" ] || [ ! -f "$t" ] || ! printf '%s' "$content" | cmp -s -- - "$t"; then
+        _ledger_add "$t" "$(_path_state "$t") (content differs from what was written)" "$step not written"; return 1
+    fi
+    return 0
+}
+
 # _place <src> <dst> <name> <file|dir|link>: 0 symlinked, 1 copied, 2 not delivered
 # (ledgered). kind=link repoints a dangling dst in place (ln -sfn), never copies.
 _place() {
     local src=$1 dst=$2 name=$3 kind=$4 err="" cerr=""
+    if ! _contained "$dst"; then
+        _ledger_add "$dst" "parent resolves outside the project" "$name not installed"; return 2
+    fi
     if [ -e "$dst" ] || { [ -L "$dst" ] && [ "$kind" != "link" ]; }; then
         _ledger_add "$dst" "$(_path_state "$dst")" "$name not installed"; return 2
     fi
@@ -294,6 +367,11 @@ if [[ "$PRESET" == "standard" || "$PRESET" == "full" ]]; then
     CORE_CMDS="$MINIMAL_CMDS $STANDARD_EXTRA"
 fi
 
+# .claude may be a named symlink to a shared directory (the same opt-in the stamp step uses).
+if [ -L "$PROJECT_DIR/.claude" ] && [ -d "$PROJECT_DIR/.claude" ]; then
+    _OUTSIDE_OK="$PROJECT_DIR/.claude"
+fi
+
 echo "📦 Installing adapters ($PRESET preset)..."
 echo ""
 
@@ -397,8 +475,11 @@ fi
 # Make ralph stop hook executable
 RALPH_HOOK="$PROJECT_DIR/.claude/hooks/prp-ralph-stop.sh"
 if [ -f "$RALPH_HOOK" ]; then
-    chmod +x "$RALPH_HOOK"
-    echo -e "${GREEN}  ✅ Made prp-ralph-stop.sh executable${NC}"
+    if _err=$(chmod +x "$RALPH_HOOK" 2>&1); then
+        echo -e "${GREEN}  ✅ Made prp-ralph-stop.sh executable${NC}"
+    else
+        echo -e "${YELLOW}  ⚠️  Could not set executable permission on prp-ralph-stop.sh${_err:+ ($_err)}${NC}" >&2
+    fi
 fi
 
 # Register ralph stop hook in settings.local.json
@@ -410,40 +491,49 @@ if ! command -v jq &>/dev/null; then
     echo -e "${YELLOW}  ⚠️  jq not found — add ralph hook manually to .claude/settings.local.json:${NC}"
     echo '     {"hooks": {"Stop": [{"hooks": [{"type": "command", "command": ".claude/hooks/prp-ralph-stop.sh"}]}]}}'
 else
-    if [ -f "$SETTINGS_FILE" ]; then
-        # Check if hook already registered
+    if [ -L "$SETTINGS_FILE" ] || { [ -e "$SETTINGS_FILE" ] && [ ! -f "$SETTINGS_FILE" ]; }; then
+        # A link (live or dangling) or non-regular file is never written through or replaced
+        _ledger_add "$SETTINGS_FILE" "$(_path_state "$SETTINGS_FILE")" "ralph stop hook not registered"
+    elif [ -f "$SETTINGS_FILE" ]; then
+        # Check if hook already registered; a parse failure is a ledger entry, never an abort
+        _jq_ok=true
         EXISTING=$(jq -r '
             .hooks.Stop[]?.hooks[]?
             | select(.command == "'"$HOOK_CMD"'")
             | .command
-        ' "$SETTINGS_FILE" 2>/dev/null)
-        if [ -n "$EXISTING" ]; then
+        ' "$SETTINGS_FILE" 2>&1) || _jq_ok=false
+        if ! $_jq_ok; then
+            _ledger_add "$SETTINGS_FILE" "$(_path_state "$SETTINGS_FILE") (not valid JSON: ${EXISTING})" "ralph stop hook not registered"
+        elif [ -n "$EXISTING" ]; then
             echo -e "${GREEN}  ✅ Ralph stop hook already registered${NC}"
         else
             # Merge into existing settings
-            TEMP_FILE=$(mktemp)
-            if jq --arg cmd "$HOOK_CMD" '
+            _jq_ok=true
+            _merged=$(jq --arg cmd "$HOOK_CMD" '
                 .hooks.Stop = ((.hooks.Stop // []) + [
                     {"hooks": [{"type": "command", "command": $cmd}]}
                 ])
-            ' "$SETTINGS_FILE" > "$TEMP_FILE"; then
-                mv "$TEMP_FILE" "$SETTINGS_FILE" # fs-ok: temp file beside its target, atomic rename
+            ' "$SETTINGS_FILE" 2>&1) || _jq_ok=false
+            jq -e 'type == "object"' >/dev/null 2>&1 <<<"$_merged" || _jq_ok=false
+            if ! $_jq_ok; then
+                _ledger_add "$SETTINGS_FILE" "$(_path_state "$SETTINGS_FILE") (jq: ${_merged})" "ralph stop hook not registered"
+            elif _write_file "$SETTINGS_FILE" "ralph stop hook" <<<"$_merged"; then
                 echo -e "${GREEN}  ✅ Registered ralph stop hook in settings.local.json${NC}"
-            else
-                rm -f "$TEMP_FILE" # fs-ok: our own mktemp file, not a project path
-                echo -e "${YELLOW}  ⚠️  Failed to update settings.local.json — add ralph hook manually${NC}"
             fi
         fi
     else
         # Create new settings file
-        if _err=$(jq -n --arg cmd "$HOOK_CMD" '{
+        _jq_ok=true
+        _merged=$(jq -n --arg cmd "$HOOK_CMD" '{
             "hooks": {
                 "Stop": [{"hooks": [{"type": "command", "command": $cmd}]}]
             }
-        }' 2>&1 > "$SETTINGS_FILE"); then
+        }' 2>&1) || _jq_ok=false
+        jq -e 'type == "object"' >/dev/null 2>&1 <<<"$_merged" || _jq_ok=false
+        if ! $_jq_ok; then
+            _ledger_add "$SETTINGS_FILE" "absent (jq: ${_merged})" "ralph stop hook not registered"
+        elif _write_file "$SETTINGS_FILE" "ralph stop hook" <<<"$_merged"; then
             echo -e "${GREEN}  ✅ Created settings.local.json with ralph stop hook${NC}"
-        else
-            _ledger_add "$SETTINGS_FILE" "$(_path_state "$SETTINGS_FILE")${_err:+ ($_err)}" "ralph stop hook not registered"
         fi
     fi
 fi
@@ -632,6 +722,7 @@ GITIGNORE_FILE="$PROJECT_DIR/.gitignore"
 _GITIGNORE_WARN=""
 _gitignore_fail() {
     _GITIGNORE_WARN="${_GITIGNORE_WARN:+$_GITIGNORE_WARN; }$1"
+    _ledger_add "$GITIGNORE_FILE" "$(_path_state "$GITIGNORE_FILE")" ".gitignore PRP rules not added"
     echo -e "${YELLOW}  ⚠️  .gitignore not updated: $1${NC}" >&2
 }
 _gi_size() { wc -c < "$GITIGNORE_FILE"; }
@@ -642,13 +733,14 @@ _gi_append() {
     fi
     expected=$((before + ${#1}))
     # Turn a file-size signal into a write error without changing the installer's traps.
-    if (trap '' XFSZ; printf '%s' "$1" >> "$GITIGNORE_FILE") 2>/dev/null &&
+    # the one .gitignore append: leaf checked above, size verified after, rolled back below
+    if (trap '' XFSZ; printf '%s' "$1" >> "$GITIGNORE_FILE") 2>/dev/null && # fs-ok: the .gitignore append with rollback
         after=$(_gi_size) && [ "$after" -eq "$expected" ]; then
         return 0
     fi
     if { [ ! -e "$GITIGNORE_FILE" ] && [ "$before" -eq 0 ]; } ||
         { after=$(_gi_size) && [ "$after" -eq "$before" ]; } ||
-        { truncate -s "$before" -- "$GITIGNORE_FILE" 2>/dev/null && after=$(_gi_size) && [ "$after" -eq "$before" ]; } ||
+        { truncate -s "$before" -- "$GITIGNORE_FILE" 2>/dev/null && after=$(_gi_size) && [ "$after" -eq "$before" ]; } || # fs-ok: rollback to the original byte count
         { perl -e 'truncate($ARGV[0], $ARGV[1]) or exit 1' -- "$GITIGNORE_FILE" "$before" 2>/dev/null &&
             after=$(_gi_size) && [ "$after" -eq "$before" ]; }; then
         _gitignore_fail "could not append the PRP rules to $GITIGNORE_FILE — original bytes preserved"
@@ -754,17 +846,20 @@ if ! $SKIP_INJECT; then
         echo "→ CLAUDE.md PRP inject — skipped: soul-orchestra agent home (PRP info via tools_knowledge)"
     else
         echo "→ Injecting PRP section into CLAUDE.md"
-        "$FRAMEWORK_DIR/scripts/inject-claude-md.sh" "$PROJECT_DIR"
+        _inj=0
+        "$FRAMEWORK_DIR/scripts/inject-claude-md.sh" "$PROJECT_DIR" || _inj=$?
+        if [ "$_inj" -ne 0 ]; then
+            _ledger_add "$PROJECT_DIR/CLAUDE.md" "$(_path_state "$PROJECT_DIR/CLAUDE.md")" "PRP section not injected (exit $_inj)"
+        fi
     fi
 else
     echo -e "${YELLOW}→ Skipping CLAUDE.md injection (--no-inject)${NC}"
 fi
 
 # Save version and preset for upgrade detection, before the summary (a failed stamp is a ledger entry)
+# Here-string, not a pipe: _write_file must run in this shell so its ledger entry survives.
 _write_stamp() {
-    local err
-    err=$( { printf '%s\n' "$1" > "$2"; } 2>&1 ) ||
-        _ledger_add "$2" "$(_path_state "$2")${err:+ ($err)}" "stamp not written"
+    _write_file "$2" "stamp" <<<"$1" || true
 }
 if _ensure_dir "$PROJECT_DIR/.claude" "version stamp (.claude/prp-version, .claude/prp-preset) not written" allow-link-dir; then
     if [ -n "$CURRENT_VERSION" ]; then
@@ -779,6 +874,7 @@ echo ""
 
 if [ "$LEDGER_N" -gt 0 ]; then
     echo -e "${RED}❌ $LEDGER_N path(s) not installed: ${LEDGER_PATHS//$'\n'/, }${NC}"
+    echo -e "${YELLOW}   Note: .claude/prp-version and prp-preset record that this install ran to the end, not that it was complete. Fix the paths above and re-run.${NC}"
 elif $USED_SYMLINKS && ! $USED_COPY; then
     echo -e "${GREEN}✅ Installation complete using symlinks!${NC}"
     echo ""

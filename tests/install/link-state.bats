@@ -14,7 +14,8 @@ install_prp() { bash "$framework/scripts/install.sh" "$project" --minimal --no-i
 @test "L1 absent .prp gets a real helper directory" {
     run install_prp
     [ "$status" -eq 0 ]
-    [ ! -L "$prp" ] && [ -x "$prp/scripts/prp-validate.sh" ]
+    [ ! -L "$prp" ]
+    [ -x "$prp/scripts/prp-validate.sh" ]
 }
 
 @test "L2 correct .prp link is unchanged" {
@@ -49,7 +50,8 @@ install_prp() { bash "$framework/scripts/install.sh" "$project" --minimal --no-i
     inode=$(ls -di "$prp"); inode=${inode%% *}
     run install_prp
     [ "$status" -eq 0 ]
-    [ ! -L "$prp" ] && [ -x "$prp/scripts/prp-validate.sh" ]
+    [ ! -L "$prp" ]
+    [ -x "$prp/scripts/prp-validate.sh" ]
     after=$(ls -di "$prp"); [ "${after%% *}" = "$inode" ]
     [ ! -e "$prp/$(basename "$framework")" ]
 }
@@ -63,7 +65,9 @@ install_prp() { bash "$framework/scripts/install.sh" "$project" --minimal --no-i
     [[ "$output" == *"path(s) not installed: $prp"* ]]
     [ "$prp" -ef "$BATS_TEST_TMPDIR/original" ]
     [ "$(cat "$prp")" = 'keep me' ]
-    [ -f "$project/.gitignore" ] && [ -f "$project/.claude/prp-version" ] && [[ "$output" == *'Installed preset'* ]]
+    [ -f "$project/.gitignore" ]
+    [ -f "$project/.claude/prp-version" ]
+    [[ "$output" == *'Installed preset'* ]]
 }
 
 @test "L7 dangling gen-ai-context.sh is repointed and its old target named" {
@@ -123,7 +127,9 @@ SH
     [[ "$output" == *"$prp/scripts: dangling symlink → $dead/scripts — helper scripts not installed"* ]]
     [[ "$output" == *"path(s) not installed: $prp/scripts"* ]]
     [ "$(readlink "$prp/scripts")" = "$dead/scripts" ]
-    [ -f "$project/.gitignore" ] && [ -f "$project/.claude/prp-version" ] && [[ "$output" == *'Installed preset'* ]]
+    [ -f "$project/.gitignore" ]
+    [ -f "$project/.claude/prp-version" ]
+    [[ "$output" == *'Installed preset'* ]]
 }
 
 @test "L15 dangling project scripts link is reported, exits 1 and install continues" {
@@ -132,7 +138,9 @@ SH
     [ "$status" -eq 1 ]
     [[ "$output" == *"$project/scripts: dangling symlink → $dead/scripts — gen-ai-context.sh not installed"* ]]
     [ "$(readlink "$project/scripts")" = "$dead/scripts" ]
-    [ -f "$project/.gitignore" ] && [ -f "$project/.claude/prp-version" ] && [[ "$output" == *'Installed preset'* ]]
+    [ -f "$project/.gitignore" ]
+    [ -f "$project/.claude/prp-version" ]
+    [[ "$output" == *'Installed preset'* ]]
 }
 
 @test "L16 failed file copy is loud, never counted as copied, and exits 1" {
@@ -143,7 +151,9 @@ SH
     [[ "$output" != *'✅ Copied: AGENTS.md'* ]]
     [[ "$output" == *"❌ 1 path(s) not installed: $project/AGENTS.md"* ]]
     [ ! -e "$project/AGENTS.md" ]
-    [ -f "$project/.gitignore" ] && [ -f "$project/.claude/prp-version" ] && [ -x "$prp/scripts/prp-validate.sh" ]
+    [ -f "$project/.gitignore" ]
+    [ -f "$project/.claude/prp-version" ]
+    [ -x "$prp/scripts/prp-validate.sh" ]
 }
 
 @test "L17 failed directory copy is loud, never counted as copied, and exits 1" {
@@ -153,7 +163,9 @@ SH
     [[ "$output" == *"$project/.opencode/commands/prp: absent (cp: boom"*"— OpenCode not installed (copy failed)"* ]]
     [[ "$output" != *'✅ Copied: OpenCode'* ]]
     [[ "$output" == *"❌ 1 path(s) not installed: $project/.opencode/commands/prp"* ]]
-    [ -f "$project/.gitignore" ] && [ -f "$project/.claude/prp-version" ] && [ -x "$prp/scripts/prp-validate.sh" ]
+    [ -f "$project/.gitignore" ]
+    [ -f "$project/.claude/prp-version" ]
+    [ -x "$prp/scripts/prp-validate.sh" ]
 }
 
 @test "L18 failed repoint of a dangling .prp is named, exits 1, link untouched" {
@@ -164,7 +176,8 @@ SH
     [[ "$output" == *"$prp: dangling symlink → $dead (ln: boom"*"— helper scripts (.prp) not installed"* ]]
     [[ "$output" == *"path(s) not installed: $prp"* ]]
     [ "$(readlink "$prp")" = "$dead" ]
-    [ -f "$project/.gitignore" ] && [ -f "$project/.claude/prp-version" ]
+    [ -f "$project/.gitignore" ]
+    [ -f "$project/.claude/prp-version" ]
 }
 
 @test "L19 .prp link to a regular file is left alone, reported, exits 1" {
@@ -174,5 +187,7 @@ SH
     [[ "$output" == *"$prp: symlink to file → $BATS_TEST_TMPDIR/file — helper scripts not installed"* ]]
     [[ "$output" == *"path(s) not installed: $prp"* ]]
     [ "$(cat "$BATS_TEST_TMPDIR/file")" = 'keep me' ]
-    [ -f "$project/.gitignore" ] && [ -f "$project/.claude/prp-version" ] && [[ "$output" == *'Installed preset'* ]]
+    [ -f "$project/.gitignore" ]
+    [ -f "$project/.claude/prp-version" ]
+    [[ "$output" == *'Installed preset'* ]]
 }

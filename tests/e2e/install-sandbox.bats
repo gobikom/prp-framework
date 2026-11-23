@@ -187,9 +187,9 @@ v3_status_after_files() {  # creates the files under $SANDBOX/.prp-output/review
     [ -z "$out" ]
 }
 
-# Invariant B of the PR #253 re-plan: a .gitignore install.sh cannot read or write is never
-# fatal, whatever arm of the .gitignore section it reaches. One case per arm; each asserts exit
-# 0, the warning, the summary line, a later step reached, and the file byte-identical.
+# Invariant B of the PR #253 re-plan: a .gitignore install.sh cannot read or write never stops the
+# install, whatever arm of the .gitignore section it reaches. Since #137 it is also an undelivered
+# path: exit 1 with one ledger entry. One case per arm; each asserts exit 1, the warning, the summary line, a later step reached, and the file byte-identical.
 gitignore_blocked_case() {  # $1 = chmod mode, rest = .gitignore lines
     [ "$(id -u)" -ne 0 ] || skip "root ignores file permissions"
     mode=$1; shift
@@ -199,7 +199,8 @@ gitignore_blocked_case() {  # $1 = chmod mode, rest = .gitignore lines
     run bash "$INSTALL_SCRIPT"
     chmod 644 "$SANDBOX/.gitignore"
     echo "$output"
-    [ "$status" -eq 0 ]
+    [ "$status" -eq 1 ]
+    echo "$output" | grep -q 'path(s) not installed:.*\.gitignore'
     echo "$output" | grep -q '.gitignore not updated:'
     echo "$output" | grep -q '.gitignore was NOT fully configured'
     echo "$output" | grep -q 'Installed preset:'
