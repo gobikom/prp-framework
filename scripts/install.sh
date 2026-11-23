@@ -84,12 +84,184 @@ for _dir in "adapters/claude-code-agents" "adapters/claude-code-hooks"; do
     fi
 done
 
+# FS-WRITE-VERIFIED (#137): every write under $PROJECT_DIR goes through _ensure_dir /
+# _remove_path / _place. Each checks the END STATE after the write and keeps stderr. A path
+# that misses its end state is one ledger entry, the caller skips only the dependent
+# step, and the script exits 1 iff the ledger is non-empty.
+# set -e is suspended inside functions called from if/||: statuses are explicit.
+LEDGER_N=0
+LEDGER_PATHS=""
+
+_path_state() {
+    local p=$1
+    if [ -L "$p" ]; then
+        if [ -d "$p" ]; then echo "symlink to directory → $(readlink "$p")"
+        elif [ -e "$p" ]; then echo "symlink to file → $(readlink "$p")"
+        else echo "dangling symlink → $(readlink "$p")"; fi
+    elif [ -d "$p" ]; then echo "directory"
+    elif [ -e "$p" ]; then echo "regular file"
+    else echo "absent"; fi
+}
+
+# _ledger_add <path> <actual state> <skipped step>: one entry per path
+_ledger_add() {
+    if [[ $'\n'$LEDGER_PATHS$'\n' != *$'\n'"$1"$'\n'* ]]; then
+        LEDGER_PATHS="${LEDGER_PATHS:+$LEDGER_PATHS$'\n'}$1"
+        LEDGER_N=$((LEDGER_N + 1))
+    fi
+    printf '%b  ❌ %s: %s — %s%b\n' "$RED" "$1" "$2" "$3" "$NC" >&2
+}
+
+# _ensure_dir <path> <skipped step> [allow-link-dir]: 0 iff <path> is a directory
+# (a symlink to a directory only with allow-link-dir)
+_ensure_dir() {
+    local p=$1 step=$2 err=""
+    if [ -L "$p" ]; then
+        if [ -d "$p" ] && [ "${3:-}" = "allow-link-dir" ] && _contained "$p"; then
+            _OUTSIDE_OK="${_OUTSIDE_OK:+$_OUTSIDE_OK$'\n'}$p"; return 0
+        fi
+        _ledger_add "$p" "$(_path_state "$p")" "$step"; return 1
+    fi
+    if [ -e "$p" ] && [ ! -d "$p" ]; then
+        _ledger_add "$p" "$(_path_state "$p")" "$step"; return 1
+    fi
+    if ! _contained "$p"; then
+        _ledger_add "$p" "parent resolves outside the project" "$step"; return 1
+    fi
+    if [ ! -d "$p" ]; then
+        err=$(mkdir -p -- "$p" 2>&1) || true
+        if [ ! -d "$p" ] || [ -L "$p" ]; then
+            _ledger_add "$p" "$(_path_state "$p")${err:+ ($err)}" "$step"; return 1
+        fi
+    fi
+    return 0
+}
+
+# _remove_path <path> <skipped step> [dir]: 0 iff gone; a real dir only when told (dir)
+_remove_path() {
+    local p=$1 step=$2 err=""
+    if [ ! -e "$p" ] && [ ! -L "$p" ]; then return 0; fi
+    if ! _contained "$p"; then
+        _ledger_add "$p" "parent resolves outside the project" "$step"; return 1
+    fi
+    if [ -d "$p" ] && [ ! -L "$p" ]; then
+        if [ "${3:-}" != "dir" ]; then _ledger_add "$p" "is a directory" "$step"; return 1; fi
+        err=$(rm -rf -- "$p" 2>&1) || true
+    else
+        err=$(rm -f -- "$p" 2>&1) || true
+    fi
+    if [ -e "$p" ] || [ -L "$p" ]; then
+        _ledger_add "$p" "still present ($(_path_state "$p"))${err:+: $err}" "$step"; return 1
+    fi
+    return 0
+}
+
+# Resolved project root, for the parent-containment check below.
+_PROJECT_REAL=$(cd -P -- "$PROJECT_DIR" 2>/dev/null && pwd -P) || _PROJECT_REAL=$PROJECT_DIR
+
+# Directories that a named opt-in (allow-link-dir: .claude, .claude/agents, .claude/hooks, .prp)
+# accepted as symlinks. Paths below them may resolve outside the project on purpose.
+_OUTSIDE_OK=""
+
+# _contained <path>: 0 iff the nearest existing ancestor of <path> resolves inside the project, or
+# <path> lies below a named opt-in. A committed parent symlink must not carry a write or a removal out.
+_contained() {
+    local a o
+    while IFS= read -r o; do
+        [ -n "$o" ] || continue
+        case "$1/" in "$o"/*) return 0 ;; esac
+    done <<<"$_OUTSIDE_OK"
+    a=$(dirname -- "$1")
+    while [ ! -e "$a" ] && [ "$a" != "/" ] && [ "$a" != "." ]; do a=$(dirname -- "$a"); done
+    a=$(cd -P -- "$a" 2>/dev/null && pwd -P) || return 1
+    case "$a/" in "$_PROJECT_REAL"/*) return 0 ;; esac
+    return 1
+}
+
+# _write_file <target> <skipped step>: content on stdin. Runs in the CALLER's shell: never put it
+# on the right of a pipe (a pipeline subshell would lose the ledger). Never follows a symlink leaf:
+# a link (live or dangling) or non-regular leaf is refused and left unchanged. The content goes to
+# a temp file beside the target, is moved over it with mv -T (replaces a link, never follows it) and
+# is verified afterwards with cmp against the exact bytes. The mode of an existing file is kept.
+# Every failure, including a failed temp cleanup, is a ledger entry.
+_write_file() {
+    local t=$1 step=$2 d tmp err="" mode="" content why
+    d=$(dirname -- "$t")
+    content=$(cat; printf x) || content=x
+    content=${content%x}
+    _wf_fail() { # <why>: clean our temp, then ledger the target (and the temp if it could not be removed)
+        if [ -n "$tmp" ] && { [ -e "$tmp" ] || [ -L "$tmp" ]; }; then
+            rm -f -- "$tmp" 2>/dev/null # fs-ok: our own temp file
+            if [ -e "$tmp" ] || [ -L "$tmp" ]; then _ledger_add "$tmp" "temp file left behind" "cleanup of $step"; fi
+        fi
+        _ledger_add "$t" "$(_path_state "$t")${1:+ ($1)}" "$step not written"
+        return 1
+    }
+    if [ -L "$t" ] || { [ -e "$t" ] && [ ! -f "$t" ]; }; then _wf_fail ""; return 1; fi
+    if ! _contained "$t"; then _wf_fail "parent resolves outside the project"; return 1; fi
+    tmp=""
+    if ! tmp=$(mktemp "$d/.prp-tmp.XXXXXX" 2>&1); then why=$tmp; tmp=""; _wf_fail "$why"; return 1; fi
+    if ! err=$(printf '%s' "$content" 2>&1 >"$tmp"); then _wf_fail "$err"; return 1; fi # fs-ok: our own temp file
+    if [ -f "$t" ]; then mode=$(stat -c %a -- "$t" 2>/dev/null || stat -f %Lp -- "$t" 2>/dev/null) || mode=""; fi
+    [ -n "$mode" ] || mode=$(printf '%o' $((0666 & ~$(umask))))
+    if ! err=$(chmod "$mode" -- "$tmp" 2>&1); then _wf_fail "chmod: $err"; return 1; fi
+    if ! err=$(mv -f -T -- "$tmp" "$t" 2>&1); then # fs-ok: atomic temp-and-rename, the leaf was checked above
+        # mv without -T (BSD/macOS): safe only because the leaf is no link and no directory
+        if [ -L "$t" ] || [ -d "$t" ] || ! err=$(mv -f -- "$tmp" "$t" 2>&1); then # fs-ok: same, leaf re-checked
+            _wf_fail "$err"; return 1
+        fi
+    fi
+    tmp=""
+    if [ -L "$t" ] || [ ! -f "$t" ] || ! printf '%s' "$content" | cmp -s -- - "$t"; then
+        _ledger_add "$t" "$(_path_state "$t") (content differs from what was written)" "$step not written"; return 1
+    fi
+    return 0
+}
+
+# _place <src> <dst> <name> <file|dir|link>: 0 symlinked, 1 copied, 2 not delivered
+# (ledgered). kind=link repoints a dangling dst in place (ln -sfn), never copies.
+_place() {
+    local src=$1 dst=$2 name=$3 kind=$4 err="" cerr=""
+    if ! _contained "$dst"; then
+        _ledger_add "$dst" "parent resolves outside the project" "$name not installed"; return 2
+    fi
+    if [ -e "$dst" ] || { [ -L "$dst" ] && [ "$kind" != "link" ]; }; then
+        _ledger_add "$dst" "$(_path_state "$dst")" "$name not installed"; return 2
+    fi
+    if [ "$kind" = "link" ]; then err=$(ln -sfn -- "$src" "$dst" 2>&1) || true
+    else err=$(ln -s -- "$src" "$dst" 2>&1) || true; fi
+    if [ -L "$dst" ] && [ "$(readlink "$dst")" = "$src" ]; then return 0; fi
+    if [ "$kind" = "link" ]; then
+        _ledger_add "$dst" "$(_path_state "$dst")${err:+ ($err)}" "$name not installed"; return 2
+    fi
+    printf '%b  ⚠️  Symlink failed for %s, copying instead (%s)%b\n' "$YELLOW" "$name" "$err" "$NC" >&2
+    _remove_path "$dst" "$name not installed" || return 2
+    if [ "$kind" = "dir" ]; then cerr=$(cp -r -- "$src" "$dst" 2>&1) || true
+    else cerr=$(cp -- "$src" "$dst" 2>&1) || true; fi
+    if [ -L "$dst" ] ||
+        { [ "$kind" = "dir" ] && { [ ! -d "$dst" ] || ! diff -rq "$src" "$dst" >/dev/null 2>&1; }; } ||
+        { [ "$kind" = "file" ] && { [ ! -f "$dst" ] || ! cmp -s "$src" "$dst"; }; }; then
+        _ledger_add "$dst" "$(_path_state "$dst")${cerr:+ ($cerr)}" "$name not installed (copy failed)"; return 2
+    fi
+    return 1
+}
+
+_note() {
+    case $1 in 0) USED_SYMLINKS=true ;; 1) USED_COPY=true ;; esac
+}
+_deliver() {
+    local rc=0
+    "$@" || rc=$?
+    _note "$rc"
+}
+
 # Function: Try symlink, fallback to copy
 # Safe: skips if already correct symlink, removes only PRP-owned symlinks/dirs
 install_directory() {
     local source=$1
     local target=$2
     local name=$3
+    local rc=0
 
     # Skip if already a correct symlink (idempotent fast path)
     if [ -L "$target" ] && [ "$(readlink "$target")" = "$source" ]; then
@@ -97,26 +269,18 @@ install_directory() {
         return 0
     fi
 
-    if [ -L "$target" ]; then
-        # It's a symlink pointing elsewhere — safe to replace
-        rm -f "$target"
-    elif [ -e "$target" ]; then
+    if [ ! -L "$target" ] && [ -e "$target" ]; then
         # It's a real directory — warn before removing
         echo -e "${YELLOW}  ⚠️  Removing existing directory: $target${NC}"
-        rm -rf "$target"
     fi
+    _remove_path "$target" "$name not installed" dir || return 2
 
-    # Try symlink first
-    if ln -s "$source" "$target" 2>/dev/null; then
-        echo -e "${GREEN}  ✅ Symlinked: $name${NC}"
-        return 0
-    else
-        # Fallback to copy
-        echo -e "${YELLOW}  ⚠️  Symlink failed for $name, copying instead${NC}"
-        cp -r "$source" "$target"
-        echo -e "${GREEN}  ✅ Copied: $name${NC}"
-        return 1
-    fi
+    _place "$source" "$target" "$name" dir || rc=$?
+    case $rc in
+        0) echo -e "${GREEN}  ✅ Symlinked: $name${NC}" ;;
+        1) echo -e "${GREEN}  ✅ Copied: $name${NC}" ;;
+    esac
+    return $rc
 }
 
 # Function: Install individual files into a shared directory (preserves non-PRP files)
@@ -125,15 +289,15 @@ install_files_into_dir() {
     local source_dir=$1
     local target_dir=$2
     local name=$3
-    local used_symlink=true
+    local used_symlink=true failed=false rc
 
     # Migrate from old whole-directory symlink to real directory with per-file symlinks
     if [ -L "$target_dir" ]; then
         echo -e "${YELLOW}  ⚠️  Migrating from directory symlink to per-file symlinks: $name${NC}"
-        rm -f "$target_dir"
+        _remove_path "$target_dir" "$name not installed" || return 2
     fi
 
-    mkdir -p "$target_dir"
+    _ensure_dir "$target_dir" "$name not installed" || return 2
 
     for source_file in "$source_dir"/*; do
         [ -e "$source_file" ] || continue
@@ -146,18 +310,15 @@ install_files_into_dir() {
             continue
         fi
 
-        # Remove existing (symlink or file) — explicit if to avoid || vs && precedence trap
-        if [ -e "$target_file" ] || [ -L "$target_file" ]; then rm -f "$target_file"; fi
-
-        if ln -s "$source_file" "$target_file" 2>/dev/null; then
-            : # symlink ok
-        else
-            cp "$source_file" "$target_file"
-            used_symlink=false
-        fi
+        _remove_path "$target_file" "$name: $filename not installed" || { failed=true; continue; }
+        rc=0
+        _place "$source_file" "$target_file" "$name: $filename" file || rc=$?
+        case $rc in 1) used_symlink=false ;; 2) failed=true ;; esac
     done
 
-    if $used_symlink; then
+    if $failed; then
+        return 2
+    elif $used_symlink; then
         echo -e "${GREEN}  ✅ Symlinked files: $name${NC}"
         return 0
     else
@@ -171,6 +332,7 @@ install_file() {
     local source=$1
     local target=$2
     local name=$3
+    local rc=0 old_note=''
 
     # Skip if already a correct symlink
     if [ -L "$target" ] && [ "$(readlink "$target")" = "$source" ]; then
@@ -178,17 +340,18 @@ install_file() {
         return 0
     fi
 
-    if [ -e "$target" ] || [ -L "$target" ]; then rm -f "$target"; fi
-
-    if ln -s "$source" "$target" 2>/dev/null; then
-        echo -e "${GREEN}  ✅ Symlinked: $name${NC}"
-        return 0
-    else
-        echo -e "${YELLOW}  ⚠️  Symlink failed for $name, copying instead${NC}"
-        cp "$source" "$target"
-        echo -e "${GREEN}  ✅ Copied: $name${NC}"
-        return 1
+    if [ -L "$target" ]; then
+        if [ -e "$target" ]; then old_note=" (replaced target → $(readlink "$target"))"
+        else old_note=" (was dangling → $(readlink "$target"))"; fi
     fi
+    _remove_path "$target" "$name not installed" || return 2
+
+    _place "$source" "$target" "$name" file || rc=$?
+    case $rc in
+        0) printf '%b%s%b\n' "${GREEN}  ✅ Symlinked: " "$name$old_note" "$NC" ;;
+        1) printf '%b%s%b\n' "${GREEN}  ✅ Copied: " "$name$old_note" "$NC" ;;
+    esac
+    return $rc
 }
 
 USED_SYMLINKS=false
@@ -204,6 +367,11 @@ if [[ "$PRESET" == "standard" || "$PRESET" == "full" ]]; then
     CORE_CMDS="$MINIMAL_CMDS $STANDARD_EXTRA"
 fi
 
+# .claude may be a named symlink to a shared directory (the same opt-in the stamp step uses).
+if [ -L "$PROJECT_DIR/.claude" ] && [ -d "$PROJECT_DIR/.claude" ]; then
+    _OUTSIDE_OK="$PROJECT_DIR/.claude"
+fi
+
 echo "📦 Installing adapters ($PRESET preset)..."
 echo ""
 
@@ -216,11 +384,12 @@ echo "→ Claude Code Commands (.claude/commands/prp-core/)"
 # Ref: agent-devops incident 2026-06-14 — circular symlinks + source deletion.
 if [ -L "$PROJECT_DIR/.claude/commands/prp-core" ]; then
     echo -e "${YELLOW}  ⚠️  Replacing directory symlink with per-file symlinks (safety fix)${NC}"
-    rm "$PROJECT_DIR/.claude/commands/prp-core"
+    _remove_path "$PROJECT_DIR/.claude/commands/prp-core" "Claude Code Commands not installed" || true
 fi
-mkdir -p "$PROJECT_DIR/.claude/commands/prp-core"
+CORE_LIST=$CORE_CMDS
+_ensure_dir "$PROJECT_DIR/.claude/commands/prp-core" "Claude Code Commands not installed" || CORE_LIST=""
 CORE_COUNT=0
-for cmd in $CORE_CMDS; do
+for cmd in $CORE_LIST; do
     source_file="$FRAMEWORK_DIR/adapters/claude-code/${cmd}.md"
     target_file="$PROJECT_DIR/.claude/commands/prp-core/${cmd}.md"
     if [ -f "$source_file" ]; then
@@ -229,13 +398,11 @@ for cmd in $CORE_CMDS; do
             CORE_COUNT=$((CORE_COUNT + 1))
             continue
         fi
-        [ -e "$target_file" ] || [ -L "$target_file" ] && rm -f "$target_file"
-        if ln -s "$source_file" "$target_file" 2>/dev/null; then
-            USED_SYMLINKS=true
-        else
-            cp "$source_file" "$target_file"
-            USED_COPY=true
-        fi
+        _remove_path "$target_file" "${cmd}.md not installed" || continue
+        _rc=0
+        _place "$source_file" "$target_file" "${cmd}.md" file || _rc=$?
+        _note "$_rc"
+        [ "$_rc" -ne 2 ] || continue
         CORE_COUNT=$((CORE_COUNT + 1))
     fi
 done
@@ -246,53 +413,48 @@ if [ -d "$PROJECT_DIR/.claude/commands/prp-core" ] && [ ! -L "$PROJECT_DIR/.clau
         [ -e "$existing" ] || continue
         cmd_name=$(basename "$existing" .md)
         if ! echo "$CORE_CMDS" | grep -qw "$cmd_name"; then
-            rm -f "$existing"
+            _remove_path "$existing" "stale $cmd_name not removed" || true
         fi
     done
 fi
-echo -e "${GREEN}  ✅ Installed $CORE_COUNT core commands ($PRESET)${NC}"
+if [ -n "$CORE_LIST" ]; then
+    echo -e "${GREEN}  ✅ Installed $CORE_COUNT core commands ($PRESET)${NC}"
+fi
 
 if [[ "$PRESET" == "full" ]]; then
     # Install Claude Code Marketing Commands
     echo "→ Claude Code Marketing (.claude/commands/prp-mkt/)"
-    if install_directory "$FRAMEWORK_DIR/adapters/claude-code-marketing" "$PROJECT_DIR/.claude/commands/prp-mkt" "Claude Code Marketing"; then
-        USED_SYMLINKS=true
-    else
-        USED_COPY=true
-    fi
+    _deliver install_directory "$FRAMEWORK_DIR/adapters/claude-code-marketing" "$PROJECT_DIR/.claude/commands/prp-mkt" "Claude Code Marketing"
 
     # Install Claude Code Bot Commands
     echo "→ Claude Code Bot (.claude/commands/prp-bot/)"
-    if install_directory "$FRAMEWORK_DIR/adapters/claude-code-bot" "$PROJECT_DIR/.claude/commands/prp-bot" "Claude Code Bot"; then
-        USED_SYMLINKS=true
-    else
-        USED_COPY=true
-    fi
+    _deliver install_directory "$FRAMEWORK_DIR/adapters/claude-code-bot" "$PROJECT_DIR/.claude/commands/prp-bot" "Claude Code Bot"
 else
     # Remove marketing/bot if downgrading from full
     if [ -d "$PROJECT_DIR/.claude/commands/prp-mkt" ]; then
-        rm -rf "$PROJECT_DIR/.claude/commands/prp-mkt"
-        echo -e "${YELLOW}  ⏭ Removed prp-mkt (not in $PRESET preset)${NC}"
+        if _remove_path "$PROJECT_DIR/.claude/commands/prp-mkt" "stale prp-mkt not removed" dir; then
+            echo -e "${YELLOW}  ⏭ Removed prp-mkt (not in $PRESET preset)${NC}"
+        fi
     fi
     if [ -d "$PROJECT_DIR/.claude/commands/prp-bot" ]; then
-        rm -rf "$PROJECT_DIR/.claude/commands/prp-bot"
-        echo -e "${YELLOW}  ⏭ Removed prp-bot (not in $PRESET preset)${NC}"
+        if _remove_path "$PROJECT_DIR/.claude/commands/prp-bot" "stale prp-bot not removed" dir; then
+            echo -e "${YELLOW}  ⏭ Removed prp-bot (not in $PRESET preset)${NC}"
+        fi
     fi
 fi
 
 # Install Claude Code Agents (per-file install to preserve custom agents)
 echo "→ Claude Code Agents (.claude/agents/)"
-mkdir -p "$PROJECT_DIR/.claude/agents"
-if install_files_into_dir "$FRAMEWORK_DIR/adapters/claude-code-agents" "$PROJECT_DIR/.claude/agents" "Claude Code Agents"; then
-    USED_SYMLINKS=true
-else
-    USED_COPY=true
+if _ensure_dir "$PROJECT_DIR/.claude/agents" "Claude Code Agents not installed" allow-link-dir; then
+    _deliver install_files_into_dir "$FRAMEWORK_DIR/adapters/claude-code-agents" "$PROJECT_DIR/.claude/agents" "Claude Code Agents"
 fi
 
 # Install Claude Code Skills
 echo "→ Claude Code Skills (.claude/skills/)"
-mkdir -p "$PROJECT_DIR/.claude/skills"
+_dir_ok=true
+_ensure_dir "$PROJECT_DIR/.claude/skills" "Claude Code Skills not installed" || _dir_ok=false
 for skill_dir in "$FRAMEWORK_DIR/adapters/claude-code-skills"/*; do
+    $_dir_ok || break
     if [ -d "$skill_dir" ]; then
         skill_name=$(basename "$skill_dir")
         # Skip prp-core-runner if already installed globally (avoid double-skill)
@@ -300,28 +462,24 @@ for skill_dir in "$FRAMEWORK_DIR/adapters/claude-code-skills"/*; do
             echo -e "${GREEN}  ✅ Skipping prp-core-runner — already installed globally.${NC}"
             continue
         fi
-        if install_directory "$skill_dir" "$PROJECT_DIR/.claude/skills/$skill_name" "Claude Code Skill: $skill_name"; then
-            USED_SYMLINKS=true
-        else
-            USED_COPY=true
-        fi
+        _deliver install_directory "$skill_dir" "$PROJECT_DIR/.claude/skills/$skill_name" "Claude Code Skill: $skill_name"
     fi
 done
 
 # Install Claude Code Hooks (per-file install to preserve custom hooks)
 echo "→ Claude Code Hooks (.claude/hooks/)"
-mkdir -p "$PROJECT_DIR/.claude/hooks"
-if install_files_into_dir "$FRAMEWORK_DIR/adapters/claude-code-hooks" "$PROJECT_DIR/.claude/hooks" "Claude Code Hooks"; then
-    USED_SYMLINKS=true
-else
-    USED_COPY=true
+if _ensure_dir "$PROJECT_DIR/.claude/hooks" "Claude Code Hooks not installed" allow-link-dir; then
+    _deliver install_files_into_dir "$FRAMEWORK_DIR/adapters/claude-code-hooks" "$PROJECT_DIR/.claude/hooks" "Claude Code Hooks"
 fi
 
 # Make ralph stop hook executable
 RALPH_HOOK="$PROJECT_DIR/.claude/hooks/prp-ralph-stop.sh"
 if [ -f "$RALPH_HOOK" ]; then
-    chmod +x "$RALPH_HOOK"
-    echo -e "${GREEN}  ✅ Made prp-ralph-stop.sh executable${NC}"
+    if _err=$(chmod +x "$RALPH_HOOK" 2>&1); then
+        echo -e "${GREEN}  ✅ Made prp-ralph-stop.sh executable${NC}"
+    else
+        echo -e "${YELLOW}  ⚠️  Could not set executable permission on prp-ralph-stop.sh${_err:+ ($_err)}${NC}" >&2
+    fi
 fi
 
 # Register ralph stop hook in settings.local.json
@@ -333,48 +491,57 @@ if ! command -v jq &>/dev/null; then
     echo -e "${YELLOW}  ⚠️  jq not found — add ralph hook manually to .claude/settings.local.json:${NC}"
     echo '     {"hooks": {"Stop": [{"hooks": [{"type": "command", "command": ".claude/hooks/prp-ralph-stop.sh"}]}]}}'
 else
-    if [ -f "$SETTINGS_FILE" ]; then
-        # Check if hook already registered
+    if [ -L "$SETTINGS_FILE" ] || { [ -e "$SETTINGS_FILE" ] && [ ! -f "$SETTINGS_FILE" ]; }; then
+        # A link (live or dangling) or non-regular file is never written through or replaced
+        _ledger_add "$SETTINGS_FILE" "$(_path_state "$SETTINGS_FILE")" "ralph stop hook not registered"
+    elif [ -f "$SETTINGS_FILE" ]; then
+        # Check if hook already registered; a parse failure is a ledger entry, never an abort
+        _jq_ok=true
         EXISTING=$(jq -r '
             .hooks.Stop[]?.hooks[]?
             | select(.command == "'"$HOOK_CMD"'")
             | .command
-        ' "$SETTINGS_FILE" 2>/dev/null)
-        if [ -n "$EXISTING" ]; then
+        ' "$SETTINGS_FILE" 2>&1) || _jq_ok=false
+        if ! $_jq_ok; then
+            _ledger_add "$SETTINGS_FILE" "$(_path_state "$SETTINGS_FILE") (not valid JSON: ${EXISTING})" "ralph stop hook not registered"
+        elif [ -n "$EXISTING" ]; then
             echo -e "${GREEN}  ✅ Ralph stop hook already registered${NC}"
         else
             # Merge into existing settings
-            TEMP_FILE=$(mktemp)
-            if jq --arg cmd "$HOOK_CMD" '
+            _jq_ok=true
+            _merged=$(jq --arg cmd "$HOOK_CMD" '
                 .hooks.Stop = ((.hooks.Stop // []) + [
                     {"hooks": [{"type": "command", "command": $cmd}]}
                 ])
-            ' "$SETTINGS_FILE" > "$TEMP_FILE"; then
-                mv "$TEMP_FILE" "$SETTINGS_FILE"
+            ' "$SETTINGS_FILE" 2>&1) || _jq_ok=false
+            jq -e 'type == "object"' >/dev/null 2>&1 <<<"$_merged" || _jq_ok=false
+            if ! $_jq_ok; then
+                _ledger_add "$SETTINGS_FILE" "$(_path_state "$SETTINGS_FILE") (jq: ${_merged})" "ralph stop hook not registered"
+            elif _write_file "$SETTINGS_FILE" "ralph stop hook" <<<"$_merged"; then
                 echo -e "${GREEN}  ✅ Registered ralph stop hook in settings.local.json${NC}"
-            else
-                rm -f "$TEMP_FILE"
-                echo -e "${YELLOW}  ⚠️  Failed to update settings.local.json — add ralph hook manually${NC}"
             fi
         fi
     else
         # Create new settings file
-        jq -n --arg cmd "$HOOK_CMD" '{
+        _jq_ok=true
+        _merged=$(jq -n --arg cmd "$HOOK_CMD" '{
             "hooks": {
                 "Stop": [{"hooks": [{"type": "command", "command": $cmd}]}]
             }
-        }' > "$SETTINGS_FILE"
-        echo -e "${GREEN}  ✅ Created settings.local.json with ralph stop hook${NC}"
+        }' 2>&1) || _jq_ok=false
+        jq -e 'type == "object"' >/dev/null 2>&1 <<<"$_merged" || _jq_ok=false
+        if ! $_jq_ok; then
+            _ledger_add "$SETTINGS_FILE" "absent (jq: ${_merged})" "ralph stop hook not registered"
+        elif _write_file "$SETTINGS_FILE" "ralph stop hook" <<<"$_merged"; then
+            echo -e "${GREEN}  ✅ Created settings.local.json with ralph stop hook${NC}"
+        fi
     fi
 fi
 
 # Install Claude Code Plugin metadata
 echo "→ Claude Code Plugin (.claude-plugin/)"
-mkdir -p "$PROJECT_DIR/.claude-plugin"
-if install_file "$FRAMEWORK_DIR/adapters/claude-code-plugin/marketplace.json" "$PROJECT_DIR/.claude-plugin/marketplace.json" "Plugin metadata"; then
-    USED_SYMLINKS=true
-else
-    USED_COPY=true
+if _ensure_dir "$PROJECT_DIR/.claude-plugin" "Plugin metadata not installed"; then
+    _deliver install_file "$FRAMEWORK_DIR/adapters/claude-code-plugin/marketplace.json" "$PROJECT_DIR/.claude-plugin/marketplace.json" "Plugin metadata"
 fi
 
 # Install Codex (directory structure)
@@ -391,62 +558,50 @@ if $_codex_plugin_installed; then
     # Clean up stale per-project skills left by previous installs
     for stale in "$PROJECT_DIR/.codex/skills"/prp-*; do
         [ -e "$stale" ] || continue
-        rm -rf "$stale"
-        echo -e "${YELLOW}  🧹 Removed stale: $(basename "$stale") (now via plugin)${NC}"
+        if _remove_path "$stale" "stale $(basename "$stale") not removed" dir; then
+            echo -e "${YELLOW}  🧹 Removed stale: $(basename "$stale") (now via plugin)${NC}"
+        fi
     done
 else
     echo "→ Codex (.codex/skills/)"
-    mkdir -p "$PROJECT_DIR/.codex/skills"
+    _dir_ok=true
+    _ensure_dir "$PROJECT_DIR/.codex/skills" "Codex skills not installed" || _dir_ok=false
     for skill_dir in "$FRAMEWORK_DIR/adapters/codex"/prp-*; do
+        $_dir_ok || break
         if [ -d "$skill_dir" ]; then
             skill_name=$(basename "$skill_dir")
-            if install_directory "$skill_dir" "$PROJECT_DIR/.codex/skills/$skill_name" "Codex: $skill_name"; then
-                USED_SYMLINKS=true
-            else
-                USED_COPY=true
-            fi
+            _deliver install_directory "$skill_dir" "$PROJECT_DIR/.codex/skills/$skill_name" "Codex: $skill_name"
         fi
     done
 fi
 
 # Install OpenCode
 echo "→ OpenCode (.opencode/commands/prp/)"
-mkdir -p "$PROJECT_DIR/.opencode/commands"
-if install_directory "$FRAMEWORK_DIR/adapters/opencode" "$PROJECT_DIR/.opencode/commands/prp" "OpenCode"; then
-    USED_SYMLINKS=true
-else
-    USED_COPY=true
+if _ensure_dir "$PROJECT_DIR/.opencode/commands" "OpenCode not installed"; then
+    _deliver install_directory "$FRAMEWORK_DIR/adapters/opencode" "$PROJECT_DIR/.opencode/commands/prp" "OpenCode"
 fi
 
 # Install Gemini
 echo "→ Gemini (.gemini/commands/prp/)"
-mkdir -p "$PROJECT_DIR/.gemini/commands"
-if install_directory "$FRAMEWORK_DIR/adapters/gemini" "$PROJECT_DIR/.gemini/commands/prp" "Gemini"; then
-    USED_SYMLINKS=true
-else
-    USED_COPY=true
+if _ensure_dir "$PROJECT_DIR/.gemini/commands" "Gemini not installed"; then
+    _deliver install_directory "$FRAMEWORK_DIR/adapters/gemini" "$PROJECT_DIR/.gemini/commands/prp" "Gemini"
 fi
 
 # Install Antigravity
 echo "→ Antigravity (.agents/workflows/)"
-mkdir -p "$PROJECT_DIR/.agents/workflows"
-if install_directory "$FRAMEWORK_DIR/adapters/antigravity" "$PROJECT_DIR/.agents/workflows/prp" "Antigravity"; then
-    USED_SYMLINKS=true
-else
-    USED_COPY=true
+if _ensure_dir "$PROJECT_DIR/.agents/workflows" "Antigravity not installed"; then
+    _deliver install_directory "$FRAMEWORK_DIR/adapters/antigravity" "$PROJECT_DIR/.agents/workflows/prp" "Antigravity"
 fi
 
 # Install thClaws (directory structure, same as codex)
 echo "→ thClaws (.thclaws/skills/)"
-mkdir -p "$PROJECT_DIR/.thclaws/skills"
+_dir_ok=true
+_ensure_dir "$PROJECT_DIR/.thclaws/skills" "thClaws skills not installed" || _dir_ok=false
 for skill_dir in "$FRAMEWORK_DIR/adapters/thclaws"/prp-*; do
+    $_dir_ok || break
     if [ -d "$skill_dir" ]; then
         skill_name=$(basename "$skill_dir")
-        if install_directory "$skill_dir" "$PROJECT_DIR/.thclaws/skills/$skill_name" "thClaws: $skill_name"; then
-            USED_SYMLINKS=true
-        else
-            USED_COPY=true
-        fi
+        _deliver install_directory "$skill_dir" "$PROJECT_DIR/.thclaws/skills/$skill_name" "thClaws: $skill_name"
     fi
 done
 
@@ -495,46 +650,66 @@ if $_skip_agents_md; then
     echo "→ Generic (AGENTS.md) — skipped: soul-orchestra agent home (owns root AGENTS.md, $_skip_reason)"
 else
     echo "→ Generic (AGENTS.md)"
-    if install_file "$FRAMEWORK_DIR/adapters/generic/AGENTS.md" "$PROJECT_DIR/AGENTS.md" "AGENTS.md"; then
-        USED_SYMLINKS=true
-    else
-        USED_COPY=true
-    fi
+    _deliver install_file "$FRAMEWORK_DIR/adapters/generic/AGENTS.md" "$PROJECT_DIR/AGENTS.md" "AGENTS.md"
 fi
 
 # Install gen-ai-context.sh (PROJECT.md validator/updater)
 echo "→ AI Context Generator (scripts/gen-ai-context.sh)"
-mkdir -p "$PROJECT_DIR/scripts"
-if install_file "$FRAMEWORK_DIR/scripts/gen-ai-context.sh" "$PROJECT_DIR/scripts/gen-ai-context.sh" "AI Context Generator"; then
-    USED_SYMLINKS=true
-else
-    USED_COPY=true
-fi
-if ! chmod +x "$PROJECT_DIR/scripts/gen-ai-context.sh" 2>/dev/null; then
-    echo -e "${YELLOW}  ⚠️  Could not set executable permission on gen-ai-context.sh${NC}"
+if _ensure_dir "$PROJECT_DIR/scripts" "gen-ai-context.sh not installed"; then
+    _deliver install_file "$FRAMEWORK_DIR/scripts/gen-ai-context.sh" "$PROJECT_DIR/scripts/gen-ai-context.sh" "AI Context Generator"
+    if [ -e "$PROJECT_DIR/scripts/gen-ai-context.sh" ] && ! chmod +x "$PROJECT_DIR/scripts/gen-ai-context.sh" 2>/dev/null; then
+        echo -e "${YELLOW}  ⚠️  Could not set executable permission on gen-ai-context.sh${NC}"
+    fi
 fi
 
 echo ""
 echo "📁 Creating runtime artifact directories..."
-mkdir -p "$PROJECT_DIR/.prp-output"/{prds/drafts,designs,plans/completed,reports,reviews,debug,issues/completed,ralph-archives}
-echo -e "${GREEN}  ✅ Created .prp-output/ structure${NC}"
+_n0=$LEDGER_N
+for _d in prds/drafts designs plans/completed reports reviews debug issues/completed ralph-archives; do
+    _ensure_dir "$PROJECT_DIR/.prp-output/$_d" ".prp-output/$_d not created" || true
+done
+if [ "$LEDGER_N" -eq "$_n0" ]; then
+    echo -e "${GREEN}  ✅ Created .prp-output/ structure${NC}"
+fi
 
 # Install helper scripts (prp-validate, prp-diff, prp-state)
 echo ""
 echo "🔧 Installing helper scripts..."
-PRP_LINK_TARGET=$(readlink -f "$PROJECT_DIR/.prp" 2>/dev/null || true)
+_n0=$LEDGER_N
+PRP_PATH="$PROJECT_DIR/.prp"
+PRP_LINK_TARGET=$(readlink -f "$PRP_PATH" 2>/dev/null || true)
 if [ "$PRP_LINK_TARGET" = "$(readlink -f "$FRAMEWORK_DIR")" ]; then
     echo -e "${GREEN}  ✅ .prp is a symlink to framework — helper scripts already accessible${NC}"
+elif [ -L "$PRP_PATH" ] && [ ! -e "$PRP_PATH" ]; then
+    # Dangling .prp: repoint in place (never copy the framework), naming the old target
+    _dead=$(readlink "$PRP_PATH")
+    _rc=0
+    _place "$FRAMEWORK_DIR" "$PRP_PATH" "helper scripts (.prp)" link || _rc=$?
+    if [ "$_rc" -eq 0 ]; then
+        printf '  ✅ Repointed dangling .prp (dead target: %s) → %s\n' "$_dead" "$FRAMEWORK_DIR"
+    fi
 else
-    mkdir -p "$PROJECT_DIR/.prp/scripts"
-    for script in prp-validate.sh prp-diff.sh prp-state.sh; do
-        if [ -f "$FRAMEWORK_DIR/scripts/$script" ]; then
-            ln -sf "$FRAMEWORK_DIR/scripts/$script" "$PROJECT_DIR/.prp/scripts/$script" 2>/dev/null || \
-            cp "$FRAMEWORK_DIR/scripts/$script" "$PROJECT_DIR/.prp/scripts/$script"
-            [ ! -L "$PROJECT_DIR/.prp/scripts/$script" ] && chmod +x "$PROJECT_DIR/.prp/scripts/$script"
-        fi
-    done
-    echo -e "${GREEN}  ✅ Installed helper scripts to .prp/scripts/${NC}"
+    if [ -L "$PRP_PATH" ] && [ -d "$PRP_PATH" ]; then
+        printf '  ⚠️  .prp points to %s, not %s — helper scripts installed there\n' "$PRP_LINK_TARGET" "$FRAMEWORK_DIR" >&2
+    fi
+    if _ensure_dir "$PRP_PATH" "helper scripts not installed" allow-link-dir &&
+        _ensure_dir "$PRP_PATH/scripts" "helper scripts not installed"; then
+        for script in prp-validate.sh prp-diff.sh prp-state.sh; do
+            _src="$FRAMEWORK_DIR/scripts/$script"
+            _dst="$PRP_PATH/scripts/$script"
+            [ -f "$_src" ] || continue
+            if [ -L "$_dst" ] && [ "$(readlink "$_dst")" = "$_src" ]; then continue; fi
+            _remove_path "$_dst" ".prp/scripts/$script not installed" || continue
+            _rc=0
+            _place "$_src" "$_dst" ".prp/scripts/$script" file || _rc=$?
+            if [ "$_rc" -eq 1 ] && ! chmod +x "$_dst" 2>/dev/null; then
+                echo -e "${YELLOW}  ⚠️  Could not set executable permission on .prp/scripts/$script${NC}"
+            fi
+        done
+    fi
+    if [ "$LEDGER_N" -eq "$_n0" ]; then
+        echo -e "${GREEN}  ✅ Installed helper scripts to .prp/scripts/${NC}"
+    fi
 fi
 
 # Configure .gitignore with one append, preserving existing bytes, mode and inode.
@@ -547,6 +722,7 @@ GITIGNORE_FILE="$PROJECT_DIR/.gitignore"
 _GITIGNORE_WARN=""
 _gitignore_fail() {
     _GITIGNORE_WARN="${_GITIGNORE_WARN:+$_GITIGNORE_WARN; }$1"
+    _ledger_add "$GITIGNORE_FILE" "$(_path_state "$GITIGNORE_FILE")" ".gitignore PRP rules not added"
     echo -e "${YELLOW}  ⚠️  .gitignore not updated: $1${NC}" >&2
 }
 _gi_size() { wc -c < "$GITIGNORE_FILE"; }
@@ -557,13 +733,14 @@ _gi_append() {
     fi
     expected=$((before + ${#1}))
     # Turn a file-size signal into a write error without changing the installer's traps.
-    if (trap '' XFSZ; printf '%s' "$1" >> "$GITIGNORE_FILE") 2>/dev/null &&
+    # the one .gitignore append: leaf checked above, size verified after, rolled back below
+    if (trap '' XFSZ; printf '%s' "$1" >> "$GITIGNORE_FILE") 2>/dev/null && # fs-ok: the .gitignore append with rollback
         after=$(_gi_size) && [ "$after" -eq "$expected" ]; then
         return 0
     fi
     if { [ ! -e "$GITIGNORE_FILE" ] && [ "$before" -eq 0 ]; } ||
         { after=$(_gi_size) && [ "$after" -eq "$before" ]; } ||
-        { truncate -s "$before" -- "$GITIGNORE_FILE" 2>/dev/null && after=$(_gi_size) && [ "$after" -eq "$before" ]; } ||
+        { truncate -s "$before" -- "$GITIGNORE_FILE" 2>/dev/null && after=$(_gi_size) && [ "$after" -eq "$before" ]; } || # fs-ok: rollback to the original byte count
         { perl -e 'truncate($ARGV[0], $ARGV[1]) or exit 1' -- "$GITIGNORE_FILE" "$before" 2>/dev/null &&
             after=$(_gi_size) && [ "$after" -eq "$before" ]; }; then
         _gitignore_fail "could not append the PRP rules to $GITIGNORE_FILE — original bytes preserved"
@@ -669,17 +846,36 @@ if ! $SKIP_INJECT; then
         echo "→ CLAUDE.md PRP inject — skipped: soul-orchestra agent home (PRP info via tools_knowledge)"
     else
         echo "→ Injecting PRP section into CLAUDE.md"
-        "$FRAMEWORK_DIR/scripts/inject-claude-md.sh" "$PROJECT_DIR"
+        _inj=0
+        "$FRAMEWORK_DIR/scripts/inject-claude-md.sh" "$PROJECT_DIR" || _inj=$?
+        if [ "$_inj" -ne 0 ]; then
+            _ledger_add "$PROJECT_DIR/CLAUDE.md" "$(_path_state "$PROJECT_DIR/CLAUDE.md")" "PRP section not injected (exit $_inj)"
+        fi
     fi
 else
     echo -e "${YELLOW}→ Skipping CLAUDE.md injection (--no-inject)${NC}"
+fi
+
+# Save version and preset for upgrade detection, before the summary (a failed stamp is a ledger entry)
+# Here-string, not a pipe: _write_file must run in this shell so its ledger entry survives.
+_write_stamp() {
+    _write_file "$2" "stamp" <<<"$1" || true
+}
+if _ensure_dir "$PROJECT_DIR/.claude" "version stamp (.claude/prp-version, .claude/prp-preset) not written" allow-link-dir; then
+    if [ -n "$CURRENT_VERSION" ]; then
+        _write_stamp "$CURRENT_VERSION" "$PROJECT_DIR/.claude/prp-version"
+    fi
+    _write_stamp "$PRESET" "$PROJECT_DIR/.claude/prp-preset"
 fi
 
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 
-if $USED_SYMLINKS && ! $USED_COPY; then
+if [ "$LEDGER_N" -gt 0 ]; then
+    echo -e "${RED}❌ $LEDGER_N path(s) not installed: ${LEDGER_PATHS//$'\n'/, }${NC}"
+    echo -e "${YELLOW}   Note: .claude/prp-version and prp-preset record that this install ran to the end, not that it was complete. Fix the paths above and re-run.${NC}"
+elif $USED_SYMLINKS && ! $USED_COPY; then
     echo -e "${GREEN}✅ Installation complete using symlinks!${NC}"
     echo ""
     echo "Updates are automatic - just run 'git pull' in the submodule:"
@@ -721,9 +917,4 @@ echo ""
 echo "Documentation: $FRAMEWORK_DIR/docs/"
 echo ""
 
-# Save installed version and preset for upgrade detection
-if [ -n "$CURRENT_VERSION" ]; then
-    mkdir -p "$PROJECT_DIR/.claude"
-    echo "$CURRENT_VERSION" > "$PROJECT_DIR/.claude/prp-version"
-fi
-echo "$PRESET" > "$PROJECT_DIR/.claude/prp-preset"
+[ "$LEDGER_N" -eq 0 ] || exit 1

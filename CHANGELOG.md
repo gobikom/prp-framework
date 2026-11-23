@@ -34,6 +34,7 @@ Every major version release MUST include a `docs/migration/vX.0-to-vY.0.md` file
 ## [Unreleased]
 
 ### Changed
+- install.sh exit code (#137): it now exits 1 whenever a path under the project was not delivered. A regular-file `.prp`, a `.prp` link to a file, a dangling or file `.prp/scripts`, a dangling or file `scripts`, a failed `.prp` repoint, or a failed copy each print one `❌ N path(s) not installed: <paths>` summary and exit 1. Every independent step still runs. A dangling `.prp` or `gen-ai-context.sh` link that was repointed, and a `.prp` link to a foreign directory, still exit 0. A symlink to a directory where install.sh creates its own directory (for example `.claude/skills`) is now reported instead of silently written through. Content writes are in the same rule: an unwritable or symlinked `.gitignore`, an invalid or symlinked `.claude/settings.local.json`, a symlinked version or preset stamp, and a failing CLAUDE.md inject each exit 1 where they used to warn and exit 0 (or abort with no summary). The stamps are still written on an exit 1 run. A recursive directory removal is refused when a parent of the path is a symlink that leaves the project; the leaf-only guarantee for other writes is unchanged.
 - PRP skills now push once at the final head, allow review alongside CI without weakening the merge gate, and support batch PRs within strict theme, size, path and hunk-mapping limits (นุด's 2026-11-21 order; companion PR-A updates soul-orchestra's `protocol.md` and `merger-policy.yaml`).
 - prp-review-agents: a timeboxed pass is void. `pass-budget.sh check-body` now refuses any body that mentions a timebox, even when it carries a `Follow-up:` issue link. Step C posts nothing, and the caller re-runs that pass with a fresh deadline.
   - No follow-up issue is filed for a timebox any more (soul-orchestra#1508, the 2026-10-31 follow-up rule). The old rule made 7 issues in 5 days.
@@ -45,6 +46,7 @@ Every major version release MUST include a `docs/migration/vX.0-to-vY.0.md` file
   - The opt-in review-artifact commit and the cleanup archive step stage these files with `git add -f`. run-all commits no review artifact (its gate reads the file on disk).
 
 ### Fixed
+- install.sh: every project `mkdir`, `rm`, `ln` and fallback `cp` goes through `_ensure_dir` / `_remove_path` / `_place`, which check the end state after the write and never discard stderr. A failed write is one ledger entry (`<path>: <state> — <skipped step>`), no longer a bare `mkdir: File exists` that stops the install, and a failed `rm` can no longer let `ln` nest a link inside the surviving directory (#137); content writes use `_write_file` (temp file beside the target, `mv -T`, checksum read-back) and never follow a symlink leaf (#137).
 - Step C no longer requires a standalone `jq` binary; it derives each prior review footer from that comment's decoded body (#260).
 - `generate-adapters.py --diff` is read-only, and the generator rejects invalid output (#268).
 - #254: install.sh changes .gitignore only by one append (no rewrite, no temp file), refuses a symlinked .gitignore, and rolls back a partial append.

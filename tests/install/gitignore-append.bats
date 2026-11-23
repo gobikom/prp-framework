@@ -22,8 +22,11 @@ continued() {
     [[ "$output" == *'Installed preset:'* ]]
 }
 
+# A refused or failed .gitignore is an undelivered path: one ledger entry, exit 1 (#137), later steps still run.
 refused() {
-    continued
+    [ "$status" -eq 1 ]
+    [[ "$output" == *'Installed preset:'* ]]
+    [[ "$output" == *'path(s) not installed:'*'.gitignore'* ]]
     [[ "$output" == *'.gitignore not updated:'*"$1"* ]]
     [[ "$output" == *'.gitignore was NOT fully configured:'*"$1"* ]]
 }
