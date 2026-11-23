@@ -307,3 +307,107 @@ gitignore_blocked_case() {  # $1 = chmod mode, rest = .gitignore lines
     [ "$status" -eq 0 ]
     [ -L "$SANDBOX/AGENTS.md" ]
 }
+
+_b4b_run() {
+    run env PATH="$SANDBOX/shims:$PATH" B4B_PROJECT="$SANDBOX" bash "$INSTALL_SCRIPT" --minimal --no-inject
+    [ "$status" -eq 0 ]
+}
+
+@test "T13: gitignore blocks do not use heredocs" {
+    awk '/^# Add gitignore rules/{section=1} /^# Inject PRP section/{section=0} section && /<</{bad=1} END{exit bad}' "$INSTALL_SCRIPT"
+}
+
+@test "T14: a directory at .gitignore is left untouched" {
+    mkdir "$SANDBOX/.gitignore"
+    before=$(ls -ldi "$SANDBOX/.gitignore")
+    _b4b_run
+    [ "$(ls -ldi "$SANDBOX/.gitignore")" = "$before" ]
+    [[ $output == *'is not a regular file'* ]]
+    ! compgen -G "$SANDBOX/.gitignore.prp-tmp.*"
+}
+
+_b4b_swap_after_read() {
+    mkdir "$SANDBOX/shims"
+    printf '# PRP artifacts\n' > "$SANDBOX/.gitignore"
+    cat > "$SANDBOX/shims/cat" <<'SHIM'
+#!/bin/bash
+/bin/cat "$@" || exit
+if [ "${2-}" = "$B4B_PROJECT/.gitignore" ]; then
+    mv "$2" "$2.saved" || exit
+    if [ "$B4B_SWAP" = directory ]; then mkdir "$2"; else ln -s "$B4B_OUTSIDE" "$2"; fi
+fi
+SHIM
+    chmod +x "$SANDBOX/shims/cat"
+}
+
+@test "T14b: a directory appearing during staging receives no file" {
+    export B4B_SWAP=directory
+    _b4b_swap_after_read
+    _b4b_run
+    [ -d "$SANDBOX/.gitignore" ]
+    [ -z "$(ls -A "$SANDBOX/.gitignore")" ]
+    [[ $output == *'changed during install'* ]]
+    ! compgen -G "$SANDBOX/.gitignore.prp-tmp.*"
+}
+
+@test "T15: a symlink appearing during staging is left untouched" {
+    export B4B_SWAP=symlink B4B_OUTSIDE="$BATS_TEST_TMPDIR/outside"
+    printf 'outside\n' > "$B4B_OUTSIDE"
+    cp "$B4B_OUTSIDE" "$BATS_TEST_TMPDIR/before"
+    _b4b_swap_after_read
+    _b4b_run
+    [ "$(readlink "$SANDBOX/.gitignore")" = "$B4B_OUTSIDE" ]
+    cmp "$B4B_OUTSIDE" "$BATS_TEST_TMPDIR/before"
+    [[ $output == *'changed during install'* ]]
+}
+
+@test "T16a: an ACL on the original causes a metadata refusal" {
+    mkdir "$SANDBOX/shims"
+    printf '# PRP artifacts\n' > "$SANDBOX/.gitignore"
+    cp "$SANDBOX/.gitignore" "$BATS_TEST_TMPDIR/before"
+    cat > "$SANDBOX/shims/ls" <<'SHIM'
+#!/bin/bash
+if [ "${3-}" = "$B4B_PROJECT/.gitignore" ]; then
+    /bin/ls "$@" | awk '{$2=$2 "+"; print}'
+else
+    exec /bin/ls "$@"
+fi
+SHIM
+    chmod +x "$SANDBOX/shims/ls"
+    _b4b_run
+    cmp "$SANDBOX/.gitignore" "$BATS_TEST_TMPDIR/before"
+    [[ $output == *'cannot preserve owner/group/ACL'* ]]
+}
+
+@test "T16b: replacement preserves the existing group" {
+    read -r primary secondary _ <<< "$(id -G)"
+    [ -n "$secondary" ] && [ "$primary" != "$secondary" ] || skip 'requires a secondary group'
+    printf '# PRP artifacts\n' > "$SANDBOX/.gitignore"
+    chgrp "$secondary" "$SANDBOX/.gitignore"
+    _b4b_run
+    [ "$(stat -c %g "$SANDBOX/.gitignore" 2>/dev/null || stat -f %g "$SANDBOX/.gitignore")" = "$secondary" ]
+    grep -Fx '# PRP review scratch (v3)' "$SANDBOX/.gitignore"
+}
+
+@test "T17: unreadable dangling target does not abort or repoint" {
+    mkdir "$SANDBOX/shims"
+    ln -s "$SANDBOX/missing/prp-framework" "$SANDBOX/.prp"
+    cat > "$SANDBOX/shims/readlink" <<'SHIM'
+#!/bin/bash
+[ "${*: -1}" != "$B4B_PROJECT/.prp" ] || exit 1
+exec /usr/bin/readlink "$@"
+SHIM
+    chmod +x "$SANDBOX/shims/readlink"
+    _b4b_run
+    [[ $output == *'(target unreadable)'*'skipping helper scripts'* ]]
+    [ "$(readlink "$SANDBOX/.prp")" = "$SANDBOX/missing/prp-framework" ]
+}
+
+@test "T18: generator and helpers skip outside destination parents" {
+    mkdir "$BATS_TEST_TMPDIR/outside" "$SANDBOX/.prp"
+    ln -s "$BATS_TEST_TMPDIR/outside" "$SANDBOX/scripts"
+    ln -s "$BATS_TEST_TMPDIR/outside" "$SANDBOX/.prp/scripts"
+    _b4b_run
+    [ -z "$(ls -A "$BATS_TEST_TMPDIR/outside")" ]
+    [[ $output == *'skipping generator'*'skipping helper scripts'* ]]
+}
