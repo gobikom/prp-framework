@@ -113,7 +113,7 @@ install_directory() {
     else
         # Fallback to copy
         printf '%b%s%b\n' "${YELLOW}  ⚠️  Symlink failed for " "$name, copying instead ($LN_ERR)" "$NC" >&2
-        cp -r "$source" "$target"
+        _cp_or_report "$name" -r "$source" "$target" || return 2
         echo -e "${GREEN}  ✅ Copied: $name${NC}"
         return 1
     fi
@@ -124,13 +124,35 @@ _ln_or_report() {
     return 1
 }
 
+# Copy fallback that never reports success for a file it did not deliver.
+# Usage: _cp_or_report NAME cp-args...  (status 2 = delivery failed; stderr captured)
+_cp_or_report() {
+    local _name=$1 _cp_err
+    shift
+    if _cp_err=$(cp "$@" 2>&1); then return 0; fi
+    printf '%b%s%b\n' "${RED}  ❌ Copy failed: " "$_name: $_cp_err" "$NC" >&2
+    return 2
+}
+
+# Callers: after a non-zero install_* status, status 2 is a failed delivery, not a copy.
+INSTALL_FAILED=""
+INSTALL_FAILED_N=0
+_note_copy() {
+    if [ "$1" -eq 2 ]; then
+        INSTALL_FAILED="${INSTALL_FAILED:+$INSTALL_FAILED, }$2"
+        INSTALL_FAILED_N=$((INSTALL_FAILED_N + 1))
+    else
+        USED_COPY=true
+    fi
+}
+
 # Function: Install individual files into a shared directory (preserves non-PRP files)
 # Use for shared dirs like .claude/agents/ and .claude/hooks/ that may contain custom files
 install_files_into_dir() {
     local source_dir=$1
     local target_dir=$2
     local name=$3
-    local used_symlink=true
+    local used_symlink=true failed=false
 
     # Migrate from old whole-directory symlink to real directory with per-file symlinks
     if [ -L "$target_dir" ]; then
@@ -158,12 +180,14 @@ install_files_into_dir() {
             : # symlink ok
         else
             printf '  ⚠️  Symlink failed for %s (%s), copying instead (%s)\n' "$name" "$target_file" "$LN_ERR" >&2
-            cp "$source_file" "$target_file"
+            _cp_or_report "$target_file" "$source_file" "$target_file" || failed=true
             used_symlink=false
         fi
     done
 
-    if $used_symlink; then
+    if $failed; then
+        return 2
+    elif $used_symlink; then
         echo -e "${GREEN}  ✅ Symlinked files: $name${NC}"
         return 0
     else
@@ -196,7 +220,7 @@ install_file() {
         return 0
     else
         printf '%b%s%b\n' "${YELLOW}  ⚠️  Symlink failed for " "$name, copying instead ($LN_ERR)$old_note" "$NC" >&2
-        cp "$source" "$target"
+        _cp_or_report "$name" "$source" "$target" || return 2
         echo -e "${GREEN}  ✅ Copied: $name${NC}"
         return 1
     fi
@@ -245,8 +269,12 @@ for cmd in $CORE_CMDS; do
             USED_SYMLINKS=true
         else
             printf '  ⚠️  Symlink failed for %s, copying instead (%s)\n' "$target_file" "$LN_ERR" >&2
-            cp "$source_file" "$target_file"
-            USED_COPY=true
+            if _cp_or_report "$target_file" "$source_file" "$target_file"; then
+                USED_COPY=true
+            else
+                _note_copy 2 "$target_file"
+                continue
+            fi
         fi
         CORE_COUNT=$((CORE_COUNT + 1))
     fi
@@ -270,7 +298,7 @@ if [[ "$PRESET" == "full" ]]; then
     if install_directory "$FRAMEWORK_DIR/adapters/claude-code-marketing" "$PROJECT_DIR/.claude/commands/prp-mkt" "Claude Code Marketing"; then
         USED_SYMLINKS=true
     else
-        USED_COPY=true
+        _note_copy $? "Claude Code Marketing"
     fi
 
     # Install Claude Code Bot Commands
@@ -278,7 +306,7 @@ if [[ "$PRESET" == "full" ]]; then
     if install_directory "$FRAMEWORK_DIR/adapters/claude-code-bot" "$PROJECT_DIR/.claude/commands/prp-bot" "Claude Code Bot"; then
         USED_SYMLINKS=true
     else
-        USED_COPY=true
+        _note_copy $? "Claude Code Bot"
     fi
 else
     # Remove marketing/bot if downgrading from full
@@ -298,7 +326,7 @@ mkdir -p "$PROJECT_DIR/.claude/agents"
 if install_files_into_dir "$FRAMEWORK_DIR/adapters/claude-code-agents" "$PROJECT_DIR/.claude/agents" "Claude Code Agents"; then
     USED_SYMLINKS=true
 else
-    USED_COPY=true
+    _note_copy $? "Claude Code Agents"
 fi
 
 # Install Claude Code Skills
@@ -315,7 +343,7 @@ for skill_dir in "$FRAMEWORK_DIR/adapters/claude-code-skills"/*; do
         if install_directory "$skill_dir" "$PROJECT_DIR/.claude/skills/$skill_name" "Claude Code Skill: $skill_name"; then
             USED_SYMLINKS=true
         else
-            USED_COPY=true
+            _note_copy $? "Claude Code Skill: $skill_name"
         fi
     fi
 done
@@ -326,7 +354,7 @@ mkdir -p "$PROJECT_DIR/.claude/hooks"
 if install_files_into_dir "$FRAMEWORK_DIR/adapters/claude-code-hooks" "$PROJECT_DIR/.claude/hooks" "Claude Code Hooks"; then
     USED_SYMLINKS=true
 else
-    USED_COPY=true
+    _note_copy $? "Claude Code Hooks"
 fi
 
 # Make ralph stop hook executable
@@ -386,7 +414,7 @@ mkdir -p "$PROJECT_DIR/.claude-plugin"
 if install_file "$FRAMEWORK_DIR/adapters/claude-code-plugin/marketplace.json" "$PROJECT_DIR/.claude-plugin/marketplace.json" "Plugin metadata"; then
     USED_SYMLINKS=true
 else
-    USED_COPY=true
+    _note_copy $? "Plugin metadata"
 fi
 
 # Install Codex (directory structure)
@@ -415,7 +443,7 @@ else
             if install_directory "$skill_dir" "$PROJECT_DIR/.codex/skills/$skill_name" "Codex: $skill_name"; then
                 USED_SYMLINKS=true
             else
-                USED_COPY=true
+                _note_copy $? "Codex: $skill_name"
             fi
         fi
     done
@@ -427,7 +455,7 @@ mkdir -p "$PROJECT_DIR/.opencode/commands"
 if install_directory "$FRAMEWORK_DIR/adapters/opencode" "$PROJECT_DIR/.opencode/commands/prp" "OpenCode"; then
     USED_SYMLINKS=true
 else
-    USED_COPY=true
+    _note_copy $? "OpenCode"
 fi
 
 # Install Gemini
@@ -436,7 +464,7 @@ mkdir -p "$PROJECT_DIR/.gemini/commands"
 if install_directory "$FRAMEWORK_DIR/adapters/gemini" "$PROJECT_DIR/.gemini/commands/prp" "Gemini"; then
     USED_SYMLINKS=true
 else
-    USED_COPY=true
+    _note_copy $? "Gemini"
 fi
 
 # Install Antigravity
@@ -445,7 +473,7 @@ mkdir -p "$PROJECT_DIR/.agents/workflows"
 if install_directory "$FRAMEWORK_DIR/adapters/antigravity" "$PROJECT_DIR/.agents/workflows/prp" "Antigravity"; then
     USED_SYMLINKS=true
 else
-    USED_COPY=true
+    _note_copy $? "Antigravity"
 fi
 
 # Install thClaws (directory structure, same as codex)
@@ -457,7 +485,7 @@ for skill_dir in "$FRAMEWORK_DIR/adapters/thclaws"/prp-*; do
         if install_directory "$skill_dir" "$PROJECT_DIR/.thclaws/skills/$skill_name" "thClaws: $skill_name"; then
             USED_SYMLINKS=true
         else
-            USED_COPY=true
+            _note_copy $? "thClaws: $skill_name"
         fi
     fi
 done
@@ -510,20 +538,29 @@ else
     if install_file "$FRAMEWORK_DIR/adapters/generic/AGENTS.md" "$PROJECT_DIR/AGENTS.md" "AGENTS.md"; then
         USED_SYMLINKS=true
     else
-        USED_COPY=true
+        _note_copy $? "AGENTS.md"
     fi
 fi
 
 # Install gen-ai-context.sh (PROJECT.md validator/updater)
 echo "→ AI Context Generator (scripts/gen-ai-context.sh)"
-mkdir -p "$PROJECT_DIR/scripts"
-if install_file "$FRAMEWORK_DIR/scripts/gen-ai-context.sh" "$PROJECT_DIR/scripts/gen-ai-context.sh" "AI Context Generator"; then
-    USED_SYMLINKS=true
+_HELPERS_WARN=""
+_helpers_fail() {
+    _HELPERS_WARN="${_HELPERS_WARN:+$_HELPERS_WARN; }$1"
+    printf '  ⚠️  %s\n' "$1" >&2
+}
+if [ -L "$PROJECT_DIR/scripts" ] && [ ! -e "$PROJECT_DIR/scripts" ]; then
+    _helpers_fail "scripts is a dangling symlink → $(readlink "$PROJECT_DIR/scripts") — gen-ai-context.sh NOT installed"
 else
-    USED_COPY=true
-fi
-if ! chmod +x "$PROJECT_DIR/scripts/gen-ai-context.sh" 2>/dev/null; then
-    echo -e "${YELLOW}  ⚠️  Could not set executable permission on gen-ai-context.sh${NC}"
+    mkdir -p "$PROJECT_DIR/scripts"
+    if install_file "$FRAMEWORK_DIR/scripts/gen-ai-context.sh" "$PROJECT_DIR/scripts/gen-ai-context.sh" "AI Context Generator"; then
+        USED_SYMLINKS=true
+    else
+        _note_copy $? "AI Context Generator"
+    fi
+    if ! chmod +x "$PROJECT_DIR/scripts/gen-ai-context.sh" 2>/dev/null; then
+        echo -e "${YELLOW}  ⚠️  Could not set executable permission on gen-ai-context.sh${NC}"
+    fi
 fi
 
 echo ""
@@ -545,17 +582,21 @@ if [ -L "$PRP_PATH" ]; then
         if _ln_or_report -sfn "$FRAMEWORK_DIR" "$PRP_PATH"; then
             printf '  ✅ Repointed dangling .prp (dead target: %s) → %s\n' "$PRP_LINK_TARGET" "$FRAMEWORK_DIR"
         else
-            printf '  ⚠️  .prp points to %s — could not repoint it; helper scripts NOT installed (%s)\n' "$PRP_LINK_TARGET" "$LN_ERR" >&2
+            _helpers_fail ".prp points to $PRP_LINK_TARGET — could not repoint it; helper scripts NOT installed ($LN_ERR)"
         fi
         INSTALL_HELPERS=false
     elif [ -d "$PRP_PATH" ]; then
         printf '  ⚠️  .prp points to %s, not %s — helper scripts installed there\n' "$PRP_LINK_TARGET" "$FRAMEWORK_DIR" >&2
     else
-        printf '  ⚠️  .prp points to %s, which is not a directory — helper scripts NOT installed\n' "$PRP_LINK_TARGET" >&2
+        _helpers_fail ".prp points to $PRP_LINK_TARGET, which is not a directory — helper scripts NOT installed"
         INSTALL_HELPERS=false
     fi
 elif [ -e "$PRP_PATH" ] && [ ! -d "$PRP_PATH" ]; then
-    printf '  ⚠️  .prp is not a directory or symlink — helper scripts NOT installed\n' >&2
+    _helpers_fail ".prp is not a directory or symlink — helper scripts NOT installed"
+    INSTALL_HELPERS=false
+fi
+if $INSTALL_HELPERS && [ -L "$PRP_PATH/scripts" ] && [ ! -e "$PRP_PATH/scripts" ]; then
+    _helpers_fail ".prp/scripts is a dangling symlink → $(readlink "$PRP_PATH/scripts") — helper scripts NOT installed"
     INSTALL_HELPERS=false
 fi
 if $INSTALL_HELPERS; then
@@ -565,8 +606,11 @@ if $INSTALL_HELPERS; then
             if ! _ln_or_report -sfn "$FRAMEWORK_DIR/scripts/$script" "$PROJECT_DIR/.prp/scripts/$script"; then
                 printf '  ⚠️  Symlink failed for .prp/scripts/%s, copying instead (%s)\n' "$script" "$LN_ERR" >&2
                 if [ -L "$PROJECT_DIR/.prp/scripts/$script" ]; then rm -f "$PROJECT_DIR/.prp/scripts/$script"; fi
-                cp "$FRAMEWORK_DIR/scripts/$script" "$PROJECT_DIR/.prp/scripts/$script"
-                chmod +x "$PROJECT_DIR/.prp/scripts/$script"
+                if _cp_or_report ".prp/scripts/$script" "$FRAMEWORK_DIR/scripts/$script" "$PROJECT_DIR/.prp/scripts/$script"; then
+                    chmod +x "$PROJECT_DIR/.prp/scripts/$script"
+                else
+                    _note_copy 2 ".prp/scripts/$script"
+                fi
             fi
         fi
     done
@@ -715,7 +759,9 @@ echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 
-if $USED_SYMLINKS && ! $USED_COPY; then
+if [ "$INSTALL_FAILED_N" -gt 0 ]; then
+    echo -e "${RED}❌ $INSTALL_FAILED_N file(s) not installed: $INSTALL_FAILED${NC}"
+elif $USED_SYMLINKS && ! $USED_COPY; then
     echo -e "${GREEN}✅ Installation complete using symlinks!${NC}"
     echo ""
     echo "Updates are automatic - just run 'git pull' in the submodule:"
@@ -727,6 +773,10 @@ elif $USED_COPY; then
     echo "  cd .prp && git pull && ./scripts/sync.sh"
 fi
 
+if [ -n "$_HELPERS_WARN" ]; then
+    echo ""
+    echo -e "${YELLOW}⚠️  Some links were NOT installed: $_HELPERS_WARN${NC}"
+fi
 if [ -n "$_GITIGNORE_WARN" ]; then
     echo ""
     echo -e "${YELLOW}⚠️  .gitignore was NOT fully configured: $_GITIGNORE_WARN${NC}"
@@ -763,3 +813,4 @@ if [ -n "$CURRENT_VERSION" ]; then
     echo "$CURRENT_VERSION" > "$PROJECT_DIR/.claude/prp-version"
 fi
 echo "$PRESET" > "$PROJECT_DIR/.claude/prp-preset"
+[ "$INSTALL_FAILED_N" -eq 0 ] || exit 1

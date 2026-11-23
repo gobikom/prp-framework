@@ -98,6 +98,82 @@ SH
     [ ! -L "$prp/scripts/prp-validate.sh" ] && cmp "$prp/scripts/prp-validate.sh" "$framework/scripts/prp-validate.sh"
 }
 
+# Stub ln and cp so they fail only when an argument ends with "$1"; otherwise run the real tool.
+stub_failing_delivery() {
+    local real_ln real_cp
+    real_ln=$(command -v ln); real_cp=$(command -v cp)
+    mkdir -p "$BATS_TEST_TMPDIR/bin"
+    for tool in ln cp; do
+        cat > "$BATS_TEST_TMPDIR/bin/$tool" <<SH
+#!/bin/sh
+for a in "\$@"; do case \$a in *"$1") echo "$tool: boom \$a" >&2; exit 1;; esac; done
+exec $( [ "$tool" = ln ] && echo "$real_ln" || echo "$real_cp" ) "\$@"
+SH
+        chmod +x "$BATS_TEST_TMPDIR/bin/$tool"
+    done
+    export PATH="$BATS_TEST_TMPDIR/bin:$PATH"
+}
+
+@test "L14 dangling .prp/scripts is reported and install continues" {
+    mkdir "$prp"; ln -s "$dead/scripts" "$prp/scripts"
+    run install_prp
+    [ "$status" -eq 0 ]
+    [ "$(printf '%s\n' "$output" | grep -c '.prp/scripts is a dangling symlink')" -ge 1 ]
+    [[ "$output" == *"→ $dead/scripts — helper scripts NOT installed"* ]]
+    [[ "$output" == *'Some links were NOT installed'* ]]
+    [ "$(readlink "$prp/scripts")" = "$dead/scripts" ]
+    [ -f "$project/.gitignore" ] && [ -f "$project/.claude/prp-version" ] && [[ "$output" == *'Installed preset'* ]]
+}
+
+@test "L15 dangling project scripts link is reported and install continues" {
+    rm -r "$project/scripts"; ln -s "$dead/scripts" "$project/scripts"
+    run install_prp
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"scripts is a dangling symlink → $dead/scripts — gen-ai-context.sh NOT installed"* ]]
+    [ "$(readlink "$project/scripts")" = "$dead/scripts" ]
+    [ -f "$project/.gitignore" ] && [ -f "$project/.claude/prp-version" ] && [[ "$output" == *'Installed preset'* ]]
+}
+
+@test "L16 failed file copy is loud, never counted as copied, and exits 1" {
+    stub_failing_delivery /AGENTS.md
+    run install_prp
+    [ "$status" -eq 1 ]
+    [[ "$output" == *'❌ Copy failed: AGENTS.md: cp: boom'* ]]
+    [[ "$output" != *'✅ Copied: AGENTS.md'* ]]
+    [[ "$output" == *'❌ 1 file(s) not installed: AGENTS.md'* ]]
+    [ ! -e "$project/AGENTS.md" ]
+    [ -f "$project/.gitignore" ] && [ -f "$project/.claude/prp-version" ] && [ -x "$prp/scripts/prp-validate.sh" ]
+}
+
+@test "L17 failed directory copy is loud, never counted as copied, and exits 1" {
+    stub_failing_delivery /.opencode/commands/prp
+    run install_prp
+    [ "$status" -eq 1 ]
+    [[ "$output" == *'❌ Copy failed: OpenCode: cp: boom'* ]]
+    [[ "$output" != *'✅ Copied: OpenCode'* ]]
+    [[ "$output" == *'❌ 1 file(s) not installed: OpenCode'* ]]
+    [ -f "$project/.gitignore" ] && [ -f "$project/.claude/prp-version" ] && [ -x "$prp/scripts/prp-validate.sh" ]
+}
+
+@test "L18 failed repoint of a dangling .prp is named and repeated in the summary" {
+    ln -s "$dead" "$prp"
+    stub_failing_delivery "/.prp"
+    run install_prp
+    [ "$status" -eq 0 ]
+    [[ "$output" == *'could not repoint it'*'ln: boom'* ]]
+    [[ "$output" == *'Some links were NOT installed: .prp points to '* ]]
+    [ "$(readlink "$prp")" = "$dead" ]
+}
+
+@test "L19 .prp link to a regular file is left alone and reported" {
+    printf 'keep me\n' > "$BATS_TEST_TMPDIR/file"; ln -s "$BATS_TEST_TMPDIR/file" "$prp"
+    run install_prp
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"which is not a directory — helper scripts NOT installed"* ]]
+    [[ "$output" == *'Some links were NOT installed'* ]]
+    [ "$(cat "$BATS_TEST_TMPDIR/file")" = 'keep me' ]
+}
+
 cleanup_probe() {
     awk '/^### 5\.1 / {section=1} section && /^```bash$/ {body=1; next} body && /^```$/ {exit} body' \
         "$framework/$1" > "$BATS_TEST_TMPDIR/probe"
