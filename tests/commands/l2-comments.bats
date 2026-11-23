@@ -24,6 +24,8 @@ step() { # step <A|C> -> the bash fence after "**Step <X>", {NUMBER} filled in
 setup() {
   WORK="$(mktemp -d)"
   cd "$WORK"
+  export XDG_RUNTIME_DIR="$WORK/runtime"
+  mkdir "$XDG_RUNTIME_DIR"
   git init -q . && git commit -q --allow-empty -m w   # the reviewed tree is a repo: the tracked-.prp guard (B28-B30) runs `git ls-files` at cwd
   git init -q prp && git -C prp commit -q --allow-empty -m init && git -C prp tag v9.9.9
   mkdir -p prp/scripts && cp -r "$ROOT/scripts/review" prp/scripts/   # what Phase 2.0 and Step C run from the installed framework
@@ -718,55 +720,41 @@ expect_refused_tree() { [ "$status" -ne 0 ]; [[ "$output" == *"UNCHANGED-TREE: r
   expect_runs
 }
 
-clonedir() { ls -d "$PWD"/s/prp-review-clone-*-pr-7 | head -n1; }
-
-@test "2.1.1 leaves unrelated worktrees with missing directories registered (no prune)" {
-  phase20 > p20.sh; clone211 > c211.sh; repo_here
-  run env -u REVIEWED_HEAD_SHA bash p20.sh; [ "$status" -eq 0 ]
-  git worktree add -q --detach "$PWD/other" HEAD && mv other other.moved   # e.g. on an unmounted disk
-  mkdir -p s; run env SCRATCHPAD="$PWD/s" bash c211.sh; [ "$status" -eq 0 ]
-  git worktree list --porcelain | grep -q "^worktree $PWD/other\$"
-}
-
-@test "2.1.1 clone paths differ between repos for the same PR number" {
-  clone211 > c211.sh
-  mkdir -p a b s
-  for r in a b; do (cd $r && git init -q . && git commit -q --allow-empty -m x && mkdir -p .prp-output/reviews && git rev-parse HEAD > .prp-output/reviews/pr-7-reviewed-head); done
-  (cd a && env SCRATCHPAD="$OLDPWD/s" bash ../c211.sh) && (cd b && env SCRATCHPAD="$OLDPWD/s" bash ../c211.sh)
-  [ "$(ls -d s/prp-review-clone-*-pr-7 | wc -l)" -eq 2 ]
-}
-
 clone211() { fence "$ADAPTER" "### 2.1.1 "; }
+clone_path() { printf '%s\n' "$output" | sed -n 's/^REVIEW_CLONE=//p'; }
 
 @test "2.1.1 clones the agents' tree at the saved head even when HEAD moved after Phase 2.0" {
   phase20 > p20.sh; clone211 > c211.sh; repo_here
   run env -u REVIEWED_HEAD_SHA bash p20.sh; [ "$status" -eq 0 ]
   saved=$FAKE_HEAD
   git commit -q --allow-empty -m moved            # the shared checkout moves on
-  mkdir -p s; run env SCRATCHPAD="$PWD/s" bash c211.sh
+  run bash c211.sh
   [ "$status" -eq 0 ]
-  [ "$(git -C "$(clonedir)" rev-parse HEAD)" = "$saved" ]
+  [ "$(git -C "$(clone_path)" rev-parse HEAD)" = "$saved" ]
+  [ "$(git worktree list --porcelain | grep -c '^worktree ')" -eq 1 ]
 }
 
-@test "2.1.1 runs again in a later round even when the earlier clone was never cleaned up" {
+@test "a fresh cleanup shell removes the printed run only after it can be reused" {
   phase20 > p20.sh; clone211 > c211.sh; repo_here
   run env -u REVIEWED_HEAD_SHA bash p20.sh; [ "$status" -eq 0 ]
-  mkdir -p s
-  run env SCRATCHPAD="$PWD/s" bash c211.sh; [ "$status" -eq 0 ]
-  rm -rf -- "$(clonedir)"                          # directory gone, registration left behind
-  run env SCRATCHPAD="$PWD/s" bash c211.sh; [ "$status" -eq 0 ]
-  touch "$(clonedir)/stale"                         # a kept tree would still have this
-  run env SCRATCHPAD="$PWD/s" bash c211.sh; [ "$status" -eq 0 ]   # and with the clone still present
-  [ ! -e "$(clonedir)/stale" ]
-  [ "$(git -C "$(clonedir)" rev-parse HEAD)" = "$FAKE_HEAD" ]
+  run bash c211.sh; [ "$status" -eq 0 ]
+  a=$(clone_path)
+  id=$(printf '%s\n' "$output" | sed -n 's/^REVIEW_CLONE_ID=//p')
+  run bash c211.sh; [ "$status" -eq 0 ]; b=$(clone_path)
+  [[ $a != "$b" && -d $a && -d $b ]]
+  run bash prp/scripts/review/review-clone.sh path 7 "$id"
+  [[ $status -eq 0 && $output == "REVIEW_CLONE=$a" ]]
+  fence "$ADAPTER" '#### Clone cleanup' | sed "s|{PRP_DIR}|$WORK/prp|g; s|{REVIEW_CLONE_ID}|$id|g" > cleanup.sh
+  run bash cleanup.sh
+  [ "$status" -eq 0 ] && [ ! -d "$a" ] && [ -d "$b" ]
 }
 
 @test "2.1.1 starts no clone without a head saved by Phase 2.0" {
   clone211 > c211.sh; repo_here; rm -f .prp-output/reviews/pr-7-reviewed-head
-  mkdir -p s; run env SCRATCHPAD="$PWD/s" bash c211.sh
+  run bash c211.sh
   [ "$status" -ne 0 ]
   [[ "$output" == *"no reviewed head saved by Phase 2.0"* ]]
-  [ -z "$(ls s)" ]
+  [ -z "$(ls -A "$XDG_RUNTIME_DIR")" ]
 }
 
 @test "--l2-comments implies no artifact commit (documented flag mapping)" {

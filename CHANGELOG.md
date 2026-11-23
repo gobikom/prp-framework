@@ -47,6 +47,7 @@ Every major version release MUST include a `docs/migration/vX.0-to-vY.0.md` file
 
 ### Fixed
 - install.sh: every project `mkdir`, `rm`, `ln` and fallback `cp` goes through `_ensure_dir` / `_remove_path` / `_place`, which check the end state after the write and never discard stderr. A failed write is one ledger entry (`<path>: <state> — <skipped step>`), no longer a bare `mkdir: File exists` that stops the install, and a failed `rm` can no longer let `ln` nest a link inside the surviving directory (#137); content writes use `_write_file` (temp file beside the target, `mv -T`, checksum read-back) and never follow a symlink leaf (#137).
+- #252: the review clone lives in a private per-run root and is removed on every terminal path; stale roots are swept after 48 h; no git worktree registration.
 - Step C no longer requires a standalone `jq` binary; it derives each prior review footer from that comment's decoded body (#260).
 - `generate-adapters.py --diff` is read-only, and the generator rejects invalid output (#268).
 - #254: install.sh changes .gitignore only by one append (no rewrite, no temp file), refuses a symlinked .gitignore, and rolls back a partial append.
