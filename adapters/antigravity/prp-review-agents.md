@@ -1697,7 +1697,7 @@ gh api "repos/{owner}/{repo}/pulls/{NUMBER}/commits" --paginate --jq '.[].sha' >
 printf '%s\n' "$NOW_HEAD" >> "$RID_DIR/shas"
 LISTING="$RID_DIR/prior-comments"
 TRUSTED_LOGIN="$TRUSTED_LOGIN" gh api "repos/{owner}/{repo}/issues/{NUMBER}/comments" --paginate --jq '.[] | select(.user.login == env.TRUSTED_LOGIN) | .body | @base64' > "$LISTING" || { echo "FATAL: cannot read PR comments; nothing posted" >&2; exit 1; }
-bad_footers() { printf 'FATAL: cannot read prior review footers: %s; nothing posted\n' "$1" >&2; exit 1; }
+bad_footers() { printf 'FATAL: cannot read prior review footers: %s; nothing posted — re-run Step C; if it repeats, inspect %s/prior-comments\n' "$1" "$RID_DIR" >&2; exit 1; }
 # Reject non-protocol bytes before Bash read can drop a raw NUL.
 EXTRA=$(set -o pipefail; LC_ALL=C tr -d 'A-Za-z0-9+/=\n' < "$LISTING" | wc -c) || bad_footers 'listing byte check failed'
 [ "$EXTRA" -eq 0 ] || bad_footers 'invalid listing bytes'
@@ -1708,6 +1708,8 @@ fi
 : > "$RID_DIR/prior" && : > "$RID_DIR/prior-footers" || bad_footers 'cannot initialize decoded output'
 N=0
 while IFS= read -r REC; do
+  [[ "$REC" =~ ^[A-Za-z0-9+/]*={0,2}$ ]] && (( ${#REC} % 4 == 0 )) \
+    || bad_footers "invalid base64 record at record $((N+1))"
   BODY=$( (set -o pipefail; printf '%s' "$REC" | base64 -d) && printf x ) || bad_footers "cannot decode body at record $((N+1))"
   BODY=${BODY%x}  # sentinel preserves all trailing newlines through command substitution
   DECODED_BYTES=$(set -o pipefail; printf '%s' "$REC" | base64 -d | LC_ALL=C wc -c) || bad_footers "cannot count body at record $((N+1))"

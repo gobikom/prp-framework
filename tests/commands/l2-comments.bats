@@ -1295,13 +1295,25 @@ footer_is() {
   [ -f "$DECODED/prior-footers" ] && [ ! -s "$DECODED/prior-footers" ]
 }
 
-@test "B4A3 B5: alphabet-only malformed records reach the decoder" {
+@test "B4A3 B5: invalid length and padding are rejected" {
   listing_setup
   # abc= is valid base64; these have invalid length or padding.
   for invalid in a a=== ab=c; do
     printf '%s\n' "$invalid" > "$FAKE_LISTING"
-    listing_refused 'cannot decode body at record 1'
+    listing_refused 'invalid base64 record at record 1'
   done
+}
+
+@test "B4A3 B5b: concatenated padded segments are rejected" {
+  listing_setup; printf 'YQ==YQ==\n' > "$FAKE_LISTING"
+  listing_refused 'invalid base64 record at record 1'
+}
+
+@test "B4A3 B5c: a decoder error after shape validation blocks posting" {
+  listing_setup; listing_body 'one line'
+  printf '#!/usr/bin/env bash\nexit 1\n' > bin/base64
+  chmod +x bin/base64
+  listing_refused 'cannot decode body at record 1'
 }
 
 @test "B4A3 B6: a tab-separated second field is rejected" {
@@ -1325,6 +1337,7 @@ footer_is() {
 
 @test "B4A3 B10: corrupt footer output count blocks posting" {
   listing_setup; listing_body 'one line'
+  # Linux-only: identify the redirected file through the wc stub's stdin fd.
   export REAL_WC="$(command -v wc)"
   cat > bin/wc <<'SH'
 #!/usr/bin/env bash
@@ -1335,6 +1348,51 @@ exec "$REAL_WC" "$@"
 SH
   chmod +x bin/wc
   listing_refused 'decoded footer count mismatch'
+}
+
+@test "B4A3 B10b: incorrect listing record count blocks posting" {
+  listing_setup; listing_body 'one line'
+  export REAL_WC="$(command -v wc)"
+  # Like B10, this uses Linux procfs to identify stdin.
+  cat > bin/wc <<'SH'
+#!/usr/bin/env bash
+if [ "$*" = '-l' ] && [ "$(readlink /proc/$$/fd/0)" = "$DECODED/prior-comments" ]; then
+  n=$("$REAL_WC" "$@") || exit 1
+  printf '%s\n' "$((n + 1))"
+  exit 0
+fi
+exec "$REAL_WC" "$@"
+SH
+  chmod +x bin/wc
+  listing_refused 'listing record count mismatch'
+}
+
+# Swap the append target for a directory only after Step C initializes it.
+block_append() {
+  export BLOCK_TARGET="$DECODED/$1" REAL_BASE64="$(command -v base64)"
+  cat > bin/base64 <<'SH'
+#!/usr/bin/env bash
+if [ -f "$BLOCK_TARGET" ]; then
+  mv -- "$BLOCK_TARGET" "$BLOCK_TARGET.saved" && mkdir -- "$BLOCK_TARGET" || exit 1
+fi
+exec "$REAL_BASE64" "$@"
+SH
+  chmod +x bin/base64
+}
+
+@test "B4A3 B13a: directory at init target blocks posting" {
+  listing_setup; listing_body 'one line'; mkdir "$DECODED/prior"
+  listing_refused 'cannot initialize decoded output'
+}
+
+@test "B4A3 B13b: directory at body append target blocks posting" {
+  listing_setup; listing_body 'one line'; block_append prior
+  listing_refused 'cannot write body at record 1'
+}
+
+@test "B4A3 B13c: directory at footer append target blocks posting" {
+  listing_setup; listing_body 'one line'; block_append prior-footers
+  listing_refused 'cannot write footer at record 1'
 }
 
 @test "B4A3 B11: an empty body emits one empty footer and body line" {
@@ -1358,6 +1416,23 @@ SH
   grep -Fq -- "--jq '.[] | select(.user.login == env.TRUSTED_LOGIN) | .body | @base64'" stepC.sh
 }
 
+jq_command_hits() {
+  # A dash is not a left boundary: allow gh's --jq option.
+  local pattern
+  pattern=$(cat <<'REGEX'
+(^|[[:space:]`"'\\;|&(/])jq([[:space:]`"'\\;|&()<>]|$)
+REGEX
+  )
+  grep -nE "$pattern" "$1"
+}
+
+@test "B4A3: no-jq checker detects backtick invocation even on a comment line" {
+  printf '%s\n' '# `jq .x`' 'gh api --jq .x' > "$WORK/jq-check.sh"
+  run jq_command_hits "$WORK/jq-check.sh"
+  [ "$status" -eq 0 ]
+  [ "$output" = '1:# `jq .x`' ]
+}
+
 @test "B4A3: no standalone jq command in Step C for any adapter" {
   local file rc
   for file in "$ROOT/prompts/review-agents.md" \
@@ -1366,7 +1441,7 @@ SH
     "$ROOT"/adapters/gemini/review-agents.toml "$ROOT"/adapters/opencode/review-agents.md; do
     fence "$file" '**Step C' > "$WORK/fence.sh"
     [ -s "$WORK/fence.sh" ]
-    rc=0; grep -v '^ *#' "$WORK/fence.sh" | grep -nE '(^|[[:space:];|&(/])jq([[:space:];|&)]|$)' || rc=$?
+    rc=0; jq_command_hits "$WORK/fence.sh" || rc=$?
     [ "$rc" -eq 1 ] || return 1
   done
 }
