@@ -537,94 +537,95 @@ else
     echo -e "${GREEN}  ✅ Installed helper scripts to .prp/scripts/${NC}"
 fi
 
-# Add gitignore rules to consumer project
-#
-# A .gitignore that is not readable and writable is never fatal (PR #253, Invariant B): one
-# precheck runs before the first access; when it fails, every .gitignore block below is
-# skipped, the file is left byte-identical, and the reason is printed to stderr and repeated
-# in the final summary — the install itself (CLAUDE.md inject, summary) continues. The new
-# appends (fresh, v3, .prp/) are also guarded, so a failing append is reported, not fatal.
-# Out of scope here: atomic writes (an append that fails part-way, e.g. ENOSPC, can leave a
-# partial block), mktemp/TMPDIR failure in the v1 migration, and symlinked .gitignore files.
+# Configure .gitignore with one append, preserving existing bytes, mode and inode.
+# Refuse symlinks and non-regular files without reading them. An unsuccessful
+# append rolls back to the original byte count or reports the recovery offset.
+# None of these failures aborts the rest of installation (PR #253, Invariant B).
 echo ""
 echo "📝 Configuring .gitignore..."
 GITIGNORE_FILE="$PROJECT_DIR/.gitignore"
-PRP_MARKER="# PRP Framework"
-
-PRP_ARTIFACT_MARKER="# PRP artifacts"
-
 _GITIGNORE_WARN=""
-_gitignore_fail() {  # record + print one .gitignore failure; the install continues
+_gitignore_fail() {
     _GITIGNORE_WARN="${_GITIGNORE_WARN:+$_GITIGNORE_WARN; }$1"
     echo -e "${YELLOW}  ⚠️  .gitignore not updated: $1${NC}" >&2
 }
-if [ -e "$GITIGNORE_FILE" ]; then
-    { [ -r "$GITIGNORE_FILE" ] && [ -w "$GITIGNORE_FILE" ]; } || \
+_gi_size() { wc -c < "$GITIGNORE_FILE"; }
+_gi_append() {
+    local LC_ALL=C before=0 after expected
+    if [ -f "$GITIGNORE_FILE" ]; then
+        before=$(_gi_size) || { _gitignore_fail "cannot measure $GITIGNORE_FILE before appending"; return 1; }
+    fi
+    expected=$((before + ${#1}))
+    # Turn a file-size signal into a write error without changing the installer's traps.
+    if (trap '' XFSZ; printf '%s' "$1" >> "$GITIGNORE_FILE") 2>/dev/null &&
+        after=$(_gi_size) && [ "$after" -eq "$expected" ]; then
+        return 0
+    fi
+    if { [ ! -e "$GITIGNORE_FILE" ] && [ "$before" -eq 0 ]; } ||
+        { after=$(_gi_size) && [ "$after" -eq "$before" ]; } ||
+        { truncate -s "$before" -- "$GITIGNORE_FILE" 2>/dev/null && after=$(_gi_size) && [ "$after" -eq "$before" ]; } ||
+        { perl -e 'truncate($ARGV[0], $ARGV[1]) or exit 1' -- "$GITIGNORE_FILE" "$before" 2>/dev/null &&
+            after=$(_gi_size) && [ "$after" -eq "$before" ]; }; then
+        _gitignore_fail "could not append the PRP rules to $GITIGNORE_FILE — original bytes preserved"
+    else
+        _gitignore_fail "could not append the PRP rules to $GITIGNORE_FILE and could not roll back — partial block starts at byte offset $((before))"
+    fi
+    return 1
+}
+
+_gi_block=''
+_gi_flags=''
+_gi_migrating=false
+if [ -L "$GITIGNORE_FILE" ]; then
+    _gitignore_fail "$GITIGNORE_FILE is a symlink — no PRP rules checked or added"
+elif [ -e "$GITIGNORE_FILE" ]; then
+    if [ ! -f "$GITIGNORE_FILE" ]; then
+        _gitignore_fail "$GITIGNORE_FILE is not a regular file — no PRP rules checked or added"
+    elif [ ! -r "$GITIGNORE_FILE" ] || [ ! -w "$GITIGNORE_FILE" ]; then
         _gitignore_fail "$GITIGNORE_FILE is not readable and writable — no PRP rules checked or added"
+    elif ! _gi_flags=$(awk '
+        /# PRP artifacts/ { v2 = 1 }
+        /# PRP Framework/ { v1 = 1 }
+        $0 == "# PRP review scratch (v3)" { scratch = 1; complete = 0 }
+        scratch && $0 == ".prp-output/reviews/pr-*-rounds.err" { complete = 1 }
+        $0 == ".prp/" { local_clone = 1 }
+        END {
+            printf "%s%s%s", (v2 ? "2" : v1 ? "1" : ""),
+                (scratch ? (complete ? "3" : "!") : ""), (local_clone ? "p" : "")
+        }
+    ' "$GITIGNORE_FILE"); then
+        _gitignore_fail "cannot read $GITIGNORE_FILE — no PRP rules added"
+    fi
 elif [ ! -w "$PROJECT_DIR" ]; then
     _gitignore_fail "cannot create $GITIGNORE_FILE ($PROJECT_DIR is not writable)"
 fi
 
-if [ -n "$_GITIGNORE_WARN" ]; then
-    : # precheck failed — every .gitignore block below is skipped
-elif [ -f "$GITIGNORE_FILE" ] && grep -q "$PRP_ARTIFACT_MARKER" "$GITIGNORE_FILE"; then
-    echo -e "${GREEN}  ✅ .gitignore already configured (v2 artifact rules)${NC}"
-elif [ -f "$GITIGNORE_FILE" ] && grep -q "$PRP_MARKER" "$GITIGNORE_FILE"; then
-    # Migrate old artifact rules → new trackable artifact rules
-    # Remove ALL old prp-output lines: blanket ignores (with/without trailing slash),
-    # !-unignores, and related comments. Uses temp file for macOS (BSD sed) compatibility.
-    # Unchanged from before the v3 rules (PR #253 cut its I/O hardening to its own issue):
-    # reached only after the precheck passed, so the file is readable and writable here.
-    _TMP=$(mktemp)
-    sed '/# \.prp-output/d; /^!\.prp-output/d; /# PRP Framework - artifacts/d; /# PRP output artifacts/d; /^\.prp-output\/?$/d; /^\.prp-output\/\*\*/d' "$GITIGNORE_FILE" > "$_TMP" && mv "$_TMP" "$GITIGNORE_FILE"
-    cat >> "$GITIGNORE_FILE" << 'GITIGNORE_ARTIFACTS'
-
-# PRP artifacts — runtime state ignored, everything else trackable for GitHub links
-.prp-output/state/
-.prp-output/debug/
-.prp-output/ralph-archives/
-.prp-output/reviews/review-metrics.jsonl
-GITIGNORE_ARTIFACTS
-    echo -e "${GREEN}  ✅ Migrated .gitignore to v2 artifact rules${NC}"
-elif cat >> "$GITIGNORE_FILE" 2>/dev/null << 'GITIGNORE'
-
-# PRP Framework - generated adapters (recreate with: cd .prp && ./scripts/install.sh)
-.claude/
-.claude-plugin/
-.codex/
-.opencode/
-.gemini/
-.agents/
-AGENTS.md
-
-# PRP artifacts — runtime state ignored, everything else trackable for GitHub links
-.prp-output/state/
-.prp-output/debug/
-.prp-output/ralph-archives/
-.prp-output/reviews/review-metrics.jsonl
-GITIGNORE
-then
-    echo -e "${GREEN}  ✅ Added PRP rules to .gitignore${NC}"
-else
-    _gitignore_fail "could not append the PRP rules to $GITIGNORE_FILE"
+if [[ $_gi_flags == *'!'* ]]; then
+    _gitignore_fail "incomplete PRP review scratch block — fix by hand"
 fi
-
-# v3: ignore the per-round scratch files prp-review-agents writes (aggregate review, PR
-# context, --l2-comments pass bodies and run file, round/head/mode/tier state). With
-# --l2-comments the PR comments are the record and these files are never committed; left
-# untracked they dirty `git status --porcelain`, which blocks worktree removal and branch
-# hand-offs. Deliberately NOT the whole reviews/ dir: gate evidence (prod-gate-audit-v*.md,
-# plan-walk-v*.md, Warden artifacts), fix summaries and verify reports live there and must
-# stay committable without -f. Appended once to every install (v1/v2/fresh) — files already
-# tracked stay tracked.
-# Every per-round file is listed here (Invariant A); tests/e2e/install-sandbox.bats derives
-# that set from prompts/review-agents.md and fails when one is not covered. The context file
-# is named from the raw branch, so a branch with '/' (fix/x) writes pr-context-fix/x.md —
-# hence the directory pattern next to pr-context-*.md.
-PRP_REVIEW_SCRATCH_MARKER="# PRP review scratch (v3)"
-if [ -z "$_GITIGNORE_WARN" ] && ! grep -qxF "$PRP_REVIEW_SCRATCH_MARKER" "$GITIGNORE_FILE" 2>/dev/null; then
-    if cat >> "$GITIGNORE_FILE" 2>/dev/null << 'GITIGNORE_REVIEW_SCRATCH'
-
+if [ -z "$_GITIGNORE_WARN" ]; then
+    case $_gi_flags in
+        2*) echo -e "${GREEN}  ✅ .gitignore already configured (v2 artifact rules)${NC}" ;;
+        1*)
+            # Re-include the parent before overriding blanket v1 rules beneath it.
+            _gi_migrating=true
+            _gi_block=$'\n!.prp-output/\n!.prp-output/**\n'
+            ;;
+        *) _gi_block=$'\n# PRP Framework - generated adapters (recreate with: cd .prp && ./scripts/install.sh)\n.claude/\n.claude-plugin/\n.codex/\n.opencode/\n.gemini/\n.agents/\nAGENTS.md\n' ;;
+    esac
+    if [[ $_gi_flags != 2* ]]; then
+        _gi_block+='
+# PRP artifacts — runtime state ignored, everything else trackable for GitHub links
+.prp-output/state/
+.prp-output/debug/
+.prp-output/ralph-archives/
+.prp-output/reviews/review-metrics.jsonl
+'
+    fi
+    # Leave gate evidence trackable. Reassert scratch rules when migrating v1:
+    # the new blanket negation would otherwise override any earlier scratch rules.
+    if [[ $_gi_flags != *3* ]] || $_gi_migrating; then
+        _gi_block+='
 # PRP review scratch (v3)
 # per-round prp-review-agents output; the PR comments are the record
 .prp-output/reviews/pr-*-agents-review*.md
@@ -640,29 +641,21 @@ if [ -z "$_GITIGNORE_WARN" ] && ! grep -qxF "$PRP_REVIEW_SCRATCH_MARKER" "$GITIG
 .prp-output/reviews/pr-*-tier
 .prp-output/reviews/pr-*-tier.err
 .prp-output/reviews/pr-*-rounds.err
-GITIGNORE_REVIEW_SCRATCH
-    then
-        echo -e "${GREEN}  ✅ Added v3 review-scratch rules to .gitignore${NC}"
-    else
-        _gitignore_fail "could not append the '# PRP review scratch (v3)' block to $GITIGNORE_FILE — add it by hand (see scripts/install.sh)"
+'
     fi
-fi
-
-# If .prp is NOT a submodule (local clone), also gitignore it
-if [ -n "$_GITIGNORE_WARN" ]; then
-    :
-elif [ -f "$PROJECT_DIR/.gitmodules" ] && grep -q '\.prp' "$PROJECT_DIR/.gitmodules" 2>/dev/null; then
-    : # Submodule — don't gitignore .prp/
-elif ! grep -q '^\.prp/$' "$GITIGNORE_FILE" 2>/dev/null; then
-    if cat >> "$GITIGNORE_FILE" 2>/dev/null << 'GITIGNORE2'
-
+    if [[ $_gi_flags != *p* ]] &&
+        ! { [ -f "$PROJECT_DIR/.gitmodules" ] && grep -q '\.prp' "$PROJECT_DIR/.gitmodules"; }; then
+        _gi_block+='
 # PRP Framework - local clone (not a submodule)
 .prp/
-GITIGNORE2
-    then
-        echo -e "${GREEN}  ✅ Added .prp/ to .gitignore (local clone detected)${NC}"
-    else
-        _gitignore_fail "could not append .prp/ to $GITIGNORE_FILE"
+'
+    fi
+    if [ -n "$_gi_block" ] && _gi_append "$_gi_block"; then
+        if $_gi_migrating; then
+            echo -e "${GREEN}  ✅ Migrated .gitignore to v2 artifact rules — old v1 lines can be removed by hand${NC}"
+        else
+            echo -e "${GREEN}  ✅ Added PRP rules to .gitignore${NC}"
+        fi
     fi
 fi
 
