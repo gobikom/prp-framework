@@ -253,12 +253,31 @@ After cleanup is done, check if PROJECT.md needs updating.
 
 ```bash
 GEN_SCRIPT=""
-[ -x "scripts/gen-ai-context.sh" ] && GEN_SCRIPT="scripts/gen-ai-context.sh"
-[ -x ".prp/scripts/gen-ai-context.sh" ] && GEN_SCRIPT=".prp/scripts/gen-ai-context.sh"
+_warned=""
+if [ -L .prp ] && [ ! -e .prp ]; then
+    printf '⚠️ .prp is a dangling symlink → %s — .prp helper lookup skipped\n' "$(readlink .prp)"
+    _warned=1
+fi
+for p in scripts/gen-ai-context.sh .prp/scripts/gen-ai-context.sh; do
+    if [ -L "$p" ] && [ ! -e "$p" ]; then
+        printf '⚠️ %s is a dangling symlink → %s — re-run the framework installer\n' "$p" "$(readlink "$p")"
+        _warned=1
+    elif [ -f "$p" ] && [ -x "$p" ]; then
+        GEN_SCRIPT="$p"
+    elif [ -e "$p" ]; then
+        printf '⚠️ %s exists but is not executable\n' "$p"
+        _warned=1
+    fi
+done
+if [ -z "$GEN_SCRIPT" ] && [ -n "$_warned" ]; then
+    echo 'PROJECT.md auto-update skipped: no usable gen-ai-context.sh'
+fi
 ```
 
 **If `$GEN_SCRIPT` is empty OR `PROJECT.md` does not exist**: Skip steps 5.2–5.4 entirely and proceed to Phase 6.
 
+
+Relay any ⚠️ line from this check in the cleanup summary.
 ### 5.2 Check Staleness
 
 Only run if `$GEN_SCRIPT` is set AND `PROJECT.md` exists:
