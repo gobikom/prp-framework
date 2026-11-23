@@ -391,7 +391,7 @@ PRP มี multi-agent review 2 แบบที่ต่างกัน:
 
 **เป้าหมาย**: ตรวจ diff ก่อน merge
 
-**ขอบเขตของหนึ่งรอบ** (prp-framework#151): dispatch ทุก pass ใน message เดียว → รอแบบ blocking → caller ตื่นครั้งเดียวพร้อมผลครบ (ไม่มี status ping ระหว่างรอ) · (pass timebox กับตัวจำกัดจำนวนรอบแยกไปที่ #154)
+**ขอบเขตของหนึ่งรอบ** (prp-framework#151): dispatch ทุก pass ใน message เดียวเพื่อให้ทั้งรอบอยู่ใน turn เดียว ส่วนการรอแบบ blocking ใน Claude Code มาจาก `run_in_background=false` ในทุก Agent call ผู้เรียกจึงตื่นครั้งเดียวเมื่อผลครบ (ไม่มี status ping ระหว่างรอ) · (pass timebox กับตัวจำกัดจำนวนรอบแยกไปที่ #154)
 
 ```
 Flow:

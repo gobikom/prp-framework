@@ -120,6 +120,11 @@ If you need tool-specific content (e.g., Claude Code XML wrapping), edit the ove
 vim prompts/overlays/claude-code/plan.md
 ```
 
+Runtime-facing prompt placeholders such as `{ARGS}` and `{TOOL}:` map to each
+adapter's invocation syntax. They are separate from generation-only `{AGENT_*}`
+tokens, whose names are restricted to `GEN_PLACEHOLDERS` in the generator and
+whose replacement values live in `adapters.yml`.
+
 ### 2. Generate All Adapters
 
 Run the auto-generation script to produce all 5 adapter formats:
