@@ -46,6 +46,7 @@ Every major version release MUST include a `docs/migration/vX.0-to-vY.0.md` file
   - The opt-in review-artifact commit and the cleanup archive step stage these files with `git add -f`. run-all commits no review artifact (its gate reads the file on disk).
 
 ### Fixed
+- #252 (PR-A): new `scripts/review/review-clone.sh` keeps each review clone in a private per-run root under `${XDG_CACHE_HOME:-$HOME/.cache}/prp-review-<uid>` (no hard links, nothing written to the author tree), verifies the snapshot before use, and removes the marker last, so a partial removal stays reclaimable and `sweep` reports any unmarked root instead of skipping it. Not wired into the review prompt yet (PR-B).
 - install.sh: every project `mkdir`, `rm`, `ln` and fallback `cp` goes through `_ensure_dir` / `_remove_path` / `_place`, which check the end state after the write and never discard stderr. A failed write is one ledger entry (`<path>: <state> — <skipped step>`), no longer a bare `mkdir: File exists` that stops the install, and a failed `rm` can no longer let `ln` nest a link inside the surviving directory (#137); content writes use `_write_file` (temp file beside the target, `mv -T`, checksum read-back) and never follow a symlink leaf (#137).
 - Step C no longer requires a standalone `jq` binary; it derives each prior review footer from that comment's decoded body (#260).
 - `generate-adapters.py --diff` is read-only, and the generator rejects invalid output (#268).
