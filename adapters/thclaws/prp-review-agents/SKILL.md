@@ -695,32 +695,44 @@ SAVED_HEAD=$(cat .prp-output/reviews/pr-{NUMBER}-reviewed-head 2>/dev/null) || S
 [ -L .prp ] && PRP_DIR=$(readlink -f .prp) && [ -r "$PRP_DIR/scripts/review/review-clone.sh" ] \
   || { echo "FATAL: cannot find the installed clone helper — no agents started" >&2; exit 1; }
 TRACKED=$(git ls-files -- .prp) || { echo "FATAL: cannot check whether .prp is tracked — nothing posted" >&2; exit 1; }; [ -z "$TRACKED" ] || { echo "FATAL: .prp is tracked by the reviewed tree — refusing to run its scripts" >&2; exit 1; }
-bash "$PRP_DIR/scripts/review/review-clone.sh" create {NUMBER} "$SAVED_HEAD" || exit 1
+CLONE_OUT=$(bash "$PRP_DIR/scripts/review/review-clone.sh" create {NUMBER} "$SAVED_HEAD") || exit 1
+printf '%s\n' "$CLONE_OUT"
+REVIEW_CLONE_ID=$(printf '%s\n' "$CLONE_OUT" | sed -n 's/^REVIEW_CLONE_ID=//p')
+bash "$PRP_DIR/scripts/review/review-clone.sh" verify {NUMBER} "$REVIEW_CLONE_ID" "$SAVED_HEAD" > /dev/null || exit 1
 printf 'PRP_DIR=%s\n' "$PRP_DIR"
 ```
 
-If this block prints FATAL, run **Clone cleanup (every terminal path)**, then STOP: spawn no agent and post nothing.
+If this block prints FATAL, run **Clone finalize** (with the printed `REVIEW_CLONE_ID`, or an empty one if none was printed), then STOP: spawn no agent and post nothing.
 
-Read `{REVIEW_CLONE}`, `{REVIEW_CLONE_ID}` and `{PRP_DIR}` from the printed lines. The clone path is ONLY the printed `REVIEW_CLONE`. Never create `prp-review-clone-*`, `run.*` or any review clone by hand, and never pass an agent any other directory.
+From here on, every STOP, FATAL, abort or return of this run — whatever step it is in — runs **Clone finalize** first; the only exception is the first void pass that is eligible for its single retry.
+
+Read `{REVIEW_CLONE}`, `{REVIEW_CLONE_ID}` and `{PRP_DIR}` from the printed lines. The clone path is ONLY the printed `REVIEW_CLONE`. Never create `prp-review-clone-*`, `run.*` or any review clone by hand, and never pass an agent any other directory. All clone state lives in the private scratch base; nothing for the clone is written into the author checkout.
 
 Pass `$REVIEW_CLONE` (not `$AUTHOR_WORKTREE`) to every agent prompt as the working
 directory. The context file at `CONTEXT_PATH` is still read from the author tree (it
 is written by Phase 1 and is the only file agents need from there).
 
-#### Clone cleanup (every terminal path)
+#### Clone finalize
 
-From the author checkout, use the saved 2.1.1 values as shell-quoted literals below. If create printed no ID, use an empty value. Do not discover an ID from the filesystem. Report cleanup diagnostics without changing the review verdict.
+From the author checkout, use the saved 2.1.1 values as shell-quoted literals below. If create printed no ID, use an empty value. Do not discover an ID from the filesystem. The block prints exactly one `REVIEW_CLONE_CLEANUP=removed|nothing|refused rc=<n>` line and always exits 0: it never changes the review verdict. The run's final report (and the per-run summary) repeats that line.
 
 ```bash
 PRP_DIR='{PRP_DIR}'
 REVIEW_CLONE_ID='{REVIEW_CLONE_ID}'
+OUT=''; rc=0
 if [ -z "$REVIEW_CLONE_ID" ]; then
-  echo 'review clone: nothing created'
+  OUT='review clone: nothing recorded'
+elif ! TRACKED=$(git ls-files -- .prp) || [ -n "$TRACKED" ]; then
+  echo 'FATAL: .prp is tracked or unreadable; refusing clone cleanup' >&2; rc=1
 else
-  TRACKED=$(git ls-files -- .prp) || { echo 'FATAL: cannot verify clone cleanup helper' >&2; exit 0; }
-  [ -z "$TRACKED" ] || { echo 'FATAL: .prp became tracked; refusing clone cleanup' >&2; exit 0; }
-  bash "$PRP_DIR/scripts/review/review-clone.sh" remove {NUMBER} "$REVIEW_CLONE_ID" || true
+  OUT=$(bash "$PRP_DIR/scripts/review/review-clone.sh" remove {NUMBER} "$REVIEW_CLONE_ID") || rc=$?
+  printf '%s\n' "$OUT"
 fi
+if [ "$rc" -eq 0 ] && [ "$OUT" = 'review clone: removed' ]; then echo 'REVIEW_CLONE_CLEANUP=removed'
+elif [ "$rc" -eq 0 ] && [ "$OUT" = 'review clone: nothing recorded' ]; then echo 'REVIEW_CLONE_CLEANUP=nothing'
+else echo "REVIEW_CLONE_CLEANUP=refused rc=$rc"
+fi
+exit 0
 ```
 
 ### 2.2.0 Pass Budget (prp-framework#151)
@@ -736,9 +748,9 @@ PASS_DEADLINE=$(bash "$PRP_DIR/scripts/review/pass-budget.sh" deadline) \
 echo "PASS_DEADLINE=$PASS_DEADLINE PRP_DIR=$PRP_DIR"
 ```
 
-If this block prints FATAL, run **Clone cleanup (every terminal path)**, then STOP: spawn no agent and post nothing. Read `{PASS_DEADLINE}` from the printed line; shell state does not persist. If the printed `PRP_DIR` differs from 2.1.1, use the saved 2.1.1 value for cleanup and stop. Mint another deadline only for the permitted void-pass retry.
+If this block prints FATAL, run **Clone finalize**, then STOP: spawn no agent and post nothing. Read `{PASS_DEADLINE}` from the printed line; shell state does not persist. If the printed `PRP_DIR` differs from 2.1.1, use the saved 2.1.1 value for cleanup and stop. Mint another deadline only for the permitted void-pass retry.
 
-Before the retry, use the saved values from 2.1.1 to run `bash "{PRP_DIR}/scripts/review/review-clone.sh" path {NUMBER} '{REVIEW_CLONE_ID}'` from the author checkout. Use the printed clone for the retry; never create a replacement. If path lookup or retry dispatch fails, or the retry is void again, run **Clone cleanup (every terminal path)** before stopping.
+Before the retry, use the saved values from 2.1.1 to run `bash "{PRP_DIR}/scripts/review/review-clone.sh" verify {NUMBER} '{REVIEW_CLONE_ID}' "$(cat .prp-output/reviews/pr-{NUMBER}-reviewed-head)"` from the author checkout. It proves the clone is still the reviewed snapshot (HEAD, tracked tree and index unchanged; untracked probe files are allowed). Use the printed clone for the retry; never create a replacement. If verify or retry dispatch fails, or the retry is void again, run **Clone finalize** before stopping.
 
 `$PASS_DEADLINE` is `{PASS_DEADLINE}` and `$PRP_DIR` is `{PRP_DIR}` in the prompts below, as printed by the `echo` above (the default budget is 20 minutes; `PRP_PASS_BUDGET_SECS` overrides it for tests). A command run through `pass-budget.sh run` is killed at the deadline and not started after it; nothing else extends a pass. When a pass reports `Pass timeboxed`, its `### Could not verify` lists the unfinished probes and the pass is void: Step C posts nothing for a body that mentions a timebox, and no follow-up issue is filed (SO#1508). Re-run that pass ONCE, under a fresh deadline minted by running the block above again, narrowing the probes to what fits (a long suite belongs to CI, which must be green at the head anyway); only a body with no timebox mention is posted. If the re-run is void too, STOP: the round is incomplete — post nothing, emit no L2 marker, and escalate with the unfinished probes. Never edit a void body to remove the word: a pass that ran out of time says so. In a run without `--l2-comments` (aggregated review, no Step C), a void pass caps the verdict at NEEDS FIXES and its unfinished probes are listed as Could not verify. The inconclusive probes stay fail-closed: they are Could not verify, never a clean pass.
 
@@ -1101,7 +1113,7 @@ Use severity levels: Critical, High, Medium, Low"
 
 **If the Agent tool is NOT available** (e.g., running in a tool that doesn't support subagent spawning):
 
-Run **Clone cleanup (every terminal path)** before leaving this flow. Fall back to `/prp-review` which performs all 11 review passes sequentially in a single session. Display:
+Run **Clone finalize** before leaving this flow. Fall back to `/prp-review` which performs all 11 review passes sequentially in a single session. Display:
 
 ```
 Agent tool not available — falling back to single-session sequential review.
@@ -1132,7 +1144,7 @@ if [ "$AUTHOR_STATUS_BEFORE" != "$AUTHOR_STATUS_AFTER" ]; then
 fi
 ```
 
-If the check fails, run **Clone cleanup (every terminal path)**, abort and report — an agent escaped the clone.
+If the check fails, run **Clone finalize**, abort and report — an agent escaped the clone.
 On success, run the named block after collection for an aggregated review. With `--l2-comments`, defer cleanup until Step C returns a terminal result, so a first void pass can reuse its clone.
 
 After all agents complete, collect their outputs. Each agent returns a markdown report with findings.
@@ -1583,7 +1595,7 @@ With `--l2-comments`, this run's GitHub output is **three per-pass comments** in
 - **Only for `--l2-comments`**: run Steps A–C below only when `--l2-comments` is in this run's arguments (`L2_COMMENTS=1`, decided from the arguments, never from the environment).
 - **No artifact commit**: `NO_COMMIT=1` is set; skip the "Commit Review Artifact to PR Branch" step entirely (do not run its block). A committed artifact would be read as the review itself and makes the L2 recipe abort.
 - **No marker and no aggregated post**: skip "Emit safe-merge review marker" and "Post to GitHub" below (do not run their blocks). The `safe-merge-review` marker is written by the L2 verifier after it checks these three comments; a READY marker posted here would make the L2 recipe abort ("a READY marker for <head> is already on the PR"). The aggregated review is still saved locally (`.prp-output/reviews/pr-{NUMBER}-agents-review.md`, untracked).
-- **Core passes only**: one comment each for `code-reviewer`, `security-reviewer` and `silent-failure-hunter`, from that agent's own findings in this run (before cross-agent deduplication, so each comment stands alone). A core agent that failed or returned nothing usable is a FATAL for the run: post none of the three, and report it.
+- **Core passes only**: one comment each for `code-reviewer`, `security-reviewer` and `silent-failure-hunter`, from that agent's own findings in this run (before cross-agent deduplication, so each comment stands alone). A core agent that failed or returned nothing usable is a FATAL for the run: post none of the three, run **Clone finalize**, and report it.
 - **Trivial tier** (2.0b saved `TIER=trivial`): exactly one comment, `code-reviewer`, whose footer ends in ` tier=trivial`. Step C re-runs `pr-risk-tier` at the reviewed head and posts nothing unless it still says `trivial`. safe-merge and merger recompute the tier themselves and never trust the footer (agent-devops#1259).
 - **At `MODE=delta`** (2.0a decided it; `--since-last-review` is no longer required and has no additional effect here): `MODE=delta` is a label on what the round is believed to cover — it does not shrink `{CONTEXT_PATH}`. Every core pass still reads the full diff at the reviewed head (2.1) and reports its own fresh counts from that full read; an earlier open Critical or Important is still there to find and still counted, because the pass looked at the whole head again, not because anything was carried over. "Could not verify" may still name the incremental scope as a note (`Incremental: files changed since <BASE_SHA from the Review-mode line>`), but that note is advisory — it never excuses a pass from re-checking the rest of the diff.
 - **Trust model**: the footer is self-asserted text, like the marker. It makes a hand-run review stand out (it has no footer, or a footer that does not match a real run's three comments), and the L2 verifier and `safe-merge` refuse such a round once they check it (agent-devops#1243); it is not a signature.
@@ -1755,7 +1767,7 @@ done
 
 Report the posted URLs (they are what the L2 report links, one per pass: three, or one at the trivial tier). If a post fails after an earlier one succeeded, the round is incomplete: say so on the PR (one plain comment naming the abandoned `RUN_ID`) and stop. A later authorized review must re-enter Phase 2.0 and pass the cap guard before dispatch.
 
-Run **Clone cleanup (every terminal path)** on Step C success or any terminal FATAL (including partial posting), before returning or reporting. The sole nonterminal failure is the first void pass eligible for its single retry; do not clean up until its final outcome.
+Run **Clone finalize** on Step C success or any terminal FATAL of Step A, Step B or Step C (including a run-file failure and partial posting), before returning or reporting. The sole nonterminal failure is the first void pass eligible for its single retry; do not clean up until its final outcome.
 
 ### Post to GitHub
 

@@ -6,7 +6,8 @@ setup() {
   base="$XDG_CACHE_HOME/prp-review-$(id -u)"
   cd "$BATS_TEST_TMPDIR/repo"
   git init -q
-  git -c user.name=Test -c user.email=test@example.invalid commit -qm initial --allow-empty
+  printf 'one\n' > tracked.txt; git add tracked.txt
+  git -c user.name=Test -c user.email=test@example.invalid commit -qm initial
   head=$(git rev-parse HEAD)
   git -c user.name=Test -c user.email=test@example.invalid commit -qm second --allow-empty
 }
@@ -19,42 +20,45 @@ create() {
   result=$(cmd create 7 "$head") || return
   id=${result##*REVIEW_CLONE_ID=}
   root="$base/run.$id"
-  record=".prp-output/reviews/pr-7-clone.$id"
 }
-refused() {
-  run cmd remove 7 "$id"
-  [ "$status" -eq 1 ] && [[ $output == *'FATAL: refusing to remove'* ]]
+refused() { # refused <action> [args...]: exit 1 with a refusal, nothing removed
+  run cmd "$@"
+  [ "$status" -eq 1 ] && [[ $output == *"FATAL: refusing to $1"* ]]
 }
-@test 'C1 independent detached clone from a linked checkout' {
+@test 'C1 independent detached clone shares no inode with the author repository' {
   git worktree add -q --detach "$BATS_TEST_TMPDIR/linked" HEAD
   cd "$BATS_TEST_TMPDIR/linked"
   before=$(git worktree list --porcelain)
   create
   [ "$(git -C "$root/clone" rev-parse HEAD)" = "$head" ]
-  ! git -C "$root/clone" symbolic-ref -q HEAD
+  ! git -C "$root/clone" symbolic-ref -q HEAD || return 1
   [ "$(git worktree list --porcelain)" = "$before" ]
   [ "$(stat -c %a "$base")" = 700 ]
-  [ "$(stat -c %a "$record")" = 600 ]
-  [ "$(wc -l < "$record")" -eq 2 ]
+  [ "$(cat "$root/.prp-review-root")" = "$(printf 'pr=7\nhead=%s' "$head")" ]
+  [ "$(stat -c %d "$root")" = "$(stat -c %d "$BATS_TEST_TMPDIR/repo/.git")" ]
+  find "$root/clone/.git/objects" -type f -exec stat -c %i {} + | sort -u > clone.ino
+  find "$BATS_TEST_TMPDIR/repo/.git/objects" -type f -exec stat -c %i {} + | sort -u > author.ino
+  [ -s clone.ino ] && [ -s author.ino ] && [ -z "$(comm -12 clone.ino author.ino)" ]
 }
-@test 'C2 same-PR runs keep separate roots and records' {
-  create; a=$root; ar=$record
+@test 'C2 same-PR runs keep separate roots' {
+  create; a=$root
   create
-  [ "$root" != "$a" ] && [ -d "$a" ] && [ -f "$ar" ] && [ -f "$record" ]
+  [ "$root" != "$a" ] && [ -d "$a" ] && [ -d "$root" ]
 }
-@test 'C3 path prints the same clone' {
+@test 'C3 verify prints the same clone' {
   create
-  [ "$(cmd path 7 "$id")" = "REVIEW_CLONE=$root/clone" ]
+  [ "$(cmd verify 7 "$id" "$head")" = "REVIEW_CLONE=$root/clone" ]
 }
-@test 'C4 remove is idempotent' {
-  create; cmd remove 7 "$id"
-  [ ! -e "$root" ] && [ ! -e "$record" ]
+@test 'C4 remove is idempotent and writes nothing into the author tree' {
+  create
+  [ "$(cmd remove 7 "$id")" = 'review clone: removed' ]
+  [ ! -e "$root" ] && [ ! -e .prp-output ] || return 1
   run cmd remove 7 "$id"
   [ "$status" -eq 0 ] && [[ $output == *'nothing recorded'* ]]
 }
 @test 'C5 checkout failure leaves no run directory' {
   run cmd create 7 0123456789abcdef0123456789abcdef01234567
-  [ "$status" -eq 1 ] && [[ $output == *FATAL:* ]]
+  [ "$status" -eq 1 ] && [[ $output == *FATAL:* ]] || return 1
   [ -d "$base" ] && [ -z "$(ls -A "$base")" ]
 }
 @test 'C6 refuses a symlink base without writing to its target' {
@@ -67,71 +71,93 @@ refused() {
   run cmd create 7 "$head"
   [ "$status" -eq 1 ] && [ -z "$(ls -A "$base")" ]
 }
-@test 'C8 refuses missing or mismatched markers' {
-  create; rm "$root/.prp-review-root"
-  refused; [ -d "$root" ]
-  printf '%032d\n' 0 > "$root/.prp-review-root"
-  refused; [ -d "$root" ]
-}
-@test 'C9 refuses nested and dot-dot paths with otherwise valid marks' {
-  create; mkdir -p "$base/wrapper/run.$id" "$base/../run.$id"
-  for victim in "$base/wrapper/run.$id" "$base/../run.$id"; do
-    cp "$root/.prp-review-root" "$victim/"
-    printf 'root=%s\nnonce=%s\n' "$victim" "$(cat "$root/.prp-review-root")" > "$record"
-    refused && [ -d "$victim" ] || return 1
+@test 'C8 refuses a missing or malformed marker' {
+  create; m="$root/.prp-review-root"; good=$(cat "$m")
+  rm "$m"
+  refused remove 7 "$id" && [ -d "$root" ] || return 1
+  for bad in "$good"$'\nextra' 'pr=7'$'\nhead=nope' 'pr=07'$'\nhead='"$head" 'pr=$(touch SENTINEL)'$'\nhead='"$head"; do
+    printf '%s\n' "$bad" > "$m"
+    refused remove 7 "$id" && refused verify 7 "$id" "$head" && [ -d "$root" ] && [ ! -e SENTINEL ] || return 1
   done
-  victim="$base/../${base##*/}/run.$id"
-  printf 'root=%s\nnonce=%s\n' "$victim" "$(cat "$root/.prp-review-root")" > "$record"
-  refused && [ -d "$root" ]
+}
+@test 'C9 rejects run IDs that are not ten alphanumerics' {
+  create
+  for bad in ../x "${id}x" 'run.X' ''; do
+    run cmd remove 7 "$bad"
+    [ "$status" -eq 1 ] && [[ $output == *FATAL:* ]] && [ -d "$root" ] || return 1
+  done
 }
 @test 'C10 refuses a run symlink' {
   create; mv "$root" outside; ln -s "$PWD/outside" "$root"
-  refused; [ -L "$root" ] && [ -d outside/clone ]
+  refused remove 7 "$id"; [ -L "$root" ] && [ -d outside/clone ]
 }
-@test 'C11 rejects malformed records without execution' {
-  create; good=$(cat "$record")
-  for bad in "$good"$'\nextra' "root=$root"$'\nnonce=nope' $'root=relative\nnonce=00000000000000000000000000000000' 'root=$(touch SENTINEL)'$'\nnonce=00000000000000000000000000000000'; do
-    printf '%s\n' "$bad" > "$record"
-    refused && [ -d "$root" ] && [ ! -e SENTINEL ] || return 1
-  done
+@test 'C14 temp and scratch overrides do not move the base' {
+  create
+  SCRATCHPAD=/does-not-exist TMPDIR=/different cmd remove 7 "$id"
+  [ ! -e "$root" ]
 }
-@test 'C12 sweep touches only stale marked roots in its base' {
-  create; old=$root; create
-  mkdir "$base/run.Unmarked01" "$base/run.BadNonce01" outside
-  printf 'not a nonce\n' > "$base/run.BadNonce01/.prp-review-root"
-  cp "$root/.prp-review-root" outside/
-  touch -d '-49 hours' "$old" "$base/run.Unmarked01" "$base/run.BadNonce01" outside
-  touch -d '-1 hour' "$root"
+@test 'C15 late cleanup removes only its own run' {
+  create; a=$id; at=$root
+  create
+  cmd remove 7 "$a"
+  [[ ! -e $at && -d $root ]] || return 1
+  [ "$(cmd verify 7 "$id" "$head")" = "REVIEW_CLONE=$root/clone" ]
+}
+@test 'E1 a root marked for another PR is refused, not removed' {
+  create
+  printf 'pr=8\nhead=%s\n' "$head" > "$root/.prp-review-root"
+  refused remove 7 "$id" && [ -d "$root" ]
+}
+@test 'D1 verify refuses a clone whose HEAD moved' {
+  create
+  git -C "$root/clone" -c user.name=T -c user.email=t@example.invalid commit -qm moved --allow-empty
+  refused verify 7 "$id" "$head"
+  [[ $output == *'clone HEAD moved'* ]]
+}
+@test 'D2 verify refuses an edited tracked file' {
+  create
+  printf 'two\n' > "$root/clone/tracked.txt"
+  refused verify 7 "$id" "$head"
+  [[ $output == *'tracked files modified'* ]]
+}
+@test 'D3 verify accepts an untracked probe file' {
+  create
+  printf 'probe\n' > "$root/clone/probe.txt"
+  [ "$(cmd verify 7 "$id" "$head")" = "REVIEW_CLONE=$root/clone" ]
+}
+@test 'D4 a git error during verify is its own FATAL, not "modified"' {
+  create
+  mkdir shim
+  printf '#!/usr/bin/env bash\nfor a; do [ "$a" = diff ] && exit 128; done\nPATH=${PATH#*:} exec git "$@"\n' > shim/git || return 1
+  chmod +x shim/git
+  PATH="$PWD/shim:$PATH" run cmd verify 7 "$id" "$head"
+  [ "$status" -eq 1 ] && [[ $output == *'git diff failed in the review clone (rc=128)'* ]] || return 1
+  [[ $output != *refusing* ]]
+}
+@test 'F1 an unusable cache base is FATAL and nothing is created under TMPDIR' {
+  mkdir tmp; export TMPDIR="$PWD/tmp"
+  rm -rf "$XDG_CACHE_HOME"; printf 'file\n' > "$XDG_CACHE_HOME"
+  run cmd create 7 "$head"
+  [ "$status" -eq 1 ] && [[ $output == *'cannot use the private scratch base — no agents started'* ]] || return 1
+  [ -z "$(ls -A tmp)" ]
+  XDG_CACHE_HOME=relative/cache run cmd create 7 "$head"
+  [ "$status" -eq 1 ] && [ ! -e relative ]
+}
+@test 'S1 sweep removes marked roots older than 240 minutes and nothing else' {
+  create; old=$root; create; young=$root
+  mkdir "$base/run.Unmarked01" "$base/run.BadMarker1" outside
+  printf 'not a marker\n' > "$base/run.BadMarker1/.prp-review-root"
+  cp "$old/.prp-review-root" outside/
+  touch -d '-241 minutes' "$old" "$base/run.Unmarked01" "$base/run.BadMarker1" outside
+  touch -d '-239 minutes' "$young"
   run cmd sweep
-  [ "$status" -eq 0 ] && [[ $output == *'removed 1'* ]]
-  [ ! -e "$old" ] && [ -d "$root" ] && [ -d "$base/run.Unmarked01" ] && [ -d "$base/run.BadNonce01" ] && [ -d outside ]
+  [ "$status" -eq 0 ] && [[ $output == *'removed 1'* ]] || return 1
+  [ ! -e "$old" ] && [ -d "$young" ] && [ -d "$base/run.Unmarked01" ] && [ -d "$base/run.BadMarker1" ] && [ -d outside ]
 }
 @test 'C13 sweep does not create a missing base' {
   run cmd sweep
   [ "$status" -eq 0 ] && [[ $output == *'removed 0'* ]] && [ ! -e "$base" ]
 }
-@test 'C14 cleanup survives scratch and temp changes' {
-  export TMPDIR="$XDG_CACHE_HOME"
-  export XDG_CACHE_HOME="$PWD/.git/HEAD"
-  create
-  [ -d "$root/clone" ]
-  XDG_CACHE_HOME=/different-cache SCRATCHPAD=/does-not-exist TMPDIR=/different cmd remove 7 "$id"
-  [ ! -e "$root" ] && [ ! -e "$record" ]
-}
-@test 'C15 late cleanup removes only its own run' {
-  create; a=$id; ar=$record; at=$root
-  create
-  cmd remove 7 "$a"
-  [[ ! -e $at && ! -e $ar && -d $root && -f $record ]]
-  [ "$(cmd path 7 "$id")" = "REVIEW_CLONE=$root/clone" ]
-}
-@test 'C16 a copied valid record from another run cannot authorize removal' {
-  create; a=$id; ar=$record; at=$root
-  create; cp "$record" "$ar"
-  run cmd remove 7 "$a"
-  [ "$status" -eq 1 ] && [ -d "$root" ] && [ -d "$at" ] && [ -f "$ar" ]
-}
-
 @test 'e: cross-device clone copies loose objects' {
   [ -d /dev/shm ] || skip '/dev/shm is not available'
   shm_dev=$(stat -c %d /dev/shm)
@@ -144,12 +170,6 @@ refused() {
   [ "$(git -C "$root/clone" rev-parse HEAD)" = "$head" ]
   [ "$(stat -c %h "$root/clone/.git/objects/${head:0:2}/${head:2}")" -eq 1 ]
 }
-
-@test 'f: same-device clone hard-links loose objects' {
-  create
-  [ "$(stat -c %h "$root/clone/.git/objects/${head:0:2}/${head:2}")" -ge 2 ]
-}
-
 @test 'g: unset cache environment creates and uses HOME/.cache' {
   unset XDG_CACHE_HOME
   export HOME="$BATS_TEST_TMPDIR"

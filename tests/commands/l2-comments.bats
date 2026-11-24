@@ -741,12 +741,56 @@ clone_path() { printf '%s\n' "$output" | sed -n 's/^REVIEW_CLONE=//p'; }
   a=$(clone_path)
   id=$(printf '%s\n' "$output" | sed -n 's/^REVIEW_CLONE_ID=//p')
   run bash c211.sh; [ "$status" -eq 0 ]; b=$(clone_path)
-  [[ $a != "$b" && -d $a && -d $b ]]
-  run bash prp/scripts/review/review-clone.sh path 7 "$id"
-  [[ $status -eq 0 && $output == "REVIEW_CLONE=$a" ]]
-  fence "$ADAPTER" '#### Clone cleanup' | sed "s|{PRP_DIR}|$WORK/prp|g; s|{REVIEW_CLONE_ID}|$id|g" > cleanup.sh
-  run bash cleanup.sh
-  [ "$status" -eq 0 ] && [ ! -d "$a" ] && [ -d "$b" ]
+  [[ $a != "$b" && -d $a && -d $b ]] || return 1
+  run bash prp/scripts/review/review-clone.sh verify 7 "$id" "$FAKE_HEAD"
+  [[ $status -eq 0 && $output == "REVIEW_CLONE=$a" ]] || return 1
+  finalize "$id"
+  [ "$status" -eq 0 ] && [ ! -d "$a" ] && [ -d "$b" ] || return 1
+  [ "$(printf '%s\n' "$output" | grep -c '^REVIEW_CLONE_CLEANUP=')" -eq 1 ]
+  [[ $output == *'REVIEW_CLONE_CLEANUP=removed'* ]]
+}
+
+finalize() { # finalize <id>: run the Clone finalize fence in a fresh shell
+  fence "$ADAPTER" '#### Clone finalize' | sed "s|{PRP_DIR}|$WORK/prp|g; s|{REVIEW_CLONE_ID}|$1|g" > finalize.sh
+  run bash finalize.sh
+}
+
+@test "A1 on a standard install, a clean run leaves the author checkout status unchanged and Phase 3.0 passes" {
+  mkdir proj && cd proj && git init -q && git commit -q --allow-empty -m pr || return 1
+  ln -s "$WORK/prp" .prp   # a standard install links .prp to the framework first
+  run bash "$ROOT/scripts/install.sh" "$PWD" --minimal --no-inject
+  [ "$status" -eq 0 ]
+  [ -L .prp ] && [ "$(readlink .prp)" = "$WORK/prp" ] || return 1
+  git add .gitignore && git commit -q -m install || return 1
+  mkdir -p .prp-output/reviews && git rev-parse HEAD > .prp-output/reviews/pr-7-reviewed-head || return 1
+  before=$(git status --porcelain --untracked-files=all --ignored)
+  { clone211; fence "$ADAPTER" "### 3.0 "; } > "$WORK/a1.sh"
+  run bash "$WORK/a1.sh"
+  [ "$status" -eq 0 ] && [[ $output == *'REVIEW_CLONE='* ]] && [[ $output != *'REVIEW ABORT'* ]] || return 1
+  [ "$(git status --porcelain --untracked-files=all --ignored)" = "$before" ]
+}
+
+@test "B1 a failed core result before Step C: Clone finalize removes the clone and prints the line" {
+  phase20 > p20.sh; clone211 > c211.sh; repo_here
+  run env -u REVIEWED_HEAD_SHA bash p20.sh; [ "$status" -eq 0 ]
+  run bash c211.sh; [ "$status" -eq 0 ]; a=$(clone_path)
+  id=$(printf '%s\n' "$output" | sed -n 's/^REVIEW_CLONE_ID=//p')
+  prompt_text "$ADAPTER" | grep -qF 'returned nothing usable is a FATAL for the run: post none of the three, run **Clone finalize**'
+  finalize "$id"
+  [ "$status" -eq 0 ] && [ ! -e "$a" ] && [[ $output == *'REVIEW_CLONE_CLEANUP=removed'* ]] || return 1
+  finalize ''
+  [ "$status" -eq 0 ] && [[ $output == 'REVIEW_CLONE_CLEANUP=nothing' ]]
+}
+
+@test "E1 a refused removal is reported as refused rc=1 and the block still exits 0" {
+  phase20 > p20.sh; clone211 > c211.sh; repo_here
+  run env -u REVIEWED_HEAD_SHA bash p20.sh; [ "$status" -eq 0 ]
+  run bash c211.sh; [ "$status" -eq 0 ]; a=$(clone_path)
+  id=$(printf '%s\n' "$output" | sed -n 's/^REVIEW_CLONE_ID=//p')
+  printf 'pr=8\nhead=%s\n' "$FAKE_HEAD" > "${a%/clone}/.prp-review-root"
+  finalize "$id"
+  [ "$status" -eq 0 ] && [ -d "$a" ] && [[ $output == *'REVIEW_CLONE_CLEANUP=refused rc=1'* ]] || return 1
+  [[ $output != *'REVIEW_CLONE_CLEANUP=removed'* ]]
 }
 
 @test "2.1.1 starts no clone without a head saved by Phase 2.0" {

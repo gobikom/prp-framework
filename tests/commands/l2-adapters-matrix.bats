@@ -38,7 +38,7 @@ adapters/opencode/review-agents.md
 adapters/thclaws/prp-review-agents/SKILL.md"
 
 # run_matrix FILE -> runs the full l2-comments.bats suite with L2_ADAPTER=FILE,
-# as a nested bats process, and asserts: exit 0, TAP plan line "1..124" (the
+# as a nested bats process, and asserts: exit 0, TAP plan line "1..127" (the
 # suite's current test count -- a drift here means a test was added/removed
 # without updating this harness), and no "not ok" line.
 run_matrix() {
@@ -51,8 +51,8 @@ run_matrix() {
     printf '%s\n' "$out" >&2
     return 1
   fi
-  if ! printf '%s\n' "$out" | grep -qx '1\.\.124'; then
-    echo "expected TAP plan '1..124' for $file, got:" >&2
+  if ! printf '%s\n' "$out" | grep -qx '1\.\.127'; then
+    echo "expected TAP plan '1..127' for $file, got:" >&2
     printf '%s\n' "$out" | head -5 >&2
     return 1
   fi
@@ -96,14 +96,21 @@ run_matrix() {
        <(printf '%s\n' "$MATRIX_FILES" | sort)
 }
 @test "review clone lifecycle is scoped in the prompt and all adapters" {
-  local f text
+  local f text block
   for f in $EXPECTED_FILES; do
     text=$(prompt_text "$ROOT/$f")
     ! grep -qF 'git worktree' <<< "$text" || return 1
     [ "$(grep -cF 'prp-review-clone-' <<< "$text")" -eq 1 ] || return 1
     grep -qF 'Never create `prp-review-clone-*`' <<< "$text" || return 1
-    fence "$ROOT/$f" '#### Clone cleanup' | grep -qF 'review-clone.sh" remove 7 "$REVIEW_CLONE_ID"' || return 1
-    grep -A25 '^### 3.0 ' <<< "$text" | grep -qF 'Clone cleanup (every terminal path)' || return 1
+    block=$(fence "$ROOT/$f" '#### Clone finalize') || return 1
+    grep -qF 'review-clone.sh" remove 7 "$REVIEW_CLONE_ID") || rc=$?' <<< "$block" || return 1
+    ! grep -qF '|| true' <<< "$block" || return 1
+    grep -qF 'REVIEW_CLONE_CLEANUP=refused rc=$rc' <<< "$block" || return 1
+    ! grep -qF 'Clone cleanup' <<< "$text" || return 1
+    ! grep -qE 'pr-[N0-9{}A-Z]+-clone' <<< "$text" || return 1
+    grep -qF 'every STOP, FATAL, abort or return of this run' <<< "$text" || return 1
+    grep -qF 'review-clone.sh" verify {NUMBER} "$REVIEW_CLONE_ID" "$SAVED_HEAD"' <<< "$text" || return 1
+    grep -A25 '^### 3.0 ' <<< "$text" | grep -qF 'Clone finalize' || return 1
   done
 }
 
