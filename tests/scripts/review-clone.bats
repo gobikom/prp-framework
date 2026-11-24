@@ -125,7 +125,7 @@ refused() { # refused <action> [args...]: exit 1 with a refusal, nothing removed
   printf 'probe\n' > "$root/clone/probe.txt"
   [ "$(cmd verify 7 "$id" "$head")" = "REVIEW_CLONE=$root/clone" ]
 }
-@test 'D4 a git error during verify is its own FATAL, not "modified"' {
+@test 'D4 a git error during verify is its own FATAL, not modified' {
   create
   mkdir shim
   printf '#!/usr/bin/env bash\nfor a; do [ "$a" = diff ] && exit 128; done\nPATH=${PATH#*:} exec git "$@"\n' > shim/git || return 1
