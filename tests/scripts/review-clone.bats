@@ -154,15 +154,59 @@ refused() { # refused <action> [args...]: exit 1 with a refusal, nothing removed
   [ "$status" -eq 0 ] && [[ $output == *'removed 1'* ]] || return 1
   [ ! -e "$old" ] && [ -d "$young" ] && [ -d outside ]
 }
-@test 'n: a partly failed removal keeps the marker, and a second remove finishes' {
+@test "n': a partly failed removal leaves a tombstone that the next sweep removes" {
   [ "$(id -u)" -ne 0 ] || skip 'root can remove read-only directories'
   create
   mkdir "$root/clone/sub"; printf 'x\n' > "$root/clone/sub/file"; chmod 0500 "$root/clone/sub"
   run cmd remove 7 "$id"
-  [ "$status" -ne 0 ] && [[ $output == *'removal failed'* ]] || return 1
-  [ -f "$root/.prp-review-root" ] || return 1
-  chmod -R u+w "$root"
-  [ "$(cmd remove 7 "$id")" = 'review clone: removed' ] && [ ! -e "$root" ]
+  [ "$status" -ne 0 ] && [[ $output == *'the next sweep removes it'* ]] || return 1
+  [ ! -e "$root" ] && [ -d "$base/dead.$id" ] || return 1
+  chmod -R u+w "$base/dead.$id"
+  run cmd sweep
+  [ "$status" -eq 0 ] && [ ! -e "$base/dead.$id" ]
+}
+@test 'p: a stray file in the root does not stop removal' {
+  create
+  printf 'stray\n' > "$root/stray"
+  [ "$(cmd remove 7 "$id")" = 'review clone: removed' ]
+  [ ! -e "$root" ] && [ ! -e "$base/dead.$id" ]
+}
+@test 'q: sweep never follows or deletes a dead.* symlink or a badly named dead.* entry' {
+  mkdir -m 700 "$base"
+  mkdir outside; printf 'keep\n' > outside/file
+  ln -s "$PWD/outside" "$base/dead.Symlinked1"
+  mkdir "$base/dead.short" "$base/dead.TooLongName12" "$base/dead.Removable1"
+  printf 'keep\n' > "$base/dead.short/file"
+  run cmd sweep
+  [ "$status" -eq 0 ] && [ ! -e "$base/dead.Removable1" ] || return 1
+  [ -L "$base/dead.Symlinked1" ] && [ -f outside/file ] || return 1
+  [ -f "$base/dead.short/file" ] && [ -d "$base/dead.TooLongName12" ]
+}
+@test 'r: create sweeps aged roots' {
+  create; old=$root
+  touch -d '-241 minutes' "$old"
+  create
+  [ ! -e "$old" ] && [ -d "$root" ]
+}
+@test 's: verify refuses an index-only change' {
+  create
+  printf 'two\n' > "$root/clone/tracked.txt"
+  git -C "$root/clone" add tracked.txt
+  printf 'one\n' > "$root/clone/tracked.txt"
+  refused verify 7 "$id" "$head"
+  [[ $output == *'index modified'* ]]
+}
+@test 't: verify refuses a marker whose head is not the reviewed head' {
+  create
+  printf 'pr=7\nhead=%s\n' "$(git rev-parse HEAD)" > "$root/.prp-review-root"
+  refused verify 7 "$id" "$head"
+  [[ $output == *'marker head is not the reviewed head'* ]]
+}
+@test 'u: verify and remove refuse a base with mode 0755' {
+  create
+  chmod 755 "$base"
+  refused verify 7 "$id" "$head" && [[ $output == *'base is not an owned private directory'* ]] || return 1
+  refused remove 7 "$id" && [ -d "$root" ]
 }
 @test 'o: sweep reports an aged unmarked root loudly and keeps it' {
   mkdir -m 700 "$base"

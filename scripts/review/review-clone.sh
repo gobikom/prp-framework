@@ -35,18 +35,33 @@ marker_ok() {
   cmp -s -- "$m" <(printf '%s\n%s\n' "$l1" "$l2") || return 1
   marker_pr=${l1#pr=}; marker_head=${l2#head=}
 }
-# MARKER-LAST: the marker is deleted only after the clone is gone, so a partial
-# deletion leaves a root that is still marked and still reclaimable.
+# A tombstone is authorized by where it is, not by what it holds: a canonical,
+# owned, non-symlink directory named dead.<10 alnum> directly in the private base.
+valid_dead() {
+  [[ $2 == "${1%/*}" && $(realpath -e -- "$1") == "$1" ]] || return 1
+  [[ ${1##*/} =~ ^dead\.[A-Za-z0-9]{10}$ && -d $1 && ! -L $1 && -O $1 ]]
+}
+remove_dead() { rm -rf -- "$1" && [[ ! -e $1 && ! -L $1 ]]; }
+# TOMBSTONE: one atomic rename takes the root out of run.*, then it is deleted.
+# Nothing deletes the marker on its own, so a failed delete leaves a dead.* entry
+# that the next sweep removes. Returns 1 if the root was not renamed (untouched),
+# 2 if it was renamed but not fully deleted.
 remove_root() {
-  local r=$1
-  rm -rf -- "$r/clone" && [[ ! -e $r/clone && ! -L $r/clone ]] || return 1
-  rm -f -- "$r/$marker" || return 1
-  rmdir -- "$r"
+  local dead=${1%/*}/dead.${1##*.}
+  [[ ! -e $dead && ! -L $dead ]] && mv -T -- "$1" "$dead" || return 1
+  remove_dead "$dead" || return 2
 }
 sweep() {
   local base=$1 candidates root count=0 failed=0
   if [[ -e $base || -L $base ]]; then
-    private_base "$base" || return 1
+    private_base "$base" || { printf 'review clone: %s is not an owned private directory\n' "$base" >&2; return 1; }
+    candidates=$(find -P "$base" -mindepth 1 -maxdepth 1 -type d -name 'dead.*') || return 1
+    while IFS= read -r root; do
+      [[ -n $root ]] && valid_dead "$root" "$base" || continue
+      if remove_dead "$root"; then ((count+=1)); else
+        printf 'review clone: cannot remove %s\n' "$root" >&2; failed=1
+      fi
+    done <<< "$candidates"
     candidates=$(find -P "$base" -mindepth 1 -maxdepth 1 -type d -name 'run.*' -mmin +240) || return 1
     while IFS= read -r root; do
       [[ -n $root ]] && valid_root "$root" "$base" || continue
@@ -54,7 +69,9 @@ sweep() {
         printf 'review clone: unmarked root %s — remove by hand\n' "$root" >&2
         failed=1; continue
       fi
-      if remove_root "$root"; then ((count+=1)); else failed=1; fi
+      if remove_root "$root"; then ((count+=1)); else
+        printf 'review clone: cannot remove %s\n' "$root" >&2; failed=1
+      fi
     done <<< "$candidates"
   fi
   printf 'review clone: removed %s stale root(s)\n' "$count"
@@ -69,7 +86,9 @@ create() {
   common=$(git rev-parse --git-common-dir) && common=$(realpath -e -- "$common") \
     || fatal 'cannot resolve Git common directory — no agents started'
   ROOT=$(mktemp -d "$base/run.XXXXXXXXXX") || fatal 'cannot create scratch root — no agents started'
-  trap 'rm -rf -- "$ROOT"' EXIT
+  # On failure take the root out of run.* by the same tombstone path as remove;
+  # only if it could not be renamed at all is it deleted in place.
+  trap 'rc=0; remove_root "$ROOT" || rc=$?; ((rc != 1)) || rm -rf -- "$ROOT"' EXIT
   trap 'fatal "clone creation interrupted — no agents started"' HUP INT TERM
   id=${ROOT##*.}
   printf 'pr=%s\nhead=%s\n' "$pr" "$head" > "$ROOT/$marker" && marker_ok "$ROOT" \
@@ -132,7 +151,12 @@ case $action in
       printf 'review clone: nothing recorded\n'; exit 0
     fi
     load_root
-    remove_root "$root" && [[ ! -e $root ]] || refuse 'removal failed'
+    rc=0; remove_root "$root" || rc=$?
+    case $rc in
+      0) [[ ! -e $root && ! -L $root ]] || refuse 'removal failed' ;;
+      2) fatal "removal of $base/dead.$id failed — the next sweep removes it" ;;
+      *) refuse 'removal failed' ;;
+    esac
     printf 'review clone: removed\n' ;;
   *) fatal 'expected create, verify, remove or sweep' ;;
 esac
