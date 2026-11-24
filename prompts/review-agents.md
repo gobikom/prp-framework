@@ -669,9 +669,11 @@ CHANGED_FILES = {list from context file}
 
 ### 2.1.1 Create Detached Clone for Agents
 
-**CRITICAL**: Agents MUST NOT read from the author's live worktree. Create a detached
-clone at the PR head so agents cannot contaminate the working tree (prp-framework#129:
-a reviewer removed the worktree, another staged 6001 junk files).
+**CRITICAL**: Agents MUST NOT read from the author's live worktree. The agents read a
+private clone of the PR head made by `scripts/review/review-clone.sh` (prp-framework#129:
+a reviewer removed the worktree, another staged 6001 junk files; #252: the clone is never
+registered in the author repository and lives in a per-run root under
+`${XDG_CACHE_HOME:-$HOME/.cache}/prp-review-<uid>`, outside the author tree).
 
 ```bash
 # Record author worktree state BEFORE agents run
@@ -679,26 +681,25 @@ AUTHOR_WORKTREE="$(pwd)"
 AUTHOR_STATUS_BEFORE=$(git -C "$AUTHOR_WORKTREE" status --porcelain)
 AUTHOR_HEAD=$(git -C "$AUTHOR_WORKTREE" rev-parse HEAD)
 
-# Create detached clone under scratchpad, at the head Phase 2.0 saved (never the current HEAD,
-# which may have moved since): the agents read exactly the commit the review certifies
+# The clone is at the head Phase 2.0 saved (never the current HEAD, which may have moved
+# since): the agents read exactly the commit the review certifies
 SAVED_HEAD=$(cat .prp-output/reviews/pr-{NUMBER}-reviewed-head 2>/dev/null) || SAVED_HEAD=""
 [ ${#SAVED_HEAD} -eq 40 ] && printf '%s' "$SAVED_HEAD" | grep -qxE '[0-9a-f]{40}' \
   || { echo "FATAL: no reviewed head saved by Phase 2.0 — run Phase 2.0 first, no agents started" >&2; exit 1; }
-REVIEW_CLONE="${SCRATCHPAD:-/tmp}/prp-review-clone-$(git rev-parse --path-format=absolute --git-common-dir | sha1sum | cut -c1-12)-pr-{NUMBER}"
-# clear an earlier round's clone of THIS repo (the path is per repo and PR) — its directory AND its worktree
-# registration, which `remove --force` clears even when the directory is gone (3.0's cleanup may not have
-# run). No `git worktree prune`: it would also deregister unrelated worktrees whose directories are missing.
-git worktree remove --force "$REVIEW_CLONE" 2>/dev/null || true
-rm -rf -- "${REVIEW_CLONE:?}" || { echo "FATAL: cannot remove the old review clone $REVIEW_CLONE — no agents started" >&2; exit 1; }
-git worktree add --detach "$REVIEW_CLONE" "$SAVED_HEAD" \
-  || { echo "FATAL: cannot create the review clone at $SAVED_HEAD (see git's message above; 'git worktree list' shows stale entries) — no agents started" >&2; exit 1; }
-[ "$(git -C "$REVIEW_CLONE" rev-parse HEAD)" = "$SAVED_HEAD" ] \
-  || { echo "FATAL: the review clone is not at $SAVED_HEAD — no agents started" >&2; exit 1; }
+PRP_DIR=$(readlink -f .prp) \
+  || { echo "FATAL: cannot resolve .prp — no agents started" >&2; exit 1; }
+TRACKED=$(git ls-files -- .prp) || { echo "FATAL: cannot check whether .prp is tracked — nothing posted" >&2; exit 1; }; [ -z "$TRACKED" ] || { echo "FATAL: .prp is tracked by the reviewed tree — refusing to run its scripts" >&2; exit 1; }
+echo "PRP_DIR=$PRP_DIR SAVED_HEAD=$SAVED_HEAD"
+# create sweeps stale roots, then prints REVIEW_CLONE=<root>/clone and REVIEW_CLONE_ID=<id>
+bash "$PRP_DIR/scripts/review/review-clone.sh" create {NUMBER} "$SAVED_HEAD" \
+  || { echo "FATAL: cannot create the review clone (message above) — no clone recorded, no agents started" >&2; exit 1; }
 ```
 
-If this block prints FATAL, STOP: spawn no agent and post nothing.
+If this block prints FATAL, STOP: spawn no agent and post nothing; if it printed a `REVIEW_CLONE_ID=` line, run **Clone cleanup** (Phase 3) before stopping.
 
-Pass `$REVIEW_CLONE` (not `$AUTHOR_WORKTREE`) to every agent prompt as the working
+Shell state does not persist between tool calls, so read `{PRP_DIR}`, `{SAVED_HEAD}`, `{REVIEW_CLONE}` and `{REVIEW_CLONE_ID}` below from the lines this block printed, as `{PASS_DEADLINE}` is read in 2.2.0; never recompute or invent them. The clone path is ONLY the printed `REVIEW_CLONE`. Never create `prp-review-clone-*`, `run.*` or any review clone by hand, and never pass an agent any other directory.
+
+Pass `{REVIEW_CLONE}` (not `$AUTHOR_WORKTREE`) to every agent prompt as the working
 directory. The context file at `CONTEXT_PATH` is still read from the author tree (it
 is written by Phase 1 and is the only file agents need from there).
 
@@ -707,17 +708,15 @@ is written by Phase 1 and is the only file agents need from there).
 Invariant: no pass can run a probe past its budget, and a timeboxed pass is void: it is never posted and never counts toward a clean round. Mint ONE deadline for the round, before the agents are dispatched, and use the same value in every agent prompt below (core and conditional; all passes run in parallel under it):
 
 ```bash
-PRP_DIR=$(readlink -f .prp) \
-  || { echo "FATAL: cannot mint the pass deadline — no agents started" >&2; exit 1; }
-TRACKED=$(git ls-files -- .prp) || { echo "FATAL: cannot check whether .prp is tracked — nothing posted" >&2; exit 1; }; [ -z "$TRACKED" ] || { echo "FATAL: .prp is tracked by the reviewed tree — refusing to run its scripts" >&2; exit 1; }
-PASS_DEADLINE=$(bash "$PRP_DIR/scripts/review/pass-budget.sh" deadline) \
-  || { echo "FATAL: cannot mint the pass deadline — no agents started" >&2; exit 1; }
-echo "PASS_DEADLINE=$PASS_DEADLINE PRP_DIR=$PRP_DIR"
+# {PRP_DIR} as printed by 2.1.1, where the tracked-.prp guard ran
+PASS_DEADLINE=$(bash "{PRP_DIR}/scripts/review/pass-budget.sh" deadline) \
+  || { echo "FATAL: cannot mint the pass deadline — no agents started; run Clone cleanup (Phase 3)" >&2; exit 1; }
+echo "PASS_DEADLINE=$PASS_DEADLINE"
 ```
 
-If this block prints FATAL, STOP: spawn no agent and post nothing. Otherwise the `echo` is the only place the minted values reach the transcript — shell state does not persist between tool calls, so read `{PASS_DEADLINE}` and `{PRP_DIR}` below from that printed line, never by re-running `deadline` or inventing a value. The one exception is the single re-run of a void pass (below): it runs this block again and uses the newly printed value for that re-run pass only.
+If this block prints FATAL, STOP: spawn no agent, post nothing, and run **Clone cleanup** (Phase 3). Otherwise the `echo` is the only place the minted deadline reaches the transcript — shell state does not persist between tool calls, so read `{PASS_DEADLINE}` below from that printed line, never by re-running `deadline` or inventing a value; `{PRP_DIR}` is the value 2.1.1 printed. The one exception is the single re-run of a void pass (below): it runs this block again and uses the newly printed value for that re-run pass only.
 
-`$PASS_DEADLINE` is `{PASS_DEADLINE}` and `$PRP_DIR` is `{PRP_DIR}` in the prompts below, as printed by the `echo` above (the default budget is 20 minutes; `PRP_PASS_BUDGET_SECS` overrides it for tests). A command run through `pass-budget.sh run` is killed at the deadline and not started after it; nothing else extends a pass. When a pass reports `Pass timeboxed`, its `### Could not verify` lists the unfinished probes and the pass is void: Step C posts nothing for a body that mentions a timebox, and no follow-up issue is filed (SO#1508). Re-run that pass ONCE, under a fresh deadline minted by running the block above again, narrowing the probes to what fits (a long suite belongs to CI, which must be green at the head anyway); only a body with no timebox mention is posted. If the re-run is void too, STOP: the round is incomplete — post nothing, emit no L2 marker, and escalate with the unfinished probes. Never edit a void body to remove the word: a pass that ran out of time says so. In a run without `--l2-comments` (aggregated review, no Step C), a void pass caps the verdict at NEEDS FIXES and its unfinished probes are listed as Could not verify. The inconclusive probes stay fail-closed: they are Could not verify, never a clean pass.
+`$PASS_DEADLINE` is `{PASS_DEADLINE}` and `$PRP_DIR` is `{PRP_DIR}` in the prompts below, as printed by the `echo` lines of 2.2.0 and 2.1.1 (the default budget is 20 minutes; `PRP_PASS_BUDGET_SECS` overrides it for tests). A command run through `pass-budget.sh run` is killed at the deadline and not started after it; nothing else extends a pass. When a pass reports `Pass timeboxed`, its `### Could not verify` lists the unfinished probes and the pass is void: Step C posts nothing for a body that mentions a timebox, and no follow-up issue is filed (SO#1508). Re-run that pass ONCE, under a fresh deadline minted by running the block above again, narrowing the probes to what fits (a long suite belongs to CI, which must be green at the head anyway); only a body with no timebox mention is posted. The re-run uses the same `{REVIEW_CLONE}`; never run `create` again — it happens in 3.0, before Clone cleanup. If the re-run is void too, STOP: the round is incomplete — post nothing, emit no L2 marker, run Clone cleanup (Phase 3), and escalate with the unfinished probes. Never edit a void body to remove the word: a pass that ran out of time says so. In a run without `--l2-comments` (aggregated review, no Step C), a void pass caps the verdict at NEEDS FIXES and its unfinished probes are listed as Could not verify. The inconclusive probes stay fail-closed: they are Could not verify, never a clean pass.
 
 ### 2.2 Core Agents (Always — Spawn ALL in Parallel)
 
@@ -1078,7 +1077,7 @@ Use severity levels: Critical, High, Medium, Low"
 
 **If the Agent tool is NOT available** (e.g., running in a tool that doesn't support subagent spawning):
 
-Fall back to `{TOOL}:review` which performs all 11 review passes sequentially in a single session. Display:
+Run **Clone cleanup** (Phase 3) first — the sequential review does not use the clone — then fall back to `{TOOL}:review` which performs all 11 review passes sequentially in a single session. Display:
 
 ```
 Agent tool not available — falling back to single-session sequential review.
@@ -1090,9 +1089,20 @@ Running: {TOOL}:review {NUMBER}
 
 ## Phase 3: Result Collection
 
-### 3.0 Verify Author Worktree Integrity
+### 3.0 Verify the Review Clone and the Author Worktree
 
-Before collecting results, verify the author's worktree was not contaminated:
+First, if any pass came back void (a timebox, 2.2.0), do its one re-run now, against the same `{REVIEW_CLONE}` and before anything below; never run `create` again.
+
+Then verify the review clone is still the reviewed snapshot, before the round's result is used:
+
+```bash
+bash "{PRP_DIR}/scripts/review/review-clone.sh" verify {NUMBER} {REVIEW_CLONE_ID} {SAVED_HEAD} \
+  || { echo "FATAL: review clone verify failed — round incomplete, nothing posted; run Clone cleanup" >&2; exit 1; }
+```
+
+If `verify` prints FATAL, STOP: the round is incomplete — post nothing, emit no L2 marker, run **Clone cleanup** (below), and escalate with the verify message. Untracked probe files in the clone are allowed (the helper checks tracked files, the index and HEAD only).
+
+Next, verify the author's worktree was not contaminated:
 
 ```bash
 AUTHOR_STATUS_AFTER=$(git -C "$AUTHOR_WORKTREE" status --porcelain)
@@ -1107,13 +1117,29 @@ if [ "$AUTHOR_STATUS_BEFORE" != "$AUTHOR_STATUS_AFTER" ]; then
   diff <(echo "$AUTHOR_STATUS_BEFORE") <(echo "$AUTHOR_STATUS_AFTER") || true
   exit 1
 fi
-
-# Clean up clone (path recomputed: this may be a fresh shell)
-REVIEW_CLONE="${SCRATCHPAD:-/tmp}/prp-review-clone-$(git rev-parse --path-format=absolute --git-common-dir | sha1sum | cut -c1-12)-pr-{NUMBER}"
-git worktree remove --force "$REVIEW_CLONE" 2>/dev/null || rm -rf -- "${REVIEW_CLONE:?}"
 ```
 
-If the check fails, abort the review and report — an agent escaped the clone.
+If the check fails, abort the review, run **Clone cleanup** (below), and report — an agent escaped the clone.
+
+Otherwise run **Clone cleanup** now: the clone is not needed after this point.
+
+### Clone cleanup (every terminal path)
+
+Every stop or fatal error after 2.1.1 printed a `REVIEW_CLONE_ID=` line, and normal completion, comes here exactly once. Fill `{REVIEW_CLONE_ID}` from the 2.1.1 output; leave it empty when 2.1.1 printed no such line:
+
+```bash
+REVIEW_CLONE_ID='{REVIEW_CLONE_ID}'
+if [ -z "$REVIEW_CLONE_ID" ]; then
+  echo "review clone: nothing created"
+else
+  bash "{PRP_DIR}/scripts/review/review-clone.sh" remove {NUMBER} "$REVIEW_CLONE_ID" \
+    || echo "review clone: remove did not finish (message above) — reported; the round verdict is unchanged"
+fi
+```
+
+A failed `remove` is reported with its message, which names the `dead.<id>` tombstone when the root was renamed but not fully deleted; the next `sweep` (run by every `create`) reclaims it. It does not change the round verdict: the clone sits outside the author tree. `review clone: nothing recorded` means the root was already gone.
+
+### 3.1 Collect Agent Results
 
 After all agents complete, collect their outputs. Each agent returns a markdown report with findings.
 
@@ -1629,7 +1655,7 @@ cat "$D/pr-{NUMBER}-l2-run.env"
 
 **Step B — write the bodies** to `.prp-output/reviews/pr-{NUMBER}-l2-<pass>.md`, using the values Step A printed, in the format above: three at `TIER=standard`, only `code-reviewer` (footer ending ` tier=trivial`) at `TIER=trivial`. Line 3 of every body is exactly `Review-mode: full` when Step A's `MODE=full`, or exactly `Review-mode: delta $BASE_SHA..$REVIEWED_HEAD_SHA` when `MODE=delta` — copy it from Step A's printed values, never compose it by hand. At `MODE=delta`, the previous reviewed head for the incremental note in `### Could not verify` is `$BASE_SHA`.
 
-A pass whose body mentions a timebox in any form (2.2.0: `Pass timeboxed`, `time-boxed`, ...) is void: Step C refuses the round, with or without any link line. Re-run only that pass, once, with a fresh deadline (2.2.0), keeping the run file, the RUN_ID and the other passes' bodies; rewrite its body and run Step C again. A second void result ends the round as incomplete (2.2.0).
+A pass whose body mentions a timebox in any form (2.2.0: `Pass timeboxed`, `time-boxed`, ...) is void: Step C refuses the round, with or without any link line. Re-run only that pass, once, with a fresh deadline (2.2.0), keeping the run file, the RUN_ID and the other passes' bodies; rewrite its body and run Step C again. The re-run belongs in 3.0, before Clone cleanup; once the clone is removed, a void body ends the round as incomplete. A second void result ends the round as incomplete (2.2.0).
 
 **Step C — check all three, then post all three** (nothing is posted unless every body passes; the run file is consumed before the first post, so a replay cannot post a run twice):
 

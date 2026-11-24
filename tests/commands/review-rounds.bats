@@ -341,7 +341,8 @@ all_pos() { # <ERE>
   # FULL EXPECTED_FILES set (prompt + all 6 adapters), so a future edit
   # that drops either line from ANY one of the 7 files fails this test.
   all_pos 'FATAL: cannot mint the pass deadline'
-  all_pos 'echo "PASS_DEADLINE=\$PASS_DEADLINE PRP_DIR=\$PRP_DIR"'
+  all_pos 'echo "PASS_DEADLINE=\$PASS_DEADLINE"'
+  all_pos 'echo "PRP_DIR=\$PRP_DIR SAVED_HEAD=\$SAVED_HEAD"'   # 2.1.1 prints {PRP_DIR} since #252 PR-B
 }
 
 @test "B31: the tracked-.prp guard line appears exactly 4 times in each of the 7 files (plan v2 drift pin)" {

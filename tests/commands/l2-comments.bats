@@ -718,22 +718,31 @@ expect_refused_tree() { [ "$status" -ne 0 ]; [[ "$output" == *"UNCHANGED-TREE: r
   expect_runs
 }
 
-clonedir() { ls -d "$PWD"/s/prp-review-clone-*-pr-7 | head -n1; }
+# 2.1.1 makes the clone through review-clone.sh (#252, PR-B): a private per-run root under
+# $XDG_CACHE_HOME/prp-review-<uid>, never a git worktree of the author repo. Point the cache
+# at the test dir so no test touches the real one.
+clonedir() { printf '%s\n' "$output" | sed -n 's/^REVIEW_CLONE=//p' | tail -n1; }
 
-@test "2.1.1 leaves unrelated worktrees with missing directories registered (no prune)" {
+@test "2.1.1 registers no worktree and leaves unrelated worktrees with missing directories registered" {
   phase20 > p20.sh; clone211 > c211.sh; repo_here
   run env -u REVIEWED_HEAD_SHA bash p20.sh; [ "$status" -eq 0 ]
   git worktree add -q --detach "$PWD/other" HEAD && mv other other.moved   # e.g. on an unmounted disk
-  mkdir -p s; run env SCRATCHPAD="$PWD/s" bash c211.sh; [ "$status" -eq 0 ]
+  before=$(git worktree list --porcelain)
+  mkdir -p s; run env XDG_CACHE_HOME="$PWD/s" bash c211.sh; [ "$status" -eq 0 ]
+  [ "$(git worktree list --porcelain)" = "$before" ]
   git worktree list --porcelain | grep -q "^worktree $PWD/other\$"
+  [[ "$(clonedir)" == "$PWD/s/prp-review-$(id -u)/run."*/clone ]]
 }
 
-@test "2.1.1 clone paths differ between repos for the same PR number" {
+@test "2.1.1 clones differ between repos for the same PR number" {
   clone211 > c211.sh
   mkdir -p a b s
-  for r in a b; do (cd $r && git init -q . && git commit -q --allow-empty -m x && mkdir -p .prp-output/reviews && git rev-parse HEAD > .prp-output/reviews/pr-7-reviewed-head); done
-  (cd a && env SCRATCHPAD="$OLDPWD/s" bash ../c211.sh) && (cd b && env SCRATCHPAD="$OLDPWD/s" bash ../c211.sh)
-  [ "$(ls -d s/prp-review-clone-*-pr-7 | wc -l)" -eq 2 ]
+  for r in a b; do (cd $r && git init -q . && git commit -q --allow-empty -m $r && ln -s "$WORK/prp" .prp && mkdir -p .prp-output/reviews && git rev-parse HEAD > .prp-output/reviews/pr-7-reviewed-head); done
+  run bash -c "cd a && XDG_CACHE_HOME='$PWD/s' bash ../c211.sh"; [ "$status" -eq 0 ]; ca=$(clonedir)
+  run bash -c "cd b && XDG_CACHE_HOME='$PWD/s' bash ../c211.sh"; [ "$status" -eq 0 ]; cb=$(clonedir)
+  [ -n "$ca" ] && [ -n "$cb" ] && [ "$ca" != "$cb" ]
+  [ "$(git -C "$ca" rev-parse HEAD)" = "$(git -C a rev-parse HEAD)" ]
+  [ "$(git -C "$cb" rev-parse HEAD)" = "$(git -C b rev-parse HEAD)" ]
 }
 
 clone211() { fence "$ADAPTER" "### 2.1.1 "; }
@@ -743,27 +752,27 @@ clone211() { fence "$ADAPTER" "### 2.1.1 "; }
   run env -u REVIEWED_HEAD_SHA bash p20.sh; [ "$status" -eq 0 ]
   saved=$FAKE_HEAD
   git commit -q --allow-empty -m moved            # the shared checkout moves on
-  mkdir -p s; run env SCRATCHPAD="$PWD/s" bash c211.sh
+  mkdir -p s; run env XDG_CACHE_HOME="$PWD/s" bash c211.sh
   [ "$status" -eq 0 ]
   [ "$(git -C "$(clonedir)" rev-parse HEAD)" = "$saved" ]
+  [[ "$output" == *"REVIEW_CLONE_ID="* ]]
 }
 
-@test "2.1.1 runs again in a later round even when the earlier clone was never cleaned up" {
+@test "2.1.1 runs again in a later round with a fresh clone, never the earlier one" {
   phase20 > p20.sh; clone211 > c211.sh; repo_here
   run env -u REVIEWED_HEAD_SHA bash p20.sh; [ "$status" -eq 0 ]
   mkdir -p s
-  run env SCRATCHPAD="$PWD/s" bash c211.sh; [ "$status" -eq 0 ]
-  rm -rf -- "$(clonedir)"                          # directory gone, registration left behind
-  run env SCRATCHPAD="$PWD/s" bash c211.sh; [ "$status" -eq 0 ]
-  touch "$(clonedir)/stale"                         # a kept tree would still have this
-  run env SCRATCHPAD="$PWD/s" bash c211.sh; [ "$status" -eq 0 ]   # and with the clone still present
-  [ ! -e "$(clonedir)/stale" ]
-  [ "$(git -C "$(clonedir)" rev-parse HEAD)" = "$FAKE_HEAD" ]
+  run env XDG_CACHE_HOME="$PWD/s" bash c211.sh; [ "$status" -eq 0 ]; first=$(clonedir)
+  touch "$first/stale"                              # the earlier round was never cleaned up
+  run env XDG_CACHE_HOME="$PWD/s" bash c211.sh; [ "$status" -eq 0 ]; second=$(clonedir)
+  [ -n "$second" ] && [ "$second" != "$first" ]
+  [ ! -e "$second/stale" ]
+  [ "$(git -C "$second" rev-parse HEAD)" = "$FAKE_HEAD" ]
 }
 
 @test "2.1.1 starts no clone without a head saved by Phase 2.0" {
   clone211 > c211.sh; repo_here; rm -f .prp-output/reviews/pr-7-reviewed-head
-  mkdir -p s; run env SCRATCHPAD="$PWD/s" bash c211.sh
+  mkdir -p s; run env XDG_CACHE_HOME="$PWD/s" bash c211.sh
   [ "$status" -ne 0 ]
   [[ "$output" == *"no reviewed head saved by Phase 2.0"* ]]
   [ -z "$(ls s)" ]
@@ -921,10 +930,10 @@ timeboxed() { # timeboxed <pass> [link]: rewrite one body so its Could not verif
 
 @test "the pass-deadline-mint FATAL guard actually aborts closed: script failure and a broken .prp symlink (round-6 Important)" {
   guard="$BATS_TEST_TMPDIR/guard.sh"
-  fence "$ADAPTER" "### 2.2.0 Pass Budget" > "$guard"
+  fence "$ADAPTER" "### 2.2.0 Pass Budget" | sed 's|{PRP_DIR}|$(readlink -f .prp)|g' > "$guard"   # {PRP_DIR} is what 2.1.1 printed (#252 PR-B)
   [ -s "$guard" ]
   grep -qE -- 'FATAL: cannot mint the pass deadline' "$guard"
-  grep -qE -- 'echo "PASS_DEADLINE=\$PASS_DEADLINE PRP_DIR=\$PRP_DIR"' "$guard"
+  grep -qE -- 'echo "PASS_DEADLINE=\$PASS_DEADLINE"' "$guard"
 
   work="$BATS_TEST_TMPDIR/work"
   mkdir -p "$work"
@@ -950,8 +959,7 @@ timeboxed() { # timeboxed <pass> [link]: rewrite one body so its Could not verif
   run bash -c "cd \"$work\" && bash \"$guard\""
   rm -f "$work/.prp"
   [ "$status" -eq 0 ]
-  real_root="$(readlink -f "$ROOT")"
-  [[ "$output" == *"PASS_DEADLINE="*"PRP_DIR=$real_root"* ]]
+  [[ "$output" == *"PASS_DEADLINE="* ]]
   [[ "$output" =~ PASS_DEADLINE=[0-9]+ ]]
 }
 
