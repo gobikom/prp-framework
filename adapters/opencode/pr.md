@@ -34,6 +34,7 @@ Create a well-formatted pull request from the current branch, using repository P
 
 Extract from `$ARGUMENTS`:
 - `NO_INTERACT` = true if `--no-interact` found
+- `READY` = true if `--ready` found; otherwise create a draft
 - `BASE_BRANCH` = first non-flag argument, default "main"
 
 **Autonomous mode (`--no-interact`)**: NEVER ask user questions. Auto-resolve decisions:
@@ -222,6 +223,8 @@ If the push fails, report the error and stop; do not automatically force-push.
 
 ## Phase 4: CREATE — Build and Submit PR
 
+In both paths, use `gh pr create --draft` by default. Omit `--draft` only when `READY` is true (`--ready` was passed). Draft-gated CI starts when the PR is marked ready. Repos using the default `pull_request` event types still run CI when the draft opens and do not run it again on `ready_for_review`.
+
 ### 4.1 If Template Exists
 
 Read the template and fill in each section based on:
@@ -235,7 +238,7 @@ For a batch PR, include all Phase 2.5a sections regardless of the template.
 ### 4.2 If No Template — Use Default Format
 
 ```bash
-gh pr create \
+gh pr create --draft \
   --title "{title}" \
   --base "{base-branch}" \
   --body "$(cat <<'EOF'
@@ -299,10 +302,12 @@ EOF
 gh pr view --json number,url,title,state
 ```
 
-### 5.2 Verify PR is Ready
+### 5.2 Verify Draft Status
+
+For a newly created PR, expect `isDraft=true` by default and `isDraft=false` with `--ready`. If reusing a PR, report its existing state without changing it.
 
 ```bash
-# Check PR status
+gh pr view --json isDraft --jq .isDraft
 gh pr checks
 ```
 
@@ -348,7 +353,7 @@ gh pr checks
 
 ### Next Steps
 
-- Start `/prp:review-agents {PR_NUMBER} --l2-comments` now; it may run while CI is pending. Merge needs CI green and a clean linked round at the same head.
+- If the PR is a draft, run `/prp:review-agents {PR_NUMBER} --l2-comments`; a clean round marks it ready and starts CI in draft-gated repos. If already ready, review can run while CI is pending. Merge still needs CI green and a clean linked round at the same head.
 - Request review if needed: `gh pr edit --add-reviewer @username`
 - View PR: `gh pr view --web`
 - Merge: `safe-merge {PR_NUMBER} --squash` (preferred — CI + review gates). Fallback: `gh pr merge --squash`
@@ -381,18 +386,17 @@ ls .github/PULL_REQUEST_TEMPLATE/
   - **Default**: Ask user which template to use
   - **If `--no-interact`**: Auto-select the default template (first one alphabetically, or `default.md` if it exists). Do NOT ask.
 
-### Draft PR requested
+### Non-draft PR requested (`--ready`)
 
-```bash
-gh pr create --draft --title "{title}" --body "{body}"
-```
+Pass `--ready` to create a PR that is ready for review immediately.
 
 ---
 
 ## Usage Examples
 
 ```
-/prp:pr                    # Create PR to main
+/prp:pr                    # Create draft PR to main
+/prp:pr --ready            # Create non-draft PR to main
 /prp:pr develop            # Create PR to develop branch
 /prp:pr --no-interact      # Fully autonomous, no questions
 /prp:pr main --no-interact # Autonomous to main

@@ -345,15 +345,14 @@ all_pos() { # <ERE>
   all_pos 'echo "PRP_DIR=\$PRP_DIR SAVED_HEAD=\$SAVED_HEAD"'   # 2.1.1 prints {PRP_DIR} since #252 PR-B
 }
 
-@test "B31: the tracked-.prp guard line appears exactly 4 times in each of the 7 files (plan v2 drift pin)" {
-  # M8 pins the drop case: deleting the guard at any ONE of the 4 PRP_DIR resolution
-  # sites in the prompt (and regenerating, or not) leaves some file at 3 and this
-  # goes red. prompt_text decodes gemini's TOML, so the count is over the text an
-  # agent actually executes, not the escaped raw file.
+@test "B31: the tracked-.prp guard line appears exactly 5 times in each of the 7 files" {
+  # M8 pins the drop case: deleting a guard at any PRP_DIR resolution site
+  # (including the post-L2 mark-ready fence) leaves some file at 4 and fails.
+  # prompt_text decodes gemini's TOML so we count what the agent executes.
   local f n
   for f in $EXPECTED_FILES; do
     n="$(prompt_text "$ROOT/$f" | grep -cF -- 'TRACKED=$(git ls-files -- .prp)')" || true
-    [ "$n" -eq 4 ] || { echo "B31: $f carries the tracked-guard $n times, want 4" >&2; return 1; }
+    [ "$n" -eq 5 ] || { echo "B31: $f carries the tracked-guard $n times, want 5" >&2; return 1; }
   done
 }
 

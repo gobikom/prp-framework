@@ -864,6 +864,37 @@ CLEANUP_FILE="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)/adapters/cla
     grep -qF 'Refuse batch mode for any gate/security/parser/policy path: `.github/**`, `scripts/review/**`, `**/merger-policy.yaml`, gate rules, parsers/validators/scanners, or anything `pr-risk-tier` rates gate.' "$PROMPTS_DIR/pr.md"
 }
 
+@test "B8: mark-ready is a post-L2 step in every adapter" {
+    local root="${PROMPTS_DIR%/prompts}" file l2 call
+    for file in "$PROMPTS_DIR/review-agents.md" "$root"/adapters/{antigravity,claude-code}/prp-review-agents.md \
+        "$root"/adapters/{codex,thclaws}/prp-review-agents/SKILL.md \
+        "$root"/adapters/{gemini/review-agents.toml,opencode/review-agents.md,claude-code-plugin/plugins/prp-core/skills/prp-review-agents/SKILL.md}; do
+        l2=$(grep -n '^### Per-pass L2 comments' "$file")
+        call=$(grep -n '^bash .*scripts/review/mark-ready.sh' "$file")
+        [ "${call%%:*}" -gt "${l2%%:*}" ]
+        grep -qF 'Only with `--l2-comments`, after Step C successfully posts' "$file"
+    done
+}
+
+@test "B9: every PR adapter defaults to draft and documents the ready opt-out" {
+    local root="${PROMPTS_DIR%/prompts}" file
+    for file in "$PROMPTS_DIR/pr.md" "$root"/adapters/{antigravity,claude-code}/prp-pr.md \
+        "$root"/adapters/{codex,thclaws}/prp-pr/SKILL.md \
+        "$root"/adapters/{gemini/pr.toml,opencode/pr.md,claude-code-plugin/plugins/prp-core/skills/prp-pr/SKILL.md}; do
+        grep -q '^gh pr create --draft ' "$file"
+        grep -qF 'Omit `--draft` only when `READY` is true (`--ready` was passed)' "$file"
+    done
+}
+
+@test "B13: every run-all adapter opts out with pr --ready" {
+    local root="${PROMPTS_DIR%/prompts}" file
+    for file in "$PROMPTS_DIR/run-all.md" "$root"/adapters/{antigravity,claude-code}/prp-run-all.md \
+        "$root"/adapters/{codex,thclaws}/prp-run-all/SKILL.md \
+        "$root"/adapters/{gemini/run-all.toml,opencode/run-all.md,claude-code-plugin/plugins/prp-core/skills/prp-run-all/SKILL.md}; do
+        grep -qF 'pr --ready` (pass `--no-interact` if NO_INTERACT)' "$file"
+    done
+}
+
 @test "ship-faster B6: generated adapters have no drift" {
     local root="${PROMPTS_DIR%/prompts}" tree="$BATS_TEST_TMPDIR/repo"
     # Validate a copy so a regression in --diff cannot repair the checkout.

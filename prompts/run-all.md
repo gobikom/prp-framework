@@ -453,7 +453,9 @@ Use `{TOOL}:commit`.
 
 ### Step 5: CREATE PR (skip if NO_PR or RESUME_FROM > 5)
 
-Use `{TOOL}:pr` (pass `--no-interact` if NO_INTERACT).
+Use `{TOOL}:pr --ready` (pass `--no-interact` if NO_INTERACT).
+
+run-all opens a ready PR: its review loop does not run the `--l2-comments` mark-ready step.
 
 If ISSUE_NUMBER is set: ensure the PR body includes `Fixes #{ISSUE_NUMBER}` so the issue auto-closes on merge.
 
