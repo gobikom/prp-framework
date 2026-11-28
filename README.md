@@ -163,7 +163,8 @@ Build the map with `/prp-core:verify <pr> --init`, re-prove it with `--sync`; th
 /prp-core:review-fix 25 --single-pass                      # Fix once, exit (pre-2026-04-17 behavior)
 /prp-core:review-fix 25 --severity critical,high           # Narrow severity (implicitly single-pass)
 /prp-core:commit                                           # Smart commit
-/prp-core:pr                                               # Create PR
+/prp-core:pr                                               # Create draft PR; clean L2 review marks it ready
+/prp-core:pr --ready                                       # Create non-draft PR
 
 # Marketing Commands (/prp-mkt:*)
 /prp-mkt:landing                       # Landing page analysis

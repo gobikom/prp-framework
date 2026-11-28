@@ -1811,6 +1811,19 @@ If `PR_AUTHOR == CURRENT_USER`: skip `gh pr review` (GitHub blocks self-approval
 2. Display: "WARNING: Could not post formal review (error: {message}). Falling back to PR comment — formal approve/request-changes not applied."
 3. Fall back to: `gh pr comment {NUMBER} --body-file .prp-output/reviews/pr-{NUMBER}-agents-review.md`
 
+### Mark PR ready (draft-until-ready, agent-devops#1457)
+
+Only with `--l2-comments`, after Step C successfully posts every required core pass of this round, run this from the caller repository (not the review clone). Substitute `yes` for `{CLEAN}` only when the verdict above is READY TO MERGE and each required core pass of this round was posted (none missing, void or timeboxed); otherwise use `no`. Do not run this step after a failed or incomplete post.
+
+```bash
+PRP_DIR=$(readlink -f .prp) && [ -L .prp ] && [ -r "$PRP_DIR/scripts/review/mark-ready.sh" ] || { echo 'MARK-READY: skipped helper-unavailable'; exit 0; }
+TRACKED=$(git ls-files -- .prp) && [ -z "$TRACKED" ] || { echo 'MARK-READY: skipped untrusted-framework'; exit 0; }
+REVIEWED=$(cat .prp-output/reviews/pr-{NUMBER}-reviewed-head) || { echo 'MARK-READY: skipped missing-reviewed-head'; exit 0; }
+bash "$PRP_DIR/scripts/review/mark-ready.sh" {NUMBER} --clean {CLEAN} --reviewed-head "$REVIEWED"
+```
+
+Quote the `MARK-READY:` line in the summary. `done` starts CI in draft-gated repos; wait for green before pinging merger. `skipped head-moved` or `reverted head-moved` means the round is void for the new head. If `failed`, verify the PR still has the reviewed head before running `gh pr ready {NUMBER}` manually. A `failed-revert` warning requires restoring draft status, not retrying ready. A concurrent push can trigger one CI run before the helper reverts; readiness is not merge evidence.
+
 ---
 
 ## Review Metrics Collection
@@ -1996,6 +2009,7 @@ $prp-review-agents 163 --l2-comments          # One L2-format comment per core p
 8. **Check patterns.** Read existing similar code to understand expectations.
 9. **Think about edge cases.** What happens with null, empty, very large, concurrent?
 10. **Check implementation report.** Documented deviations are intentional, not issues.
+11. **A clean `--l2-comments` round marks a draft PR ready** (`mark-ready.sh`); never mark ready by hand on a non-clean round.
 
 ---
 
